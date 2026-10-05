@@ -24,7 +24,7 @@ extension CEFRuntime {
             guard let tab else { return done(nil) }
             tab.emit(.contextMenu(BrowserContextMenuRequest(
                 items: BrowserContextMenuItem.withoutHitItems(all, for: target), target: target, location: location,
-                engineCommands: BrowserContextMenuItem.engineCommands(in: all), completion: done
+                completion: done
             )))
         }
         guard let link = target.linkURL else { return emit(target) }

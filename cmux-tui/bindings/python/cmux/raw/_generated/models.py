@@ -63,6 +63,9 @@ class ClientTransport(str, Enum):
     UNIX = 'unix'
     WS = 'ws'
 
+class CloseReason(str, Enum):
+    SESSION_END = 'session_end'
+
 class CursorStyle(str, Enum):
     BLOCK = 'block'
     UNDERLINE = 'underline'
@@ -1918,7 +1921,7 @@ class CloseTabsRequest:
     expected_revision: Union[int, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
-    reason: Union[str, None, MissingType] = field(default=MISSING)
+    reason: Union[CloseReason, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4273,6 +4276,7 @@ __all__ = [
     'AgentState',
     'BrowserProviderAuthentication',
     'ClientTransport',
+    'CloseReason',
     'CursorStyle',
     'DetachReason',
     'FrontendFocusTarget',

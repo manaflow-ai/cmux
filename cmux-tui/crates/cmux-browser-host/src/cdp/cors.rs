@@ -19,6 +19,11 @@ use std::collections::HashMap;
 /// The request header that carries the token (removed before sending).
 pub const TOKEN_HEADER: &str = "x-cmux-fetch-token";
 
+/// The fetch shell document's CSP (a9 2026-10-04; probe on Chromium 143:
+/// `default-src 'none'` alone also blocked the host world's fetch).
+const SHELL_CSP: &str =
+    "default-src 'none'; connect-src http: https:; base-uri 'none'; form-action 'none'";
+
 /// Redirect hops of one fetch whose preflights the host answers.
 const MAX_REDIRECT_PREFLIGHTS: u8 = 5;
 
@@ -154,11 +159,19 @@ impl Cors {
         headers: &Value,
     ) -> RequestAction {
         if method == "GET" && self.shells.get(target).is_some_and(|shell| shell == url) {
+            // a9 shell-tab condition (a): empty, never stored, and the main
+            // world loads nothing. Connects stay open because the host
+            // world takes the main world's CSP; base-uri and form-action do
+            // not fall back to default-src. No `sandbox`: it would make the
+            // origin opaque and break the same-origin fetch.
             return RequestAction::Fulfill {
                 status: 200,
-                headers: vec![json!({"name": "Content-Type", "value": "text/html"})],
-                // "<!doctype html>"
-                body: "PCFkb2N0eXBlIGh0bWw+".into(),
+                headers: vec![
+                    json!({"name": "Content-Type", "value": "text/html"}),
+                    json!({"name": "Cache-Control", "value": "no-store"}),
+                    json!({"name": "Content-Security-Policy", "value": SHELL_CSP}),
+                ],
+                body: String::new(),
             };
         }
         if let Some(token) = header(headers, TOKEN_HEADER) {

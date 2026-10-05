@@ -40,6 +40,10 @@ final class CEFWindowRequests {
             let source = runtime.tabsByBrowser[request.sourceBrowser]
             if let url = URL(string: url) { Task { @MainActor in source?.load(url) } }
             return 0
+        case .downloadInSource(let url):
+            // Not from inside Chromium's navigation.
+            Task { @MainActor [weak runtime] in _ = runtime?.downloads.download(url, browser: request.sourceBrowser) }
+            return 0
         case .openOffTheRecord(let url):
             let source = runtime.tabsByBrowser[request.sourceBrowser]
             // Not from inside Chromium's navigation: the App opens a window.

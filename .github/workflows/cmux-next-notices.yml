@@ -20,6 +20,7 @@ on:
       - "scripts/cmux-next/generate-third-party-notices.sh"
       - "scripts/cmux-next/notices/**"
       - "scripts/verify-app-bundle-licenses.sh"
+      - "Resources/ghostty/themes/**"
       - ".github/workflows/cmux-next-notices.yml"
   workflow_dispatch:
 
@@ -51,9 +52,14 @@ jobs:
       - name: Notices tool tests
         run: |
           python3 cmux-tui/build-support/notices/test_rust_notices.py
+          python3 cmux-tui/build-support/notices/test_license_match.py
           python3 scripts/cmux-next/notices/test_compose_notices.py
           python3 scripts/cmux-next/notices/test_check_bundle_notices.py
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
+          python3 cmux-tui/build-support/notices/ghostty/test_ghostty_vendored.py
+          python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
+          python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
+          python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
 
       - name: THIRD_PARTY_LICENSES.md and REVIEW.md are current
         run: ./scripts/cmux-next/generate-third-party-notices.sh --check

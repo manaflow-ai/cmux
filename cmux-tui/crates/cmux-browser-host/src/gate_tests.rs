@@ -12,6 +12,48 @@ struct FakeDriver {
     /// (a refused hop fails the fetch), then this reply.
     fetch_hop: Mutex<Option<String>>,
     fetch_reply: Mutex<Value>,
+    /// net.fetch waits while this is true (or until its own deadline).
+    fetch_blocked: (Mutex<bool>, std::sync::Condvar),
+    /// net.fetch calls inside the engine now, and the most at once.
+    fetch_in_flight: std::sync::atomic::AtomicUsize,
+    fetch_max_in_flight: std::sync::atomic::AtomicUsize,
+    /// `fetchId`s that net.fetch.cancel cancelled: a blocked fetch with one
+    /// of them ends at once.
+    fetch_cancelled: Mutex<std::collections::HashSet<String>>,
+}
+
+impl FakeDriver {
+    /// One net.fetch inside the engine: counted, held while blocked.
+    fn fetch_in_engine(&self, params: &Value) -> Result<(), DriverError> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let now = self.fetch_in_flight.fetch_add(1, SeqCst) + 1;
+        self.fetch_max_in_flight.fetch_max(now, SeqCst);
+        let deadline = std::time::Instant::now() + crate::protocol::timeout_of(params);
+        let (blocked, changed) = &self.fetch_blocked;
+        let mut held = blocked.lock().unwrap();
+        let mut result = Ok(());
+        let id = params["fetchId"].as_str().unwrap_or("").to_owned();
+        while *held {
+            if self.fetch_cancelled.lock().unwrap().contains(&id) {
+                result = Err(DriverError::closed("fetch: cancelled in the engine"));
+                break;
+            }
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                result = Err(DriverError::timeout("fetch: the engine timed out"));
+                break;
+            }
+            held = changed.wait_timeout(held, left).unwrap().0;
+        }
+        drop(held);
+        self.fetch_in_flight.fetch_sub(1, SeqCst);
+        result
+    }
+
+    fn release_fetches(&self) {
+        *self.fetch_blocked.0.lock().unwrap() = false;
+        self.fetch_blocked.1.notify_all();
+    }
 }
 
 impl Driver for FakeDriver {
@@ -34,7 +76,15 @@ impl Driver for FakeDriver {
                 {"name": "a", "value": "1", "domain": "a.test", "path": "/"}
             ])),
             "tab.navigate" => Err(DriverError::invalid(format!("failed: {}", self.page_text))),
+            "net.fetch.cancel" => {
+                let id = params["fetchId"].as_str().unwrap_or("").to_owned();
+                self.fetch_cancelled.lock().unwrap().insert(id);
+                let _held = self.fetch_blocked.0.lock().unwrap();
+                self.fetch_blocked.1.notify_all();
+                Ok(Value::Null)
+            }
             "net.fetch" => {
+                self.fetch_in_engine(params)?;
                 if let Some(hop) = self.fetch_hop.lock().unwrap().clone() {
                     let filter = self.filter.lock().unwrap().clone();
                     let refused = filter.as_ref().and_then(|f| {
@@ -59,6 +109,24 @@ impl Driver for FakeDriver {
 
     fn capabilities(&self) -> Vec<&'static str> {
         Vec::new()
+    }
+
+    /// A script value as the engine sends it: JSON text in the page's key
+    /// order (a secret also behind a JSON escape).
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Reply, DriverError> {
+        if method == "frame.evaluate" && params["source"] == "ordered" {
+            announce();
+            self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
+            let raw = r#"{"z":"token s3cret-value here","a":[{"y":"s3cret\u002dvalue","b":1.50}],"s3cret-value":true}"#;
+            let raw = RawValue::from_string(raw.to_owned()).unwrap();
+            return Ok(Reply::Json(raw));
+        }
+        self.call_announced(method, params, announce).map(Reply::Value)
     }
 
     fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
@@ -91,6 +159,10 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         mask_held: std::sync::atomic::AtomicBool::new(true),
         fetch_hop: Mutex::new(None),
         fetch_reply: Mutex::new(Value::Null),
+        fetch_blocked: (Mutex::new(false), std::sync::Condvar::new()),
+        fetch_in_flight: std::sync::atomic::AtomicUsize::new(0),
+        fetch_max_in_flight: std::sync::atomic::AtomicUsize::new(0),
+        fetch_cancelled: Mutex::new(std::collections::HashSet::new()),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp, ..Grants::default() }), driver)
 }
@@ -685,6 +757,111 @@ fn fetch_checks_every_redirect_hop_and_the_address_it_reached() {
     assert!(rebound.message.contains("resolved to 169.254.169.254"), "{}", rebound.message);
 }
 
+fn wait_for_in_flight(driver: &FakeDriver, count: usize) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while driver.fetch_in_flight.load(std::sync::atomic::Ordering::SeqCst) < count {
+        assert!(std::time::Instant::now() < deadline, "{count} fetches never ran at once");
+        std::thread::yield_now();
+    }
+}
+
+fn blocked_fetch_gate() -> (Gate, Arc<FakeDriver>) {
+    let (gate, driver) = make_gate(Value::Null, false);
+    *driver.fetch_reply.lock().unwrap() =
+        json!({"url": "https://a.test/x", "status": 200, "headers": [], "bodyBase64": ""});
+    *driver.fetch_blocked.0.lock().unwrap() = true;
+    (gate, driver)
+}
+
+fn fetch_x(gate: &Gate, timeout_ms: u64) -> Result<Value, DriverError> {
+    gate.driver_call(
+        "net.fetch",
+        json!({"targetId": "T", "url": "https://a.test/x", "timeoutMs": timeout_ms}),
+    )
+}
+
+/// a9 shell-tab condition (d): at most 16 fetches of one session run at
+/// once (a shell fetch counts too); one more waits for a slot until its
+/// own deadline and never reaches the engine meanwhile.
+#[test]
+fn a_session_runs_at_most_16_fetches_at_once() {
+    let (gate, driver) = blocked_fetch_gate();
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..16).map(|_| scope.spawn(|| fetch_x(&gate, 30_000))).collect();
+        wait_for_in_flight(&driver, 16);
+        let extra = fetch_x(&gate, 200).expect_err("a 17th fetch waits for a slot");
+        assert_eq!(extra.code, ErrorCode::Timeout, "{extra}");
+        let most = driver.fetch_max_in_flight.load(std::sync::atomic::Ordering::SeqCst);
+        driver.release_fetches();
+        for fetch in running {
+            fetch.join().unwrap().expect("a running fetch completes");
+        }
+        assert_eq!(most, 16, "a 17th fetch reached the engine");
+    });
+    fetch_x(&gate, 2_000).expect("the slots free when the fetches end");
+}
+
+/// a9 (lazy item b): a fetch's timeout covers its wait for a slot too. One
+/// deadline starts with the call; the engine gets what is left of it.
+#[test]
+fn a_fetch_timeout_covers_its_wait_for_a_slot() {
+    let (gate, driver) = blocked_fetch_gate();
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..16).map(|_| scope.spawn(|| fetch_x(&gate, 30_000))).collect();
+        wait_for_in_flight(&driver, 16);
+        let queued = scope.spawn(|| fetch_x(&gate, 2_000));
+        driver.release_fetches();
+        for fetch in running {
+            fetch.join().unwrap().expect("a running fetch completes");
+        }
+        queued.join().unwrap().expect("the queued fetch runs");
+    });
+    let calls = driver.calls.lock().unwrap();
+    let left = calls
+        .iter()
+        .filter(|(m, p)| m == "net.fetch" && p["timeoutMs"].as_u64().is_some_and(|t| t <= 2_000))
+        .map(|(_, p)| p["timeoutMs"].as_u64().unwrap_or(0))
+        .collect::<Vec<_>>();
+    assert_eq!(left.len(), 1, "{calls:?}");
+    assert!(left[0] < 2_000 && left[0] > 0, "the engine got the whole timeout again: {left:?}");
+}
+
+/// a9 shell-tab condition (d): a session that ended starts no fetch, also
+/// not one that waited for a slot.
+#[test]
+fn a_session_that_ended_starts_no_fetch() {
+    let (gate, driver) = blocked_fetch_gate();
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..16).map(|_| scope.spawn(|| fetch_x(&gate, 30_000))).collect();
+        wait_for_in_flight(&driver, 16);
+        gate.end_session();
+        let refused = fetch_x(&gate, 2_000).expect_err("the session ended");
+        let most = driver.fetch_max_in_flight.load(std::sync::atomic::Ordering::SeqCst);
+        driver.release_fetches();
+        for fetch in running {
+            let _ = fetch.join().unwrap();
+        }
+        assert_eq!(refused.code, ErrorCode::Closed, "{refused}");
+        assert_eq!(most, 16, "a fetch reached the engine after the session ended");
+    });
+}
+
+/// a9 shell-tab condition (e): on a signed-in profile a tab-less fetch is
+/// refused before the engine; a fetch in the page's tab runs.
+#[test]
+fn a_tab_less_fetch_is_refused_on_a_signed_in_profile() {
+    let (_, driver) = make_gate(Value::Null, false);
+    *driver.fetch_reply.lock().unwrap() =
+        json!({"url": "https://a.test/x", "status": 200, "headers": [], "bodyBase64": ""});
+    let gate = Gate::new(driver.clone(), Grants { signed_in_profile: true, ..Grants::default() });
+    let refused = gate.driver_call("net.fetch", json!({"url": "https://a.test/x"})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
+    assert!(refused.message.contains("open a page first"), "{}", refused.message);
+    assert!(!methods(&driver).contains(&"net.fetch".to_owned()), "it reached the engine");
+    gate.driver_call("net.fetch", json!({"targetId": "T", "url": "https://a.test/x"}))
+        .expect("a fetch in the page's tab runs");
+}
+
 /// DNS rebinding for navigations and page requests (a9, v1 after the fact):
 /// a response that came from a refused address stops the tab's load and
 /// is logged; other responses change nothing.
@@ -765,4 +942,76 @@ fn request_kind_changes_logging_only() {
         })
         .is_none()
     );
+}
+
+/// a9 raw_value: a script value stays JSON text in the page's key order,
+/// with secrets masked in that text (string values and keys, also behind
+/// JSON escapes) before it reaches the VM.
+#[test]
+fn script_values_are_masked_as_text_in_the_page_key_order() {
+    let (gate, _driver) = make_gate(Value::Null, false);
+    agent_secret(&gate, "a.test");
+    let reply = gate
+        .driver_call_reply("frame.evaluate", json!({"targetId": "T", "source": "ordered"}))
+        .unwrap();
+    assert_eq!(
+        reply.json_text(),
+        r#"{"z":"token <secret:pw> here","a":[{"y":"<secret:pw>","b":1.50}],"<secret:pw>":true}"#
+    );
+}
+
+fn fetch_in_cell(gate: &Gate, cell: u64) -> Result<Value, DriverError> {
+    gate.driver_call(
+        "net.fetch",
+        json!({"targetId": "T", "url": "https://a.test/x", "timeoutMs": 5_000, "cell": cell}),
+    )
+}
+
+fn cancels(driver: &FakeDriver) -> usize {
+    methods(driver).iter().filter(|m| *m == "net.fetch.cancel").count()
+}
+
+/// Classic main (cancelFetches(ofEval:)): a cell's timeout stops the fetches
+/// that cell started at once. A queued one fails without reaching the
+/// engine, a running one is cancelled in the engine and frees its slot;
+/// another cell's fetch goes on. No `cancelled` protocol code yet: Timeout
+/// with classic's message.
+#[test]
+fn a_cell_timeout_cancels_its_fetches_and_frees_their_slots() {
+    let (gate, driver) = blocked_fetch_gate();
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..16).map(|_| scope.spawn(|| fetch_in_cell(&gate, 1))).collect();
+        wait_for_in_flight(&driver, 16);
+        gate.cancel_fetches(1);
+        for fetch in running {
+            let error = fetch.join().unwrap().expect_err("the cell timed out");
+            assert_eq!(error.code, ErrorCode::Timeout, "{error}");
+            assert_eq!(
+                error.message,
+                "fetch: cancelled because the cell that started it timed out"
+            );
+        }
+        assert_eq!(cancels(&driver), 16, "every running fetch is cancelled in the engine");
+        let queued = fetch_in_cell(&gate, 1).expect_err("the timed-out cell starts no fetch");
+        assert_eq!(queued.code, ErrorCode::Timeout, "{queued}");
+        driver.release_fetches();
+        fetch_in_cell(&gate, 2).expect("another cell's fetch runs in a freed slot");
+    });
+}
+
+/// Classic main (close()): the session's end cancels running fetches in the
+/// engine at once, not only the queued ones.
+#[test]
+fn the_session_end_cancels_running_fetches() {
+    let (gate, driver) = blocked_fetch_gate();
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..4).map(|_| scope.spawn(|| fetch_in_cell(&gate, 1))).collect();
+        wait_for_in_flight(&driver, 4);
+        gate.end_session();
+        for fetch in running {
+            let error = fetch.join().unwrap().expect_err("the session ended");
+            assert_eq!(error.code, ErrorCode::Closed, "{error}");
+        }
+        assert_eq!(cancels(&driver), 4);
+    });
 }

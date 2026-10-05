@@ -127,10 +127,10 @@ describe("agent theme", () => {
     expect(send).not.toMatch(/[;{]color:var\(--acpmux-composer-bg\)/);
     // The idle Send dims by mixing into the opaque base, never by opacity, which would let the backdrop through.
     expect(acpmux).not.toMatch(/\.acpmux-send[^{]*\{[^}]*opacity/);
-    // The tray behind the box fills only above it, so the box's tint doesn't stack on it.
-    expect(acpmux).toMatch(
-      /\.acpmux-composer-context\{[^}]*background:linear-gradient\(var\(--acpmux-composer-tray\) calc\(100% - 12px\),transparent 0\)/,
-    );
+    // Location controls are plain labels above the box, with no tray or chip card.
+    expect(acpmux).toMatch(/\.acpmux-composer-context\s*\{[^}]*justify-content\s*:\s*flex-end/);
+    expect(acpmux).toMatch(/\.acpmux-location-button[^}]*background\s*:\s*none/);
+    expect(acpmux).not.toMatch(/\.acpmux-composer-context\s*\{[^}]*background\s*:/);
     const overlay = acpmux.match(/\[data-sidebar=open\] \.acpmux-sidebar\{[^}]*\}/)?.[0] ?? "";
     expect(overlay).toMatch(/background:var\(--acpmux-base\)/);
     for (const hover of [

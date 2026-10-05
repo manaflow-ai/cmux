@@ -776,7 +776,7 @@
         "title_key" : "category.workspace",
         "title_table" : "Localizable"
       },
-      "title" : "Next Workspace",
+      "title" : "Next Sidebar Item",
       "title_key" : "action.nextSidebarTab",
       "title_table" : "ActionCatalog"
     },
@@ -805,7 +805,7 @@
         "title_key" : "category.workspace",
         "title_table" : "Localizable"
       },
-      "title" : "Previous Workspace",
+      "title" : "Previous Sidebar Item",
       "title_key" : "action.prevSidebarTab",
       "title_table" : "ActionCatalog"
     },
@@ -4255,7 +4255,7 @@
         "key" : "h",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneLeft",
@@ -4284,7 +4284,7 @@
         "key" : "l",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneRight",
@@ -4313,7 +4313,7 @@
         "key" : "k",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneUp",
@@ -4342,7 +4342,7 @@
         "key" : "j",
         "modifiers" : [
           "ctrl",
-          "shift"
+          "cmd"
         ]
       },
       "id" : "resizePaneDown",
@@ -12285,12 +12285,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "1",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToFiles",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -12313,12 +12308,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "2",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToFind",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -12341,12 +12331,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "3",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToSessions",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -12369,12 +12354,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "4",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToFeed",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -12397,12 +12377,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "5",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToDock",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -12425,12 +12400,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "6",
-        "modifiers" : [
-          "ctrl"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "switchRightSidebarToMachines",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -12949,6 +12919,7 @@
       "default_shortcut" : {
         "key" : "i",
         "modifiers" : [
+          "shift",
           "cmd"
         ]
       },
@@ -13422,7 +13393,6 @@
       "default_shortcut" : {
         "key" : "i",
         "modifiers" : [
-          "shift",
           "cmd"
         ]
       },
@@ -14163,12 +14133,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "y",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "newCloudMachine",
       "mcp" : "offered",
       "palette" : "offered",
@@ -15748,6 +15713,75 @@
       },
       "title" : "Check for Updates…",
       "title_key" : "action.palette.checkForUpdates",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings whats-new",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "updates.whatsNew",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "What's New in cmux",
+      "title_key" : "action.updates.whatsNew",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings show-announcements",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "announcements.show",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Announcements",
+      "title_key" : "action.announcements.show",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings hide-announcements",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "announcements.hide",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Hide Announcements",
+      "title_key" : "action.announcements.hide",
       "title_table" : "ActionCatalog"
     },
     {
@@ -17758,10 +17792,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "-",
         "modifiers" : [
-          "ctrl",
-          "cmd"
+          "ctrl"
         ]
       },
       "id" : "focusHistoryBack",
@@ -17787,10 +17820,10 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "-",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "focusHistoryForward",

@@ -17,11 +17,10 @@ pub(super) fn run(
     surfaces: &[TabRef],
     end_terminals: bool,
     transaction: Option<String>,
-    reason: Option<String>,
+    reason: Option<CloseReason>,
     mutation: &MutationRequest,
 ) -> anyhow::Result<Value> {
     validate_client_transaction(transaction.as_deref())?;
-    let reason = reason.as_deref().map(CloseReason::parse).transpose()?;
     let workspace_mutation = workspace_mutation(mutation)?;
     anyhow::ensure!(
         mutation.expected_generation.is_none() && mutation.expected_revision.is_none(),

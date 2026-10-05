@@ -2,10 +2,10 @@ import QuartzCore
 import Testing
 @testable import CmuxAgentCursor
 
-@Suite struct CursorAnimationTests {
+@Suite struct GlidePlanAnimationTests {
     @Test func positionKeyframesFollowEverySampleAndEndOnTheTarget() throws {
         let plan = GlideMotion().plan(fromX: 0, fromY: 0, toX: 400, toY: 0, endHeading: .pi / 4)
-        let animation = CursorAnimation.position(plan)
+        let animation = plan.positionAnimation()
         let values = try #require(animation.values as? [NSValue])
         #expect(values.count == plan.samples.count + 1, "start point plus one keyframe per sample")
         #expect(values.first?.pointValue == CGPoint(x: 0, y: 0))
@@ -21,7 +21,7 @@ import Testing
 
     @Test func rotationEndsAtTheRestingHeading() throws {
         let plan = GlideMotion().plan(fromX: 0, fromY: 0, toX: 0, toY: 300, endHeading: 2.0)
-        let animation = CursorAnimation.rotation(plan)
+        let animation = plan.rotationAnimation()
         let values = try #require(animation.values as? [Double])
         #expect(values.count == plan.samples.count + 1)
         #expect(values.last == 2.0)

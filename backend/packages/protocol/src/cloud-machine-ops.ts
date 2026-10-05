@@ -153,15 +153,15 @@ export const CloudMachineCreate = cloudMutation(
   true
 )
 export const CloudMachineRename = cloudMutation("cloud.machine.rename", "mutate-shared", Schema.Struct({ machine: MachineId, name: MachineName }), MachineResult, ["cloud.machine.not_found"], "Rename a machine.", "cloud machine rename")
-export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.quota.exceeded", ...PROVIDER], "Start (resume) a paused machine. May answer cloud.quota.exceeded {limit, used}." + KEY, "cloud machine start")
-export const CloudMachinePause = cloudMutation("cloud.machine.pause", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", ...PROVIDER], "Pause a running machine." + KEY, "cloud machine pause")
+export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_paused", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER], "Start (resume) a paused machine: answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine start", true)
+export const CloudMachinePause = cloudMutation("cloud.machine.pause", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_running", ...LIMITED, ...PROVIDER], "Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine pause", true)
 export const CloudMachineResize = cloudMutation(
   "cloud.machine.resize",
   "money",
   Schema.Struct({ machine: MachineId, size: CloudMachineSize }),
   MachineResult,
-  ["cloud.machine.not_found", "cloud.quota.exceeded", "cloud.size.locked", ...PROVIDER],
-  "Change a machine's size. A larger size may cost money." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.machine.busy", "cloud.size.grow_only", "cloud.size.locked", "cloud.plan.required", ...LIMITED, ...PROVIDER],
+  "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team." + KEY,
   "cloud machine resize",
   true
 )
@@ -215,8 +215,8 @@ export const CloudMachineLinkToken = def({
     services: LinkServices
   }),
   // No key and no revision input, so no idempotency.conflict and no revision.conflict.
-  errors: [...MUTATION.filter((code) => code !== "revision.conflict" && code !== "idempotency.conflict"), ...LIMITED, "cloud.link.install_refused", "cloud.machine.not_bound", "cloud.machine.not_found"],
-  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+  errors: [...MUTATION.filter((code) => code !== "revision.conflict" && code !== "idempotency.conflict"), ...LIMITED, "cloud.link.install_refused", "cloud.machine.not_bound", "cloud.machine.not_found", "cloud.machine.paused"],
+  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
   cli: { path: "cloud machine link-token", visible: false },
   mcp: { expose: "never", group: "cloud" }
 })

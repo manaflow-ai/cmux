@@ -92,7 +92,7 @@ final class SettingsWindowService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     var page: InternalPageID { .settings }
-    var title: String { SettingsPaneTitle.text }
+    var title: String { SettingsDeepLink.pageTitle }
     var symbol: String { "gearshape" }
 
     /// The kept page when no other tab shows it, else a new one (a second window's tab).
@@ -140,7 +140,12 @@ final class SettingsWindowService: InternalPageProvider {
         if case .connected = state { true } else { false }
     }
 
+    /// The Ghostty config file the terminals read (the first file
+    /// libghostty loaded), else the default location.
     var ghosttyConfigPath: String {
+        if let loaded = GhosttyRuntime.shared.loadedConfigFiles.first {
+            return (loaded as NSString).abbreviatingWithTildeInPath
+        }
         let base = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? "~/.config"
         return base + "/ghostty/config"
     }

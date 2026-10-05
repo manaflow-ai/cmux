@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b. */
+/* cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47. */
 
 
 import type * as T from "./types.js";
@@ -293,8 +293,8 @@ export interface CloseTabsRequest extends CmuxRequestBase {
   "expected_revision"?: (bigint) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
-  /** session_end only: the close is not recorded in the closed history. */
-  "reason"?: (string) | null;
+  /** The close is not recorded in the closed history (session_end). */
+  "reason"?: (T.CloseReason) | null;
   "surfaces": Array<T.TabRef>;
   "transaction"?: (string) | null;
 }

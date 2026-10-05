@@ -15,6 +15,8 @@ export const CloudDriverResultParams = Schema.Struct({
   error: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
   /** Retrying cannot help (configuration, authorization, a name owned by someone else). */
   final: Schema.optionalKey(Schema.Boolean),
+  /** create (and a failed resize): the VM's real resources read from the provider, so the record is honest. */
+  resources: Schema.optionalKey(Schema.Struct({ cpu: Schema.Int, memory_mb: Schema.Int, disk_mb: Schema.Int })),
   /** create: sha256 (hex) of the one-time bind token written into the VM; the token itself never enters an op. */
   bind_token_sha256: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)))
 })
@@ -83,6 +85,7 @@ export const cloudInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("cloud.driver_result", CloudDriverResultParams, "Internal: a provider call (create or delete) finished, failed, or was refused."),
   internal("cloud.watch_result", CloudWatchResultParams, "Internal: one lookup of a cancelled create's recorded name finished."),
   internal("cloud.machine.bind", CloudMachineBindParams, "Internal: the VM's bind agent spent its one-time bind token (POST /v1/cloud/bind)."),
+  internal("cloud.machine.idle_pause", Schema.Struct({ machine: Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)) }), "Internal: CloudDO pauses a machine its own activity report showed idle past its idle policy (team policy cloud.idlePause on); the same ledger and provider path as cloud.machine.pause."),
   internal("cloud.machine.vm_status", CloudVmStatusParams, "Internal: CloudDO applies the VM's latest coalesced status report (state, daemon, activity)."),
   internal("cloud.prune", CloudPruneParams, "Internal: drop tombstones older than 30 days and finished ledger rows older than 7 days."),
   internal("cloud.abandoned_clear", CloudAbandonedClearParams, "Internal: an operator (a person, with the admin key) cleared one abandoned ledger row after a provider lookup found no VM; audited.")

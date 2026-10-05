@@ -139,11 +139,14 @@ mark {
   border-radius: 6px;
   background: transparent;
   text-align: left;
-  transition: background var(--motion-hover);
 }
 
+/* Only the pointer fades in. The current-section mark snaps: a route the host opens while the
+   tab is hidden (Customize Appearance… on a kept page) must not replay a fade from the old
+   section when the tab shows again. */
 .section-link:hover {
   background: var(--input-bg);
+  transition: background var(--motion-hover);
 }
 
 .section-link[aria-current] {

@@ -14,6 +14,18 @@
       "title" : "AllowedSignInMethods",
       "type" : "array"
     },
+    "announcements.enabled" : {
+      "default" : true,
+      "description" : "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar.",
+      "title" : "Show Announcements",
+      "type" : "boolean"
+    },
+    "announcements.fetch" : {
+      "default" : true,
+      "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
+      "title" : "Download Announcements",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",

@@ -17,6 +17,8 @@ export type AcpmuxSessionEntry = {
   unread?: boolean;
   /** The machine the session runs on ("This Mac", or a cloud machine's name), and which kind it is. */
   host?: string;
+  /** The acpmux peer name for a remote daemon. */
+  peer?: string;
   hostKind?: "local" | "cloud";
   branch?: string;
   /** Set only when the session runs in a git worktree: the worktree's path. */
@@ -44,7 +46,13 @@ export const text = (value: unknown) => (typeof value === "string" && value ? va
 /** "local" or "cloud", else undefined. */
 export const hostKind = (value: unknown) => (value === "local" || value === "cloud" ? value : undefined);
 
-export type SessionGroup = { key: string; label: string; cwd?: string; host?: string; sessions: AcpmuxSessionEntry[] };
+export type SessionGroup = {
+  key: string;
+  label: string;
+  cwd?: string;
+  host?: string;
+  sessions: AcpmuxSessionEntry[];
+};
 
 /** The tag that pins a session to the top of the list. */
 export const PINNED_TAG = "pinned";
@@ -71,6 +79,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
     host: text(session.host),
+    peer: text(session.peer),
     hostKind: hostKind(session.hostKind),
     branch: text(session.branch),
     worktree: text(session.worktree),
@@ -153,7 +162,8 @@ export function groupByProject(
 }
 
 /** The remote machine a session runs on. A host not marked local counts as remote; this Mac is never named. */
-export const cloudHost = (session: AcpmuxSessionEntry) => (session.hostKind === "local" ? undefined : session.host);
+export const cloudHost = (session: AcpmuxSessionEntry) =>
+  session.hostKind === "local" ? undefined : (session.peer ?? session.host);
 
 /** The one cloud machine every session in a group runs on, else undefined. */
 function sharedCloudHost(sessions: AcpmuxSessionEntry[]) {

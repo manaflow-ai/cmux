@@ -452,6 +452,7 @@ ENUM_BY_PATH = {
     'types/AgentState': models.AgentState,
     'types/BrowserProviderAuthentication': models.BrowserProviderAuthentication,
     'types/ClientTransport': models.ClientTransport,
+    'types/CloseReason': models.CloseReason,
     'types/CursorStyle': models.CursorStyle,
     'types/DetachReason': models.DetachReason,
     'types/FrontendFocusTarget': models.FrontendFocusTarget,

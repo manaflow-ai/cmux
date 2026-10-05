@@ -38,9 +38,11 @@ final class AgentTabStore {
         -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _ in throw DaemonError.notConnected }
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
-    /// Sets a tab's session on its store tab by compare-and-swap from `expected` (AppServices:
-    /// `bind-conversation-tab-session`); `done` gets the store's answer.
-    var bind: @MainActor (_ key: String, _ expected: String?, _ session: String, _ done: @escaping @MainActor (AgentSessionBindOutcome) -> Void) -> Void = { _, _, _, done in done(.taken) }
+    /// Sets tab `surface`'s session by compare-and-swap from `expected` (AppServices:
+    /// `bind-conversation-tab-session` on the tab's daemon): the store's answer and, when it took
+    /// it, the daemon event sequence read after the reply (nil when the connection ended).
+    var bind: @MainActor (_ key: String, _ surface: SurfaceID, _ expected: String?, _ session: String) async
+        -> (outcome: AgentSessionBindOutcome, sequence: UInt64?) = { _, _, _, _ in (.taken, nil) }
     /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
     var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
     /// Tabs closed while the store was still creating them: closed when it answers.
@@ -70,9 +72,6 @@ final class AgentTabStore {
     var aliases: [String: String] = [:]
     /// Tabs a live tree has listed: only those can be gone from it.
     var seenLive: Set<String> = []
-    /// The session each tab last sent in a bind, until the store answers it: the next bind
-    /// expects it.
-    var sentSessions: [String: String] = [:]
     /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
     /// another client, its pane closing) lets its view state go once that tree is live without it.
     var tabStores: [String: DaemonStore] = [:]

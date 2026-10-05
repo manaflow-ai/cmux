@@ -46,6 +46,8 @@ pub(super) struct Inner {
     /// (new headless takes its window chrome out of --window-size). None
     /// for an app tab, which keeps its real size.
     pub(super) hidden_viewport: Option<(i64, i64)>,
+    /// Fetch shells that are open, and whether the session ended.
+    pub(super) shells: Mutex<super::fetch::Shells>,
 }
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
@@ -126,6 +128,7 @@ impl Inner {
             paused: Mutex::new(paused),
             cors,
             hidden_viewport,
+            shells: Mutex::default(),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -194,6 +197,7 @@ impl Driver for CdpDriver {
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
         let inner = &self.inner;
         inner.browser_page_refusal(method, params)?;
+        inner.shell_refusal(params)?;
         match method {
             "tabs.list" => Ok(inner.tabs_list()),
             "tabs.open" => inner.tabs_open(params),
@@ -223,6 +227,7 @@ impl Driver for CdpDriver {
                 Ok(Value::Null)
             }
             "net.fetch" => inner.net_fetch(params),
+            "net.fetch.cancel" => inner.net_fetch_cancel(params),
             "dialog.respond" => inner.dialog_respond(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
@@ -239,6 +244,27 @@ impl Driver for CdpDriver {
     fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
         self.inner.set_request_filter(filter);
         true
+    }
+
+    fn end_session(&self) {
+        self.inner.end_shells();
+    }
+
+    /// A script's value goes on as the JSON text Chromium sent (a9
+    /// raw_value); every other result is parsed.
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<crate::driver::Reply, DriverError> {
+        if method != "frame.evaluate" {
+            return self.call_announced(method, params, announce).map(crate::driver::Reply::Value);
+        }
+        announce();
+        self.inner.browser_page_refusal(method, params)?;
+        self.inner.shell_refusal(params)?;
+        self.inner.evaluate_raw(params).map(crate::driver::Reply::Json)
     }
 }
 
@@ -341,6 +367,17 @@ impl Inner {
     fn set_up_page(&self, target_id: &str, session_id: &str) -> Result<(), DriverError> {
         let auto_attach =
             json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
+        // A fetch shell runs no page agent and needs no focus or viewport.
+        let shell = self.lock().is_hidden(target_id);
+        let agent = (!shell).then(|| {
+            [
+                (
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
+                ),
+                ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
+            ]
+        });
         let results = self.conn.call_batch(
             Some(session_id),
             vec![
@@ -348,16 +385,12 @@ impl Inner {
                 ("Page.getFrameTree", json!({})),
                 ("Page.setLifecycleEventsEnabled", json!({"enabled": true})),
                 ("Runtime.enable", json!({})),
-                (
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
-                ),
-                ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
-                // Request and response events (page.on("request"), ...).
-                ("Network.enable", json!({})),
             ]
             .into_iter()
-            .chain(self.hidden_viewport_step())
+            .chain(agent.into_iter().flatten())
+            // Request and response events (page.on("request"), ...).
+            .chain([("Network.enable", json!({}))])
+            .chain(self.hidden_viewport_step().filter(|_| !shell))
             // Out-of-process iframes attach as child sessions of this page.
             .chain([("Target.setAutoAttach", auto_attach)])
             .chain(self.fetch_enable_step())
@@ -517,6 +550,7 @@ impl Inner {
             .order
             .iter()
             .filter_map(|id| state.tabs.get(id).map(|tab| (id, tab)))
+            .filter(|(_, tab)| !tab.hidden)
             .map(|(id, tab)| {
                 let mut entry = json!({
                     "targetId": id,

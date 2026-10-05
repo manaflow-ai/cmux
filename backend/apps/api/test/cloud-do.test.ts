@@ -312,7 +312,12 @@ describe("cloud driver prefix guard", () => {
       create: async (name) => (calls.push(`create:${name}`), { id: "fs-1", tag: null }),
       delete: async (id) => void calls.push(`delete:${id}`),
       list: async () => ({ vms: [], total: 0 }),
-      writeFile: async () => {}
+      writeFile: async () => {},
+      pause: async (id) => void calls.push(`pause:${id}`),
+      start: async (id) => void calls.push(`start:${id}`),
+      state: async () => null,
+      resize: async (id) => void calls.push(`resize:${id}`),
+      resources: async () => null
     }
     return { calls, raw }
   }
@@ -335,6 +340,10 @@ describe("cloud driver prefix guard", () => {
     ]) {
       await expect(driver.ensure(name, tag, { idleSeconds: 0 })).rejects.toBeInstanceOf(DriverError)
       await expect(driver.remove(name, tag)).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
+      // Money ops (CLOUDDO-MONEY-OPS): pause and start never touch a name outside the prefix either.
+      await expect(driver.power(name, tag, "pause")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
+      await expect(driver.power(name, tag, "start")).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
+      await expect(driver.resize(name, tag, { cpu: 4, memory: 8192, storage: 16384 })).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
     }
     expect(calls).toEqual([])
     await driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0 })
@@ -364,11 +373,23 @@ describe("cloud driver prefix guard", () => {
         throw new Error("must not delete")
       },
       list: async () => ({ vms: [], total: 0 }),
-      writeFile: async () => {}
+      writeFile: async () => {},
+      pause: async () => {
+        throw new Error("must not pause")
+      },
+      start: async () => {
+        throw new Error("must not start")
+      },
+      state: async () => null,
+      resize: async () => {
+        throw new Error("must not resize")
+      },
+      resources: async () => null
     }
     const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
     await expect(driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0 })).rejects.toMatchObject({ final: true })
+    await expect(driver.power("cmuxnp-test-cld-vm-00000000000000000001", tag, "pause")).rejects.toMatchObject({ code: "cloud.provider.name_conflict", final: true })
     await expect(driver.remove("cmuxnp-test-cld-vm-00000000000000000001", tag)).rejects.toMatchObject({ final: true })
   })
 })

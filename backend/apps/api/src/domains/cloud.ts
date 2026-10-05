@@ -6,7 +6,8 @@ import { grantClasses } from "../home-admit.ts"
 import { personalTeamIdFor } from "./user.ts"
 import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
 import { applyVmStatus } from "./cloud-vm-status.ts"
-import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
+import { powerIntent, powerResult, resizeIntent } from "./cloud-power.ts"
+import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 
 /**
  * CloudDO's reducer (plans/cmux-next/state-placement.md 5.1-5.3). Pure: provider calls run in the
@@ -68,6 +69,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly keyset_version?: string
   /** The VM install registered at bind; only it may call the cloud.vm.* ops for this machine. */
   readonly vm_install?: string
+  /** When the machine last became running by a start or a bind (private): idle counts from no earlier (review P2). */
+  readonly last_power_at?: number
   /** The creator's SSO team at create (private): the VM install counts as registered from that SSO. */
   readonly creator_sso_team?: string
   /** The VM's last applied status report (private; activity feeds the idle pause). */
@@ -76,7 +79,10 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
 
 export interface LedgerRow {
   readonly key: string
-  readonly op: "create" | "delete"
+  readonly op: "create" | "delete" | "pause" | "start" | "resize"
+  /** resize only: the target size, and the size to restore after a final failure. */
+  readonly size?: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
+  readonly size_before?: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
   readonly machine: string
   readonly provider_name: string
   readonly state: "pending" | "done" | "failed" | "cancelled" | "abandoned"
@@ -110,34 +116,36 @@ export const ledgerKey = (identity: string, idempotencyKey: string) => `${identi
 const COUNTED: ReadonlySet<string> = new Set(["provisioning", "starting", "running", "pausing"])
 const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 /** What a machine row counts against max_active: its status, or 1 after a failed delete (N2). */
-const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
+export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, ...machine } = row
+  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, ...machine } = row
   return machine
 }
 
 export const isAgent = (p: Principal) => p.kind === "agent" || p.agent !== undefined
 
 /** Creator or team admin (all teams are personal today: the personal team's user is its admin). */
-const mayManage = (p: Principal, row: MachineRow) => p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
+export const mayManage = (p: Principal, row: MachineRow) => p.user === row.creator || requirePersonalTeamAdmin(p, personalTeamIdFor) === undefined
 
 const decodeInternal = <T>(schema: Schema.Top, params: unknown): { ok: true; value: T } | ReturnType<typeof reject> => {
   const exit = Schema.decodeUnknownExit(schema as Schema.Codec<T, unknown>)(params ?? {})
   return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : reject("validation.invalid", "invalid params", String(exit.cause))
 }
 
-const machineRow = (rows: RowReader | undefined, id: string) => rows?.get<MachineRow>(TABLE_MACHINE, id)
-const ledgerRow = (rows: RowReader | undefined, key: string) => rows?.get<LedgerRow>(TABLE_LEDGER, key)
+export const machineRow = (rows: RowReader | undefined, id: string) => rows?.get<MachineRow>(TABLE_MACHINE, id)
+export const ledgerRow = (rows: RowReader | undefined, key: string) => rows?.get<LedgerRow>(TABLE_LEDGER, key)
 
 /** A changing commit: one more revision, and the machine it changed (or none). */
-const next = (state: CloudState, patch: Partial<CloudState>, changed: CloudState["changed"] = null): CloudState => ({ ...state, ...patch, rev: state.rev + 1, changed })
+export const next = (state: CloudState, patch: Partial<CloudState>, changed: CloudState["changed"] = null): CloudState => ({ ...state, ...patch, rev: state.rev + 1, changed })
 const noChange = (state: CloudState, value: unknown): ReduceResult<CloudState> => ({ ok: true, state, value, changed: false })
-const withoutPending = (state: CloudState, key: string) => Object.fromEntries(Object.entries(state.pending).filter(([k]) => k !== key))
-const unavailable = () => ({ ...reject("cloud.provider.unavailable", "Cloud machines are not configured on this deployment"), retryable: true })
+/** A refusal-free answer that changes nothing (a pause or start already running). */
+export const noChangePower = (state: CloudState, value: unknown): ReduceResult<CloudState> => ({ ok: true, state, value, changed: false })
+export const withoutPending = (state: CloudState, key: string) => Object.fromEntries(Object.entries(state.pending).filter(([k]) => k !== key))
+export const unavailable = () => ({ ...reject("cloud.provider.unavailable", "Cloud machines are not configured on this deployment"), retryable: true })
 
-const upsertMachine = (row: MachineRow, n: number | null): RowWrite => ({ table: TABLE_MACHINE, op: "upsert", key: row.id, n, row })
-const upsertLedger = (row: LedgerRow, n: number | null): RowWrite => ({ table: TABLE_LEDGER, op: "upsert", key: row.key, n, row })
+export const upsertMachine = (row: MachineRow, n: number | null): RowWrite => ({ table: TABLE_MACHINE, op: "upsert", key: row.id, n, row })
+export const upsertLedger = (row: LedgerRow, n: number | null): RowWrite => ({ table: TABLE_LEDGER, op: "upsert", key: row.key, n, row })
 
 export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
   initial: () => ({ team: null, rev: 0, active: 0, saved: 0, pending: {}, watch: {}, changed: null }),
@@ -148,6 +156,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
     if (state.team !== null && state.team !== principal.team) return { code: "auth.forbidden", message: "not this team's machines" }
     if (isAgent(principal) && op === "cloud.machine.create") return { code: "auth.forbidden", message: "an agent cannot create machines" }
     if (isAgent(principal) && op === "cloud.machine.delete") return { code: "auth.forbidden", message: "an agent cannot delete machines" }
+    // CLOUDDO-MONEY-OPS: pause and start change what the team pays; a person decides (no agent, no install grant).
+    if ((op === "cloud.machine.pause" || op === "cloud.machine.start" || op === "cloud.machine.resize") && (isAgent(principal) || principal.kind !== "session")) return { code: "auth.forbidden", message: "pausing, starting or resizing a machine needs a signed-in person" }
     // Money and destructive ops need a signed-in person, never an install's grant (even one that lists
     // money/destructive). Later: an install with a fresh single-use origin.confirmation (decision ORIGIN).
     if (principal.kind !== "session" && op === "cloud.machine.create") return { code: "auth.forbidden", message: "creating a machine needs a signed-in person" }
@@ -170,6 +180,13 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return watchResult(state, params, ctx)
       case "cloud.machine.bind":
         return bindMachine(state, params, ctx, next)
+      case "cloud.machine.pause":
+      case "cloud.machine.start":
+        return powerIntent(config, state, op, params, ctx)
+      case "cloud.machine.resize":
+        return resizeIntent(config, state, params, ctx)
+      case "cloud.machine.idle_pause":
+        return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true) : reject("auth.forbidden", "internal op")
       case "cloud.machine.vm_status":
         return applyVmStatus(state, params, ctx, next)
       case "cloud.prune":
@@ -190,7 +207,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   const plan = teamPlan(config, state.team ?? p.team)
   if (!plan) return reject("cloud.plan.required", "Cloud machines need a paid plan", planRequiredDetails())
   if (d.value.from_snapshot !== undefined) return reject("cloud.snapshot.not_found", "no such snapshot")
-  const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? 4096
+  const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? DEFAULT_MEMORY_MB
   if (sizeLocked(plan, memory)) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { memory_mb: memory }))
   const cpu = d.value.size.cpu ?? DEFAULT_SIZE.cpu
   const disk = d.value.size.disk_mb ?? DEFAULT_SIZE.disk_mb
@@ -271,6 +288,13 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   // the delete (ordered after it) waits, so it never finishes as deleted while a VM could appear.
   for (const [key, entry] of Object.entries(state.pending)) {
     const l = entry.machine === stored.row.id ? ledgerRow(ctx.rows, key) : undefined
+    // A pause or start still retrying is settled now (review P3): the delete never waits behind it; a call
+    // already running finishes, its late result changes nothing, and the delete then removes the VM by name.
+    if (l && (l.row.op === "pause" || l.row.op === "start" || l.row.op === "resize")) {
+      writes.push(upsertLedger({ ...l.row, state: "cancelled", updated_at: ctx.now }, l.n))
+      pending = Object.fromEntries(Object.entries(pending).filter(([k]) => k !== key))
+      continue
+    }
     if (l?.row.op !== "create" || l.row.cancel) continue
     writes.push(upsertLedger({ ...l.row, cancel: true, attempts: 0, updated_at: ctx.now }, l.n))
     pending = { ...pending, [key]: { machine: entry.machine, due_at: ctx.now } }
@@ -296,6 +320,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   const rev = state.rev + 1
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
+  if ((l.op === "pause" || l.op === "start" || l.op === "resize") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return powerResult(state, stored, machine, r, ctx)
   if (!r.ok) {
     const attempts = l.attempts + 1
     const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "provider call failed" }
@@ -323,7 +348,8 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   // binds it (5.8). The token expires 15 minutes after the provider reported the VM running.
   if (l.op === "create" && machine && r.bind_token_sha256) {
     const bind: BindState = { token_sha256: r.bind_token_sha256, expires_at: ctx.now + BIND_TOKEN_TTL_MS, spent: false }
-    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind }, machine.n)] }
+    // The record takes the VM's real size (Freestyle has no size at create).
+    return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
   }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
   const tomb: TombstoneRow = { machine: l.machine, deleted_at: ctx.now, revision: String(rev) }

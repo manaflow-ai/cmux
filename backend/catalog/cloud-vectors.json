@@ -920,7 +920,7 @@
       "op": "cloud.machine.start",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000002"
@@ -977,7 +977,7 @@
       "op": "cloud.machine.start",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000002"
@@ -1017,7 +1017,7 @@
       "op": "cloud.machine.pause",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000001"
@@ -1065,6 +1065,82 @@
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 105
+          }
+        }
+      ]
+    },
+    {
+      "name": "machine.pause.not_running",
+      "op": "cloud.machine.pause",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000002"
+      },
+      "idempotency_key": "key-pause-2",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.pause",
+            "error": {
+              "code": "cloud.machine.not_running",
+              "message": "only a running machine can be paused",
+              "retryable": false,
+              "details": {
+                "machine": "vm_m0000000000000000002",
+                "state": "paused"
+              }
+            },
+            "transaction": "",
+            "idempotency_key": "key-pause-2",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "machine.start.not_paused",
+      "op": "cloud.machine.start",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001"
+      },
+      "idempotency_key": "key-start-2",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.start",
+            "error": {
+              "code": "cloud.machine.not_paused",
+              "message": "only a paused machine can be started",
+              "retryable": false,
+              "details": {
+                "machine": "vm_m0000000000000000001",
+                "state": "running"
+              }
+            },
+            "transaction": "",
+            "idempotency_key": "key-start-2",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
           }
         }
       ]
@@ -1127,6 +1203,50 @@
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 106
+          }
+        }
+      ]
+    },
+    {
+      "name": "machine.resize.grow_only",
+      "op": "cloud.machine.resize",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "size": {
+          "cpu": 1
+        }
+      },
+      "idempotency_key": "key-resize-2",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.resize",
+            "error": {
+              "code": "cloud.size.grow_only",
+              "message": "a machine can only grow (vCPU, memory and disk)",
+              "retryable": false,
+              "details": {
+                "size": {
+                  "cpu": 2,
+                  "memory_mb": 4096,
+                  "disk_mb": 16384
+                }
+              }
+            },
+            "transaction": "",
+            "idempotency_key": "key-resize-2",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
           }
         }
       ]
@@ -1686,6 +1806,47 @@
       "note": "Two calls, two fresh tokens: no key, no replay."
     },
     {
+      "name": "machine.link_token.paused",
+      "op": "cloud.machine.link_token",
+      "class": "mutation",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "host": "host_h0000000000000000002",
+        "services": [
+          "ssh"
+        ]
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.link_token",
+            "error": {
+              "code": "cloud.machine.paused",
+              "message": "the machine is paused; start it first",
+              "retryable": false,
+              "details": {
+                "machine": "vm_m0000000000000000002",
+                "state": "paused"
+              }
+            },
+            "transaction": "tx_0013",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "No dial to a machine that cannot answer and no automatic start: the client shows \"Start machine?\" and calls cloud.machine.start."
+    },
+    {
       "name": "machine.link_token.not_bound",
       "op": "cloud.machine.link_token",
       "class": "mutation",
@@ -1712,7 +1873,7 @@
               "message": "the machine is still provisioning",
               "retryable": false
             },
-            "transaction": "tx_0013",
+            "transaction": "tx_0014",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -1748,7 +1909,7 @@
               "message": "no such machine in this team",
               "retryable": false
             },
-            "transaction": "tx_0014",
+            "transaction": "tx_0015",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -1784,7 +1945,7 @@
               "message": "link tokens are minted only for an install's cmux link",
               "retryable": false
             },
-            "transaction": "tx_0015",
+            "transaction": "tx_0016",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -1829,7 +1990,7 @@
                 ]
               }
             },
-            "transaction": "tx_0016",
+            "transaction": "tx_0017",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -1952,7 +2113,7 @@
                 "revision": "1"
               }
             },
-            "transaction": "tx_0017",
+            "transaction": "tx_0018",
             "idempotency_key": "key-snap-1",
             "revision": "1",
             "replayed": false,
@@ -2051,7 +2212,7 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0018",
+            "transaction": "tx_0019",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": false,
@@ -2094,7 +2255,7 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0018",
+            "transaction": "tx_0019",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": true,
@@ -2163,7 +2324,7 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0019",
+            "transaction": "tx_0020",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": false,
@@ -2182,7 +2343,7 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0019",
+            "transaction": "tx_0020",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": true,
@@ -2262,7 +2423,7 @@
             "value": {
               "url": "https://checkout.example.com/session/cs_vector_0001"
             },
-            "transaction": "tx_0020",
+            "transaction": "tx_0021",
             "idempotency_key": "key-checkout-1",
             "revision": "13",
             "replayed": false,
@@ -2357,7 +2518,7 @@
             "value": {
               "state": "moving"
             },
-            "transaction": "tx_0021",
+            "transaction": "tx_0022",
             "idempotency_key": "key-migrate-1",
             "revision": "4",
             "replayed": false,
@@ -2479,7 +2640,7 @@
                 "revision": "54"
               }
             },
-            "transaction": "tx_0022",
+            "transaction": "tx_0023",
             "idempotency_key": "key-upgrade-1",
             "revision": "54",
             "replayed": false,
@@ -2582,7 +2743,7 @@
             "value": {
               "stream": "wst_w0000000000000000001"
             },
-            "transaction": "tx_0023",
+            "transaction": "tx_0024",
             "idempotency_key": "key-shell-1",
             "revision": "7",
             "replayed": false,
@@ -2758,7 +2919,7 @@
             "value": {
               "applied": true
             },
-            "transaction": "tx_0024",
+            "transaction": "tx_0025",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -2776,7 +2937,7 @@
             "value": {
               "applied": false
             },
-            "transaction": "tx_0025",
+            "transaction": "tx_0026",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -2819,7 +2980,7 @@
             "value": {
               "delivered": true
             },
-            "transaction": "tx_0026",
+            "transaction": "tx_0027",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -2867,7 +3028,7 @@
                 "retry_after_ms": 100
               }
             },
-            "transaction": "tx_0027",
+            "transaction": "tx_0028",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -2912,7 +3073,7 @@
               "message": "invalid data for notification",
               "retryable": false
             },
-            "transaction": "tx_0028",
+            "transaction": "tx_0029",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",

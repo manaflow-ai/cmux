@@ -44,8 +44,8 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             let cursor = cursor(for: session)
             cursor.root.isHidden = false
             cursor.showsIndicator = false
-            let position = CursorAnimation.position(plan)
-            let rotation = CursorAnimation.rotation(plan)
+            let position = plan.positionAnimation()
+            let rotation = plan.rotationAnimation()
             if let last = plan.samples.last {
                 cursor.root.position = CGPoint(x: last.x, y: last.y)
                 cursor.root.setValue(last.heading - AgentCursorOverlayModel.restingHeading, forKeyPath: "transform.rotation.z")

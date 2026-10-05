@@ -86,6 +86,8 @@ class Client : public CefClient,
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefCommandHandler> GetCommandHandler() override { return this; }
   CefRefPtr<CefFocusHandler> GetFocusHandler() override { return this; }
+  // Every download waits for the host's path (shim_downloads.mm).
+  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return DownloadHandler(); }
 
   // MARK: Focus
 
@@ -269,7 +271,8 @@ class Client : public CefClient,
   }
 
   bool OnBeforePopup(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, int, const CefString& target_url,
-                     const CefString&, WindowOpenDisposition disposition, bool, const CefPopupFeatures& features,
+                     const CefString&, WindowOpenDisposition disposition, bool user_gesture,
+                     const CefPopupFeatures& features,
                      CefWindowInfo& window_info, CefRefPtr<CefClient>&, CefBrowserSettings& settings,
                      CefRefPtr<CefDictionaryValue>&, bool*) override {
     // Every popup (target=_blank, window.open with or without features) is
@@ -282,8 +285,8 @@ class Client : public CefClient,
     // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
-    RememberPopup(browser->GetIdentifier(), disposition, features);
-    Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, 0, target_url.ToString());
+    RememberPopup(browser->GetIdentifier(), disposition, user_gesture, features);
+    Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, user_gesture ? 1 : 0, target_url.ToString());
     return false;
   }
 

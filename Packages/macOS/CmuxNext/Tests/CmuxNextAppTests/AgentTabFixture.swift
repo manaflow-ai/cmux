@@ -52,10 +52,13 @@ final class AgentTabFixture {
             // Sequence 0: the tree already has the tab, so the provisional one settles at once.
             return (AgentTabCreated(key: id, surface: SurfaceID(rawValue: UInt64(surface))), 0)
         }
-        tabs.bind = { [unowned self] key, expected, session, done in
+        tabs.bind = { [unowned self] key, _, expected, session in
             binds.append((key, session))
             bindExpectations.append(expected)
-            done(bindAnswer)
+            guard bindAnswer == .taken else { return (bindAnswer, nil) }
+            // The daemon's record takes the session before its reply (sequence 0: applied).
+            try? setSession(session, of: key)
+            return (.taken, 0)
         }
     }
 
@@ -67,6 +70,15 @@ final class AgentTabFixture {
     /// A terminal tab and the tabs created so far, in one pane.
     func apply() throws {
         daemon.apply(snapshot: try ReopenClosedTabTests.tree([ReopenClosedTabTests.tab(1, "a", cwd: "/tmp")] + tabJSON))
+    }
+
+    /// The daemon's record of tab `key` now names `session`.
+    func setSession(_ session: String, of key: String) throws {
+        guard let index = tabJSON.firstIndex(where: { $0.contains("\"\(key)\"") }) else { return }
+        let entry = tabJSON[index]
+        guard let range = entry.range(of: #""session":(null|"[^"]*")"#, options: .regularExpression) else { return }
+        tabJSON[index] = entry.replacingCharacters(in: range, with: "\"session\":\"\(session)\"")
+        try apply()
     }
 
     /// Drops agent tab `key` from the tree, as a close by another client would.
