@@ -23,7 +23,6 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
-    @State private var isShowingCoderouterAccountSheet = false
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -126,9 +125,6 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
             viewModel.cancelCloudAgentTask()
-        }
-        .sheet(isPresented: $isShowingCoderouterAccountSheet) {
-            CoderouterAccountSheet(teamID: accountFlow?.confirmedTeamID)
         }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
@@ -440,8 +436,8 @@ struct MachinesPanelView: View {
             )
         }
         nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
-        nodeActions.addCoderouterAccount = { [self] in
-            isShowingCoderouterAccountSheet = true
+        nodeActions.openCoderouterCLI = { [self] in
+            openCoderouterCLI()
         }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
@@ -469,6 +465,39 @@ struct MachinesPanelView: View {
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
+    }
+
+    @MainActor
+    private func openCoderouterCLI() {
+        guard let teamID = accountFlow?.confirmedTeamID,
+              !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            viewModel.noteTreeHint("Select a team before adding a coding agent account.")
+            return
+        }
+
+        let quotedTeamID = "'" + teamID.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let command = "cmux cr org switch \(quotedTeamID) && cmux cr add"
+
+        if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel,
+           panel.sendText(command + "\n") {
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                _ = try await TerminalController.surfaceNewTerminal(
+                    machine: .local,
+                    command: ["sh", "-lc", command],
+                    cwd: nil,
+                    name: "CodeRouter",
+                    remoteWorkspaceID: nil,
+                    destination: nil,
+                    focus: true
+                )
+            } catch {
+                viewModel.noteTreeFailure(error.localizedDescription)
+            }
+        }
     }
 
     @ViewBuilder

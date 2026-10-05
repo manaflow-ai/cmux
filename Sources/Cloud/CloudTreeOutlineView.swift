@@ -523,7 +523,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterEmpty:
                 break
             case .coderouterAddAccount:
-                nodeActions.addCoderouterAccount()
+                nodeActions.openCoderouterCLI()
             case .createAction(let action):
                 action.perform(nodeActions)
             case .pendingMachine(let operation):

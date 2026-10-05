@@ -57,7 +57,7 @@ struct CloudTreeRowContentView: View {
                              title: String(localized: "coderouter.empty", defaultValue: "No accounts yet"), titleDimmed: true)
         case .coderouterAddAccount:
             CloudTreeLeafRow(style: style, icon: "plus", tint: .secondary,
-                             title: String(localized: "coderouter.addAccount", defaultValue: "Add account"),
+                             title: String(localized: "coderouter.addAccount", defaultValue: "Add coding agent account"),
                              titleDimmed: true)
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))

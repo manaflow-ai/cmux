@@ -91,7 +91,7 @@ final class CloudTreeNode: NSObject {
             switch self {
             case .cloudMachinesSection: "cloud"
             case .devicesSection: "desktopcomputer"
-            case .coderouterSection: "arrow.triangle.branch"
+            case .coderouterSection: "arrow.triangle.swap"
             default: nil
             }
         }
@@ -244,7 +244,7 @@ final class CloudTreeNode: NSObject {
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
         case .coderouterSection: return String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter")
         case .coderouterEmpty: return String(localized: "coderouter.empty", defaultValue: "No accounts yet")
-        case .coderouterAddAccount: return String(localized: "coderouter.addAccount", defaultValue: "Add account")
+        case .coderouterAddAccount: return String(localized: "coderouter.addAccount", defaultValue: "Add coding agent account")
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
         case .createAction(let action): return action.title
         case .machineDetailTabs, .machineEndSpacer: return ""
