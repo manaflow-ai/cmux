@@ -81,8 +81,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
-        shortcutHints = WindowShortcutHints(controller: self)
-        root.onHintGeometryChange = { [weak self] in self?.shortcutHints?.refresh() }
+        startShortcutHints()
         observeWorkspace()
         observeRoom()
     }
@@ -90,11 +89,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func hideShortcutHintsForKeyDown() { shortcutHints?.keyDown() }
-
     func teardown() {
-        shortcutHints?.stop()
-        shortcutHints = nil
+        stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
