@@ -34,6 +34,7 @@ extension SettingDescriptor {
         case .sound:
             return value.stringValue != nil
         case .url:
+            if BrowserOmnibarSetting.templatePaths.contains(path) { return value.stringValue.map(BrowserOmnibarSetting.isSearchTemplate) ?? false }
             return value.stringValue.map { $0.isEmpty || BrowserNewTabPage.url(from: $0) != nil } ?? false
         case .hostList:
             guard case .array(let items) = value else { return false }
