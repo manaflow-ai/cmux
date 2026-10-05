@@ -99,16 +99,29 @@ impl HostEngines {
         events: EventSink,
         session: &crate::host::SessionContext,
     ) -> Result<Arc<dyn Driver>, DriverError> {
-        // Red commit stub: no wait.
-        let provider = self
-            .provider
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-            .filter(|provider| provider.closed_reason().is_none())
-            .ok_or_else(|| {
-                unavailable(engine, "the cmux app is not connected to the browser host")
-            })?;
+        // Signal-driven bounded wait: the app may connect right after an
+        // agent connect started this host.
+        let deadline = std::time::Instant::now() + self.provider_wait;
+        let mut slot = self.provider.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let provider = loop {
+            if let Some(provider) =
+                slot.clone().filter(|provider| provider.closed_reason().is_none())
+            {
+                break provider;
+            }
+            let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return Err(unavailable(
+                    engine,
+                    "the cmux app is not connected to the browser host",
+                ));
+            };
+            slot = self
+                .provider_changed
+                .wait_timeout(slot, left)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        };
+        drop(slot);
         let lease = crate::lease::LeaseCaller {
             session: session.name.clone(),
             actor: session.caller.actor.clone(),
@@ -246,7 +259,8 @@ fn headless_options(binary: PathBuf) -> crate::cdp::pipe::HeadlessOptions {
     options
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod provider_wait_tests {
     use super::*;
     use crate::host::{Caller, Host};

@@ -6,6 +6,7 @@ import CmuxNextBrowserHost
 import CmuxNextDaemon
 import Foundation
 import Observation
+import os
 
 /// The app as the browser host's engine provider (plans/cmux-next/browser-host.md,
 /// step c3): the provider bridge, the WebKit driver behind it, and the app's
@@ -147,11 +148,27 @@ final class AppProviderCredentials: ProviderCredentialsSource {
 
     init(daemon: DaemonService?) { self.daemon = daemon }
 
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-host")
+
     func providerCredentials() async -> ProviderCredentials? {
         guard let daemon, daemon.supports(DaemonCapabilities.shared.browserHostProvider),
-              let connection = daemon.connection,
-              let reply = try? await connection.request(BrowserHostProviderRequest()) else { return nil }
+              let connection = daemon.connection else { return nil }
+        let reply: BrowserHostProviderRequest.Response
+        do {
+            reply = try await connection.request(BrowserHostProviderRequest())
+        } catch {
+            // The refusal code only (origin.forbidden: not a verified app connection;
+            // engine_unavailable: no host binary or no start); a reply never reaches the log.
+            logger.notice("browser host credentials refused: \(Self.code(of: error), privacy: .public)")
+            return nil
+        }
         return ProviderCredentials(socketPath: reply.socket, secret: ProviderSecret(reply.secret), hostPID: reply.hostPID,
                                    listenerPID: reply.listenerPID)
+    }
+
+    /// The daemon's error code of a refused request, else the error's kind.
+    static func code(of error: any Error) -> String {
+        if case DaemonError.command(_, _, let code?, _, _) = error { return code }
+        return String(describing: type(of: error))
     }
 }
