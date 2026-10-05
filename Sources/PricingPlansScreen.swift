@@ -172,11 +172,11 @@ enum ProUpgradePresenter {
             orientation: .horizontal,
             initialRequest: navigation.request,
             focus: true,
+            allowsExternalBrowserFallback: false,
             chromeVisibility: .hidden,
             transparentBackground: true,
-            allowsExternalBrowserFallback: false,
-            websiteDataStore: navigation.websiteDataStore,
-            initialDividerPosition: 0.58
+            initialDividerPosition: 0.58,
+            websiteDataStore: navigation.websiteDataStore
         ) != nil
     }
 
