@@ -258,6 +258,18 @@ describe("harness switch: a prompt sent before the session is ready", () => {
     expect(port.tickets).toEqual([undefined]);
   });
 
+  test("a held pick the host refuses for want of a gesture says so", async () => {
+    const { store, port, notices } = setup();
+    port.setMode = async () => {
+      throw Object.assign(new Error("Refused by the cmux host"), { code: "transport.gesture_required" });
+    };
+    void store.switchTo("codex");
+    store.pickMode("plan");
+    port.creates[0]!.reply.resolve("codex-1");
+    await settle();
+    expect(notices).toEqual(["Click the choice again to apply it."]);
+  });
+
   test("a pick in a live session (not held) asks for no gesture", () => {
     const { store } = setup();
     let asked = 0;
