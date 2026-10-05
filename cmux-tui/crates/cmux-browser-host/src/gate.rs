@@ -117,7 +117,12 @@ impl Gate {
     }
 
     /// Masks a driver event for this session; a closed tab's record ends.
+    /// A response from a refused address stops the tab's load (DNS
+    /// rebinding, after the fact).
     pub fn mask_event(&self, name: &str, payload: &Value) -> Value {
+        if name == "response" {
+            self.check_rebinding(payload);
+        }
         let target = payload.get("targetId").and_then(Value::as_str);
         let masked = self.mask_for_target(target, payload);
         if matches!(name, "tab.gone" | "tab.closed")

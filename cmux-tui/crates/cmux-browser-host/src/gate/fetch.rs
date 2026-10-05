@@ -43,6 +43,19 @@ impl Drop for Fetching<'_> {
 }
 
 impl Gate {
+    /// DNS rebinding (a9 v1, after the fact; fetch and navigations share
+    /// it): why a response from `url` that came from `ip` is refused.
+    pub(super) fn rebinding_refusal(&self, url: &str, ip: &str) -> Option<String> {
+        let address = ip.trim_matches(|c| c == '[' || c == ']').parse().ok()?;
+        let parsed = url::Url::parse(url).ok()?;
+        let reason = self.policy.lock().unwrap_or_else(PoisonError::into_inner).range_refusal(
+            &parsed,
+            ip_range(address),
+            self.grants.remote,
+        )?;
+        Some(format!("{url} resolved to {ip}, which is blocked: {reason}"))
+    }
+
     fn refuse_fetch(&self, url: &str, message: String) -> DriverError {
         push_log(
             &self.log,
@@ -125,22 +138,10 @@ impl Gate {
         // DNS rebinding (v1, after the fact): a name that resolved into a
         // refused range fails the fetch.
         let remote_ip = value.as_object_mut().and_then(|object| object.remove("remoteIPAddress"));
-        if let Some(ip) = remote_ip.as_ref().and_then(Value::as_str)
-            && let Ok(address) = ip.trim_matches(|c| c == '[' || c == ']').parse()
-        {
+        if let Some(ip) = remote_ip.as_ref().and_then(Value::as_str) {
             let final_url = value["url"].as_str().unwrap_or(&url).to_owned();
-            if let Ok(parsed) = url::Url::parse(&final_url) {
-                let reason = self
-                    .policy
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .range_refusal(&parsed, ip_range(address), self.grants.remote);
-                if let Some(reason) = reason {
-                    return Err(self.refuse_fetch(
-                        &final_url,
-                        format!("fetch: {final_url} resolved to {ip}, which is blocked: {reason}"),
-                    ));
-                }
+            if let Some(reason) = self.rebinding_refusal(&final_url, ip) {
+                return Err(self.refuse_fetch(&final_url, format!("fetch: {reason}")));
             }
         }
         // Secrets in the body are masked by their bytes (text or binary).
@@ -150,5 +151,31 @@ impl Gate {
             value["bodyBase64"] = json!(crate::fs_sandbox::base64_encode(&self.mask_bytes(&bytes)));
         }
         Ok(value)
+    }
+
+    /// Navigations and page requests: a response that came from a refused
+    /// address stops the tab's load and is logged (`blocked: after`). The
+    /// stop runs off the event thread (a WebKit provider's events arrive on
+    /// its reader).
+    pub(super) fn check_rebinding(&self, payload: &Value) {
+        let (Some(url), Some(ip), Some(target)) = (
+            payload.get("url").and_then(Value::as_str),
+            payload.get("remoteIPAddress").and_then(Value::as_str),
+            payload.get("targetId").and_then(Value::as_str),
+        ) else {
+            return;
+        };
+        let Some(reason) = self.rebinding_refusal(url, ip) else { return };
+        push_log(
+            &self.log,
+            json!({"url": url, "reason": reason, "at": now_ms(), "blocked": "after"}),
+        );
+        let driver = self.driver.clone();
+        let stop = json!({"targetId": target});
+        let _ = std::thread::Builder::new().name("cmux-browser-host-rebinding-stop".into()).spawn(
+            move || {
+                let _ = driver.call("tab.stop", &stop);
+            },
+        );
     }
 }

@@ -72,6 +72,9 @@ pub fn event(
             let open = tab.requests.get(&request_id)?;
             let mut payload = payload(&request_id, open);
             payload.insert("status".into(), response.get("status").cloned().unwrap_or(json!(0)));
+            if let Some(ip) = response.get("remoteIPAddress").filter(|ip| ip.is_string()) {
+                payload.insert("remoteIPAddress".into(), ip.clone());
+            }
             payload.insert("headers".into(), response.get("headers").cloned().unwrap_or(json!({})));
             ("response", payload)
         }

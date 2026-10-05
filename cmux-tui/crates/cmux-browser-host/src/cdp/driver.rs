@@ -210,6 +210,13 @@ impl Driver for CdpDriver {
             "input.insertText" => inner.insert_text(params),
             "tab.screenshot" => inner.screenshot(params),
             "tab.pdf" => inner.pdf(params),
+            // The host stops a load whose response came from a refused
+            // address (DNS rebinding).
+            "tab.stop" => {
+                let session = inner.session(params)?;
+                inner.send(&session, "Page.stopLoading", json!({}))?;
+                Ok(Value::Null)
+            }
             "net.fetch" => inner.net_fetch(params),
             "dialog.respond" => inner.dialog_respond(params),
             "cookies.get" => inner.cookies_get(params),

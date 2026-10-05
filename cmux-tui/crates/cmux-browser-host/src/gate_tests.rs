@@ -687,9 +687,7 @@ fn fetch_checks_every_redirect_hop_and_the_address_it_reached() {
 #[test]
 fn a_response_from_a_refused_address_stops_the_load() {
     let (gate, driver) = make_gate(Value::Null, false);
-    let response = |url: &str, ip: &str| {
-        json!({"targetId": "T", "url": url, "resourceType": "document", "remoteIPAddress": ip})
-    };
+    let response = |url: &str, ip: &str| json!({"targetId": "T", "url": url, "resourceType": "document", "remoteIPAddress": ip});
     gate.mask_event("response", &response("https://fine.test/", "93.184.216.34"));
     gate.mask_event("response", &response("https://rebind.test/", "169.254.169.254"));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -707,7 +705,8 @@ fn a_response_from_a_refused_address_stops_the_load() {
         .collect();
     assert_eq!(stops, vec![json!({"targetId": "T"})], "only the refused response stops");
     let log = policy(&gate, "log", json!({})).unwrap();
-    let entry = log.as_array().unwrap().iter().find(|e| e["url"] == "https://rebind.test/").cloned();
+    let entry =
+        log.as_array().unwrap().iter().find(|e| e["url"] == "https://rebind.test/").cloned();
     let entry = entry.unwrap_or_else(|| panic!("not logged: {log}"));
     assert_eq!(entry["blocked"], "after");
     assert!(entry["reason"].as_str().unwrap().contains("169.254.169.254"), "{entry}");
