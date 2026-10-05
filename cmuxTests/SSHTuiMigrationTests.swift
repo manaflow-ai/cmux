@@ -181,7 +181,16 @@ struct SSHTuiMigrationTests {
         // `cmux ssh` opens with cmux's sharing defaults. The restored carrier
         // runs in batch mode, so on a password-only host the live master is
         // its only way in.
-        let opened = configuration(options: ["ProxyJump=bastion"])
+        // Like the CLI, the open sends this process's agent when it exists.
+        let agent = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "alice@example.invalid")
+            .restorableAgentSocketPath()
+        let base = configuration(options: ["ProxyJump=bastion"])
+        let opened = WorkspaceRemoteConfiguration(
+            terminalProfile: base.terminalProfile, destination: base.destination, port: base.port,
+            identityFile: base.identityFile, sshOptions: base.sshOptions, localProxyPort: nil, relayPort: nil,
+            relayID: nil, relayToken: nil, localSocketPath: nil, terminalStartupCommand: nil,
+            configuredRemoteCommand: nil, agentSocketPath: agent, preserveAfterTerminalExit: true
+        )
         let snapshot = try #require(opened.sessionSnapshot())
         let persisted = try JSONEncoder().encode(snapshot)
         let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted).workspaceConfiguration())
@@ -215,6 +224,27 @@ struct SSHTuiMigrationTests {
         #expect(restored.agentSocketPath == agent)
         #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored))
                 == resolvedControlSettings(SSHTuiConnection(configuration: opened)))
+    }
+
+    @Test("A restore uses the saved agent, then the app's agent once the saved socket is gone")
+    func restoredAgentFallsBackToTheAppsAgent() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let saved = directory.appendingPathComponent("saved.sock").path
+        let current = directory.appendingPathComponent("current.sock").path
+        #expect(FileManager.default.createFile(atPath: current, contents: nil))
+        var snapshot = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "alice@example.invalid", agentSocketPath: saved)
+        let environment = ["SSH_AUTH_SOCK": current]
+
+        // A reboot moved the agent: the app's agent matches what a new `cmux ssh` sends.
+        #expect(snapshot.restorableAgentSocketPath(environment: environment) == current)
+        #expect(FileManager.default.createFile(atPath: saved, contents: nil))
+        #expect(snapshot.restorableAgentSocketPath(environment: environment) == saved)
+        // Snapshots written before the agent was saved still find the app's agent.
+        snapshot.agentSocketPath = nil
+        #expect(snapshot.restorableAgentSocketPath(environment: environment) == current)
+        #expect(snapshot.restorableAgentSocketPath(environment: [:]) == nil)
     }
 
     /// The control settings OpenSSH resolves for the carrier's own ssh arguments.

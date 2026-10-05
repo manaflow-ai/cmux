@@ -44,8 +44,9 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        if let configuration = tuiSSHConfiguration(agentSocketPath: overrideAgentSocketPath) { return configuration }
-        if let configuration = legacyTmuxSSHConfiguration(agentSocketPath: overrideAgentSocketPath) { return configuration }
+        let agentSocketPath = overrideAgentSocketPath ?? restorableAgentSocketPath()
+        if let configuration = tuiSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
+        if let configuration = legacyTmuxSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
         if skipDaemonBootstrap != true, (terminalTransport ?? .ssh) == .ssh,
            preserveAfterTerminalExit == true {
             // Preserve the old descriptor for recovery, but never resume its daemon
@@ -580,5 +581,24 @@ extension SessionRemoteWorkspaceSnapshot {
 
     private static func shellQuote(_ value: String) -> String {
         value.posixShellWord
+    }
+}
+
+extension SessionRemoteWorkspaceSnapshot {
+    /// The agent a restored carrier authenticates with. cmux keys its shared
+    /// SSH master by agent, and `cmux ssh` sends its shell's `SSH_AUTH_SOCK`,
+    /// so a restore that dropped the agent would dial a master no login opened.
+    /// The saved agent wins while its socket exists; after a reboot moves it,
+    /// the app's own agent matches what a new `cmux ssh` sends, as the CLI
+    /// falls back to the same environment.
+    func restorableAgentSocketPath(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) -> String? {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        return [agentSocketPath, environment["SSH_AUTH_SOCK"]]
+            .lazy
+            .compactMap { resolver.normalizedAgentSocketPath($0) }
+            .first { fileManager.fileExists(atPath: $0) }
     }
 }

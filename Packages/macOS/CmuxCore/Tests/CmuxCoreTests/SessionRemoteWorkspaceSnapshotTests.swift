@@ -16,6 +16,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
             port: 2222,
             identityFile: "/id",
             sshOptions: ["ForwardAgent=yes"],
+            agentSocketPath: "/tmp/agent.sock",
             preserveAfterTerminalExit: true,
             skipDaemonBootstrap: true,
             relayPort: 7000,
@@ -47,6 +48,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
         #expect(decoded.destination == "user@host")
         #expect(decoded.port == nil)
         #expect(decoded.identityFile == nil)
+        #expect(decoded.agentSocketPath == nil)
         #expect(decoded.preserveAfterTerminalExit == nil)
         #expect(decoded.skipDaemonBootstrap == nil)
         #expect(decoded.relayPort == nil)

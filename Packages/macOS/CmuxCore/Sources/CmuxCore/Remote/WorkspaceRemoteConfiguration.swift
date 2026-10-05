@@ -526,6 +526,7 @@ extension WorkspaceRemoteConfiguration {
             port: port,
             identityFile: Self.normalizedIdentityPath(identityFile),
             sshOptions: sshOptionsOverride ?? Self.durableSSHOptions(sshOptions),
+            agentSocketPath: agentSocketPath,
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: retainsRelayNamespace ? relayPort : nil,
