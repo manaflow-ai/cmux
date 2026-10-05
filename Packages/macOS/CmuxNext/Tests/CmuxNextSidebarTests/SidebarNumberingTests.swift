@@ -6,27 +6,27 @@ import Testing
 /// the workspaces start at 1.
 struct SidebarNumberingTests {
     @Test func homeIsOneThenWorkspacesInOrder() {
-        let order = SidebarNumbering.order(home: "home", workspaces: ["a", "b", "c"])
+        let order = SidebarNumbering(home: "home", workspaces: ["a", "b", "c"]).order
         #expect(order == ["home", "a", "b", "c"])
-        #expect(SidebarNumbering.pick(1, home: "home", workspaces: ["a", "b", "c"]) == "home")
-        #expect(SidebarNumbering.pick(2, home: "home", workspaces: ["a", "b", "c"]) == "a")
-        #expect(SidebarNumbering.pick(4, home: "home", workspaces: ["a", "b", "c"]) == "c")
+        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b", "c"]).pick(1) == "home")
+        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b", "c"]).pick(2) == "a")
+        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b", "c"]).pick(4) == "c")
     }
 
     @Test func nineIsLastAndPastTheEndClamps() {
-        #expect(SidebarNumbering.pick(9, home: "home", workspaces: ["a", "b"]) == "b")
-        #expect(SidebarNumbering.pick(6, home: "home", workspaces: ["a", "b"]) == "b")
-        #expect(SidebarNumbering.pick(9, home: "home", workspaces: []) == "home")
+        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b"]).pick(9) == "b")
+        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b"]).pick(6) == "b")
+        #expect(SidebarNumbering(home: "home", workspaces: []).pick(9) == "home")
     }
 
     @Test func homeListedAmongWorkspacesIsNotNumberedTwice() {
-        #expect(SidebarNumbering.order(home: "home", workspaces: ["a", "home", "b"]) == ["home", "a", "b"])
+        #expect(SidebarNumbering(home: "home", workspaces: ["a", "home", "b"]).order == ["home", "a", "b"])
     }
 
     @Test func noHomeStartsAtTheFirstWorkspace() {
-        #expect(SidebarNumbering.pick(1, home: nil, workspaces: ["a", "b"]) == "a")
-        #expect(SidebarNumbering.pick(1, home: nil, workspaces: []) == nil)
-        #expect(SidebarNumbering.pick(0, home: "home", workspaces: ["a"]) == nil)
+        #expect(SidebarNumbering(home: nil, workspaces: ["a", "b"]).pick(1) == "a")
+        #expect(SidebarNumbering(home: nil, workspaces: []).pick(1) == nil)
+        #expect(SidebarNumbering(home: "home", workspaces: ["a"]).pick(0) == nil)
     }
 
     static func ws(_ id: String, machine: MachineID = .local, state: SidebarRowState = .live) -> SidebarWorkspace {
@@ -52,18 +52,18 @@ struct SidebarNumberingTests {
     /// machine section, workspaces inside a group in place, placeholders skipped.
     @MainActor @Test func numberingFollowsTheSidebarRowOrderAcrossSections() {
         let model = Self.model()
-        #expect(SidebarNumbering.order(home: "home", workspaces: SidebarNumbering.visibleWorkspaces(model)) == ["home", "p1", "w1", "w2", "w3", "c1"])
-        #expect(SidebarNumbering.pick(9, home: "home", workspaces: SidebarNumbering.visibleWorkspaces(model)) == "c1")
+        #expect(SidebarNumbering(home: "home", workspaces: model.visibleWorkspaceIDs).order == ["home", "p1", "w1", "w2", "w3", "c1"])
+        #expect(SidebarNumbering(home: "home", workspaces: model.visibleWorkspaceIDs).pick(9) == "c1")
     }
 
     /// Rows the user cannot see get no number: a collapsed section, a
     /// collapsed group, rows the sidebar filter hides. Cmd+9 is the last visible.
     @MainActor @Test func hiddenRowsAreNotNumbered() {
-        #expect(SidebarNumbering.visibleWorkspaces(Self.model(collapsedCloud: true)) == ["p1", "w1", "w2", "w3"])
-        #expect(SidebarNumbering.visibleWorkspaces(Self.model(collapsedGroup: true)) == ["p1", "w1", "c1"])
+        #expect(Self.model(collapsedCloud: true).visibleWorkspaceIDs == ["p1", "w1", "w2", "w3"])
+        #expect(Self.model(collapsedGroup: true).visibleWorkspaceIDs == ["p1", "w1", "c1"])
         let filtered = Self.model()
         filtered.filterText = "w"
-        #expect(SidebarNumbering.visibleWorkspaces(filtered) == ["w1", "w2", "w3"])
-        #expect(SidebarNumbering.pick(9, home: "home", workspaces: SidebarNumbering.visibleWorkspaces(filtered)) == "w3")
+        #expect(filtered.visibleWorkspaceIDs == ["w1", "w2", "w3"])
+        #expect(SidebarNumbering(home: "home", workspaces: filtered.visibleWorkspaceIDs).pick(9) == "w3")
     }
 }

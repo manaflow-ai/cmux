@@ -43,7 +43,7 @@ enum SidebarItemStepper {
         let model = bridge.model
         guard let current = currentLayoutItem(in: model.layout, itemInfo: model.itemInfo, shownWorkspace: shownWorkspace(),
                                               shownPage: shownPage, cursor: bridge.sectionStepCursor),
-              let target = SidebarSectionStepping.step(from: current, by: offset, in: model.layout, skip: { item in
+              let target = model.layout.sectionStep(from: current, by: offset, skip: { item in
                   let info = model.itemInfo[item.id]
                   return info?.isHidden == true || info?.isMissing == true || model.suppressedApps.contains(item.owningAppID ?? "")
               }) else { return false }

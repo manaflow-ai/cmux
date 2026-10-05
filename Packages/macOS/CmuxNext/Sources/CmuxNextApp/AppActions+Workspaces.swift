@@ -32,8 +32,8 @@ extension AppActions {
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
             // Home is 1, then the visible rows top to bottom across every machine section (R119).
-            let all = (services.windows.active?.sidebar.model).map(SidebarNumbering.visibleWorkspaces) ?? []
-            guard let pick = SidebarNumbering.pick(number, home: services.home.homeWorkspace?.id, workspaces: all) else { return }
+            let all = services.windows.active?.sidebar.model.visibleWorkspaceIDs ?? []
+            guard let pick = SidebarNumbering(home: services.home.homeWorkspace?.id, workspaces: all).pick(number) else { return }
             services.windows.show(workspaceID: pick, in: state)
         })
         // Home is the store's home workspace (home.md 7): shown like any
