@@ -176,6 +176,9 @@ final class BrowserReplTabAttachment {
 
     func pointerPressed(sessionID: String) { pointer.pressed(sessionID: sessionID) }
 
+    /// Whether `sessionID`'s press is in progress on this tab.
+    func holdsPointer(sessionID: String) -> Bool { pointer.owner == sessionID }
+
     func pointerReleased(sessionID: String) { pointer.released(sessionID: sessionID) }
     /// The drag in progress, between a left press and its release.
     var drag: DragState?

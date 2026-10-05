@@ -2038,7 +2038,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let modifiers = BrowserReplKeyStroke.modifierFlags(named: params["modifiers"] as? [String] ?? [])
         let x = (params["x"] as? NSNumber)?.doubleValue
         let y = (params["y"] as? NSNumber)?.doubleValue
+        // A press that names its target (a locator click) is sent only
+        // while the target, and each parent frame's <iframe>, is still at
+        // the point: checked in the web content process right before the
+        // press, after the page ran since the runtime's own check.
+        var pressTarget: BrowserReplPressTarget?
+        if type == "down" {
+            let press = if let x, let y { CGPoint(x: x, y: y) } else { attachment.mousePosition }
+            pressTarget = try BrowserReplPressTarget(expect: params["expect"], press: press)
+        }
         try await attachment.waitForPointer(sessionID: sessionID)
+        let heldBefore = attachment.holdsPointer(sessionID: sessionID)
         if type == "down" { attachment.pointerPressed(sessionID: sessionID) }
         defer { if type == "up" { attachment.pointerReleased(sessionID: sessionID) } }
         if let x, let y { attachment.mousePosition = CGPoint(x: x, y: y) }
@@ -2068,6 +2078,26 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 webView.deliverAutomationMouseEvent(event)
                 await BrowserReplNativeInput.roundTrip(webView)
                 return
+            }
+            if let pressTarget {
+                // The tree is read first: the checks then all start in one
+                // turn and the press follows the last answer with no other
+                // suspension (BrowserReplPressTarget.verify).
+                let frames = await BrowserReplFrameTree.frames(of: webView)
+                do {
+                    try await pressTarget.verify(frames: frames) { [frameGate] body, arguments, frame in
+                        try await frameGate.callAsyncJavaScript(
+                            body,
+                            arguments: arguments,
+                            in: webView,
+                            frame: frame,
+                            contentWorld: BrowserReplAgentWorld.world
+                        )
+                    }
+                } catch {
+                    if !heldBefore { attachment.pointerReleased(sessionID: self.sessionID) }
+                    throw error
+                }
             }
             guard let eventType = attachment.mouseState.eventType(forType: type, button: button) else {
                 throw Self.error("invalid", "Unknown mouse event \(type)")
