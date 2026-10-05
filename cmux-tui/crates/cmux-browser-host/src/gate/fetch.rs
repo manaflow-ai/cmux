@@ -82,10 +82,13 @@ impl Gate {
         let opened = if params.get("targetId").is_some_and(Value::is_string) {
             None
         } else {
-            let tab = self.driver.call("tabs.open", &json!({"url": "about:blank", "background": true}))?;
-            let target = tab.get("targetId").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
-                DriverError::invalid("fetch: no tab to run the fetch in; open a page first")
-            })?;
+            let tab = self
+                .driver
+                .call("tabs.open", &json!({"url": "about:blank", "background": true}))?;
+            let target =
+                tab.get("targetId").and_then(Value::as_str).map(str::to_owned).ok_or_else(
+                    || DriverError::invalid("fetch: no tab to run the fetch in; open a page first"),
+                )?;
             call["targetId"] = json!(target);
             Some(target)
         };
