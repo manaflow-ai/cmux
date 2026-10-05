@@ -10,16 +10,21 @@
 set -euo pipefail
 
 target="${1:?usage: check-app-personalities.sh <path to .app or Mach-O>}"
+images=()
 if [[ -d "$target" ]]; then
   name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$target/Contents/Info.plist")"
-  binary="$target/Contents/MacOS/$name"
+  images+=("$target/Contents/MacOS/$name")
+  # Debug builds keep the code in "<name>.debug.dylib" beside a stub executable.
+  [[ -f "$target/Contents/MacOS/$name.debug.dylib" ]] && images+=("$target/Contents/MacOS/$name.debug.dylib")
 else
-  binary="$target"
+  images+=("$target")
 fi
-[[ -f "$binary" ]] || { echo "error: no binary at $binary" >&2; exit 2; }
 
 limit=3
 status=0
+checked=0
+for binary in "${images[@]}"; do
+[[ -f "$binary" ]] || { echo "error: no binary at $binary" >&2; exit 2; }
 for arch in $(lipo -archs "$binary"); do
   info="$(xcrun objdump --macho --unwind-info --arch="$arch" "$binary" 2>&1 || true)"
   count="$(grep -m1 -E 'Personality functions: \(count = [0-9]+\)' <<<"$info" | grep -oE '[0-9]+' | tail -n 1)"
@@ -29,11 +34,16 @@ for arch in $(lipo -archs "$binary"); do
     status=1
     continue
   fi
-  echo "$arch: $count personality routine(s) (limit $limit)"
+  echo "$(basename "$binary") $arch: $count personality routine(s) (limit $limit)"
+  (( count > 0 )) && checked=1
   sed -n '/Personality functions:/,/^$/p' <<<"$info" | head -n 8
   if (( count > limit )); then
-    echo "error: $arch has $count personality routines; compact unwind holds $limit. Join new Rust C ABIs to cmux-tui/crates/cmux-app-ffi instead of linking another Rust static library (decision 2026-10-05)." >&2
+    echo "error: $(basename "$binary") $arch has $count personality routines; compact unwind holds $limit. Join new Rust C ABIs to cmux-tui/crates/cmux-app-ffi instead of linking another Rust static library (decision 2026-10-05)." >&2
     status=1
   fi
 done
+done
+# A Rust or C++ image always has personality routines; none at all means the
+# check read the wrong image.
+(( checked == 1 )) || { echo "error: no image of $target has a personality table; wrong path?" >&2; status=1; }
 exit "$status"
