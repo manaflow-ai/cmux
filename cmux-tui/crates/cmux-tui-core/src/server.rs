@@ -112,6 +112,7 @@ mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
+mod browser_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
@@ -841,7 +842,7 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
 }
 
 #[cfg(unix)]
-fn unix_socket_path_fits(path: &Path) -> bool {
+pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     cmux_unix_socket::fits(path)
 }
 
@@ -1025,6 +1026,7 @@ fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> T
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    BrowserHostProvider,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
         terminal_ids: Vec<String>,
@@ -5188,6 +5190,7 @@ pub(crate) struct ClientRegistry {
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
     origin_clock: crate::request_origin::OriginClock,
+    pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     app_trust: app_trust::AppTrust,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
@@ -5206,6 +5209,7 @@ impl ClientRegistry {
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             origin_clock: Default::default(),
+            browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
@@ -12722,6 +12726,7 @@ fn handle_command_with_cancellation(
             }
             Ok(serde_json::to_value(server_stats(mux))?)
         }
+        Command::BrowserHostProvider => browser_host_command::run(mux, client),
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
