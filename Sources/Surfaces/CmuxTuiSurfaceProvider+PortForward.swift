@@ -148,7 +148,10 @@ extension CmuxTuiSurfaceProvider {
     /// was unavailable at materialization time (most commonly a withdrawn
     /// private address). The browser card therefore always has a real retry
     /// action instead of leaving the user on a dead loading surface.
-    private func showPortUnavailable(_ message: String, resourceID: SurfaceResourceID, browser: BrowserPanel) {
+    /// Leaves a recoverable placeholder when a route cannot be materialized yet.
+    /// The retry refreshes the machine metadata before resolving the resource,
+    /// which repairs stale or missing private addresses during session restore.
+    func showPortUnavailable(_ message: String, resourceID: SurfaceResourceID, browser: BrowserPanel) {
         browser.cloudAccess.showUnavailable(message) { [weak self, weak browser] request in
             guard let self, let browser, self.isRegisteredInCatalog() else { return }
             let lifecycle = self.currentLifecycleGeneration
@@ -162,7 +165,9 @@ extension CmuxTuiSurfaceProvider {
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: self.info.privateAddress) {
                 case .privateDirect(let raw):
                     guard let url = URL(string: raw) else { throw ProviderError.invalidPreviewURL }
-                    self.configureBrowser(browser, url: url)
+                    let restoredURL = browser.cloudRestoreURL(on: url)
+                    let configured = self.configureBrowser(browser, url: restoredURL, resourceID: resourceID)
+                    if configured { browser.pendingCloudRestoreURL = nil }
                 case .unsupported(let nextMessage):
                     self.showPortUnavailable(nextMessage, resourceID: resourceID, browser: browser)
                 }
@@ -243,6 +248,24 @@ extension CmuxTuiSurfaceProvider {
                     return endpoint
                 }
             )
+        }
+    }
+
+    /// A settled scan is the authority for staged restored port panes: a port
+    /// it did not find is not listening, so that pane stops showing progress.
+    func settleRestoredPortPanes(scannedPorts: [Int]) {
+        let scanned = Set(scannedPorts)
+        for projection in catalog.pendingRestoredProjections.projections where projection.resource.machine == machine {
+            // Scans omit internal and display ports, so their absence proves nothing.
+            guard let port = projection.resource.forwardedPort, !scanned.contains(port),
+                  !CmuxTuiSnapshotParser.internalPorts.contains(port),
+                  !CmuxTuiSnapshotParser.displayPorts.contains(port),
+                  let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID)
+            else { continue }
+            browser.cloudAccess.failRestore(String(
+                localized: "cloud.display.restoreUnavailable",
+                defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."
+            ))
         }
     }
 
