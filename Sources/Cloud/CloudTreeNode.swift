@@ -805,6 +805,9 @@ enum CloudTreeNodeBuilder {
         let resources = machineResources ?? snapshot.resources(on: machine)
         let terminals = resources.filter { $0.kind == .terminal }
         let displays = info.map { CloudMachineSurfacePresentation.displays(resources: resources, info: $0) } ?? []
+        // Until the link is up, the machine shows only Connecting…: Ports,
+        // Displays, Terminals and Resources wait for it.
+        let isConnecting = info.map { $0.linkState == .connecting } ?? true
         if let info {
             switch info.linkState {
             case .asleep:
@@ -846,7 +849,7 @@ enum CloudTreeNodeBuilder {
             // address; the bare `:<port>` otherwise. Click opens it as a browser
             // pane; the row's menu copies the link. Another Mac exposes no
             // cmux-managed ports or desktop, so device rows skip both groups.
-            if !machine.isDevice {
+            if !machine.isDevice && !isConnecting {
                 let portBrowsers = resources
                     .filter { $0.id.isForwardedPort }
                     .sorted {
@@ -870,7 +873,7 @@ enum CloudTreeNodeBuilder {
             // Ports and Terminals. Personal Macs do not publish Cloud desktop/VNC
             // resources, so omit the category entirely instead of rendering an
             // empty "No displays available" row on every connected device.
-            if !machine.isDevice && (info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty) {
+            if !machine.isDevice && !isConnecting && (info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty) {
                 children.append(CloudTreeNode(
                     id: nodeID(displaysPool: machine),
                     kind: .displaysPool(machine: machine, count: displays.count, canCreate: snapshot.displayCreationMachines?.contains(machine) == true),
@@ -888,7 +891,7 @@ enum CloudTreeNodeBuilder {
                         }) + pendingDisplayRows(machine: machine, snapshot: snapshot)
                 ))
             }
-            if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
+            if !isConnecting && (info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty) {
                 children.append(terminalsGroupNode(
                     machine: machine,
                     terminals: terminals,
@@ -902,7 +905,7 @@ enum CloudTreeNodeBuilder {
         // VM telemetry owns its availability and freshness independently of
         // the terminal link and surface catalog. Another Mac publishes no fleet
         // snapshot, so device rows carry no Resources group.
-        if let machineSnapshot {
+        if let machineSnapshot, !isConnecting {
             children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
         }
         return children

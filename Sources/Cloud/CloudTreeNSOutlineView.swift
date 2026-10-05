@@ -496,10 +496,34 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         }
         let trailing = frame.maxX
         frame.origin.x = panelContentLeading(atRow: row)
+            ?? connectingLeading(atRow: row)
             ?? CloudTreeLayoutMetrics().contentLeading(level: level(forRow: row), style: treeStyle)
         frame.size.width = max(0, trailing - frame.minX)
         return frame
     }
+
+    /// A Cloud machine's "Connecting…" row starts its spinner on the machine
+    /// name's column, so it reads as the machine's status rather than a child
+    /// row; nil for every other row.
+    func connectingLeading(atRow row: Int) -> CGFloat? {
+        guard let node = item(atRow: row) as? CloudTreeNode,
+              case .placeholder(_, let placeholder) = node.kind, placeholder.style == .connecting,
+              let parent = parent(forItem: node) as? CloudTreeNode,
+              case .machine = parent.kind else { return nil }
+        let nameLeading = CloudTreeLayoutMetrics().contentLeading(level: level(forItem: parent), style: treeStyle)
+            + (treeStyle.machineBand ? 6 : 0)
+        // The spinner is centered in its icon slot (`CloudTreePlaceholderContent`);
+        // shift the slot back so the spinner itself starts on the name.
+        return nameLeading - max(0, max(treeStyle.iconSlot, 12) - Self.miniSpinnerSide) / 2
+    }
+
+    private static let miniSpinnerSide: CGFloat = {
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = .mini
+        spinner.sizeToFit()
+        return spinner.frame.width
+    }()
 
     private func redrawVisibleRows() {
         setNeedsDisplay(bounds)
