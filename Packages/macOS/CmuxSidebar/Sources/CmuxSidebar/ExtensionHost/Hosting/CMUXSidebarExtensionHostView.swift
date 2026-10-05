@@ -16,7 +16,7 @@ public import SwiftUI
         private let onDeactivation: (@MainActor ((any Error)?) -> Void)?
         private let onTeardown: (@MainActor () -> Void)?
 
-        fileprivate init(
+        init(
             onConnection: (@MainActor (NSXPCConnection) -> Void)?,
             onDeactivation: (@MainActor ((any Error)?) -> Void)?,
             onTeardown: (@MainActor () -> Void)?
@@ -40,7 +40,7 @@ public import SwiftUI
         }
 
         @MainActor
-        fileprivate func teardown() {
+        func teardown() {
             onTeardown?()
         }
     }
