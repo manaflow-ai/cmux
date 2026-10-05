@@ -72,6 +72,11 @@ public final class MainThreadWatchdog: Sendable {
     /// The stack sampled during the current stall, keyed by beat sequence.
     private let pendingSample = Mutex<(beat: UInt64, addresses: [UInt])?>(nil)
     private let observer = Mutex<ObserverBox?>(nil)
+    /// Tests: runs on the watchdog thread right after a sample, before the
+    /// watchdog publishes it, to hold that thread past the end of a stall.
+    let afterSampleForTesting = Mutex<(@Sendable () -> Void)?>(nil)
+    /// The heartbeat sequence (tests wait for it to move).
+    var currentBeat: UInt64 { beatSequence.load(ordering: .acquiring) }
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "hangs")
 
     public init(configuration: Configuration = Configuration()) {
@@ -216,6 +221,7 @@ public final class MainThreadWatchdog: Sendable {
                 if let sampler {
                     // Raw addresses only: symbolicating here can outlast a short stall.
                     let addresses = sampler.sample()
+                    afterSampleForTesting.withLock { $0 }?()
                     pendingSample.withLock { $0 = (beat, addresses) }
                 }
             }
