@@ -340,6 +340,8 @@ impl Inner {
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
                 ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
+                // Request and response events (page.on("request"), ...).
+                ("Network.enable", json!({})),
             ]
             .into_iter()
             .chain(self.hidden_viewport_step())
@@ -387,6 +389,7 @@ impl Inner {
                     "Page.addScriptToEvaluateOnNewDocument",
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
+                ("Network.enable", json!({})),
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()

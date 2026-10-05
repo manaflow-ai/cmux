@@ -54,6 +54,9 @@ pub struct TabState {
     /// Chromium can report more than one isolated context with the agent
     /// world's name for one document, and not every one runs the agent script.
     pub agent_ready: HashSet<(String, i64)>,
+    /// Requests in flight, for the Network events after their first.
+    pub requests: HashMap<String, super::network::OpenRequest>,
+    pub request_order: std::collections::VecDeque<String>,
     /// Out-of-process frames: frame id -> its own CDP session.
     pub frame_sessions: HashMap<String, String>,
     /// Loader of the main frame's current document.
@@ -88,6 +91,8 @@ impl TabState {
             main_frame: None,
             contexts: HashMap::new(),
             agent_ready: HashSet::new(),
+            requests: HashMap::new(),
+            request_order: std::collections::VecDeque::new(),
             frame_sessions: HashMap::new(),
             loader: None,
             lifecycle: HashSet::new(),
@@ -471,6 +476,11 @@ impl State {
                 if params.get("frameId").and_then(Value::as_str) == tab.main_frame.as_deref() =>
             {
                 tab.download_seq += 1;
+            }
+            network if network.starts_with("Network.") => {
+                if let Some(event) = super::network::event(tab, target_id, network, params) {
+                    applied.events.push(event);
+                }
             }
             "Runtime.consoleAPICalled" => {
                 let text = params

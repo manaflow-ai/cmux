@@ -379,7 +379,11 @@ fn network_events_report_requests_of_the_tab() {
     let mut state = State::default();
     attach(&mut state, "T1", "S1", None);
     let names = |applied: Applied| -> Vec<String> {
-        applied.events.into_iter().map(|e| format!("{}:{}", e.name, e.payload["targetId"])).collect()
+        applied
+            .events
+            .into_iter()
+            .map(|e| format!("{}:{}", e.name, e.payload["targetId"]))
+            .collect()
     };
     let sent = state.apply(&cdp(
         Some("S1"),
