@@ -42,6 +42,9 @@ pub struct Gate {
     /// `net.fetch` calls in flight: the request filter stays installed
     /// while any runs, so every redirect hop meets the range rule.
     fetches: std::sync::atomic::AtomicUsize,
+    /// HOST-FETCH-CORS relaxations (policy op "corsLog"), kept apart from
+    /// the blocked-request log the runtime shows as blockedNavigations().
+    cors_log: Mutex<Vec<Value>>,
     /// The newest requests the filter refused (URL, reason), so a fetch
     /// that failed on a redirect hop can say which hop and why. Not the
     /// agent-visible log: main logs navigations and fetches, not
@@ -72,6 +75,7 @@ impl Gate {
             grants,
             log: Arc::default(),
             fetches: std::sync::atomic::AtomicUsize::new(0),
+            cors_log: Mutex::new(Vec::new()),
             filtered: Arc::default(),
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
@@ -512,6 +516,9 @@ impl Gate {
             "site" => Ok(json!(crate::policy::site_of(args["host"].as_str().unwrap_or("")))),
             // The host's own log of blocked navigations (cmux-next: the host
             // blocks before the request, so the runtime does not see these).
+            "corsLog" => Ok(Value::Array(
+                self.cors_log.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+            )),
             "log" => {
                 Ok(Value::Array(self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()))
             }

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useStore } from "../context";
+import { useSettingsState, useStore } from "../context";
 import { text } from "../strings";
 import { NumberField } from "./NumberField";
 import type { EditorProps } from "./types";
@@ -10,11 +10,13 @@ import type { EditorProps } from "./types";
  */
 export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
+  const { host } = useSettingsState();
   const range = row.range!;
   const stored = typeof value === "number" ? value : null;
   const [drag, setDrag] = useState<number | null>(null);
   const pending = useRef<number | null>(null);
-  const current = drag ?? stored ?? range.placeholder;
+  // Unset: the slider sits where the app resolved the value (the theme's opacity), else the placeholder.
+  const current = drag ?? stored ?? host?.derived?.[row.key] ?? range.placeholder;
   const release = () => {
     const next = pending.current;
     if (next === null) return;
