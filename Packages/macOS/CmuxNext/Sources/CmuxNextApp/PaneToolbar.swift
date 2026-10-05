@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextTabs
 import Observation
 
@@ -99,7 +100,7 @@ extension PaneToolbar {
         guard let id = pane.stripModel.selectedID?.rawValue else { return .terminal }
         if id.hasPrefix(LocalBrowserTab.prefix) { return .browser }
         if pane.services.agentTabs.isAgentTab(id) { return .agent }
-        switch pane.tab(StripTabID(id))?.kind {
+        switch pane.tab(TabID(id))?.kind {
         case .browser?: return .browser
         case .conversation?: return .agent
         default: return .terminal
