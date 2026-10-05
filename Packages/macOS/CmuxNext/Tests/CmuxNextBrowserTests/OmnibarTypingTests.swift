@@ -41,8 +41,15 @@ import Testing
         var bar: AddressBarView { chrome.addressBar }
         var editor: NSTextView? { bar.subviews.compactMap { $0 as? AddressField }.first?.currentEditor() as? NSTextView }
 
+        /// Lets queued main-actor work run, then waits for the omnibar's
+        /// suggestion query in flight (`OmnibarController.pendingQuery`) to
+        /// answer, until no newer query replaced it.
         func settle() async {
             for _ in 0..<50 { await Task.yield() }
+            while let query = bar.controller.pendingQuery {
+                await query.value
+                if bar.controller.pendingQuery == query { break }
+            }
             chrome.layoutSubtreeIfNeeded()
         }
 
