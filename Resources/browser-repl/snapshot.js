@@ -787,15 +787,22 @@
   // Header text comes from the page and reaches the caller's terminal, so
   // escape sequences (CSI, and OSC, DCS, SOS, PM and APC up to their
   // terminator, in 7- and 8-bit forms) and every other C0 or C1 control go,
-  // and a long line is cut with its length.
+  // and a long line is cut with its length. Only the first
+  // HEADER_SCAN_MAX characters are cleaned (a page sets how long its title
+  // is); a sequence cut there goes with the rest, which is counted.
+  const HEADER_SCAN_MAX = HEADER_LINE_MAX * 8;
   function headerLine(text) {
-    const clean = String(text)
+    const raw = String(text);
+    const scanned = raw.length > HEADER_SCAN_MAX ? raw.slice(0, HEADER_SCAN_MAX) : raw;
+    const clean = scanned
       .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]?/g, "")
       .replace(/(?:\u001b[\]PX^_]|[\u0090\u0098\u009d\u009e\u009f])[\s\S]*?(?:\u0007|\u009c|\u001b\\|$)/g, "")
       .replace(/[\t\n\r]/g, " ")
       .replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
-    if (clean.length <= HEADER_LINE_MAX) return clean;
-    return `${clean.slice(0, HEADER_LINE_MAX)}… (${commas(clean.length - HEADER_LINE_MAX)} more characters)`;
+    const unscanned = raw.length - scanned.length;
+    if (clean.length <= HEADER_LINE_MAX && !unscanned) return clean;
+    const shown = clean.slice(0, HEADER_LINE_MAX);
+    return `${shown}… (${commas(clean.length - shown.length + unscanned)} more characters)`;
   }
 
   class Snapshot {

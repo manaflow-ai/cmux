@@ -1258,14 +1258,27 @@
       // The cookies of the page's own data store (cookieScope).
       const cookies = (await session.call("cookies.get", { ...cookieScope(page), ...(urls ? { urls } : {}) })).filter((c) => inScope(String(c.domain || "")));
       // localStorage only from the open tabs in that store (storeTabs).
+      // It is page-controlled, so every frame's is read within what the
+      // call's one page-read budget has left (READ_NODES items and
+      // READ_SIZE characters of names and values over all frames), and
+      // past it the call fails with the note rather than save part of a
+      // state.
       const { targetIds } = await storeTabs(page);
       const origins = new Map();
+      const budget = { left: READ_NODES, sizeLeft: READ_SIZE };
       for (const page of [...session.pages.values()]) {
         if (page._closed || !targetIds.has(page._targetId)) continue;
         for (const frame of [page._mainFrame, ...page._frames.values()]) {
           if (frame._detached) continue;
-          const r = await frame._call("agent", "() => { try { return { origin: location.origin, items: Object.entries(localStorage) }; } catch (e) { return null; } }", []).catch(() => null);
+          const r = await frame._call("agent", localStorageOfFrame, [Math.max(1, budget.left), Math.max(1, budget.sizeLeft)], [], "localStorage").catch(() => null);
           if (!r || !r.origin || r.origin === "null") continue;
+          const report = r.report || {};
+          budget.left -= Math.max(0, Number(report.visited) || 0);
+          budget.sizeLeft -= Math.max(0, Number(report.size) || 0);
+          if (report.truncated || budget.left < 0 || budget.sizeLeft < 0) {
+            const cut = { truncated: report.truncated || (budget.left < 0 ? "nodes" : "size"), maxNodes: READ_NODES, maxSize: READ_SIZE };
+            throw new Error(`session.storageState: ${core.readCutNote("localStorage", cut)}; pass { urls } to save fewer origins`);
+          }
           if (urls && !urls.some((u) => new core.URL(u).origin === r.origin)) continue;
           if (!inScope(new core.URL(r.origin).hostname)) continue;
           origins.set(r.origin, r.items.map(([name, value]) => ({ name, value })));
@@ -1275,6 +1288,29 @@
       if (options.path) fs.writeFileSync(options.path, JSON.stringify(state, null, 2));
       return state;
     }
+    // The frame's origin and localStorage items, read within a page-read
+    // budget of `maxNodes` items and `maxSize` characters (A.budget): each
+    // item is charged before its name and value are kept, and the read
+    // stops at the budget (`report.truncated` says why). Null where the
+    // frame's storage cannot be read (a sandboxed frame).
+    const localStorageOfFrame = `(maxNodes, maxSize) => {
+      try {
+        const B = globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxNodes, maxSize });
+        const storage = localStorage;
+        const items = [];
+        const count = storage.length;
+        for (let i = 0; i < count && B.spend(1); i++) {
+          const name = storage.key(i);
+          if (name === null) continue;
+          const value = storage.getItem(name);
+          if (!B.charge(name.length + (value === null ? 0 : value.length))) break;
+          items.push([name, value === null ? "" : value]);
+        }
+        return { origin: location.origin, items, report: B.report() };
+      } catch (e) {
+        return null;
+      }
+    }`;
     // A page's cookie calls name its tab, so the driver uses that tab's data
     // store (a private tab's, or the session's proxy store), not another's.
     function cookieScope(page) {

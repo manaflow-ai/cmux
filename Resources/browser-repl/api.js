@@ -306,60 +306,6 @@
   // ---------------------------------------------------------------------------
   // Content export (page.exportContent, tabs.content)
 
-  // Runs in the page: its visible content as Markdown.
-  function pageMarkdown() {
-    const skip = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "CANVAS", "IFRAME"]);
-    const clean = (t) => t.replace(/\s+/g, " ");
-    const hidden = (el) => { const cs = getComputedStyle(el); return cs.display === "none" || cs.visibility === "hidden"; };
-    const inline = (node) => {
-      if (node.nodeType === 3) return clean(node.textContent);
-      if (node.nodeType !== 1 || skip.has(node.tagName) || hidden(node)) return "";
-      const inner = [...node.childNodes].map(inline).join("");
-      if (node.tagName === "A" && node.getAttribute("href")) return inner.trim() ? `[${inner.trim()}](${node.href})` : "";
-      if (node.tagName === "B" || node.tagName === "STRONG") return inner.trim() ? `**${inner.trim()}**` : "";
-      if (node.tagName === "EM" || node.tagName === "I") return inner.trim() ? `*${inner.trim()}*` : "";
-      if (node.tagName === "CODE") return "`" + inner + "`";
-      if (node.tagName === "IMG") return node.alt ? `![${node.alt}](${node.src})` : "";
-      if (node.tagName === "BR") return "\n";
-      if (node.tagName === "INPUT" || node.tagName === "TEXTAREA") return node.type === "password" ? "" : node.value ? `\`${node.value}\`` : "";
-      return inner;
-    };
-    const out = [];
-    const block = (node, depth) => {
-      if (node.nodeType === 3) {
-        const t = clean(node.textContent).trim();
-        if (t) out.push(t);
-        return;
-      }
-      if (node.nodeType !== 1 || skip.has(node.tagName) || hidden(node)) return;
-      const tag = node.tagName;
-      const m = /^H([1-6])$/.exec(tag);
-      if (m) return void out.push("#".repeat(Number(m[1])) + " " + inline(node).trim());
-      if (tag === "P" || tag === "SUMMARY" || tag === "LABEL" || tag === "BUTTON") return void (inline(node).trim() && out.push(inline(node).trim()));
-      if (tag === "PRE") return void out.push("```\n" + node.innerText + "\n```");
-      if (tag === "UL" || tag === "OL") {
-        let n = 0;
-        for (const li of node.children) if (li.tagName === "LI") out.push(`${"  ".repeat(depth)}${tag === "OL" ? `${++n}.` : "-"} ${inline(li).trim()}`);
-        return;
-      }
-      if (tag === "TABLE") {
-        const rows = [...node.rows].map((r) => "| " + [...r.cells].map((c) => inline(c).trim().replace(/\|/g, "\\|")).join(" | ") + " |");
-        if (rows.length) out.push([rows[0], "| " + [...node.rows[0].cells].map(() => "---").join(" | ") + " |", ...rows.slice(1)].join("\n"));
-        return;
-      }
-      if (tag === "BLOCKQUOTE") return void out.push("> " + inline(node).trim());
-      const hasBlock = [...node.children].some((c) => /^(DIV|P|H[1-6]|UL|OL|TABLE|SECTION|ARTICLE|MAIN|NAV|HEADER|FOOTER|ASIDE|FORM|PRE|BLOCKQUOTE|DETAILS|FIELDSET|FIGURE|LI)$/.test(c.tagName));
-      if (!hasBlock) {
-        const t = inline(node).trim();
-        if (t) out.push(t);
-        return;
-      }
-      for (const c of node.childNodes) block(c, depth);
-    };
-    block(document.body || document.documentElement, 0);
-    return `# ${document.title}\n\n<${location.href}>\n\n` + out.filter(Boolean).join("\n\n") + "\n";
-  }
-
   // Google Workspace export endpoints for a Docs, Sheets or Slides URL.
   const GOOGLE_FORMATS = {
     document: ["pdf", "md", "docx", "txt", "odt", "rtf", "html", "epub"],
@@ -419,6 +365,9 @@
     return lines.join("\n") + (lines.length ? "\n" : "");
   }
 
+  // The longest page title an export's heading keeps.
+  const EXPORT_TITLE_MAX = 500;
+
   function createExporter({ fetch, fs, path, host, Buffer }) {
     let n = 0;
     const target = (options, ext) => {
@@ -429,8 +378,13 @@
       return path.join(dir, `export-${++n}${ext}`);
     };
     return {
+      // The page's Markdown is page.markdown()'s, read within the
+      // page-read budget (a page past it ends with the cut note), under a
+      // title (cut at EXPORT_TITLE_MAX characters) and the page's URL.
       async markdown(page, options) {
-        const text = await page.evaluate(pageMarkdown);
+        const title = String((await page.title()) || "").replace(/\s+/g, " ");
+        const heading = title.length > EXPORT_TITLE_MAX ? `${title.slice(0, EXPORT_TITLE_MAX)}…` : title;
+        const text = `# ${heading}\n\n<${page.url()}>\n\n${await page.markdown()}`;
         const file = target(options, ".md");
         fs.writeFileSync(file, text);
         return file;
@@ -843,5 +797,5 @@
     return { globals, show, importModule, state };
   }
 
-  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, pageMarkdown, googleExportURL, youtubeVideoId, youtubeCaptionURL, YOUTUBE_CAPTION_HOSTS, transcriptText };
+  ns.api = { createGlobals, createPath, createFs, inspect, Image, imageSize, googleExportURL, youtubeVideoId, youtubeCaptionURL, YOUTUBE_CAPTION_HOSTS, transcriptText };
 })(typeof globalThis !== "undefined" ? globalThis : this);
