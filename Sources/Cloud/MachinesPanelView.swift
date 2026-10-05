@@ -2,7 +2,6 @@ import CmuxCloudBannerCore
 import CmuxCloud
 import AppKit
 import CmuxCloudMachines
-import CmuxControlSocket
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import SwiftUI
@@ -502,30 +501,16 @@ struct MachinesPanelView: View {
     @MainActor
     private func refreshCoderouterAccounts() async {
         guard let teamID = accountFlow?.confirmedTeamID,
-              !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let client = AIAccountsClient.shared else {
+              !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             coderouterAccounts = []
             return
         }
         do {
-            let values = try await client.list(teamID: teamID)
-            coderouterAccounts = values.compactMap(Self.coderouterAccount(from:))
+            let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
+            coderouterAccounts = try await CoderouterCLIAccountReader.accounts(for: teamName)
         } catch {
             // Keep the last successful snapshot during a transient refresh failure.
         }
-    }
-
-    private static func coderouterAccount(from value: JSONValue) -> CloudTreeNode.CoderouterAccount? {
-        guard case .object(let object) = value,
-              case .string(let id)? = object["id"],
-              case .string(let provider)? = object["kind"] ?? object["provider"] else {
-            return nil
-        }
-        let label: String?
-        if case .string(let value)? = object["label"] { label = value } else { label = nil }
-        let state: String?
-        if case .string(let value)? = object["state"] { state = value } else { state = nil }
-        return CloudTreeNode.CoderouterAccount(id: id, provider: provider, label: label, state: state)
     }
 
     @MainActor
