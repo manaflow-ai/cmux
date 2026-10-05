@@ -32,12 +32,12 @@ struct BillingPlanCopy: Equatable {
         case .pro:
             [
                 L10n.string("mobile.billing.plan.pro.machines", defaultValue: "Up to 5 Cloud VMs"),
-                L10n.string("mobile.billing.plan.pro.size", defaultValue: "Up to 4 vCPUs and 8 GB RAM per VM"),
+                L10n.string("mobile.billing.plan.pro.size", defaultValue: "Sharing 20 vCPUs and 40 GB RAM"),
             ]
         case .max:
             [
                 L10n.string("mobile.billing.plan.max.machines", defaultValue: "Up to 5 Cloud VMs"),
-                L10n.string("mobile.billing.plan.max.size", defaultValue: "Up to 16 vCPUs and 32 GB RAM per VM"),
+                L10n.string("mobile.billing.plan.max.size", defaultValue: "Sharing 80 vCPUs and 160 GB RAM"),
             ]
         default:
             []

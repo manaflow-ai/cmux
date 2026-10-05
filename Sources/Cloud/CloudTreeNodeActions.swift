@@ -79,12 +79,10 @@ struct CloudTreeNodeActions {
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered or selected Cloud machine.
     var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
-    /// Pops up a row's context menu from its trailing "⋯" button. The outline
-    /// coordinator binds it per cell, so the button and a right-click show the
-    /// same menu.
+    /// Pops up a row's context menu from its trailing "⋯" button. Bound per
+    /// cell, so the button and a right-click show the same menu.
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
-    /// Opens a machine's detail tab, or closes it when it is open. Bound per
-    /// cell by the outline coordinator.
+    /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
@@ -111,6 +109,9 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
+        // Trusted, user-facing guidance (ownership and availability hints).
+        // Without a separate sink it shares the failure path.
+        onHint: (@MainActor (String) -> Void)? = nil,
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
         workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil }
@@ -529,21 +530,22 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
-        actions.showHint = onFailure
+        let onHint = onHint ?? onFailure
+        actions.showHint = onHint
         actions.showDisplayOpenHint = { resource in
             guard let workspaceID = selectedWorkspaceID(),
                   let workspace = Workspace.liveWorkspace(id: workspaceID) else {
                 // A display must never open until the selected destination's
                 // ownership is known. This also covers a stale selection while
                 // the Cloud workspace list is switching machines.
-                onFailure(SurfaceTransferRejection.cloudMachineMismatch.message)
+                onHint(SurfaceTransferRejection.cloudMachineMismatch.message)
                 return true
             }
             guard let rejection = workspace.surfaceOwnershipPolicy.rejection(
                 for: resource.machine,
                 kind: resource.kind
             ) else { return false }
-            onFailure(rejection.message)
+            onHint(rejection.message)
             return true
         }
         actions.openWorkspace = { machine, workspace, group in
@@ -603,7 +605,7 @@ struct CloudTreeNodeActions {
             if let target,
                let workspace = Workspace.liveWorkspace(id: target.workspaceID),
                let rejection = workspace.surfaceOwnershipPolicy.rejection(for: machine, kind: .display) {
-                onFailure(rejection.message)
+                onHint(rejection.message)
                 return
             }
             run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in

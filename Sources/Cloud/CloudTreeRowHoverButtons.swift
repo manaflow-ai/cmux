@@ -12,9 +12,11 @@ struct CloudTreeRowHoverButtons: View {
 
     var body: some View {
         switch kind {
+        // The section headers' refresh icons sit after their counts
+        // (`CloudTreeSectionRefreshHeader`), not with these buttons.
         case .devicesSection(let section):
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
-        case .cloudMachinesSection(let canCreateMachine, _):
+        case .cloudMachinesSection(let canCreateMachine, _, _):
             if canCreateMachine {
                 plus(String(localized: "machines.new", defaultValue: "New Machine")) {
                     nodeActions.newMachine()
@@ -124,7 +126,7 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
-        case .cloudMachinesSection(let canCreateMachine, _):
+        case .cloudMachinesSection(let canCreateMachine, _, _):
             return canCreateMachine
         case .pendingMachine:
             return true

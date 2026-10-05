@@ -300,6 +300,13 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     /// Loads the authoritative fleet page for one open sheet and ignores stale results.
     private func beginPlanLoad(model: NewMachineModel, selectionID: UUID) {
         planLoadTask?.cancel()
+        // A warmed cache is the normal path after sign-in or opening the
+        // Cloud sidebar. Apply it before waiting on a fresh fleet read so the
+        // sheet is immediately complete, then revalidate stale data below.
+        if let cached = dataCache?.currentData, cached.hasPlan {
+            Self.apply(cached, to: model, includingPlan: true)
+            if dataCache?.readyData != nil { return }
+        }
         if model.plan == nil { model.setPlanLoading() }
         planLoadTask = Task { @MainActor [weak self, weak model] in
             guard let self, let model else { return }
