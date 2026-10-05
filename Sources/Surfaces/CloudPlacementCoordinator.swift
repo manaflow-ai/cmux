@@ -346,10 +346,14 @@ final class CloudPlacementCoordinator {
         presentFailure: Bool = true,
         operation: @escaping @MainActor () async throws -> Bool
     ) -> Task<Void, Never> {
-        enqueue(resource: projection.resource, catalog: catalog, onFailure: presentFailure ? { [weak self] error, provider in
-            self?.reportFailure(projection, error)
-            self?.refreshAfterFailure(machine: projection.resource.machine, provider: provider, catalog: catalog)
-        } : nil, operation: operation)
+        var onFailure: (@MainActor (Error, any SurfaceProvider) -> Void)?
+        if presentFailure {
+            onFailure = { [weak self] error, provider in
+                self?.reportFailure(projection, error)
+                self?.refreshAfterFailure(machine: projection.resource.machine, provider: provider, catalog: catalog)
+            }
+        }
+        return enqueue(resource: projection.resource, catalog: catalog, onFailure: onFailure, operation: operation)
     }
 
     /// Runs `operation` on `resource`'s machine lane, after every operation
