@@ -134,6 +134,7 @@ jobs:
           set -euo pipefail
           superseded=false
           run_macos=true
+          same_tree_head=false
 
           remote_sha=""
           authorization=""
@@ -169,9 +170,8 @@ jobs:
               && current_key="$(python3 scripts/ci/cmux_tui_tree_key.py "$remote_sha" 2>/dev/null)" \
               && [[ "$current_key" =~ ^[0-9a-f]{40}$ ]]; then
               if [[ "$current_key" == "$key" ]]; then
-                superseded=true
-                run_macos=false
-                echo "Superseded feat-cmux-next push $SHA; current branch head $remote_sha has the same tree key $key."
+                same_tree_head=true
+                echo "A newer feat-cmux-next head $remote_sha has the same tree key $key; checking publication completeness before superseding $SHA."
               else
                 echo "Current feat-cmux-next head $remote_sha has tree key $current_key; retaining publication for superseded tree $key."
               fi
@@ -219,6 +219,18 @@ jobs:
           fi
           if [[ "$tree_ready" == true ]]; then
             echo "Published tree $key and all daemon companions are ready; macOS build can be skipped."
+          fi
+
+          # A newer commit with the same inputs may supersede this run only
+          # after the immutable tree is complete. If the newer publisher was
+          # cancelled or skipped before publishing, this run must remain the
+          # repair publisher for the missing key.
+          if [[ "$same_tree_head" == true && "$tree_ready" == true ]]; then
+            superseded=true
+            run_macos=false
+            echo "Superseded feat-cmux-next push $SHA; current branch head has the same complete tree key $key."
+          elif [[ "$same_tree_head" == true ]]; then
+            echo "Same tree key $key is incomplete; retaining publication for superseded push $SHA."
           fi
           echo "tree_ready=$tree_ready" >> "$GITHUB_OUTPUT"
 
