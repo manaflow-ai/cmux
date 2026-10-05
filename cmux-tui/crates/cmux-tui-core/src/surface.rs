@@ -6840,14 +6840,14 @@ impl PtySurface {
                 pending_sequence: replay.pending_sequence.into(),
             };
             if grid_changed {
-                self.broadcast_attach_frame(frame);
+                self.publish_resize_locked(&term, Some(frame));
             } else {
                 // A cell-pixel-only change reflows nothing: snapshot viewers
                 // keep their grid and generation.
                 self.broadcast_attach_frame_to_replay_taps(frame);
             }
         } else if grid_changed {
-            self.resync_snapshot_taps();
+            self.publish_resize_locked(&term, None);
         }
         // Geometry changes are terminal-stream transitions too. Publish the
         // revision before releasing the parser lock so screen snapshots have

@@ -11,6 +11,8 @@ import PackageDescription
 // (UIKey.keyCode); macOS keeps Mac virtual keycodes. Since 68ac618db a
 // GHOSTSNP READY restore applies this surface's palette, default colors and
 // cursor defaults as local policy (ghostty-next PR 20).
+// Since bbb7320b4 it restores a READY cut at the owner's resize with the
+// surface's own reflowed history, checked by the history digest (PR 23).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -35,8 +37,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-68ac618db09623a3582d7b1e7cd5c9c61416973a-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "019921efbe46fe2c627f62dbf88d138fdefd042c9f42de1dba2e26fa2efaa401"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-bbb7320b451edb0ca0eee898c6bc4a8a15a5705d-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa"
         ),
     ]
 )
