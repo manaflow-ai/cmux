@@ -93,6 +93,7 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     isolated deinit {
         faviconTask?.cancel()
+        rateReshow?.cancel()
     }
 
     /// WKWebView paints white behind every page by default. macOS has no
@@ -240,6 +241,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed else { return }
         isClosed = true
         faviconTask?.cancel()
+        rateReshow?.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         observations.removeAll()

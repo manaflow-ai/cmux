@@ -226,15 +226,15 @@ public final class AgentPaneView: NSView {
     lazy var snapshotPage: () async -> NSImage? = { [weak self] in
         try? await self?.webView.takeSnapshot(configuration: nil)
     }
-    /// Waits out the re-apply's steps (tests set it).
-    var pause: (Duration) async -> Void = WebKitRenderRate.livePause
+    /// Times the re-apply's steps (tests set it).
+    var clock: any Clock<Duration> = ContinuousClock()
 
     /// WebKit reads the rate only when the page's visibility changes: the
     /// shared re-show hides the web view for a moment under a snapshot of
     /// the page. The adaptive rate changes only after a scroll settles, so
     /// the snapshot matches what is on screen.
     private func reapplyRenderRate() {
-        rateReapply = WebKitRenderRate.reshow(webView, after: rateReapply, snapshot: snapshotPage, pause: pause)
+        rateReapply = WebKitRenderRate.reshow(webView, replacing: rateReapply, snapshot: snapshotPage, clock: clock)
     }
 
     /// Toggle Dictation (the shortcut, palette or menu). From a key press,
@@ -282,6 +282,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
         if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }

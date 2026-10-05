@@ -85,7 +85,7 @@ struct WebKitFrameRateTests {
         engine.displayFramesPerSecond = { _ in display }
         engine.rateReshowSnapshot = { NSImage(size: NSSize(width: 400, height: 300)) }
         var steps: [(hidden: Bool, covered: Bool)] = []
-        engine.rateReshowPause = { [unowned tab] _ in
+        engine.rateReshowClock = StepClock { [unowned tab] _ in
             steps.append((tab.webView.isHidden, tab.contentView.subviews.contains { $0 is NSImageView }))
         }
         power.override = true

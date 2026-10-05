@@ -26,10 +26,10 @@ public final class WebKitEngine: BrowserEngine {
     private let openTabs = NSHashTable<WebKitTab>.weakObjects()
     /// The highest rate of a window's display (tests replace it).
     var displayFramesPerSecond: (NSWindow) -> Int = { $0.screen?.maximumFramesPerSecond ?? 60 }
-    /// Steps of re-showing a live page after a rate change; nil snapshot
-    /// takes WebKit's (tests replace both).
+    /// Re-showing a live page after a rate change: nil snapshot takes
+    /// WebKit's; the clock times its steps (tests replace both).
     var rateReshowSnapshot: (() async -> NSImage?)?
-    var rateReshowPause: (Duration) async -> Void = WebKitRenderRate.livePause
+    var rateReshowClock: any Clock<Duration> = ContinuousClock()
     /// Per-profile site permissions, shared with the Chromium engine.
     public var siteSettings: SiteSettingsRegistry = .shared
     /// Browser passkey authorization (one per app; tests inject a fake).
@@ -101,7 +101,7 @@ public final class WebKitEngine: BrowserEngine {
         guard WebKitRenderRate.framesPerSecond(lowPowerMode: !fullRate, displayMaxFPS: display)
                 != WebKitRenderRate.framesPerSecond(lowPowerMode: fullRate, displayMaxFPS: display) else { return }
         let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
-        tab.rateReshow = WebKitRenderRate.reshow(webView, after: tab.rateReshow, snapshot: snapshot, pause: rateReshowPause)
+        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
     }
 
     private func makeConfiguration(for profile: BrowserProfileID) -> WKWebViewConfiguration {
