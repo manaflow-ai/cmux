@@ -10490,7 +10490,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let cmuxConfigStore = CmuxConfigStore()
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
-        refreshCmuxConfigDiagnostics()
 
         let fileExplorerState = FileExplorerState()
 #if DEBUG
@@ -10668,6 +10667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        refreshCmuxConfigDiagnostics()
         restoreWindowDockSessionSnapshot(
             forWindowId: windowId,
             from: sessionWindowSnapshot,
