@@ -21,7 +21,8 @@ export interface VmTag {
 
 /** One raw provider: `find` by name (null = none), `create` under a name, `delete` by provider id (404 = success). */
 export interface RawCloudDriver {
-  find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown> } | null>
+  /** `state`: the VM's provider state when the same answer carries it (Freestyle GET /v5/vms/{x}). */
+  find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown>; readonly state?: string | null } | null>
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
   create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
   delete(id: string): Promise<void>
@@ -203,6 +204,16 @@ export class GuardedCloudDriver {
     return this.raw.resources(found.id)
   }
 
+  /** The real provider state of our VM under `name`; `gone` when no VM is there (a cheap read for connect_info and link_token). */
+  async stateOf(name: string, tag: VmTag): Promise<{ state: string | null; gone: boolean }> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) return { state: null, gone: true }
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    // One GET: the find answer carries the state (review P2-3); a second read only when it does not.
+    return { state: found.state !== undefined ? found.state : await this.raw.state(found.id), gone: false }
+  }
+
   /** Deletes the VM under `name`; no VM there is success. */
   async remove(name: string, tag: VmTag): Promise<void> {
     this.guard(name)
@@ -222,9 +233,10 @@ export const LIST_PAGE = 100
 
 /**
  * The create body (Freestyle SDK 0.2.10 CreateVmOptions, web/services/vms/drivers/freestyle.ts):
- * - idleTimeoutSeconds: the machine's idle policy; our 0 (never pause) is Freestyle's -1.
- * - autoDeleteSeconds -1: a user machine is persistent, never deleted for not running (on a plan
- *   that caps it, -1 gets the cap). automaticRestart stays at its default, true.
+ * - Every Freestyle timer is -1 (coordinator, 2026-10-05): idleTimeoutSeconds, autoDeleteSeconds,
+ *   ttlSeconds, maxRunSeconds, maxRunTotalSeconds. Freestyle never pauses, stops or deletes a machine
+ *   by itself, so our record stays true; idle is ours (the 24 h backstop and cloud.idlePause, from the
+ *   VM's own reports, on the money-op path). automaticRestart true.
  * - firewall: a VM gets nothing implicitly; this allows egress to every publicly routable address.
  *   `public: true` selects by address, so it does not cover private or VPC addresses. The machine
  *   joins no VPC at create (no `vpcs`), so no VPC rule is needed now; the VPC attach work (lane 12)
@@ -232,11 +244,15 @@ export const LIST_PAGE = 100
  * - size: create takes no resources (the snapshot decides; resize is a separate, grow-only call),
  *   so the plan checks cpu, memory and disk but the size is not sent yet.
  */
-export const createBody = (name: string, snapshot: string, tag: VmTag, opts: CreateOptions) => ({
+export const createBody = (name: string, snapshot: string, tag: VmTag, _opts: CreateOptions) => ({
   slug: name,
   snapshotId: snapshot,
-  idleTimeoutSeconds: opts.idleSeconds === 0 ? -1 : opts.idleSeconds,
+  idleTimeoutSeconds: -1,
   autoDeleteSeconds: -1,
+  ttlSeconds: -1,
+  maxRunSeconds: -1,
+  maxRunTotalSeconds: -1,
+  automaticRestart: true,
   metadata: { cmux_next_team: tag.team, cmux_next_machine: tag.machine },
   firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
 })
@@ -280,7 +296,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     const got = await this.call("GET", `/v5/vms/${encodeURIComponent(name)}`)
     if (got.status === 404) return null
     if (got.status !== 200) this.fail(got.status, got.json, "read VM")
-    return this.vm(got.json)
+    return { ...this.vm(got.json), state: typeof got.json.state === "string" ? got.json.state : null }
   }
 
   async create(name: string, tag: VmTag, opts: CreateOptions) {

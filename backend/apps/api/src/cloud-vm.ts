@@ -57,6 +57,14 @@ export class VmStatusQueue {
     )
     return applyNow
   }
+  /** When the last report for `machine` was applied (the cost backstop's "last heard"), or null. */
+  lastAppliedAt(machine: string): number | null {
+    if (!this.ready && this.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE name = 'cloud_vm_status'`)[0]?.n === 0) return null
+    this.table()
+    const r = this.sql.exec<{ t: number }>(`SELECT applied_at AS t FROM cloud_vm_status WHERE machine = ?`, machine)[0]
+    return r && Number(r.t) > 0 ? Number(r.t) : null
+  }
+
   /** When the next held report may apply, or null. */
   dueAt(): number | null {
     if (!this.ready && this.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE name = 'cloud_vm_status'`)[0]?.n === 0) return null
