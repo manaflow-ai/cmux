@@ -17,6 +17,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var opened = false
         var inbox: [String] = []
         var inboxBytes = 0
+        /// Daemon frames received and not checked yet, and whether a pass over them is running.
+        var raw: [String] = []
+        var rawBytes = 0
+        var processing = false
         var signaled = false
         var outstanding = 0
         var outstandingBytes = 0
@@ -31,6 +35,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let ids: AcpmuxRequestIds
     private let signal: @Sendable () -> Void
     private let state = Mutex(State())
+    /// Checks the daemon's frames in passes, in order, while the receive loop goes on.
+    private let inbound = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.inbound", qos: .userInitiated)
 
     init(request: URLRequest, limits: AgentPaneTransport.Limits, options: AcpmuxPermissionOptions,
          sessions: AcpmuxPaneSessions, ids: AcpmuxRequestIds, signal: @escaping @Sendable () -> Void) {
@@ -83,43 +89,83 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         }
     }
 
-    /// A frame for the page: from the daemon (its ids mapped back, unknown replies dropped), or
-    /// the relay's own answer to a refused request (`fromDaemon` false).
-    private func arrived(_ received: String, fromDaemon: Bool = true) {
-        let text: String
-        if fromDaemon {
-            switch ids.toPage(received) {
-            case .drop: return
-            case .close: return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
-            case .page(let fresh, let object, let method):
-                // The observers read the same parse the page gets.
-                options.observe(object, replyTo: method)
-                sessions.observe(object)
-                text = fresh
-            }
-        } else {
-            text = received
-        }
-        let bytes = text.utf8.count
-        let (wake, overflow) = state.withLock { state -> (Bool, Bool) in
+    /// A daemon frame: it waits for the next pass (``process()``), which checks every waiting
+    /// frame in one hop. The bound covers the frames waiting and the frames queued for the page.
+    private func arrived(_ received: String) {
+        let bytes = received.utf8.count
+        let (start, overflow) = state.withLock { state -> (Bool, Bool) in
             guard state.closed == nil else { return (false, false) }
-            if state.inbox.count >= limits.maximumQueuedFrames || state.inboxBytes + bytes > limits.maximumQueuedBytes {
+            if state.raw.count + state.inbox.count >= limits.maximumQueuedFrames
+                || state.rawBytes + state.inboxBytes + bytes > limits.maximumQueuedBytes {
                 return (false, true)
             }
-            state.inbox.append(text)
-            state.inboxBytes += bytes
-            guard !state.signaled else { return (false, false) }
-            state.signaled = true
+            state.raw.append(received)
+            state.rawBytes += bytes
+            guard !state.processing else { return (false, false) }
+            state.processing = true
             return (true, false)
         }
         if overflow { close(code: 1008, reason: "inbound overflow", error: .inboundOverflow) }
+        if start { inbound.async { [self] in process() } }
+    }
+
+    /// One pass after another over the waiting daemon frames, in order: the duplicate check, one
+    /// parse, the observers (from that parse), the fresh serialization; then one wake for the page.
+    private func process() {
+        var batch = takeRaw()
+        while !batch.isEmpty {
+            var page: [String] = []
+            for text in batch {
+                switch ids.toPage(text) {
+                case .drop:
+                    continue
+                case .close:
+                    enqueue(page)
+                    state.withLock { $0.processing = false }
+                    return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
+                case .page(let fresh, let object, let method):
+                    // The observers read the same parse the page gets.
+                    options.observe(object, replyTo: method)
+                    sessions.observe(object)
+                    page.append(fresh)
+                }
+            }
+            enqueue(page)
+            batch = takeRaw()
+        }
+    }
+
+    /// The waiting daemon frames; an empty take ends the pass (under the same lock as `arrived`).
+    private func takeRaw() -> [String] {
+        state.withLock { state in
+            let batch = state.raw
+            state.raw = []
+            state.rawBytes = 0
+            if batch.isEmpty { state.processing = false }
+            return batch
+        }
+    }
+
+    /// Frames for the page, in order, with one wake for the pacer.
+    private func enqueue(_ frames: [String]) {
+        guard !frames.isEmpty else { return }
+        let bytes = frames.reduce(0) { $0 + $1.utf8.count }
+        let wake = state.withLock { state -> Bool in
+            guard state.closed == nil else { return false }
+            state.inbox.append(contentsOf: frames)
+            state.inboxBytes += bytes
+            guard !state.signaled else { return false }
+            state.signaled = true
+            return true
+        }
         if wake { signal() }
     }
 
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
-    func inject(_ text: String) { arrived(text, fromDaemon: false) }
+    /// The relay's own answer to a refused request, straight to the page.
+    func inject(_ text: String) { enqueue([text]) }
 
     /// Up to `maximumFrames` frames and `maximumBytes` bytes (at least one frame), and the close
     /// once every frame before it was taken. Dropped queues on an overflow close are not kept.
