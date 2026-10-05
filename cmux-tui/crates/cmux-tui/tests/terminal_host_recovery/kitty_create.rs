@@ -101,11 +101,8 @@ fn a_hosted_png_reaches_a_snapshot_images_viewer() {
     stream.set_read_timeout(Some(test_timeout(Duration::from_secs(10)))).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
-    let identity = stream_request(
-        &mut writer,
-        &mut reader,
-        serde_json::json!({"id": 2, "cmd": "identify"}),
-    );
+    let identity =
+        stream_request(&mut writer, &mut reader, serde_json::json!({"id": 2, "cmd": "identify"}));
     assert!(
         identity["capabilities"]
             .as_array()
@@ -118,9 +115,10 @@ fn a_hosted_png_reaches_a_snapshot_images_viewer() {
         writer,
         "{}",
         serde_json::json!({
-            "id": 3, "cmd": "attach-surface", "surface": surface, "cols": 80, "rows": 24,
+            // The app's attach: its own size and local history as well.
+            "id": 3, "cmd": "attach-surface", "surface": surface, "cols": 100, "rows": 30,
             "snapshot": "ghostsnp", "snapshot_version": ghostty_vt::snapshot_version(),
-            "snapshot_images": true,
+            "snapshot_images": true, "snapshot_local_history": true,
         })
     )
     .unwrap();
