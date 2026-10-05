@@ -24,8 +24,8 @@ extension SurfaceCatalog {
             // A display tab renames the display itself, so the sidebar and every
             // other pane of it follow. The local title applies right away; the
             // daemon's name settles it.
-            let id = projection.resource
-            Task { [weak self] in try? await self?.renameDisplay(id, name: title ?? "") }
+            (provider(for: projection.resource.machine) as? CmuxTuiSurfaceProvider)?
+                .renameDisplayFromTab(displayID: projection.resource.key, name: title ?? "")
             return nil
         }
         guard let projection = projection(forPanel: panelID), projection.workspaceID == workspace.id,

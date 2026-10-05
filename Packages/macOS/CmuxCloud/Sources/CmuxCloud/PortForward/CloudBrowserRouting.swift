@@ -72,6 +72,11 @@ public struct CloudBrowserRouting: Sendable {
             }
         } catch {
             try Task.checkCancellation()
+            // The desktop answered the tunnel and then reset or refused the
+            // connection: it is there but not serving noVNC.
+            if case .posix(let code) = error as? NWError, code == .ECONNRESET || code == .ECONNREFUSED {
+                return .unreachable
+            }
             return .unknown
         }
     }

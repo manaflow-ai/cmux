@@ -56,6 +56,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var memberDisplayDiscovery: Task<Void, Never>?
     /// Display names last applied to display rows and pane titles.
     var appliedDisplayNames: [String: String]?
+    /// Display renames from pane tabs, in the order they were typed.
+    var displayRenameLane: Task<Void, Never>?
     var memberDisplayDiscoveryAttempts: (generation: UInt64, count: Int) = (0, 0)
     let refreshCoordinator = CloudProviderRefreshCoordinator()
     let terminalMutationQueue = CloudTerminalMutationQueue()

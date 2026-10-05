@@ -14,4 +14,7 @@ protocol CloudDisplayMembershipSyncing: AnyObject {
         panelID: UUID,
         attached: Bool
     ) async throws
+
+    /// Removes `displayID` from the workspace for every client and view.
+    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws
 }

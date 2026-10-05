@@ -622,29 +622,10 @@ struct CloudTreeNodeActions {
             }
         }
         actions.removeDisplayFromWorkspace = { resource, view in
+            // Removes the display from that Cloud workspace for every client,
+            // as closing its pane does.
             let catalog = catalog()
-            // Closing the pane is the removal: a closed display pane fences its
-            // membership and removes it from the workspace on the VM.
-            let panes = catalog.projections.filter { projection in
-                projection.resource == resource.id
-                    && (projection.panelID.uuidString.lowercased() == view.cloudDisplayMembershipViewID
-                        || projection.remoteWorkspaceID == view.workspace.id)
-            }
-            if !panes.isEmpty {
-                for pane in panes {
-                    _ = Workspace.liveWorkspace(id: pane.workspaceID)?.closePanel(pane.panelID, force: true)
-                }
-                return
-            }
-            // No pane on this Mac: remove this Mac's own membership, if the row is one.
-            let clientID = CloudTuiClientPaths().notificationClientID()
-            guard let viewID = view.cloudDisplayMembershipViewID,
-                  let token = catalog.cloudStates[resource.id.machine]?.displayMemberships.first(where: {
-                      $0.viewID == viewID && $0.displayID == resource.id.key && $0.clientID == clientID
-                  }),
-                  let provider = catalog.provider(for: resource.id.machine) as? any CloudDisplayMembershipSyncing
-            else { return }
-            catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)
+            catalog.cloudPlacementCoordinator.removeDisplay(resource.id, fromCloudWorkspace: view.workspace.id, catalog: catalog)
         }
         actions.newDisplay = { machine in
             let target = try? destination(.split)

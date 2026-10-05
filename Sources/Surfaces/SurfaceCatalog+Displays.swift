@@ -136,6 +136,9 @@ extension SurfaceCatalog {
     private func discardReservedDisplayPane(_ pane: (workspaceID: UUID, panelID: UUID), error: Error) {
         SurfacePaneFactory.close(panelID: pane.panelID, in: pane.workspaceID)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else { return }
+        // The pane stays (a workspace's last surface): it no longer starts a display.
+        Workspace.liveWorkspace(id: pane.workspaceID)?.setPanelCustomTitle(
+            panelId: pane.panelID, title: nil, source: .remote, propagateToCloud: false, catalog: self)
         browser.cloudAccess.showUnavailable(
             error is CancellationError
                 ? String(localized: "cloud.display.creationFailed", defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged.")

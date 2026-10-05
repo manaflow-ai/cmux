@@ -168,7 +168,7 @@ final class CloudWorkspaceProjectionCoordinator {
             }
             let group = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: remoteID)
             let desired = (group?.placements ?? []).filter {
-                !catalog.cloudPlacementCoordinator.isPendingClose($0, on: machine)
+                !catalog.cloudPlacementCoordinator.isPendingClose($0, on: machine, workspaceID: remoteID)
             }
             let existing = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
             let plan = CloudWorkspaceProjectionPlan(desired: desired, existing: Array(existing))
@@ -289,7 +289,8 @@ extension CloudWorkspaceProjectionCoordinator {
             .filter { $0.resource.machine == machine && $0.resource.kind == .display }
             .map { $0.panelID.uuidString.lowercased() })
         for token in state.displayMemberships
-        where token.workspaceID == remoteWorkspaceID && token.clientID == clientID && !live.contains(token.viewID) {
+        where token.workspaceID == remoteWorkspaceID && token.clientID == clientID && !live.contains(token.viewID)
+            && catalog.cloudPlacementCoordinator.ownedDisplayViewIDs.contains(token.viewID) {
             catalog.cloudPlacementCoordinator.removeOrphanedDisplayMembership(token, provider: provider)
         }
     }

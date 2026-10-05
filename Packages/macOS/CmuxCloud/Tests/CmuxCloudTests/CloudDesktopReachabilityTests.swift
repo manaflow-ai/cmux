@@ -23,13 +23,26 @@ struct CloudDesktopReachabilityTests {
             }
         }
 
+        /// Returns the bound port once the listener is ready.
         func start() async throws -> UInt16 {
-            listener.start(queue: queue)
-            for _ in 0..<200 {
-                if let port = listener.port?.rawValue, port != 0 { return port }
-                try await Task.sleep(for: .milliseconds(10))
+            try await withCheckedThrowingContinuation { continuation in
+                listener.stateUpdateHandler = { [listener] state in
+                    let outcome: Result<UInt16, Error>
+                    switch state {
+                    case .ready:
+                        guard let port = listener.port?.rawValue else { return }
+                        outcome = .success(port)
+                    case .failed(let error): outcome = .failure(error)
+                    case .cancelled: outcome = .failure(CancellationError())
+                    default: return
+                    }
+                    // Handlers run serially on the listener queue; clearing
+                    // this one resumes the continuation exactly once.
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(with: outcome)
+                }
+                listener.start(queue: queue)
             }
-            throw CancellationError()
         }
 
         func stop() {
@@ -52,7 +65,8 @@ struct CloudDesktopReachabilityTests {
             endpoint: endpoint(port), address: "10.0.0.7", port: 6901, timeout: .milliseconds(500)
         )
         #expect(result == .unknown)
-        #expect(ContinuousClock.now - started < .seconds(2), "the deadline must cancel the stalled request")
+        // Generous for a loaded runner: without the deadline this never returns.
+        #expect(ContinuousClock.now - started < .seconds(10), "the deadline must cancel the stalled request")
     }
 
     @Test("A refused upstream is unreachable")

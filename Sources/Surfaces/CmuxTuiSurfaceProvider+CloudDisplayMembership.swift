@@ -34,12 +34,34 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
         guard catalog.resources[resourceID]?.kind == .display else {
             throw SurfaceCatalogError.unknownResource(resourceID)
         }
+        let token = CloudVMDisplayMembership(
+            machine: machine,
+            workspaceID: workspaceID,
+            displayID: displayID,
+            clientID: CloudTuiClientPaths().notificationClientID(),
+            viewID: panelID.uuidString.lowercased()
+        )
+        try await updateCloudDisplayMemberships(workspaceID: workspaceID) { memberships in
+            if attached { memberships.insert(token) } else { memberships.remove(token) }
+        }
+    }
+
+    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws {
+        try await updateCloudDisplayMemberships(workspaceID: workspaceID) { memberships in
+            memberships = memberships.filter { $0.displayID != displayID }
+        }
+    }
+
+    /// Rewrites one workspace's membership row, revision-checked and retried
+    /// on a conflict. An unchanged set writes nothing.
+    private func updateCloudDisplayMemberships(
+        workspaceID: String,
+        _ change: (inout Set<CloudVMDisplayMembership>) -> Void
+    ) async throws {
         guard let connected = try? await links.connected(machineID: machineID),
               let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
         }
-        let clientID = CloudTuiClientPaths().notificationClientID()
-        let viewID = panelID.uuidString.lowercased()
         let projectionID = Self.displayMembershipProjectionID(machine: machine, workspaceID: workspaceID)
         let windowID = CloudVMDisplayMembership.projectionWindowID(machine: machine, workspaceID: workspaceID)
         let idempotencyKey = "cmux-cloud-display-membership-\(UUID().uuidString.lowercased())"
@@ -57,14 +79,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             }
             let previousMemberships = Set(state.displayMemberships.filter { $0.workspaceID == workspaceID })
             var memberships = previousMemberships
-            let token = CloudVMDisplayMembership(
-                machine: machine,
-                workspaceID: workspaceID,
-                displayID: displayID,
-                clientID: clientID,
-                viewID: viewID
-            )
-            if attached { memberships.insert(token) } else { memberships.remove(token) }
+            change(&memberships)
             let rows = (object["frontend_projections"] as? [[String: Any]]) ?? []
             let row = rows.first { ($0["id"] as? String) == projectionID }
             if row != nil, memberships == previousMemberships { return }
@@ -151,6 +166,19 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             }
         }
         throw lastError ?? SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
+    }
+
+    /// A rename typed into a display pane's tab. Renames run in order, so an
+    /// earlier name cannot land last. Afterwards every pane shows the
+    /// display's actual name: a cleared name reads "Display N" again, and a
+    /// rename that failed (machine asleep) puts the real name back.
+    func renameDisplayFromTab(displayID: String, name: String) {
+        let previous = displayRenameLane
+        displayRenameLane = Task { [weak self] in
+            await previous?.value
+            try? await self?.renameDisplay(displayID: displayID, name: name)
+            self?.applyDisplayPaneTitles()
+        }
     }
 
     private static func displayNamesProjectionID(machine: SurfaceMachineID) -> String {
