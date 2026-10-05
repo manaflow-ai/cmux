@@ -253,7 +253,7 @@ test("a direct blank pane chat converts with ! without a chooser page", async ()
     calls.push(["tab.open", params]);
   };
   expect(container().querySelector(".acpmux-newtab")).toBeNull();
-  await type("!git status");
+  await act(async () => prompt().handle.insertTyped("!git status"));
   expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false }]);
   expect(methods()).not.toContain("chat.send");
 });
