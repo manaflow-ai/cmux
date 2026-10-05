@@ -66,7 +66,7 @@ export function createState() {
   // xSwitchOnCompose: the account another session signs in as when X's
   // post composer loads, while the page's twid cookie still names the
   // drafted user; xAccountUnknown: X's account endpoint fails.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, calendarTamper: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -220,6 +220,11 @@ const EXTRA = __GMAIL_EXTRA__;
 const SUFFIX = __COMPOSER_SUFFIX__;
 const SIGNATURE = __GMAIL_SIGNATURE__;
 const TAMPER = __GMAIL_COMPOSE_TAMPER__;
+// gmailReplyRecipients: who Gmail's Reply and Reply all address (a
+// sender's Reply-To or the thread's Cc decide it): { reply, replyAll }
+// rows ({ to, cc, bcc } arrays), and rows: false for a reply composer
+// that shows no recipient rows.
+const REPLY = Object.assign({ reply: { to: ["bob@example.com"] }, replyAll: { to: ["bob@example.com"], cc: ["cy@example.com"] }, rows: true }, __GMAIL_REPLY__ || {});
 const params = new URLSearchParams(location.search);
 const THREADS = [
   { id: "thread-f:1790000000000000001", legacy: (1790000000000000001n).toString(16), subject: "Quarterly report", snippet: "Numbers attached", from: [["Bob", "bob@example.com"]], date: "Mon, Sep 28, 2026, 9:00 AM", unread: true, labels: ["inbox"] },
@@ -255,15 +260,21 @@ function thread(app, key) {
       msg("1", ["Bob", "bob@example.com"], ["Ada", "ada@example.com"], "Mon, Sep 28, 2026, 9:00 AM", t.body || "<p>Hi Ada,</p><p>The <b>numbers</b> are attached. See <a href='https://example.com/r'>the report</a>.</p>", true, expanded) +
       msg("2", ["Ada", "ada@example.com"], ["Bob", "bob@example.com"], "Mon, Sep 28, 2026, 10:00 AM", "<p>Thanks Bob!</p>", false, true) +
       EXTRA.map((m) => msg(m.id, m.from, m.to, "Tue, Sep 29, 2026, 8:00 AM", m.body, false, true)).join("") +
-      '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div id="replybox"></div></div>';
+      '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div role="button" data-tooltip="Reply all" aria-label="Reply all">Reply all</div><div id="replybox"></div></div>';
     const expand = app.querySelector('[aria-label="Expand all"]');
     if (expand) expand.addEventListener("click", () => { expanded = true; draw(); });
-    app.querySelector('[data-tooltip="Reply"]').addEventListener("click", () => {
-      app.querySelector("#replybox").innerHTML = '<div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div>';
+    const reply = (all) => {
+      const to = all ? REPLY.replyAll : REPLY.reply;
+      const rows = REPLY.rows ? recipientRows((f) => (to[f] || []).join(",")) : '<span class="summary">' + (to.to || []).join(", ") + '</span>';
+      app.querySelector("#replybox").innerHTML = '<div role="dialog">' + rows + '<div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div></div>';
+      if (REPLY.rows) tamperRows(app.querySelector("#replybox"));
       const replyBox = app.querySelector('#replybox [role="textbox"]');
       if (SUFFIX) replyBox.addEventListener("input", () => { if (!replyBox.dataset.tampered) { replyBox.dataset.tampered = "1"; replyBox.append(SUFFIX); } });
-      app.querySelector('#replybox [data-tooltip^="Send"]').addEventListener("click", () => send({ threadId: t.id, body: app.querySelector('#replybox [role="textbox"]').innerText }));
-    });
+      const held = (field) => [...app.querySelectorAll('#replybox [data-row="' + field + '"] [data-hovercard-id]')].map((e) => e.getAttribute("data-hovercard-id")).join(",") || null;
+      app.querySelector('#replybox [data-tooltip^="Send"]').addEventListener("click", () => send(REPLY.rows ? { threadId: t.id, to: held("to"), cc: held("cc"), bcc: held("bcc"), body: replyBox.innerText } : { threadId: t.id, to: (to.to || []).join(",") || null, cc: (to.cc || []).join(",") || null, bcc: (to.bcc || []).join(",") || null, body: replyBox.innerText }));
+    };
+    app.querySelector('[data-tooltip="Reply"]').addEventListener("click", () => reply(false));
+    app.querySelector('[data-tooltip="Reply all"]').addEventListener("click", () => reply(true));
   };
   draw();
 }
@@ -272,14 +283,21 @@ function thread(app, key) {
 // Send sends what the form holds then. gmailComposeTamper: what a page
 // script changes after the compose window loads ({ to, cc, bcc }: an
 // address added to that row; subject: the new subject).
+function recipientRows(value) {
+  const row = (field, label) => '<div class="aoD" data-row="' + field + '"><span>' + label + '</span>' + (value(field) || "").split(",").filter(Boolean).map((e) => '<div class="afV" data-hovercard-id="' + e + '"><span>' + e + '</span></div>').join("") + '<input aria-label="' + label + ' recipients"></div>';
+  return row("to", "To") + row("cc", "CC") + row("bcc", "BCC");
+}
+function tamperRows(root) {
+  const tamper = TAMPER || {};
+  for (const field of ["to", "cc", "bcc"]) if (tamper[field]) root.querySelector('[data-row="' + field + '"] input').insertAdjacentHTML("beforebegin", '<div class="afV" data-hovercard-id="' + tamper[field] + '"><span>' + tamper[field] + '</span></div>');
+}
 function compose(app) {
-  const row = (field, label) => '<div class="aoD" data-row="' + field + '"><span>' + label + '</span>' + (params.get(field) || "").split(",").filter(Boolean).map((e) => '<div class="afV" data-hovercard-id="' + e + '"><span>' + e + '</span></div>').join("") + '<input aria-label="' + label + ' recipients"></div>';
-  app.innerHTML = '<div role="dialog">' + row("to", "To") + row("cc", "CC") + row("bcc", "BCC") + '<input name="subjectbox" value=""><div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div></div>';
+  app.innerHTML = '<div role="dialog">' + recipientRows((f) => params.get(f)) + '<input name="subjectbox" value=""><div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div></div>';
   app.querySelector('[name="subjectbox"]').value = params.get("su") || "";
   app.querySelector('[role="textbox"]').innerText = (params.get("body") || "") + (SUFFIX || "");
   if (SIGNATURE) app.querySelector('[role="textbox"]').insertAdjacentHTML("beforeend", '<div class="gmail_signature" data-smartmail="gmail_signature">' + SIGNATURE + '</div>');
   const tamper = TAMPER || {};
-  for (const field of ["to", "cc", "bcc"]) if (tamper[field]) app.querySelector('[data-row="' + field + '"] input').insertAdjacentHTML("beforebegin", '<div class="afV" data-hovercard-id="' + tamper[field] + '"><span>' + tamper[field] + '</span></div>');
+  tamperRows(app);
   if (tamper.subject) app.querySelector('[name="subjectbox"]').value = tamper.subject;
   const held = (field) => [...app.querySelectorAll('[data-row="' + field + '"] [data-hovercard-id]')].map((e) => e.getAttribute("data-hovercard-id")).join(",") || null;
   app.querySelector('[data-tooltip^="Send"]').addEventListener("click", () => send({ to: held("to"), cc: held("cc"), bcc: held("bcc"), subject: app.querySelector('[name="subjectbox"]').value || null, body: app.querySelector('[role="textbox"]').innerText }));
@@ -305,7 +323,7 @@ function gmail(req, url, body, state) {
   if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) {
     switchGoogleOnLoad(state);
     // As live, the title names the account the page is signed in as.
-    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
+    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)).replace("__GMAIL_REPLY__", JSON.stringify(state.gmailReplyRecipients || null)), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
   }
   return { status: 404, text: "" };
 }
