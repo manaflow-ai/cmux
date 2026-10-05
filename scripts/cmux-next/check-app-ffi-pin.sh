@@ -62,8 +62,11 @@ if [[ "${1:-}" == "--verify-release" ]]; then
   base="${url%/"$asset"}"
   work="$(mktemp -d)"
   trap 'rm -rf "$work"' EXIT
-  curl -fsSL --retry 3 -o "$work/SOURCE_SHA" "$base/SOURCE_SHA"
-  curl -fsSL --retry 3 -o "$work/SHA256SUMS" "$base/SHA256SUMS"
+  # Every error retries (a runner's TLS read timeout is curl 35, which plain
+  # --retry treats as fatal: cmux-next.yml run 37317248488).
+  fetch() { curl -fsSL --connect-timeout 15 --max-time 60 --retry 5 --retry-all-errors --retry-delay 3 -o "$1" "$2"; }
+  fetch "$work/SOURCE_SHA" "$base/SOURCE_SHA"
+  fetch "$work/SHA256SUMS" "$base/SHA256SUMS"
   [[ "$(tr -d '[:space:]' < "$work/SOURCE_SHA")" == "$sha" ]] \
     || { echo "error: release SOURCE_SHA $(cat "$work/SOURCE_SHA") is not the pinned sha $sha" >&2; exit 1; }
   grep -qxF "$checksum  $asset" "$work/SHA256SUMS" \
