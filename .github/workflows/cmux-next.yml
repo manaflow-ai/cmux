@@ -343,12 +343,14 @@ jobs:
       # Behavior tests of the build scripts: pin-cmux-tui.sh fetch on a stale
       # --ref mirror and on a reused runner workspace, embed-cef.sh reaching
       # ensure-cef.sh under set -u, and ensure-cef.sh's controller artifact
-      # store source.
+      # store source. The run-check test covers the same-tree wait failing
+      # fast when the artifacts run for its commit was cancelled or superseded.
       - name: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
         id: script-tests
         continue-on-error: true
         run: |
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
+          bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/check-action-surfaces-fleet-only.test.sh
