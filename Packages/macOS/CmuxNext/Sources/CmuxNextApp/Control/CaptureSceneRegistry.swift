@@ -170,14 +170,7 @@ final class CaptureSceneRegistry {
     }
 
     private func waitForSceneAnimation() async -> JSONValue {
-        let deadline = ContinuousClock.now + .seconds(1)
-        var latest: JSONValue = .object(["animations_pending": .bool(true)])
-        while ContinuousClock.now < deadline {
-            latest = await DebugAgentPane.handle(["action": .string("readiness")], services)
-            if case .object(let report) = latest, report["animations_pending"]?.boolValue != true { return latest }
-            try? await Task.sleep(for: .milliseconds(25))
-        }
-        return latest
+        await DebugAgentPane.handle(["action": .string("readiness"), "wait_animations": .bool(true)], services)
     }
 
     private static let definitions: [CaptureSceneDefinition] = [

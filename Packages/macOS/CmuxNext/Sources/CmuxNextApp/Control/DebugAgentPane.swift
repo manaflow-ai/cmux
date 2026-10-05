@@ -75,7 +75,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
         if action == "readiness" {
-            return await readiness(pane: pane, view: view)
+            return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
         }
         if action == "close_menus" {
             let script = """
@@ -120,7 +120,7 @@ enum DebugAgentPane {
         }
     }
 
-    private static func readiness(pane: String, view: AgentPaneView) async -> JSONValue {
+    private static func readiness(pane: String, view: AgentPaneView, waitForAnimations: Bool = false) async -> JSONValue {
         let script = """
         const bodyText = (document.body?.innerText || '').trim();
         const composer = document.querySelector('.acpmux-composer');
@@ -130,6 +130,12 @@ enum DebugAgentPane {
         const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
         const menus = [...document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu')];
         const menuAnimations = menus.flatMap((node) => typeof node.getAnimations === 'function' ? node.getAnimations() : []);
+        if (waitForAnimations && menuAnimations.length) {
+          await Promise.race([
+            Promise.all(menuAnimations.map((animation) => animation.finished.catch(() => undefined))),
+            new Promise((resolve) => setTimeout(resolve, 1000))
+          ]);
+        }
         const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
         return JSON.stringify({
           body_text_length: bodyText.length,
