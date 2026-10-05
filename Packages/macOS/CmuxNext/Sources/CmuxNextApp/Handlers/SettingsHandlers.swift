@@ -26,6 +26,7 @@ enum SettingsHandlers {
         registry.bind("browser.defaultEngine.chromium", run: { _ in try setDefaultEngine(.chromium, context) })
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(URL(string: "https://github.com/manaflow-ai/cmux/issues/new")!) })
+        registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         UpdateHandlers.bind(into: registry, updater: context.services.updater)
         OnboardingHandlers.bind(into: registry, context: context)
@@ -86,11 +87,12 @@ enum SettingsHandlers {
         }
         try AppearanceHandlers.requireUnmanaged(path, context)
         let explicit = invocation["on"]?.boolValue
+        let writer = SettingWriter(invocation.origin)
         Task {
             do {
                 let root = try await settings.file.document()
                 if let descriptor {
-                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true))
+                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true), by: writer)
                 } else {
                     try await settings.set(.bool(explicit ?? !(root.value(at: path)?.boolValue ?? false)), at: path)
                 }

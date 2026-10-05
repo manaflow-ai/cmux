@@ -8,7 +8,7 @@ import { timingSafeEqual } from "./ingress/verify.ts"
  * exist (404) when the secret is not set. Delivery is idempotent, so a replay never applies an
  * item twice. OwnerDO also replays dead items by itself once a day.
  */
-const OWNER_CLASSES = ["UserDO", "TeamDO", "SchedulerDO", "ConnectionDO", "FeedDO", "ConversationDO", "MuxDO", "AddressDO", "TeamVmDO", "UsageMeterDO"] as const
+const OWNER_CLASSES = ["UserDO", "TeamDO", "SchedulerDO", "ConnectionDO", "FeedDO", "ConversationDO", "MuxDO", "AddressDO", "TeamVmDO", "UsageMeterDO", "CloudDO"] as const
 const bindingOf = (cls: string) => cls.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })

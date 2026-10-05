@@ -1,6 +1,7 @@
 // The fallback path picker's interaction (PathPicker.tsx, the palette picker's reference): one
 // level at a time, recent folders first, git repositories marked, fuzzy filter, Tab and Right
-// enter, Left and Backspace go up, Enter chooses, ~ and / jump, the breadcrumb navigates.
+// enter, Left, Backspace and Cmd-Up go up, Enter chooses, / and ~/ are path mode, Locations sit
+// above the level, the breadcrumb navigates.
 import {
   click,
   doubleClick,
@@ -13,6 +14,7 @@ import {
   unmount,
 } from "./viewer-empty-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { act } from "react";
 import type { PickerEntry, PickerListing, PickerMode } from "../src/viewer-empty/ops";
 import { PathPicker } from "../src/viewer-empty/PathPicker";
 import { viewerEmptyStrings } from "../src/viewer-empty/strings";
@@ -70,7 +72,9 @@ function fakeList() {
   return { list, calls };
 }
 
-async function mountPicker(options: { mode?: PickerMode; recents?: string[]; start?: string | null } = {}) {
+async function mountPicker(
+  options: { mode?: PickerMode; recents?: string[]; start?: string | null; locations?: () => Promise<unknown> } = {},
+) {
   const chosen: string[] = [];
   let cancelled = 0;
   const { list, calls } = fakeList();
@@ -80,17 +84,36 @@ async function mountPicker(options: { mode?: PickerMode; recents?: string[]; sta
       list={list}
       strings={strings}
       recents={options.recents}
+      locations={options.locations}
       start={options.start ?? null}
       onChoose={(path) => chosen.push(path)}
       onCancel={() => (cancelled += 1)}
     />,
   );
   const field = () => container.querySelector<HTMLInputElement>(".ve-picker-field")!;
-  const names = () => [...container.querySelectorAll(".ve-picker-name")].map((node) => node.textContent);
+  // The entries of the level (not Locations, Recent or the path mode's "Go to" row).
+  const names = () =>
+    [...container.querySelectorAll('.ve-picker-row[data-row="entry"] .ve-picker-name')].map((node) => node.textContent);
+  const goRow = () => container.querySelector('.ve-picker-row[data-row="go"]')?.textContent ?? null;
   const highlighted = () =>
     container.querySelector('.ve-picker-row[aria-selected="true"] .ve-picker-name')?.textContent;
   const crumbs = () => [...container.querySelectorAll(".ve-crumb")].map((node) => node.textContent);
-  return { container, field, names, highlighted, crumbs, chosen, calls, cancelled: () => cancelled };
+  // The rows of the level (not the Locations section above it).
+  const levelRows = () => [...container.querySelectorAll<HTMLElement>('.ve-picker-row[data-row="entry"]')];
+  const locations = () => [...container.querySelectorAll(".ve-picker-location")].map((node) => node.textContent);
+  return {
+    container,
+    field,
+    names,
+    goRow,
+    highlighted,
+    crumbs,
+    levelRows,
+    locations,
+    chosen,
+    calls,
+    cancelled: () => cancelled,
+  };
 }
 
 describe("path picker", () => {
@@ -106,7 +129,7 @@ describe("path picker", () => {
   test("recent folders sort first and git repositories are marked", async () => {
     const picker = await mountPicker({ start: `${HOME}/fun`, recents: [`${HOME}/fun/scratch`] });
     expect(picker.names()).toEqual(["scratch", "chatmux", "cmuxterm-hq"]);
-    const rows = [...picker.container.querySelectorAll<HTMLElement>(".ve-picker-row")];
+    const rows = picker.levelRows();
     expect(rows[0].dataset.recent).toBe("true");
     expect(rows.map((row) => row.dataset.git ?? "")).toEqual(["", "true", "true"]);
     expect(rows[1].querySelector(".ve-icon-repo")).toBeTruthy();
@@ -156,22 +179,178 @@ describe("path picker", () => {
     expect(picker.crumbs()).toEqual(["~"]);
   });
 
-  test("~ jumps home, / to the root, and name/ enters that folder", async () => {
+  test("no jump keys: ~ alone and name/ are filter text", async () => {
+    const picker = await mountPicker({ start: `${HOME}/fun` });
+    await type(picker.field(), "~");
+    expect(picker.crumbs()).toEqual(["~", "fun"]);
+    expect(picker.container.querySelector(".ve-picker-empty")?.textContent).toBe("No matches");
+    await type(picker.field(), "scratch/");
+    expect(picker.crumbs()).toEqual(["~", "fun"]);
+    expect(picker.names()).toEqual([]);
+  });
+
+  test("path mode lists the typed folder's completions; Tab completes, Return goes there", async () => {
     const picker = await mountPicker({ start: `${HOME}/fun` });
     await type(picker.field(), "/");
     expect(picker.crumbs()).toEqual(["/"]);
-    expect(picker.names()).toEqual(["tmp", "Users"]);
-    expect(picker.field().value).toBe("");
-    await type(picker.field(), "~");
+    // An empty segment: "Go to" the typed folder first, then its entries.
+    expect(picker.goRow()).toBe("Go to /");
+    // Path mode writes folders as they complete, with their "/".
+    expect(picker.names()).toEqual(["tmp/", "Users/"]);
+    expect(picker.field().value).toBe("/");
+    await type(picker.field(), "/u");
+    expect(picker.goRow()).toBeNull();
+    expect(picker.names()).toEqual(["Users/"]);
+    // Tab completes the segment; a folder ends with "/" and its entries follow.
+    await press(picker.field(), "Tab");
+    expect(picker.field().value).toBe("/Users/");
+    expect(picker.crumbs()).toEqual(["/", "Users"]);
+    expect(picker.names()).toEqual(["me/"]);
+    await type(picker.field(), "/Users/x");
+    expect(picker.container.querySelector(".ve-picker-empty")?.textContent).toBe("Nothing in /Users/ starts with that");
+    // Return on a completed folder goes there and leaves path mode.
+    await type(picker.field(), "~/fu");
     expect(picker.crumbs()).toEqual(["~"]);
-    await type(picker.field(), "fun/");
+    expect(picker.names()).toEqual(["fun/"]);
+    await press(picker.field(), "Enter");
     expect(picker.crumbs()).toEqual(["~", "fun"]);
+    expect(picker.field().value).toBe("");
+    expect(picker.chosen).toEqual([]);
+    // Return on "Go to" goes to the typed folder.
+    await type(picker.field(), "/tmp/");
+    expect(picker.highlighted()).toBe("Go to /tmp/");
+    await press(picker.field(), "Enter");
+    expect(picker.crumbs()).toEqual(["/", "tmp"]);
+    expect(picker.field().value).toBe("");
+  });
+
+  test("path mode: losing the prefix filters the folder it started from; Escape clears, then closes", async () => {
+    const picker = await mountPicker({ start: `${HOME}/fun` });
+    await type(picker.field(), "/U");
+    expect(picker.crumbs()).toEqual(["/"]);
+    await type(picker.field(), "U");
+    expect(picker.crumbs()).toEqual(["~", "fun"]);
+    await type(picker.field(), "~/D");
+    expect(picker.names()).toEqual(["Documents/"]);
+    // Cmd-Up goes to the parent and keeps path mode.
+    await press(picker.field(), "ArrowUp", { metaKey: true });
+    expect(picker.crumbs()).toEqual(["/", "Users"]);
+    expect(picker.field().value).toBe("/Users/");
+    await press(picker.field(), "Escape");
+    expect(picker.field().value).toBe("");
+    expect(picker.crumbs()).toEqual(["~", "fun"]);
+    expect(picker.cancelled()).toBe(0);
+    await press(picker.field(), "Escape");
+    expect(picker.cancelled()).toBe(1);
+  });
+
+  test("path mode in file mode: Tab completes a file's name, Return chooses it", async () => {
+    const picker = await mountPicker({ mode: "file" });
+    await type(picker.field(), "~/no");
+    expect(picker.names()).toEqual(["notes.md"]);
+    await press(picker.field(), "Tab");
+    expect(picker.field().value).toBe("~/notes.md");
+    await press(picker.field(), "Enter");
+    expect(picker.chosen).toEqual([`${HOME}/notes.md`]);
+  });
+
+  test("Locations at the start folder: Recent, then the host's places, in its order", async () => {
+    const asked: number[] = [];
+    const picker = await mountPicker({
+      start: `${HOME}/fun`,
+      recents: [`${HOME}/fun/scratch`, "/tmp"],
+      locations: async () => {
+        asked.push(1);
+        return {
+          locations: [
+            { kind: "workspace", path: `${HOME}/fun/cmuxterm-hq` },
+            { kind: "home", path: HOME },
+            { kind: "desktop", path: `${HOME}/Desktop` },
+            { kind: "documents", path: `${HOME}/Documents` },
+            { kind: "downloads", path: `${HOME}/Downloads` },
+            { kind: "iCloudDrive", path: `${HOME}/Library/Mobile Documents/com~apple~CloudDocs` },
+            { kind: "pinned", path: "/tmp" },
+          ],
+        };
+      },
+    });
+    expect(asked).toEqual([1]);
+    expect(picker.locations()).toEqual([
+      "Recently opened",
+      "cmuxterm-hq",
+      "Home",
+      "Desktop",
+      "Documents",
+      "Downloads",
+      "iCloud Drive",
+      "tmp",
+    ]);
+    expect(picker.container.querySelector(".ve-picker-section")?.textContent).toBe("Locations");
+    // The level's first row is highlighted; typing hides the Locations.
+    expect(picker.highlighted()).toBe("scratch");
+    await type(picker.field(), "s");
+    expect(picker.locations()).toEqual([]);
+    await type(picker.field(), "");
+    // Recent is a page of the recent items; Return on a folder there chooses it (folder mode).
+    for (let index = 0; index < 8; index += 1) await press(picker.field(), "ArrowUp");
+    await press(picker.field(), "Enter");
+    expect(picker.crumbs()).toEqual(["~", "fun", "Recently opened"]);
+    expect([...picker.container.querySelectorAll(".ve-picker-name")].map((node) => node.textContent)).toEqual([
+      "scratch",
+      "tmp",
+    ]);
+    await press(picker.field(), "ArrowUp", { metaKey: true });
+    expect(picker.crumbs()).toEqual(["~", "fun"]);
+    // A place opens its folder; Locations show only at the start folder.
+    await press(picker.field(), "Home");
+    await press(picker.field(), "ArrowDown");
+    await press(picker.field(), "ArrowDown"); // Home
+    await press(picker.field(), "Enter");
+    expect(picker.crumbs()).toEqual(["~"]);
+    expect(picker.locations()).toEqual([]);
+  });
+
+  test("without a locations op, Locations are Home and its standard folders", async () => {
+    const picker = await mountPicker();
+    expect(picker.locations()).toEqual(["Home", "Desktop", "Documents", "Downloads"]);
+    expect(picker.highlighted()).toBe("Documents");
+  });
+
+  test("Cmd-Up goes up; other Cmd chords reach the app", async () => {
+    const picker = await mountPicker({ start: `${HOME}/fun` });
+    await press(picker.field(), "ArrowUp", { metaKey: true });
+    expect(picker.crumbs()).toEqual(["~"]);
+    expect(picker.highlighted()).toBe("fun");
+    let reached = 0;
+    const listener = (event: Event) => {
+      if (!event.defaultPrevented) reached += 1;
+    };
+    document.addEventListener("keydown", listener);
+    await press(picker.field(), "s", { metaKey: true });
+    await press(picker.field(), "k", { metaKey: true });
+    document.removeEventListener("keydown", listener);
+    expect(reached).toBe(2);
+  });
+
+  test("the field is a combobox over a listbox, with a hint and a status line", async () => {
+    const picker = await mountPicker();
+    const field = picker.field();
+    expect(field.getAttribute("role")).toBe("combobox");
+    expect(field.getAttribute("aria-expanded")).toBe("true");
+    const active = document.getElementById(field.getAttribute("aria-activedescendant")!);
+    expect(active?.querySelector(".ve-picker-name")?.textContent).toBe("Documents");
+    expect(document.getElementById(field.getAttribute("aria-controls")!)?.getAttribute("role")).toBe("listbox");
+    expect(document.getElementById(field.getAttribute("aria-describedby")!)?.textContent).toBe(
+      "Type to filter, or start with / to type a path",
+    );
+    expect(picker.container.querySelector("output")?.textContent).toBe("~, 3 items");
   });
 
   test("a query starting with . lists hidden folders", async () => {
     const picker = await mountPicker();
     await type(picker.field(), ".");
-    expect(picker.calls.at(-1)).toEqual({ path: HOME, mode: "folder", hidden: true });
+    // The level is listed again with hidden entries (later calls prefetch the next levels).
+    expect(picker.calls).toContainEqual({ path: HOME, mode: "folder", hidden: true });
     expect(picker.names()).toEqual([".config"]);
     await type(picker.field(), "");
     expect(picker.names()).toEqual(["Documents", "fun", "zeta"]);
@@ -188,6 +367,27 @@ describe("path picker", () => {
     )!;
     await click(choose);
     expect(picker.chosen).toEqual([`${HOME}/fun`]);
+  });
+
+  test("zero latency: Tab into a prefetched folder and Backspace back show the level at once", async () => {
+    const picker = await mountPicker();
+    // The highlighted folder and the parent were prefetched when the level appeared.
+    expect(picker.calls).toContainEqual({ path: `${HOME}/Documents`, mode: "folder", hidden: false });
+    const before = picker.calls.length;
+    picker.field().focus();
+    // No await between the key and the check: the level must be there in the key's own frame.
+    act(() => {
+      picker.field().dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    });
+    expect(picker.crumbs()).toEqual(["~", "Documents"]);
+    expect(picker.calls.length).toBeGreaterThanOrEqual(before);
+    // Showing Documents prefetched its parent; let that answer, then go up with no await again.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    act(() => {
+      picker.field().dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+    });
+    expect(picker.crumbs()).toEqual(["~"]);
+    expect(picker.names()).toEqual(["Documents", "fun", "zeta"]);
   });
 
   test("Enter in an empty folder chooses it", async () => {
@@ -221,16 +421,17 @@ describe("path picker", () => {
   test("a refused folder shows the failure and keeps the field", async () => {
     const picker = await mountPicker({ start: "/nowhere" });
     expect(picker.container.querySelector(".ve-picker-empty")?.textContent).toBe("Could not list this folder.");
-    await type(picker.field(), "~");
-    expect(picker.names()).toEqual(["Documents", "fun", "zeta"]);
+    await type(picker.field(), "~/");
+    expect(picker.names()).toEqual(["Documents/", "fun/", "zeta/"]);
+    expect(picker.goRow()).toBe("Go to ~/");
   });
 
   test("a mouse press highlights a row; a double click enters it", async () => {
     const picker = await mountPicker();
-    const zeta = [...picker.container.querySelectorAll(".ve-picker-row")][2];
+    const zeta = picker.levelRows()[2];
     await mouseDown(zeta);
     expect(picker.highlighted()).toBe("zeta");
-    const fun = [...picker.container.querySelectorAll(".ve-picker-row")][1];
+    const fun = picker.levelRows()[1];
     await doubleClick(fun);
     expect(picker.crumbs()).toEqual(["~", "fun"]);
   });

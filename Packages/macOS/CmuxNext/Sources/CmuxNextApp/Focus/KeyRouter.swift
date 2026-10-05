@@ -73,6 +73,7 @@ final class KeyRouter: BrowserKeyRouting {
     nonisolated static func allows(_ tier: ActionKeyTier, id: ActionID, focus: FocusState) -> Bool {
         if tier == .content, devToolsActions.contains(id), BrowserChordTable.isBrowserContext(focus.resolved),
            !focus.isBrowserFocusModeActive { return true }
+        if tier == .content, browserChromeActions.contains(id), isBrowserChromeField(focus.resolved) { return true }
         return allows(tier, focus: focus)
     }
 
@@ -99,6 +100,9 @@ final class KeyRouter: BrowserKeyRouting {
         /// A printable key on a screen with a primary input and no focused
         /// text field: it starts typing in the primary input (R65).
         case primaryInput
+        /// A printable key on a page whose document cannot take typing yet:
+        /// it waits in the type-ahead queue (app-screens.md section 3).
+        case typeAhead
         /// A panel or sheet over the window (or no cmux window) has it.
         case panel
     }
@@ -109,8 +113,9 @@ final class KeyRouter: BrowserKeyRouting {
         guard keyWindow == .content else { return .panel }
         if Self.belongsToInputMethod(event, facts: facts) { return .deliver }
         guard Self.isChord(event.modifierFlags) else {
-            let typesHere = facts.primaryInputReady && Self.isPrintable(event) && Self.mayHavePrimaryInput(focus.resolved)
-            return typesHere ? .primaryInput : .deliver
+            guard Self.isPrintable(event), Self.mayHavePrimaryInput(focus.resolved) else { return .deliver }
+            if facts.pageInputPending, Self.mayQueueTyping(focus.resolved) { return .typeAhead }
+            return facts.primaryInputReady ? .primaryInput : .deliver
         }
         return decide(event, focus: focus, context: keyContext(for: focus, facts: facts))
     }
@@ -146,14 +151,10 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        if cancelsAttachedSheet(event, in: window) { return true }
         // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
         if let keyRecorder, keyRecorder(event, window) {
             cancelChord()
-            return true
-        }
-        // A shortcut recording in a Settings tab takes every key first.
-        if let window, services?.windows.owner(of: window) != nil, services?.settingsWindow.handlePaneRecorderKey(event) == true {
-            chords.cancel()
             return true
         }
         if closesPopup(event, in: window) {
@@ -166,8 +167,9 @@ final class KeyRouter: BrowserKeyRouting {
             return true
         }
         let isChord = Self.isChord(event.modifierFlags)
+        if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
-            if typesIntoPrimaryInput(event, in: window) { return true }
+            if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
             onTyping?(window)
             return false
         }
@@ -202,27 +204,9 @@ final class KeyRouter: BrowserKeyRouting {
             return true
         case .consume:
             return true
-        case .deliver, .panel, .primaryInput:
+        case .deliver, .panel, .primaryInput, .typeAhead:
             return runExtensionShortcut(event, focus: focus)
         }
-    }
-
-    /// A printable key on a screen whose primary input should take it
-    /// (R65): focus that input and type the key there. Typing in a terminal
-    /// never looks up the window (typing-latency path).
-    private func typesIntoPrimaryInput(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let window, !(window.firstResponder is TerminalSurfaceView), Self.isPrintable(event) else { return false }
-        let (controller, kind) = focus(for: window)
-        guard let controller, kind == .content else { return false }
-        let focus = controller.focus.state
-        guard Self.mayHavePrimaryInput(focus.resolved), let pane = focus.resolved.pane,
-              let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput else { return false }
-        let facts = Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-                          primaryInputReady: target.acceptsRedirectedTyping)
-        guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .primaryInput else { return false }
-        decided.add(event)
-        target.beginTyping(with: event)
-        return true
     }
 
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {
@@ -252,9 +236,18 @@ final class KeyRouter: BrowserKeyRouting {
         return true
     }
 
+    /// Printable keys typed before a page could take them, and the page
+    /// (focus, readiness id) they wait for and one delivering now.
+    var typeAhead = TypeAheadQueue()
+    var typeAheadFocus: FocusState.Resolved?
+    var deliveringTypeAhead: String?
+
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
     var keyRecorder: ((NSEvent, NSWindow?) -> Bool)?
+    /// Ends the topmost sheet on a window as cancelled; returns whether one
+    /// ended. A seam: tests without a window session (no sheets) replace it.
+    var endTopmostSheet: (NSWindow) -> Bool = { SheetDismissal.endTopmost(of: $0) }
 
     /// The last intercepted action and window (for `debug.key`).
     private(set) var lastInterception: (action: ActionID, window: String)?
@@ -281,6 +274,7 @@ final class KeyRouter: BrowserKeyRouting {
 
     /// `window`'s focus settled: a chord armed there in another focus ends.
     func focusDidSettle(_ focus: FocusState, in window: NSWindow?) {
+        typeAheadFocusDidSettle(focus.resolved)
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
         whichKey?.hide()
     }

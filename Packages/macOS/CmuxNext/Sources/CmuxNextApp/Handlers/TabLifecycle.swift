@@ -78,7 +78,7 @@ enum TabLifecycle {
         let user = invocation.origin == .user
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
-        let onAgentTab = user && controller != nil && selectedID?.hasPrefix(LocalAgentTab.prefix) == true
+        let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
         var sameKind = NewTabKind.resolve(
             selectedKind: tab?.kind, engine: tab?.browserEngine,
             isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab
@@ -90,9 +90,9 @@ enum TabLifecycle {
             let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
             kind = NewTabKind.resolve(setting, sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
         }
-        // Agent tabs and the page live in a shown pane; elsewhere, a terminal.
-        // A build without the agent page has no new tab page either.
-        if controller == nil || !ctx.services.agentTabs.canHostChat, kind == .agent || kind == .page { kind = .terminal }
+        // Agent tabs and the page live in a shown pane whose daemon holds agent tabs; elsewhere,
+        // a terminal. A build without the agent page has no new tab page either.
+        if kind == .agent || kind == .page, !(controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false) { kind = .terminal }
         switch kind {
         case .terminal:
             newTerminal(ctx, invocation)

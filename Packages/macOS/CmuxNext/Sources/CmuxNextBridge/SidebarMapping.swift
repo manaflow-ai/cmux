@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
@@ -51,15 +52,24 @@ public struct SidebarMapping {
             subtitle: subtitle(tabs),
             // The hooks' status line, else the daemon's workspace status (state resources).
             status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },
-            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map(WorkspaceIcon.parse),
+            icon: Self.icon(color: workspace.color, icon: workspace.icon),
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
+            agentBrand: agentBrand(tabs),
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
-                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.tabKind(tab.kind), isUnread: tab.hasUnread)
+                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: tab.agentSession == nil ? Self.tabKind(tab.kind) : .agentChat, isUnread: tab.hasUnread)
             }
         )
+    }
+
+    /// The brand of the first agent that works or waits in these tabs (design/agent-icons).
+    func agentBrand(_ tabs: [TabModel]) -> String? {
+        tabs.lazy.compactMap { tab -> String? in
+            guard let agent = tab.agent, agent.state == .working || agent.state == .blocked else { return nil }
+            return AgentBrandCatalog.brand(for: agent.agent)?.rawValue
+        }.first
     }
 
     private static func tabKind(_ kind: TabKind) -> SidebarTabKind {
@@ -104,6 +114,13 @@ public struct SidebarMapping {
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
         return path
+    }
+
+    /// A workspace's sidebar icon: its icon with its color (a tinted symbol,
+    /// an emoji on a color chip), else its color as a swatch, else none.
+    public static func icon(color name: String?, icon: String?) -> WorkspaceIcon? {
+        let color = shared.color(name)
+        return icon.flatMap { WorkspaceIcon.parse($0, color: color) } ?? color.map(WorkspaceIcon.swatch)
     }
 
     public func color(_ name: String?) -> GroupColor? {

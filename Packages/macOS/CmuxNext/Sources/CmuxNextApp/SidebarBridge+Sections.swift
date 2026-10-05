@@ -86,7 +86,7 @@ extension SidebarBridge {
                 _ = apps.apps
                 let shown = window?.workspaceID
                 return (service.document, shown != nil && shown == home.homeWorkspace?.id, NotificationCenterService.unreadCount(store),
-                        updater.indicatorPhase.isUpdateAvailable)
+                        updater.showsSettingsBadge)
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }

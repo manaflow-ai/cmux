@@ -1,7 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { translatorFor } from "./i18n";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { editedCardHeight, layoutConversation, type AcpmuxRow } from "./model";
 import { turnView } from "./conversation/turns";
+
+const english = translatorFor("en");
 
 // A silent console: jsdom has no canvas, so text measurement logs and falls back to row estimates.
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -632,6 +635,107 @@ describe("acpmux measured rows", () => {
 
   /// A permission card or a taller composer shortens the viewport without moving the offset,
   /// so the latest row's end drops below the fold unless the transcript follows it.
+  /// R104: a streaming reply opens new rows below (a reply segment, a tool call, a status line).
+  test("at the latest row, rows appended below keep the view at the latest row", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const draw = (list: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: list, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+    const latest = () =>
+      parseFloat((dom.window.document.querySelector(".acpmux-spacer") as HTMLElement).style.height) - 600;
+    try {
+      await draw(rows);
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      expect(scroller.scrollTop).toBe(latest());
+      let list = rows;
+      for (let index = 0; index < 3; index += 1) {
+        list = [
+          ...list,
+          { id: `new-${index}`, version: 1, at: 1_000 + index, kind: "assistant", text: `new reply ${index}` },
+        ];
+        await draw(list);
+        expect(scroller.scrollTop).toBe(latest());
+      }
+      // The reply grows in its row, still at the latest row.
+      list = [...list.slice(0, -1), { ...list.at(-1)!, version: 2, text: "new reply 2\n\nwith a second paragraph" }];
+      await draw(list);
+      expect(scroller.scrollTop).toBe(latest());
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  /// R104: at the latest row, growth glides in instead of stepping a line per frame; the
+  /// reader's own scroll ends the glide at once.
+  test("at the latest row, content that grows glides in, and a user scroll finishes the glide", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const prototype = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+    const glides: { frames: Keyframe[]; options: KeyframeAnimationOptions; finished: boolean }[] = [];
+    prototype.animate = function (frames: Keyframe[], options: KeyframeAnimationOptions) {
+      const glide = { frames, options, finished: false };
+      glides.push(glide);
+      return { finish: () => (glide.finished = true), cancel() {} };
+    };
+    prototype.getAnimations = () =>
+      glides.filter((glide) => !glide.finished).map((glide) => ({ finish: () => (glide.finished = true) }));
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const draw = (list: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: list, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+    try {
+      await draw(rows);
+      const before = glides.length;
+      const grown = [
+        ...rows,
+        { id: "reply", version: 1, at: 1_000, kind: "assistant", text: "a new reply" } as AcpmuxRow,
+      ];
+      await draw(grown);
+      const glide = glides.at(-1)!;
+      expect(glides.length).toBe(before + 1);
+      expect(String(glide.frames[0]!.transform)).toMatch(/^translateY\(\d+(\.\d+)?px\)$/);
+      expect(glide.frames[1]!.transform).toBe("translateY(0px)");
+      expect(glide.options.composite).toBe("add");
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      await act(async () => scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true })));
+      expect(glide.finished).toBe(true);
+    } finally {
+      delete prototype.animate;
+      delete prototype.getAnimations;
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  test("scrolled up, rows appended below leave the view where the reader is", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const draw = (list: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: list, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+    try {
+      await draw(rows);
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      scroller.scrollTop = 1_000;
+      await act(async () => scroller.dispatchEvent(new dom.window.Event("scroll")));
+      await draw([...rows, { id: "new", version: 1, at: 1_000, kind: "assistant", text: "a new reply" }]);
+      expect(scroller.scrollTop).toBe(1_000);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   test("at the latest row, a shorter viewport keeps the latest row in view", async () => {
     const size = { width: 760, height: 600 };
     const restore = fakeViewport(size);
@@ -827,6 +931,184 @@ describe("acpmux host handshake", () => {
       this.onclose?.();
     }
   }
+
+  /// A harness switch (harnessSwitch.ts): the pick draws in its own frame, a prompt sent before the
+  /// harness has started waits on the new chat with "Starting Codex…", and goes to its session.
+  test("a harness pick draws the new harness at once and the first prompt waits for its session", async () => {
+    const sent: { method: string; params: any }[] = [];
+    const heldNew: (() => void)[] = [];
+    class SwitchSocket extends FakeSocket {
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as { id: number; method: string; params: any };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [{ sessionId: "s", harness: "claude" }] }
+            : method === "_acpmux/attach"
+              ? params.sessionId === "s"
+                ? { session: { sessionId: "s", harness: "claude", model: "opus" }, events: [] }
+                : { session: { sessionId: params.sessionId, harness: "codex", model: "gpt-6-astra" }, events: [] }
+              : method === "_acpmux/harnesses"
+                ? {
+                    harnesses: [
+                      { id: "claude", name: "Claude Code", models: [{ id: "opus" }] },
+                      { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra" }] },
+                    ],
+                  }
+                : method === "session/new"
+                  ? { sessionId: "n" }
+                  : {};
+        const reply = () => this.onmessage?.({ data: JSON.stringify({ id, result }) });
+        if (method === "session/new") heldNew.push(reply);
+        else if (method !== "session/prompt") queueMicrotask(reply);
+      }
+    }
+    FakeSocket.made = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = SwitchSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                sessionId: "s",
+              },
+            });
+          },
+        },
+      },
+    };
+    const doc = dom.window.document;
+    const title = () => doc.querySelector(".acpmux-title")?.textContent;
+    const waitFor = async (done: () => boolean) => {
+      for (let tries = 0; tries < 100 && !done(); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    };
+    const actions = () => (dom.window as unknown as Window).cmuxAcpmuxActions!;
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await waitFor(() => title() === "Claude Code" && Boolean(actions()?.["chat.new"]));
+      expect(title()).toBe("Claude Code");
+      // No timer or reply runs between the pick and this read.
+      act(() => {
+        void actions()["chat.new"]!({ harness: "codex" });
+      });
+      expect(title()).toBe("Codex");
+      expect(sent.some((request) => request.method === "session/new")).toBe(true);
+      act(() => {
+        void actions()["chat.send"]!({ text: "which harness?" }).catch(() => undefined);
+      });
+      expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
+      expect(doc.querySelector(".cv-user__status span")?.textContent).toBe("Starting Codex…");
+      expect(doc.querySelector(".cv-user__cancel")?.textContent).toBe("Cancel");
+      expect(sent.some((request) => request.method === "session/prompt")).toBe(false);
+      await act(async () => heldNew.splice(0).forEach((reply) => reply()));
+      await waitFor(() => sent.some((request) => request.method === "session/prompt"));
+      expect(sent.find((request) => request.method === "session/prompt")?.params.sessionId).toBe("n");
+      await waitFor(() => doc.querySelector(".cv-user__status") === null);
+      expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
+      expect(title()).toBe("Codex");
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+    }
+  });
+
+  /// Data loss: a prompt queued behind a harness that fails to start comes back to the composer
+  /// with its attachments, exactly as they were.
+  test("a queued prompt whose harness fails returns to the composer with its attachments", async () => {
+    let failNew: (() => void) | undefined;
+    class FailSocket extends FakeSocket {
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as { id: number; method: string; params: any };
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [{ sessionId: "s", harness: "claude" }] }
+            : method === "_acpmux/attach"
+              ? { session: { sessionId: params.sessionId, harness: "claude", model: "opus" }, events: [] }
+              : method === "_acpmux/harnesses"
+                ? {
+                    harnesses: [
+                      { id: "claude", name: "Claude Code", models: [{ id: "opus" }] },
+                      { id: "gemini", name: "Gemini CLI", models: [] },
+                    ],
+                  }
+                : {};
+        if (method === "session/new")
+          failNew = () =>
+            this.onmessage?.({ data: JSON.stringify({ id, error: { code: -32603, message: "API key is missing" } }) });
+        else queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    FakeSocket.made = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = FailSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                sessionId: "s",
+              },
+            });
+          },
+        },
+      },
+    };
+    const doc = dom.window.document;
+    const waitFor = async (done: () => boolean) => {
+      for (let tries = 0; tries < 100 && !done(); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    };
+    const actions = () => (dom.window as unknown as Window).cmuxAcpmuxActions!;
+    const file = { id: "a1", kind: "text", name: "notes.md", mimeType: "text/markdown", size: 2, text: "hi" };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await waitFor(
+        () => Boolean(actions()?.["chat.new"]) && doc.querySelector(".acpmux-title")?.textContent === "Claude Code",
+      );
+      act(() => {
+        void actions()["chat.new"]!({ harness: "gemini" });
+        void actions()["chat.send"]!({ text: "read this", attachments: [file] }).catch(() => undefined);
+      });
+      await waitFor(() => failNew !== undefined);
+      await act(async () => failNew!());
+      await waitFor(() => doc.querySelector(".acpmux-switch-failed") !== null);
+      const field = doc.querySelector<HTMLElement & { acpmuxMarkdownField?: { value(): string } }>(
+        ".acpmux-composer [contenteditable]",
+      );
+      await waitFor(() => (field?.textContent ?? "").includes("read this"));
+      expect(field?.textContent).toBe("read this");
+      expect(
+        [...doc.querySelectorAll(".acpmux-attachments .acpmux-attachment")].map((chip) => chip.getAttribute("title")),
+      ).toEqual(["notes.md"]);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+    }
+  });
 
   /// The model picker reads the catalog through TanStack Query and keeps the old one across a reconnect.
   test("the model picker loads each daemon's catalog and keeps the last one while reconnecting", async () => {
@@ -3082,7 +3364,7 @@ describe("acpmux hunk review", () => {
       await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
     };
     try {
-      await show(turnDisplay(toolFiles, { state: "missing" }, false));
+      await show(turnDisplay(english, toolFiles, { state: "missing" }, false));
       expect(document.querySelector(".acpmux-turn-note")?.textContent).toBe(
         "No checkpoint for this turn. Showing the agent's edits.",
       );
@@ -3090,7 +3372,7 @@ describe("acpmux hunk review", () => {
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
       expect(document.querySelector(".acpmux-hunk-reject")).not.toBeNull();
 
-      await show(turnDisplay(toolFiles, checkpoint, false));
+      await show(turnDisplay(english, toolFiles, checkpoint, false));
       const badges = [...document.querySelectorAll(".acpmux-diff-file")].map((node) => [
         node.getAttribute("data-path"),
         node.querySelector(".acpmux-fh-outside")?.textContent ?? "",

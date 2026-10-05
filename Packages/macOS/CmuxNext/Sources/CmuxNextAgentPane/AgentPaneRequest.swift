@@ -25,9 +25,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
-    /// The screen's Search | Ask mode or the agent picked, to remember
-    /// for the next new tab (`newTab.remember`).
-    case rememberNewTab(mode: String?, agent: String?)
+    /// The agent picked on the new tab screen, to remember for the next
+    /// new tab (`newTab.remember`).
+    case rememberNewTab(agent: String)
+    /// The new tab page got its first user input (`newTab.touched`); a
+    /// touched page is never recycled into the prewarm pool.
+    case touched
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
@@ -120,13 +123,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "newTab.touched":
+            self = .touched
         case "newTab.remember":
-            let mode = params?["mode"] as? String
-            let agent = params?["agent"] as? String
-            let validMode = mode.map { ["search", "ask"].contains($0) } ?? true
-            let validAgent = agent.map { !$0.isEmpty && $0.count <= 128 } ?? true
-            if (mode != nil || agent != nil), validMode, validAgent {
-                self = .rememberNewTab(mode: mode, agent: agent)
+            // One input (R86): only the agent pick is remembered.
+            if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
+                self = .rememberNewTab(agent: agent)
             } else {
                 self = .unsupported(method)
             }

@@ -2,10 +2,9 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { AgentMark, FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
-import type { NewTabMode } from "../newTabIntent";
 import { ChatCards } from "./ChatCards";
-import { nextMode, recentChatCards, screenRows, terminalConversion, type ScreenRow } from "./screenModel";
-import { nt } from "./strings";
+import { recentChatCards, screenRows, terminalConversion, type ScreenRow } from "./screenModel";
+import { type NewTabTranslate, useNt } from "./strings";
 
 /// What the screen asks the host to do. Agent rows stay in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -19,8 +18,8 @@ export type NewTabScreenActions = {
   onJump(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
-  /// Tab switched the mode; the host remembers it for the next new tab.
-  onModeChange?(mode: NewTabMode): void;
+  /// The first user input reached the page (the host recycles only an untouched page, R81).
+  onTouched?(): void;
 };
 
 type Props = NewTabScreenActions & {
@@ -28,7 +27,6 @@ type Props = NewTabScreenActions & {
   omnibar?: OmnibarContext;
   /// The tab the page opened from (its URL or folder): in the field and selected.
   location?: string;
-  mode?: NewTabMode;
   lastAgent?: string;
   home?: string;
   now?: number;
@@ -36,10 +34,10 @@ type Props = NewTabScreenActions & {
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): one field that reads what is
 /// typed (`!` a terminal, an address, or a prompt with the installed agents and a web search
-/// under it), a Search | Ask switch that Tab flips, and the recent chats as cards.
+/// row under it; no Search/Ask mode, R86), and the recent chats as cards.
 export function NewTabScreen(props: Props) {
+  const nt = useNt();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now } = props;
-  const [mode, setMode] = useState<NewTabMode>(props.mode ?? "ask");
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -48,13 +46,19 @@ export function NewTabScreen(props: Props) {
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
+  const inputReported = useRef(false);
+  const touch = () => {
+    if (inputReported.current) return;
+    inputReported.current = true;
+    props.onTouched?.();
+  };
   const agents = useMemo(
     () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
   );
   const rows = useMemo(
-    () => (touched && !converting ? screenRows(text, mode, { agents, omnibar, lastAgent, home }) : []),
-    [touched, converting, text, mode, agents, omnibar, lastAgent, home],
+    () => (touched && !converting ? screenRows(text, { agents, omnibar, lastAgent, home }) : []),
+    [touched, converting, text, agents, omnibar, lastAgent, home],
   );
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now), [snapshot.sessions, now]);
   useEffect(() => setSelected(0), [rows]);
@@ -88,6 +92,7 @@ export function NewTabScreen(props: Props) {
     }
   };
   const edit = (next: string) => {
+    touch();
     setTouched(true);
     if (converting) {
       setText(next);
@@ -103,16 +108,12 @@ export function NewTabScreen(props: Props) {
     }
   };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    touch();
     if (composing.current || event.nativeEvent.isComposing || converting) return;
     const input = event.currentTarget;
     wholeSelection.current =
       input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
-    if (event.key === "Tab" && !event.altKey && !event.metaKey && !event.ctrlKey) {
-      event.preventDefault();
-      const next = nextMode(mode);
-      setMode(next);
-      props.onModeChange?.(next);
-    } else if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       setSelected((current) => (current + step + rows.length) % rows.length);
@@ -128,7 +129,16 @@ export function NewTabScreen(props: Props) {
   };
 
   return (
-    <div className="nt-screen" data-mode={mode}>
+    <div className="nt-screen" data-converting={converting || undefined}>
+      {converting && (
+        // R81: the terminal shows in this frame (same background, the typed command, a cursor)
+        // while the daemon starts the shell; a quiet "starting" line appears after 1 s (CSS delay).
+        <div className="nt-terminal" aria-label={nt("terminal")}>
+          <span className="nt-terminal-command">{text.replace(/^\s*!/, "")}</span>
+          <span className="nt-cursor" aria-hidden="true" />
+          <span className="nt-terminal-starting">{nt("terminal")}</span>
+        </div>
+      )}
       <div className="nt-box">
         <input
           ref={field}
@@ -139,7 +149,7 @@ export function NewTabScreen(props: Props) {
           aria-controls="nt-rows"
           aria-activedescendant={rows.length ? `nt-row-${selected}` : undefined}
           aria-busy={converting || undefined}
-          spellCheck={mode === "ask"}
+          spellCheck
           autoCapitalize="off"
           autoCorrect="off"
           onChange={(event) => edit(event.target.value)}
@@ -151,31 +161,6 @@ export function NewTabScreen(props: Props) {
             composing.current = false;
           }}
         />
-        {converting ? (
-          <span className="nt-hint">{nt("terminal")}</span>
-        ) : (
-          <>
-            <span className="nt-hint">{nt("tabHint")}</span>
-            <fieldset className="nt-mode" aria-label={nt("modeLabel")}>
-              {(["search", "ask"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  tabIndex={-1}
-                  aria-pressed={option === mode}
-                  className={option === mode ? "nt-mode-option is-selected" : "nt-mode-option"}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    setMode(option);
-                    props.onModeChange?.(option);
-                  }}
-                >
-                  {nt(`mode.${option}`)}
-                </button>
-              ))}
-            </fieldset>
-          </>
-        )}
       </div>
       {rows.length > 0 && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
@@ -197,10 +182,10 @@ export function NewTabScreen(props: Props) {
               }}
             >
               {row.type === "agent" ? <AgentMark harness={row.harness} /> : <span className="nt-row-glyph" />}
-              <span className="nt-row-title">{rowTitle(row)}</span>
+              <span className="nt-row-title">{rowTitle(nt, row)}</span>
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
               <span className="nt-row-action">
-                {rowAction(row)}
+                {rowAction(nt, row)}
                 {index === selected && <kbd>↵</kbd>}
               </span>
             </div>
@@ -226,7 +211,7 @@ function rowKey(row: ScreenRow): string {
   }
 }
 
-function rowTitle(row: ScreenRow): string {
+function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
   switch (row.type) {
     case "agent":
       return nt("row.ask", { agent: row.name });
@@ -256,7 +241,7 @@ function rowDetail(row: ScreenRow): string | undefined {
   }
 }
 
-function rowAction(row: ScreenRow): string {
+function rowAction(nt: NewTabTranslate, row: ScreenRow): string {
   switch (row.type) {
     case "agent":
       return "";

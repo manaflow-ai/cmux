@@ -36,7 +36,7 @@
 }
 
 .ve-page *,
-.ve-sheet * {
+.ve-sheet-dialog * {
   box-sizing: border-box;
 }
 
@@ -301,16 +301,22 @@
   font-size: 13px;
 }
 
-/* The path picker: a palette-like sheet. */
+/* The path picker: a palette-like modal sheet (ui/Dialog): the backdrop, then the dialog over it. */
 .ve-sheet {
   position: fixed;
   inset: 0;
   z-index: 50;
+  background: rgb(0 0 0 / 0.16);
+}
+
+.ve-sheet-dialog {
+  position: fixed;
+  inset-block-start: 11vh;
+  inset-inline: 16px;
+  z-index: 51;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  padding: 11vh 16px 16px;
-  background: rgb(0 0 0 / 0.16);
+  outline: none;
   color: var(--ve-fg);
   font: 13px/1.4 var(--ve-font);
   -webkit-font-smoothing: antialiased;
@@ -427,7 +433,27 @@
   background: var(--ve-selected);
 }
 
-.ve-picker-name {
+/* The hint under the field (path mode, Cmd-Up). */
+.ve-picker-hint {
+  margin: -4px 12px 6px;
+  color: var(--ve-fg-3);
+  font-size: 11.5px;
+}
+
+/* The Locations section heading above the level. */
+.ve-picker-section {
+  padding: 6px 8px 2px;
+  color: var(--ve-fg-3);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ve-picker-row[data-location="true"] + .ve-picker-row:not([data-location]) {
+  margin-top: 4px;
+}
+
+.ve-picker-name,
+.ve-picker-location {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -456,6 +482,7 @@
 
 .ve-picker-empty,
 .ve-picker-more {
+  flex: 1 1 auto;
   padding: 18px 8px;
   color: var(--ve-fg-3);
   font-size: 12px;

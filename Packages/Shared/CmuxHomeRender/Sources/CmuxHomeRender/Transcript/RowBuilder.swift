@@ -27,6 +27,14 @@ final class RowBuilder {
 
     let format: RowFormat
     let measure = MeasureCache()
+    /// Attachment layouts by ref and text column (file chips measure and
+    /// truncate their name with Core Text; a commit must not redo that).
+    private var attachments: [AttachmentKey: (PartContent, CGSize)] = [:]
+
+    private struct AttachmentKey: Hashable {
+        var ref: AttachmentRef
+        var width: CGFloat
+    }
 
     init(format: RowFormat) { self.format = format }
 
@@ -34,7 +42,6 @@ final class RowBuilder {
         var rows: [RowSpec] = []
         rows.reserveCapacity(items.count + 4)
         let receipts = Self.receipts(items, me: ctx.me, readByOthers: ctx.readByOthers)
-        let wrap = ctx.metrics.maxTextWidth
         var prev: TranscriptItem?
         for (index, item) in items.enumerated() {
             let next = index + 1 < items.count ? items[index + 1] : nil
@@ -67,21 +74,20 @@ final class RowBuilder {
                 $0.author != item.author || $0.createdAt.timeIntervalSince(item.createdAt) >= Self.groupGap || $0.isRetracted
             } ?? true
             let failed = if case .notDelivered = item.delivery { true } else { false }
-            let parts = item.parts.enumerated().filter { !$0.element.plainText.isEmpty }
+            let parts = item.parts.enumerated().filter { Self.shows($0.element) }
             for (position, (pi, part)) in parts.enumerated() {
-                let (text, bold) = Self.text(of: part)
-                let measured = measure.measure(item: item.key, part: pi, text: text, bold: bold, wrapWidth: wrap)
+                let (content, size) = content(of: part, item: item.key, index: pi, metrics: ctx.metrics)
                 let reactions = item.reactions.filter { $0.partIndex == pi }.map {
                     ReactionBadge(glyph: Self.glyph($0.kind), mine: $0.author == ctx.me)
                 }
                 var g = position == 0 ? gap : 3
                 if !reactions.isEmpty { g += 10 }
                 let row = PartRow(outgoing: outgoing, tail: lastOfGroup && position == parts.count - 1, failed: failed,
-                                  reactions: reactions, size: measured.size, text: measured.layout)
-                rows.append(RowSpec(key: "part:\(item.key.rawValue):\(pi)", kind: .part(row), gap: g, height: measured.size.height))
+                                  reactions: reactions, size: size, content: content)
+                rows.append(RowSpec(key: "part:\(item.key.rawValue):\(pi)", kind: .part(row), gap: g, height: size.height))
             }
             if failed {
-                rows.append(RowSpec(key: "failed:\(item.key.rawValue)", kind: .failedLabel(HomeStrings.notDelivered), gap: 1, height: 14))
+                rows.append(RowSpec(key: "failed:\(item.key.rawValue)", kind: .failedLabel(item.mayHaveBeenDelivered ? HomeStrings.mayNotHaveBeenDelivered : HomeStrings.notDelivered), gap: 1, height: 14))
             }
             if let receipt = receipts[item.key] {
                 rows.append(RowSpec(key: "receipt:\(item.key.rawValue)", kind: .receipt(receipt), gap: 0, height: 16))
@@ -92,6 +98,27 @@ final class RowBuilder {
         }
         measure.trim(keeping: Set(items.map(\.key)))
         return rows
+    }
+
+    /// Attachments always show; other parts when they have text.
+    static func shows(_ part: MessagePart) -> Bool {
+        if case .attachment = part { return true }
+        return !part.plainText.isEmpty
+    }
+
+    /// An attachment's media bubble or file chip, or the measured text.
+    private func content(of part: MessagePart, item: IdempotencyKey, index: Int, metrics: Metrics) -> (PartContent, CGSize) {
+        if case .attachment(let ref) = part {
+            let key = AttachmentKey(ref: ref, width: metrics.maxTextWidth)
+            if let hit = attachments[key] { return hit }
+            if attachments.count > 512 { attachments.removeAll(keepingCapacity: true) }
+            let laid = AttachmentLayout.content(of: ref, metrics: metrics)
+            attachments[key] = laid
+            return laid
+        }
+        let (text, bold) = Self.text(of: part)
+        let measured = measure.measure(item: item, part: index, text: text, bold: bold, wrapWidth: metrics.maxTextWidth)
+        return (.text(measured.layout), measured.size)
     }
 
     /// The row's text and its bold (mention) ranges.

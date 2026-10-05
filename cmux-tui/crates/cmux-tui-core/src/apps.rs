@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod calls;
 #[cfg(unix)]
+mod cancel;
+#[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
 mod egress;
@@ -28,11 +30,15 @@ mod grants;
 #[cfg(unix)]
 mod host;
 #[cfg(unix)]
+mod host_ops;
+#[cfg(unix)]
 mod hosts;
 #[cfg(unix)]
 mod mirror;
 #[cfg(all(test, unix))]
 mod mirror_tests;
+#[cfg(unix)]
+mod open_tokens;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
@@ -40,11 +46,19 @@ mod routing;
 #[cfg(unix)]
 mod runs;
 #[cfg(unix)]
+mod servers;
+#[cfg(unix)]
 mod storage;
 #[cfg(unix)]
 mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
+#[cfg(unix)]
+mod terminal_backends;
+#[cfg(unix)]
+mod terminal_links;
+#[cfg(unix)]
+mod terminal_ops;
 #[cfg(unix)]
 mod timer;
 
@@ -55,7 +69,7 @@ pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
 pub(crate) use provider::{ProviderClaim, admit_origin};
 #[cfg(unix)]
-pub(crate) use runs::RunRequest;
+pub(crate) use runs::{Caller, RunRequest};
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 
@@ -87,6 +101,7 @@ impl AppsSlot {
                         state_dir,
                         host_binary: host::resolve_binary(),
                         host_args: Vec::new(),
+                        server_dir: host::resolve_server_dir(),
                         idle_stop: std::time::Duration::from_secs(idle),
                         provider_deadline: std::time::Duration::from_secs(30),
                         provider_user_deadline: std::time::Duration::from_secs(600),

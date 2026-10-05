@@ -72,6 +72,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Model/FeedChoiceValidation.swift:Fe
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift:AgentResume
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageModel.swift:HistoryPageAddress
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/ColumnGeometry.swift:ColumnStripGeometry
+Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/DockStripGeometry.swift:DockStripGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/DropZoneGeometry.swift:DropZoneGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/EvenSplitRatios.swift:EvenSplitRatios
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/FocusNavigation.swift:FocusNavigation
@@ -80,7 +81,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/LayoutModelPrototype.swi
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/PaneChromeGeometry.swift:PaneChromeGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/SplitGeometry.swift:SplitGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/SplitRoom.swift:SplitRoom
-Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/StickyStripGeometry.swift:StickyStripGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/StripScrollbarGeometry.swift:StripScrollbarGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/ColumnWidthPreset.swift:SplitRatio
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Model/NewColumnWidth.swift:NewColumnWidth
@@ -90,9 +90,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTuna
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:LayoutTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ExternalOpenRoute.swift:ShellQuote
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Theme/GhosttyThemeFile.swift:GhosttyThemeFile
-Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteRanker.swift:PaletteRanker
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchPlan.swift:TabSearchPlan
-Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchRanker.swift:TabSearchRanker
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchStyle.swift:PaletteTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/HealthAlert.swift:HealthOrdering
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/PairingCode.swift:PairingCode
@@ -114,7 +112,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/SidebarSectionsSetting.swift:Si
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/StripScrollbarSetting.swift:StripScrollbarSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/TerminalCommandHistorySetting.swift:TerminalCommandHistorySetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowBackgroundSetting.swift:WindowBackgroundSetting
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowTitlebarSetting.swift:WindowTitlebarSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/DropResolver.swift:DropResolver
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/KeyboardReorder.swift:KeyboardReorder
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/KeyboardReorder.swift:SidebarFilter
@@ -130,3 +127,4 @@ Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksPaletteCatalog.swift:TasksPal
 Packages/macOS/CmuxNext/Sources/CmuxNextTasks/TasksTunables.swift:TasksTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift:AppcastParser
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastSelector.swift:AppcastSelector
+Packages/Shared/CmuxAgentCursor/Sources/CmuxAgentCursor/CursorAnimation.swift:CursorAnimation

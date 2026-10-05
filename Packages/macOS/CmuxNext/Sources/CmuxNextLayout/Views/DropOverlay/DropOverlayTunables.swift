@@ -2,8 +2,8 @@ public import CmuxNextDesign
 public import CoreGraphics
 
 /// Debug Settings tunables of the drop overlay: the style, the parameters
-/// every style shares, and each style's own. Defaults keep the original
-/// Liquid Glass fill exactly as it was.
+/// every style shares, and each style's own. The default style is the
+/// border-only outline (tab-dnd); the others keep their original look.
 public nonisolated enum DropOverlayTunables {
     /// `property` is the static property's name, for "Copy as Swift defaults".
     private static func number(_ name: String, _ label: String, help: String, _ value: Double, range: ClosedRange<Double>,
@@ -20,7 +20,7 @@ public nonisolated enum DropOverlayTunables {
 
     public static let style = Tunable<DropOverlayStyle>.choice(
         "drop.overlay.style", .dropOverlay, "Style", help: "How the overlay shows where a dragged tab lands. Switches live, even mid-drag.",
-        default: .glassFill, code: "DropOverlayTunables.style")
+        default: .outline, code: "DropOverlayTunables.style")
     public static let spring = Tunable<MotionSpring>.choice(
         "drop.overlay.spring", .dropOverlay, "Spring", help: "Motion token for the overlay moving between targets (morph always uses settle).",
         default: .track, code: "DropOverlayTunables.spring")
@@ -77,7 +77,8 @@ public nonisolated enum DropOverlayTunables {
 
     public static var all: [TunableDescriptor] {
         [style.descriptor, spring.descriptor, animated.descriptor, appearInset.descriptor, opacity.descriptor, floatingInset.descriptor,
-         cornerRadius.descriptor, showLabel.descriptor, labelMinWidth.descriptor, color.descriptor]
+         cornerRadius.descriptor, showLabel.descriptor, labelMinWidth.descriptor, color.descriptor,
+        ] + DropOutlineTunables.all
             + [outlineWidth, cardWidthFraction, cardMaxWidth, cardHeight, cardRegionOpacity].map(\.descriptor)
             + [cardShowsIcon.descriptor]
             + [splitGap, splitExistingOpacity, lineWidth, lineLength, lineRegionOpacity, glowWidth, glowOpacity, ghostWidth,
@@ -126,7 +127,7 @@ public nonisolated enum LayoutTunables {
         help: "Draws the current screen as another layout model (plans/cmux-next/layout-model.md). View only; nothing is saved.",
         default: .off, code: "LayoutTunables.prototypeModel")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
-        "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right sticky column docks to.",
+        "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
 
     public static let prototypeOrientation = Tunable<LayoutPrototypeOrientation>.choice(
@@ -136,7 +137,7 @@ public nonisolated enum LayoutTunables {
 
     public static let prototypeDockMode = Tunable<LayoutPrototypeDockMode>.choice(
         "layout.prototype.dockMode", .panes, "Prototype dock mode",
-        help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real sticky columns keep their own mode).",
+        help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real docked columns keep their own mode).",
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
     public static var all: [TunableDescriptor] {

@@ -43,14 +43,13 @@ extension WindowManager {
                 return endIncognitoSessionIfUnused()
             }
             do {
-                _ = try await services.emptyWorkspaces.populating(key) {
-                    let workspace = try await connection.createWorkspace(name: nil, key: key)
-                    let terminal = try await connection.createTerminal(in: workspace.key, cwd: daemon.defaultCwd ?? NSHomeDirectory())
+                _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
+                    let terminal = try await connection.createTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
                     if let pane = terminal.pane {
                         _ = try await browserTabs.open(choice, in: pane, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }
                     }
-                    return workspace.key.rawValue
+                    return created.rawValue
                 }
             } catch {
                 daemon.logger.error("new incognito window failed: \(String(describing: error), privacy: .public)")

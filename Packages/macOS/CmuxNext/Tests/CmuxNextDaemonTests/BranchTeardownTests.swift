@@ -17,8 +17,10 @@ struct BranchTeardownTests {
             let (_, pane, _) = try await h.workspaceWithTerminal("teardown")
             let second = try await h.connection.newTab(in: pane).surface
             try await h.connection.closeTab(second)
+            let terminals = TerminalHosts.terminals(daemon: h.identity.pid, state: h.root.appendingPathComponent("state"))
+            #expect(terminals.count == 2, "expected the placed and the detached host, got \(terminals)")
+            // All host children, the spare (R81) included: none may outlive teardown.
             hosts = TerminalHosts.of(daemon: h.identity.pid)
-            #expect(hosts.count == 2, "expected the placed and the detached host, got \(hosts)")
         } catch {
             await h.stop()
             throw error

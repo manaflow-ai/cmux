@@ -34,6 +34,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var showsPaneBorder = false
     /// Divider lines and every other line draw (`appearance.borders`).
     public var drawsLines = true
+    /// `layout.paneSeparation`: whether a divider draws at rest and whether
+    /// it shows a line on hover or drag (none shows nothing).
+    public var paneSeparation: PaneSeparation = .borders
     /// The focus ring (`focusRing.*`). Drawn in the overlay plane only.
     public var focusRing = FocusRingSettings()
     /// The attention ring of panes with an unread notification
@@ -101,6 +104,7 @@ extension LayoutStyle {
         style.paneCornerRadius = Metrics.paneCornerRadius
         style.showsPaneBorder = Metrics.paneBorder == .subtle
         style.drawsLines = Borders.drawsLines
+        style.paneSeparation = Metrics.paneSeparation
         style.focusRing = DesignSettings.shared.focusRing
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
@@ -133,7 +137,7 @@ extension LayoutStyle {
         if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
         style.prototype = LayoutPrototypeSettings(model: LayoutTunables.prototypeModel.value, dockEdge: LayoutTunables.prototypeDockEdge.value,
                                                   orientation: LayoutTunables.prototypeOrientation.value,
-                                                  dockMode: LayoutTunables.prototypeDockMode.value.stickyMode)
+                                                  dockMode: LayoutTunables.prototypeDockMode.value.dockMode)
         return style
     }
 }

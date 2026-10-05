@@ -1,8 +1,11 @@
 // Turn rules taken from the reference prototype port (#16759): N previous messages, one
 // edited-files card per turn, and the fold label without a tool-call count.
 import { describe, expect, test } from "bun:test";
+import { translatorFor } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { turnView, workedLabel } from "./turns";
+
+const english = translatorFor("en");
 
 const row = (id: string, kind: string, at: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -36,7 +39,7 @@ describe("turn rules", () => {
     ];
     const view = turnView(rows, new Set(), { now: 1_000 });
     expect(ids(view)).toEqual(["u1", "worked-u1", "a1", "u2"]);
-    expect(workedLabel(view[1]!)).toBe("4 previous messages");
+    expect(workedLabel(english, view[1]!)).toBe("4 previous messages");
     expect(ids(turnView(rows, new Set(["worked-u1"]), { now: 1_000 }))).toEqual([
       "u1",
       "worked-u1",
@@ -65,10 +68,10 @@ describe("turn rules", () => {
   });
 
   test("the fold reads as a duration, without a tool-call count", () => {
-    expect(workedLabel(row("w", "worked", 0, { durationMs: 76_000, toolCount: 3 }))).toBe("Worked for 1m 16s");
-    expect(workedLabel(row("w", "worked", 0, { durationMs: 40_000, status: "cancelled" }))).toBe(
+    expect(workedLabel(english, row("w", "worked", 0, { durationMs: 76_000, toolCount: 3 }))).toBe("Worked for 1m 16s");
+    expect(workedLabel(english, row("w", "worked", 0, { durationMs: 40_000, status: "cancelled" }))).toBe(
       "You stopped after 40s",
     );
-    expect(workedLabel(row("w", "worked", 0, { previous: 1 }))).toBe("1 previous message");
+    expect(workedLabel(english, row("w", "worked", 0, { previous: 1 }))).toBe("1 previous message");
   });
 });

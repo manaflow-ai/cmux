@@ -24,7 +24,7 @@ import Testing
         let registry = Self.registry()
         registry.setChordOverride(ShortcutChord(Self.prefix, Shortcut("c", modifiers: [])), for: "newTab")
         #expect(registry.effectiveShortcut(for: "newTab") == nil)
-        #expect(registry.resolve(Shortcut("t")) == nil)
+        #expect(registry.keyWinner(Shortcut("t")) == nil)
         #expect(registry.shortcutDisplay(for: "newTab") == "⌃B C")
         #expect(registry.shortcutKeycaps(for: "newTab") == ["⌃", "B", "C"])
     }
@@ -39,7 +39,7 @@ import Testing
         #expect(registry.resolveChord(after: Self.prefix, Shortcut("x", modifiers: []))?.id == "closeTab")
         #expect(registry.resolveChord(after: Self.prefix, Shortcut("q", modifiers: [])) == nil)
         #expect(registry.resolveChord(after: Shortcut("a", modifiers: [.control]), Shortcut("c", modifiers: [])) == nil)
-        #expect(registry.resolve(Shortcut("c", modifiers: [])) == nil, "a chord's second key alone is no shortcut")
+        #expect(registry.keyWinner(Shortcut("c", modifiers: [])) == nil, "a chord's second key alone is no shortcut")
     }
 
     @Test func aChordOfAnUnavailableActionDoesNotArm() {
@@ -59,9 +59,9 @@ import Testing
     @Test func aMovedNumberedFamilyStaysAFamily() throws {
         let registry = Self.registry()
         registry.setShortcutOverride(Shortcut("1", modifiers: [.command, .option]), for: "fam")
-        let resolved = try #require(registry.resolve(Shortcut("4", modifiers: [.command, .option])))
-        #expect(resolved.id == "fam" && resolved.argument == "4")
-        #expect(registry.resolve(Shortcut("4")) == nil)
+        let resolved = try #require(registry.keyWinner(Shortcut("4", modifiers: [.command, .option])))
+        #expect(resolved.command == "fam" && resolved.argument == "4")
+        #expect(registry.keyWinner(Shortcut("4")) == nil)
         #expect(registry.shortcutDisplay(for: "fam") == "⌥⌘1…9")
     }
 

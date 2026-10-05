@@ -1,27 +1,30 @@
 import { useRef, useState } from "react";
-import { useStore } from "../context";
+import { useSettingsState, useStore } from "../context";
 import { text } from "../strings";
 import { NumberField } from "./NumberField";
 import type { EditorProps } from "./types";
 
 /**
  * Slider + field. While the slider moves the page sends `preview` (never written); releasing
- * it sends `preview.end` and one `settings.set`. The field commits on Return or blur.
+ * it sends one `settings.set`, then `preview.end`. The field commits on Return or blur.
  */
 export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
+  const { host } = useSettingsState();
   const range = row.range!;
   const stored = typeof value === "number" ? value : null;
   const [drag, setDrag] = useState<number | null>(null);
   const pending = useRef<number | null>(null);
-  const current = drag ?? stored ?? range.placeholder;
+  // Unset: the slider sits where the app resolved the value (the theme's opacity), else the placeholder.
+  const current = drag ?? stored ?? host?.derived?.[row.key] ?? range.placeholder;
   const release = () => {
     const next = pending.current;
     if (next === null) return;
     pending.current = null;
     setDrag(null);
-    store.previewEnd(row.key);
-    if (next !== stored) void store.set(row.key, next);
+    // Write first, then end the preview: the window keeps the new value and never flashes the old.
+    if (next === stored) store.previewEnd(row.key);
+    else void store.set(row.key, next).then(() => store.previewEnd(row.key));
   };
   return (
     <span className="number-editor">

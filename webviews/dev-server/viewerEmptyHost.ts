@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export type RecentKind = "diff" | "markdown";
+export type RecentKind = "diff" | "markdown" | "editor";
 
 export interface DevRecent {
   path: string;
@@ -33,9 +33,10 @@ export function devRecents(directory: string, now: () => number = Date.now) {
       return {
         diff: Array.isArray(value?.diff) ? value.diff : [],
         markdown: Array.isArray(value?.markdown) ? value.markdown : [],
+        editor: Array.isArray(value?.editor) ? value.editor : [],
       };
     } catch {
-      return { diff: [], markdown: [] };
+      return { diff: [], markdown: [], editor: [] };
     }
   };
   return {
@@ -103,12 +104,13 @@ function isMarkdownName(name: string): boolean {
 
 /**
  * One folder level for the fallback picker (`cmux.picker.list`): folders (marked when they are a
- * git repository's top level) and, in file mode, markdown files. Hidden entries only when
+ * git repository's top level) and, in file mode, markdown files (any file in `anyFile` mode, the
+ * code editor's). Hidden entries only when
  * `hidden`. `requested` null or `~` is home. A folder outside `roots` is refused.
  */
 export function listPickerDirectory(
   requested: string | null,
-  options: { roots: readonly string[]; home: string; mode: "folder" | "file"; hidden: boolean },
+  options: { roots: readonly string[]; home: string; mode: "folder" | "file" | "anyFile"; hidden: boolean },
 ) {
   const raw = requested == null || requested === "" || requested === "~" ? options.home : requested;
   const expanded = raw.startsWith("~/") ? path.join(options.home, raw.slice(2)) : raw;
@@ -143,7 +145,7 @@ export function listPickerDirectory(
         kind: "dir",
         git: fs.existsSync(path.join(full, ".git")) || undefined,
       });
-    } else if (isFile && options.mode === "file" && isMarkdownName(dirent.name)) {
+    } else if (isFile && (options.mode === "anyFile" || (options.mode === "file" && isMarkdownName(dirent.name)))) {
       entries.push({ name: dirent.name, path: full, kind: "file" });
     }
   }
@@ -158,6 +160,48 @@ export function listPickerDirectory(
 }
 
 /** The git top level of `folder`, or undefined when it is not inside a repository. */
+/**
+ * The Locations of the fallback picker (`cmux.picker.locations`, R89): the workspace folders, Home,
+ * Desktop, Documents, Downloads, iCloud Drive when present, then the pinned folders, each once and
+ * only when it is a folder. Presence is a stat of the folder itself; nothing inside a protected
+ * folder is read.
+ */
+export function pickerLocations(options: {
+  home: string;
+  workspace?: readonly string[];
+  pinned?: readonly string[];
+  isFolder?: (folder: string) => boolean;
+}): { locations: Array<{ kind: string; path: string }> } {
+  const isFolder =
+    options.isFolder ??
+    ((folder: string) => {
+      try {
+        return fs.statSync(folder).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+  const home = options.home.replace(/\/+$/, "");
+  const expand = (folder: string) => (folder.startsWith("~/") ? path.join(home, folder.slice(2)) : folder);
+  const candidates: Array<{ kind: string; path: string }> = [
+    ...(options.workspace ?? []).map((folder) => ({ kind: "workspace", path: expand(folder) })),
+    { kind: "home", path: home },
+    { kind: "desktop", path: path.join(home, "Desktop") },
+    { kind: "documents", path: path.join(home, "Documents") },
+    { kind: "downloads", path: path.join(home, "Downloads") },
+    { kind: "iCloudDrive", path: path.join(home, "Library/Mobile Documents/com~apple~CloudDocs") },
+    ...(options.pinned ?? []).map((folder) => ({ kind: "pinned", path: expand(folder) })),
+  ];
+  const seen = new Set<string>();
+  const locations = candidates.filter((place) => {
+    const key = place.path.replace(/\/+$/, "") || "/";
+    if (seen.has(key) || !path.isAbsolute(key) || !isFolder(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { locations };
+}
+
 export function gitTopLevel(folder: string): string | undefined {
   try {
     const top = execFileSync("git", ["-C", folder, "rev-parse", "--show-toplevel"], {

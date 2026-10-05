@@ -47,14 +47,16 @@
         replace(doc, find, replacement, options) {
           if (typeof doc === "string" && /^draft-\d+-[0-9a-f]+$/.test(doc)) return ed.edit("googleDocs", "replace", "googleDocs.replace", null, doc, find);
           if (typeof find !== "string" || !find) throw new S.SiteError("invalid", "googleDocs.replace: find: expected text");
+          // Read once, so the preview and the edit use the same text.
+          replacement = String(replacement);
           const r = ref(doc, "googleDocs.replace", options || {});
           return ed.edit("googleDocs", "replace", "googleDocs.replace", r, {}, options, () => ({
             summary: `Replace "${find}" with "${replacement}" in Google Doc ${r.id}`,
-            preview: { file: doc, find, replace: String(replacement) },
+            preview: { file: doc, find, replace: replacement },
             run: async (page) => {
               const before = count(await plain(r), find);
-              await ed.findReplace(page, find, String(replacement));
-              const verified = before === 0 || (await ed.verify(async () => { const now = await plain(r); return String(replacement).includes(find) ? count(now, String(replacement)) >= before : count(now, find) === 0; }));
+              await ed.findReplace(page, find, replacement);
+              const verified = before === 0 || (await ed.verify(async () => { const now = await plain(r); return replacement.includes(find) ? count(now, replacement) >= before : count(now, find) === 0; }));
               return { status: "replaced", count: before, verified };
             },
           }));
@@ -62,6 +64,8 @@
         // Inserts text right after a unique anchor (a heading's text or any phrase): { status: "inserted", verified }.
         async insertAfter(doc, anchor, text, options) {
           if (typeof doc === "string" && /^draft-\d+-[0-9a-f]+$/.test(doc)) return ed.edit("googleDocs", "insertAfter", "googleDocs.insertAfter", null, doc, anchor);
+          if (typeof anchor !== "string" || !anchor) throw new S.SiteError("invalid", "googleDocs.insertAfter: anchor: expected text");
+          if (typeof text !== "string" || !text) throw new S.SiteError("invalid", "googleDocs.insertAfter: text: expected text");
           const r = ref(doc, "googleDocs.insertAfter", options || {});
           const n = count(await plain(r), anchor);
           if (n !== 1) throw new S.SiteError("invalid", `googleDocs.insertAfter: anchor ${JSON.stringify(anchor)} occurs ${n} times; it must occur exactly once`);

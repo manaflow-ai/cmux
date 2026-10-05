@@ -22,11 +22,11 @@
           { "name": "MUX_DO", "class_name": "MuxDO" },
           { "name": "ADDRESS_DO", "class_name": "AddressDO" },
           { "name": "DOMAIN_DO", "class_name": "DomainDO" },
-          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }
+          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }, { "name": "CLOUD_DO", "class_name": "CloudDO" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }],
-  "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1111", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1131", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1141", "simple": { "limit": 60, "period": 60 } }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }, { "tag": "v11", "new_sqlite_classes": ["CloudDO"] }],
+  "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1111", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1131", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1141", "simple": { "limit": 60, "period": 60 } }, { "name": "CLOUD_MUTATION_LIMIT", "namespace_id": "1151", "simple": { "limit": 30, "period": 60 } }, { "name": "CLOUD_KEYSET_LIMIT", "namespace_id": "1161", "simple": { "limit": 60, "period": 60 } }],
   // Home attachments: private bucket (no public access, no custom domain); the Worker hashes uploads and signs downloads.
   "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments-local" }],
   "workflows": [{ "name": "cmux-automation-run-local", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
@@ -34,7 +34,9 @@
   "env": {
     "development": {
       "name": "cmux-api-development",
-      "vars": { "ENVIRONMENT": "development", "WORKER_NAME": "cmux-api-development", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      // The Postgres/MySQL projection compare during the dual write (projection-compare-cron.ts).
+      "triggers": { "crons": ["*/15 * * * *"] },
+      "vars": { "ENVIRONMENT": "development", "CLOUD_API_ORIGIN": "https://cmux-api-development.debussy.workers.dev", "CLOUD_ALLOWED_TEAMS": "team_f77575bdfd932388f2e3", "CLOUD_NAME_PREFIX": "cmuxnp-dev-cld-", "WORKER_NAME": "cmux-api-development", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
@@ -47,25 +49,27 @@
           { "name": "MUX_DO", "class_name": "MuxDO" },
           { "name": "ADDRESS_DO", "class_name": "AddressDO" },
           { "name": "DOMAIN_DO", "class_name": "DomainDO" },
-          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }
+          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }, { "name": "CLOUD_DO", "class_name": "CloudDO" }
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-development", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
       "worker_loaders": [{ "binding": "LOADER" }],
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }],
-      "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1111", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1131", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1141", "simple": { "limit": 60, "period": 60 } }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }, { "tag": "v11", "new_sqlite_classes": ["CloudDO"] }],
+      "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1111", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1131", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1141", "simple": { "limit": 60, "period": 60 } }, { "name": "CLOUD_MUTATION_LIMIT", "namespace_id": "1151", "simple": { "limit": 30, "period": 60 } }, { "name": "CLOUD_KEYSET_LIMIT", "namespace_id": "1161", "simple": { "limit": 60, "period": 60 } }],
       // Home attachments: private bucket (no public access, no custom domain); the Worker hashes uploads and signs downloads.
       "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments-development" }],
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }, { "binding": "HYPERDRIVE_RO", "id": "cb712d90da9d42fb84ac975275e0b6c8" }]
+      // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess development (readwriter / reader), the dual-write shadow (state-placement.md 4.5).
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }, { "binding": "HYPERDRIVE_RO", "id": "cb712d90da9d42fb84ac975275e0b6c8" }, { "binding": "PS_MYSQL", "id": "60893ba4eaef437a91a77da71730ea9b" }, { "binding": "PS_MYSQL_RO", "id": "fe1e9fd2a3844fbfabcb12110832c394" }]
     },
     "staging": {
       "name": "cmux-api-staging",
       // Logs also go to Axiom (dataset cmux-api-staging-logs, monitor cmux-api-staging-kms-fallback); query strings
       // (SSO codes, emails) are removed first. Workers Logs stay on (persist).
       "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": true, "persist": true, "destinations": ["axiom-cmux-api-staging"] } },
-      "triggers": { "crons": ["23 * * * *"] },
+      // 23 * * * *: feed text sweep; */15: the Postgres/MySQL projection compare during the dual write.
+      "triggers": { "crons": ["23 * * * *", "*/15 * * * *"] },
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "staging", "WORKER_NAME": "cmux-api-staging", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "vars": { "ENVIRONMENT": "staging", "CLOUD_API_ORIGIN": "https://cloud-api-staging.cmux.dev", "CLOUD_ALLOWED_TEAMS": "team_f77575bdfd932388f2e3", "CLOUD_NAME_PREFIX": "cmuxnp-stg-cld-", "WORKER_NAME": "cmux-api-staging", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-stg-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
@@ -78,16 +82,17 @@
           { "name": "MUX_DO", "class_name": "MuxDO" },
           { "name": "ADDRESS_DO", "class_name": "AddressDO" },
           { "name": "DOMAIN_DO", "class_name": "DomainDO" },
-          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }
+          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }, { "name": "CLOUD_DO", "class_name": "CloudDO" }
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-staging", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
       "worker_loaders": [{ "binding": "LOADER" }],
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }],
-      "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1102", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1112", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1132", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1142", "simple": { "limit": 60, "period": 60 } }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }, { "tag": "v11", "new_sqlite_classes": ["CloudDO"] }],
+      "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1102", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1112", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1132", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1142", "simple": { "limit": 60, "period": 60 } }, { "name": "CLOUD_MUTATION_LIMIT", "namespace_id": "1152", "simple": { "limit": 30, "period": 60 } }, { "name": "CLOUD_KEYSET_LIMIT", "namespace_id": "1162", "simple": { "limit": 60, "period": 60 } }],
       // Home attachments: private bucket (no public access, no custom domain); the Worker hashes uploads and signs downloads.
       "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments-staging" }],
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }, { "binding": "HYPERDRIVE_RO", "id": "10bbf30d021f40db9a52eae8d0deb523" }],
+      // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess staging (readwriter / reader), the dual-write shadow (state-placement.md 4.5).
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }, { "binding": "HYPERDRIVE_RO", "id": "10bbf30d021f40db9a52eae8d0deb523" }, { "binding": "PS_MYSQL", "id": "7262c6189a304aa691bb10a88732f65c" }, { "binding": "PS_MYSQL_RO", "id": "5127d85285c7461f8e6a8f799646fbd5" }],
       "routes": [{ "pattern": "cloud-api-staging.cmux.dev", "custom_domain": true }]
     },
     "production": {
@@ -96,7 +101,7 @@
       "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": true, "persist": true, "destinations": ["axiom-cmux-api-production"] } },
       "triggers": { "crons": ["23 */6 * * *"] },
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "production", "WORKER_NAME": "cmux-api", "TEAM_VM_SLUG_PREFIX": "cmux-tvm-", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
+      "vars": { "ENVIRONMENT": "production", "CLOUD_API_ORIGIN": "https://cloud-api.cmux.dev", "CLOUD_NAME_PREFIX": "cmuxnp-prod-cld-", "WORKER_NAME": "cmux-api", "TEAM_VM_SLUG_PREFIX": "cmux-tvm-", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
@@ -109,13 +114,13 @@
           { "name": "MUX_DO", "class_name": "MuxDO" },
           { "name": "ADDRESS_DO", "class_name": "AddressDO" },
           { "name": "DOMAIN_DO", "class_name": "DomainDO" },
-          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }
+          { "name": "PAIRING_DO", "class_name": "PairingDO" }, { "name": "HOST_DO", "class_name": "HostDO" }, { "name": "USAGE_METER_DO", "class_name": "UsageMeterDO" }, { "name": "TEAM_VM_DO", "class_name": "TeamVmDO" }, { "name": "CLOUD_DO", "class_name": "CloudDO" }
         ]
       },
       "workflows": [{ "name": "cmux-automation-run-production", "binding": "AUTOMATION_RUN", "class_name": "AutomationRunWorkflow" }],
       "worker_loaders": [{ "binding": "LOADER" }],
-      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }],
-      "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1103", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1113", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1133", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1143", "simple": { "limit": 60, "period": 60 } }],
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserDO", "TeamDO"] }, { "tag": "v2", "new_sqlite_classes": ["SchedulerDO"] }, { "tag": "v3", "new_sqlite_classes": ["ConnectionDO", "AccountIndexDO"] }, { "tag": "v4", "new_sqlite_classes": ["FeedDO"] }, { "tag": "v5", "new_sqlite_classes": ["DomainDO"] }, { "tag": "v6", "new_sqlite_classes": ["ConversationDO", "MuxDO", "AddressDO"] }, { "tag": "v7", "new_sqlite_classes": ["PairingDO"] }, { "tag": "v8", "new_sqlite_classes": ["HostDO"] }, { "tag": "v9", "new_sqlite_classes": ["UsageMeterDO"] }, { "tag": "v10", "new_sqlite_classes": ["TeamVmDO"] }, { "tag": "v11", "new_sqlite_classes": ["CloudDO"] }],
+      "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1103", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1113", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1133", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1143", "simple": { "limit": 60, "period": 60 } }, { "name": "CLOUD_MUTATION_LIMIT", "namespace_id": "1153", "simple": { "limit": 30, "period": 60 } }, { "name": "CLOUD_KEYSET_LIMIT", "namespace_id": "1163", "simple": { "limit": 60, "period": 60 } }],
       // Home attachments: private bucket (no public access, no custom domain); the Worker hashes uploads and signs downloads.
       "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments" }],
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "ef387ca3b20b4ea7878e02746d9545ef" }, { "binding": "HYPERDRIVE_RO", "id": "6badee5cbb964e9f9c09c6f175a14c85" }],

@@ -190,9 +190,8 @@ enum AgentHandlers {
                 case .newWorkspace:
                     let key = WorkspaceKey.generate()
                     workspace = key
-                    surface = try await repair.populating(key) {
-                        let created = try await connection.createWorkspace(key: key)
-                        return try await connection.createTerminal(in: created.key, cwd: options.cwd).surface
+                    surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
+                        try await connection.createTerminal(in: created, cwd: options.cwd).surface
                     }
                 }
                 if let surface { try await connection.send(surface, text: line) }
@@ -208,6 +207,8 @@ enum AgentHandlers {
     /// invocation's pane, else the focused one.
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let path = invocation["path"]?.stringValue ?? ""
+        // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
+        guard !path.isEmpty else { return ViewerHandlers.openFilePicker(invocation, context: context) }
         // The palette and the control socket accept only the catalog's choices;
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue

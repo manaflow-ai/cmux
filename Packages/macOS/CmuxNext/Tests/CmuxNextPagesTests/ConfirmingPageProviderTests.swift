@@ -60,6 +60,8 @@ import Testing
         let (provider, inner, presenter) = provider(answer: false)
         _ = try await provider.call("cmux.apps.catalog.list", params: [:], context: PageCallContext(page: "cmux.apps"))
         #expect(inner.calls.first?.1.confirmed == false)
+        #expect(inner.calls.first?.1.origin == "page", "without a sheet the call stays the page's")
+        #expect(inner.calls.first?.1.isConfirmedUser == false)
         #expect(presenter.shown.isEmpty)
     }
 

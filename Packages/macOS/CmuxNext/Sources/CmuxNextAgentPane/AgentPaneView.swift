@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextPages
+public import CmuxNextPages
 import os
 public import WebKit
 
@@ -49,11 +49,16 @@ public final class AgentPaneView: NSView {
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
     let page: PageWebView?
     let pageEvents: AgentPageProvider?
+    /// Whether the page can take typing yet (the key dispatcher queues keys until then).
+    public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+
+    /// The process pool every agent page shares (R81: fonts are listed once per pool).
+    private static let processPool = WKProcessPool()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -86,14 +91,19 @@ public final class AgentPaneView: NSView {
             self.page = page
             pageEvents = provider
             webView = page.webKitView
+            inputReadiness = page.inputReadiness
             dictation = AgentPaneDictation(send: { [weak provider] update in
                 if let event = AgentPageEvent.dictation(update) { provider?.publish(event) }
             })
         } else {
             let configuration = WKWebViewConfiguration()
             configuration.websiteDataStore = .nonPersistent()
+            // One process pool for every agent page: a fresh pool per page made WebKit list the
+            // user-installed fonts again for each new page (registerUserInstalledFonts, about
+            // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
+            configuration.processPool = Self.processPool
             if renderRate != .capped {
-                configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
+                WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
             }
             source.register(on: configuration)
             // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
@@ -101,6 +111,7 @@ public final class AgentPaneView: NSView {
             // window (plans/cmux-next/windows.md).
             configuration.userContentController.addUserScript(
                 WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            inputReadiness = PageInputReadiness(configuration: configuration)
             webView = WKWebView(frame: .zero, configuration: configuration)
             page = nil
             pageEvents = nil
@@ -108,6 +119,7 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        inputReadiness.attach(webView)
         if let page {
             attachPage(page)
         } else {
@@ -181,7 +193,7 @@ public final class AgentPaneView: NSView {
 
     /// WebKit's feature that renders a page at the display-rate divisor
     /// nearest 60 fps.
-    static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
+    static let near60FPSFeature = WebKitRenderRate.near60FPSFeature
 
     public let renderRate: AgentPaneRenderRate
     /// The display's refresh rate when the pane has no window screen to ask

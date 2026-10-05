@@ -47,6 +47,9 @@ done
 home="/tmp/acpdev-$slot"
 daemon_port=$((47900 + slot))
 vite_port=$((4180 + slot))
+# 4190 is on the WHATWG fetch "bad ports" list, so browsers (WebKit, Chromium) and Node refuse it.
+# Slot 10 moves outside the 4180-4279 range instead of shifting every later slot.
+[[ "$vite_port" == 4190 ]] && vite_port=4280
 vite_origin="http://127.0.0.1:$vite_port"
 
 stop_pid() {
@@ -117,7 +120,9 @@ case "$cmd" in
 import json, os, sys
 path, port, token, origin = sys.argv[1:]
 config = json.load(open(path)) if os.path.exists(path) else {}
-config["websocket"] = {"listen": f"127.0.0.1:{port}", "token": token, "allowed_origins": [origin]}
+# tokenRotated: this token is fresh (the daemon's one-time rotation of an old saved token
+# must not replace the token the fragment carries).
+config["websocket"] = {"listen": f"127.0.0.1:{port}", "token": token, "allowed_origins": [origin], "tokenRotated": 1}
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
 os.chmod(path, 0o600)
@@ -126,8 +131,13 @@ PY
     # Current daemons trust a dev origin only through --allow-dev-origin (never saved); older ones
     # read websocket.allowed_origins above.
     origin_args=()
-    if "$bin" daemon run --help 2>/dev/null | grep -q -- --allow-dev-origin; then
+    local help; help="$("$bin" daemon run --help 2>/dev/null || true)"
+    if grep -q -- --allow-dev-origin <<<"$help"; then
       origin_args=(--allow-dev-origin "$vite_origin")
+      # A release acpmux honors a dev origin only on an explicit development launch.
+      if grep -qE -- '--dev( |$)' <<<"$help"; then
+        origin_args+=(--dev)
+      fi
     fi
     (cd "$cwd" && ACPMUX_HOME="$home" nohup "$bin" daemon run --listen "127.0.0.1:$daemon_port" --token "$token" \
       ${origin_args[@]+"${origin_args[@]}"} </dev/null >"$home/daemon.log" 2>&1 & echo $! >"$home/daemon.pid")

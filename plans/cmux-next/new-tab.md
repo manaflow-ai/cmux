@@ -192,6 +192,10 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   this lane.
 - Pool size: measure the spare memory in N4 before the pool size is final.
 - N7 owner: the ACP UI lead (agent pane host migration).
+- R86 (Lawrence, 2026-10-04): no Search/Ask mode. One input: `!` is a terminal, an address opens,
+  any other text is a prompt for the chosen agent; a web search is only the explicit row under the
+  field (and `newTab.submit --arg search=true`). The mode memory, the Tab toggle and the `mode`
+  argument are removed; only the last agent is remembered.
 
 ### Status (2026-10-04)
 
@@ -204,6 +208,43 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 - N5: `newTab.submit` (`cmux tab new-from-text TEXT [--arg mode=search|ask] [--arg agent=ID]`), MCP tool
   from the app registry, palette with an argument prompt.
 - N6: `tabs.newTabKind` defaults to `page`; a build without the agent page falls back to a terminal.
+- R81(c) daemon spare host (landed 60dd1cc0868, 66704e32cee): one idle `__terminal-host` process
+  per daemon, adopted by the next `new-tab`. Measured 2026-10-04 on cmux-lawrence-2 with the
+  fleet daemon of nt12-v1 (`scripts/cmux-next/new-tab-daemon-bench.py`): 13 of 15 tabs adopted the
+  spare (the first two have none, by design), but the reply time did not change: p50 105.9 ms /
+  p95 141.1 ms (login shell), 92.3 / 121.3 ms (`/bin/sh`); tabs without the spare 71-114 ms. The
+  spare saves only the host exec and dyld, a few ms.
+- Where the reply time goes (`sample`, 25 tabs, mean per tab on the terminal work thread): host
+  bootstrap/launch handshake wait about 15 ms (even with the spare); about 5 SQLite commits plus
+  3-4 host record/publication-lock syncs, each an F_FULLFSYNC of 3.9 ms p50 on this Mac
+  (`scripts/cmux-next/fsync-bench.py`; F_BARRIERFSYNC 0.5 ms), about 35 ms; lock waits about
+  6 ms; SQLite CPU about 5 ms. About 40 ms of the reply is not attributed yet.
+- Decisions (coordinator, 2026-10-04): (1) reply on accept (zero-wait IX2/IX3) for `new-tab`,
+  built by the new tab lead, design reviewed by the protocol/daemon owner before code; first step
+  is daemon timing spans on the new-tab path behind a debug flag. (2) Barrier sync for host record
+  files waits for the durable-sessions lead's judgement on power-cut recovery. (3) The spare stays
+  as is; its follow-ups (prompt reap, adoption by split/new-pane/new-workspace) are frozen until
+  IX2/IX3 lands, then keep or delete it with numbers.
+- Debug marks (`CMUX_TUI_DEBUG_SPANS`, 2026-10-04, fleet daemons nt13 = marks only and nt14 =
+  marks plus barrier sync, cmux-lawrence-2, 2 rounds of 20 tabs each, login shell). Daemon time
+  from request to reply, p50: nt13 94.9 / 76.8 ms, nt14 55.6 / 45.1 ms. Mean per tab, nt13 then
+  nt14: host Launch handling in the host process (`host.launch_ready`) 36-26 then 23-18 ms;
+  publication lock 10 then 0.4 ms; `persist_workspace` 10-11 then 3 ms; 5 registry SQLite
+  commits 24-31 then 20-23 ms; bootstrap, connect and lock waits 1-3 ms. The unexplained ~40 ms
+  was the host Launch step (its record write did 2 full syncs) plus the publication lock and
+  workspace mirror syncs. Remaining, after the barrier sync: host Launch about 20 ms (PTY and
+  terminal setup in the host) and the SQLite commits about 20 ms, which reply-on-accept
+  (`plans/cmux-next/new-tab-accept-first.md`) takes off the reply path.
+- Barrier sync for the host record, publication lock and workspace mirror (coordinator approval
+  after the durable-sessions lead's audit): reply p50 -40 to -42 percent in the bench above.
+  The exit record, the SQLite registry and the session journal keep F_FULLFSYNC.
+- Host Launch marks and the liveness lease barrier (nt16, 3b910a9f5d1, A/B against nt14 on
+  cmux-lawrence-2 at load 60-90, 2 x 20 tabs): inside the host's Launch step, shell child spawn
+  20-22 ms, record write 7 ms, liveness lease 5 ms, PTY open 3 ms. The lease barrier gave no
+  measurable gain: the lease step stayed at about 5 ms, so its cost is not the sync. Daemon
+  reply p50 under that load: nt14 98-102 ms, nt16 107-109 ms (noise of the loaded host; the
+  earlier unloaded nt14 run was 45-56 ms). The child spawn is the largest host step; stage A
+  takes the whole host Launch off the reply path.
 
 ## 9. Leo's ideas
 

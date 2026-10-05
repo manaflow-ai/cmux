@@ -1,6 +1,8 @@
 // Boots the App Store page. In the app the host installs the `cmuxPage` bridge (pageClient.ts) and
 // sets the route in the fragment (`#/discover?layout=grid`); in the browser dev loop
 // (`/apps/?mock`) the in-memory mock provider stands in for the app supervisor.
+// DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
@@ -33,6 +35,8 @@ export function mountAppsPage(
       },
     });
   }
+  // The host opens a listing or the Installed tab on an open page by setting the fragment.
+  window.addEventListener("hashchange", () => store.applyRoute(window.location.hash));
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("store.window.title");

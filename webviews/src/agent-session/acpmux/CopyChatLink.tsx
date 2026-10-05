@@ -1,5 +1,5 @@
 import { copyText } from "./conversation/clipboard";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
 import { sessionLink } from "./links";
@@ -15,6 +15,7 @@ export function CopyChatLink({
   sessionId?: string;
   copy?: (text: string) => Promise<void>;
 }) {
+  const t = useT();
   const shortcut = useShortcut(SHORTCUT_ACTIONS.copyTabLink);
   const link = sessionId ? sessionLink(sessionId) : undefined;
   if (!link) return null;

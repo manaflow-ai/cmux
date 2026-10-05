@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { setPaneLanguage } from "../i18n";
 import { PermissionPanel } from "./Panel";
 import type { PermissionClientState, PermissionGroup } from "./protocol";
 
@@ -108,9 +109,8 @@ describe("grouped tool permission panel", () => {
     expect(html).not.toContain("<button");
   });
   test("Japanese pane localizes approval and recovery controls while preserving agent input", () => {
-    const navigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
     try {
-      Object.defineProperty(globalThis, "navigator", { configurable: true, value: { languages: ["ja-JP"] } });
+      setPaneLanguage("ja");
       const html = render({
         chatAllowance: true,
         uncertain: true,
@@ -130,8 +130,7 @@ describe("grouped tool permission panel", () => {
       expect(html).toContain("Owner error remains intact");
       expect(html).not.toContain("Allow once");
     } finally {
-      if (navigator) Object.defineProperty(globalThis, "navigator", navigator);
-      else Reflect.deleteProperty(globalThis, "navigator");
+      setPaneLanguage("en");
     }
     expect(render()).toContain("Allow once");
   });

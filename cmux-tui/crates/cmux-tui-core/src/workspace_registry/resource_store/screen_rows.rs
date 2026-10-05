@@ -23,7 +23,7 @@
 //! Split identities of ids that only these tables name are in [`identities`].
 
 use super::*;
-use crate::model::{ColumnSticky, StickyEdge, StickyMode};
+use crate::model::{ColumnDock, DockEdge, DockMode};
 
 mod identities;
 pub(super) use identities::validate_screen_splits;
@@ -68,7 +68,7 @@ fn write_column_docks(
         params![screen.public_id.as_str()],
     )?;
     for column in &screen.viewport.columns {
-        let Some(dock) = column.sticky.filter(|sticky| sticky.edge.is_band()) else { continue };
+        let Some(dock) = column.dock.filter(|dock| dock.edge.is_band()) else { continue };
         transaction.execute(
             "INSERT INTO resource_column_docks(screen_id, column_id, edge, mode)
              VALUES(?1, ?2, ?3, ?4)",
@@ -256,7 +256,7 @@ fn desired_docks(screen: &RegistryScreen) -> Vec<(String, String, String)> {
         .columns
         .iter()
         .filter_map(|column| {
-            let dock = column.sticky.filter(|sticky| sticky.edge.is_band())?;
+            let dock = column.dock.filter(|dock| dock.edge.is_band())?;
             Some((column.id.to_string(), dock.edge.as_str().into(), dock.mode.as_str().into()))
         })
         .collect();
@@ -308,7 +308,7 @@ fn with_column_docks(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     for (screen_id, column_id, edge, mode) in rows {
-        let (Some(edge), Some(mode)) = (StickyEdge::parse(&edge), StickyMode::parse(&mode)) else {
+        let (Some(edge), Some(mode)) = (DockEdge::parse(&edge), DockMode::parse(&mode)) else {
             continue;
         };
         if !edge.is_band() {
@@ -319,16 +319,16 @@ fn with_column_docks(
             continue;
         };
         let columns = &mut screen.viewport.columns;
-        let edge_taken = columns.iter().any(|column| column.sticky.is_some_and(|s| s.edge == edge));
+        let edge_taken = columns.iter().any(|column| column.dock.is_some_and(|s| s.edge == edge));
         let Some(index) = columns.iter().position(|column| column.id.as_str() == column_id) else {
             continue;
         };
         let other_scrolls = columns
             .iter()
             .enumerate()
-            .any(|(other, column)| other != index && column.sticky.is_none());
-        if columns[index].sticky.is_none() && !edge_taken && other_scrolls {
-            columns[index].sticky = Some(ColumnSticky { edge, mode });
+            .any(|(other, column)| other != index && column.dock.is_none());
+        if columns[index].dock.is_none() && !edge_taken && other_scrolls {
+            columns[index].dock = Some(ColumnDock { edge, mode });
         }
     }
     Ok(screens)

@@ -118,7 +118,17 @@ r2_key="$(field "${prefix}r2_key")"
 
 root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 dest="$root/$version$suffix"
+# The framework's GN args (archive.json gn_args): DCHECKs must be off, or a
+# DCHECK that web content reaches aborts cmux (crash-elimination.md). A warning
+# until the manifest sets "require_dcheck_off": true (the cmux.17 pin).
+check_build_flags() { # <cef folder>
+  local require=()
+  case "$(field require_dcheck_off)" in true|True|1) require=(--require) ;; esac
+  python3 "$SCRIPT_DIR/cef_build_flags.py" "$1" ${require[@]+"${require[@]}"} >&2 ||
+    fail "CEF $version was built with DCHECKs on; pin a framework built with dcheck_always_on=false"
+}
 if [[ -f "$dest/.verified" && "$(cat "$dest/.verified")" == "$sha" && -d "$dest/$FRAMEWORK" ]]; then
+  check_build_flags "$dest"
   echo "$dest"
   exit 0
 fi
@@ -167,13 +177,26 @@ verified() { # <file>; the manifest sha256 decides every source
 fetch_store() {
   [[ "${CMUX_CEF_NO_STORE:-0}" == "1" ]] && return 1
   [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || return 1
+  # The signed URL is a read capability: never trace it (a debugging `bash -x` run
+  # would print it into a job log). Tracing resumes after the download.
+  local traced=0 status=1
+  if [[ $- == *x* ]]; then traced=1; set +x; fi
+  store_download && status=0
+  if (( traced )); then set -x; fi
+  return "$status"
+}
+
+# Untraced (fetch_store): ask the controller for a signed GET of the digest and download it.
+store_download() {
   local controller="${CMUX_CEF_STORE_URL:-http://100.89.225.106:18765}" signed
   # The artifact edge refuses some default user agents; send ours.
-  signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30       -A cmux-ensure-cef "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |
+  signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30 \
+      -A cmux-ensure-cef "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |
     /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("url", ""))' 2>/dev/null || true)"
   [[ "$signed" == https://* || "$signed" == http://* ]] || return 1
   echo "==> downloading $asset ($version) from the controller artifact store" >&2
-  if curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --connect-timeout 15       --max-time 1800 -A cmux-ensure-cef -o "$archive" "$signed" >&2; then
+  if curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --connect-timeout 15 \
+      --max-time 1800 -A cmux-ensure-cef -o "$archive" "$signed" 2>&1 | sed -E 's/\?X-Amz-[^ ]*//g' >&2; then
     verified "$archive" "the controller artifact store" && return 0
   else
     echo "warning: artifact store download failed; trying R2" >&2
@@ -234,6 +257,7 @@ fetch_store || fetch_r2 || fetch_github ||
 mkdir -p "$tmp/x"
 tar -xJf "$archive" -C "$tmp/x"
 [[ -d "$tmp/x/$version/$FRAMEWORK" ]] || fail "archive $asset has no $version/$FRAMEWORK"
+check_build_flags "$tmp/x/$version"
 printf '%s' "$sha" > "$tmp/x/$version/.verified"
 rm -rf "$dest"
 mv "$tmp/x/$version" "$dest"

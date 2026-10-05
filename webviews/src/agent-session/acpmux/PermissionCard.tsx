@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef } from "react";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { bareKey } from "./keyTarget";
 import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
@@ -15,6 +15,7 @@ export function PermissionCard({
   permission: AcpmuxPermission;
   onAnswer(optionId: string): void;
 }) {
+  const t = useT();
   const keys = useMemo(
     () => (permission.pending ? permissionKeys(permission.options) : new Map<string, string>()),
     [permission.pending, permission.options],

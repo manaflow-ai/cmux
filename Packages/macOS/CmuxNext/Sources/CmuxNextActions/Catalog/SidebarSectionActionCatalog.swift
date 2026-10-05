@@ -77,7 +77,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "sidebar.section.moveToTop", title: t("action.sidebar.section.moveToTop", "Move Section to Top"),
-                keywords: ["sidebar", "section", "move", "top", "sticky"], category: .sidebar, symbol: "arrow.up.to.line",
+                keywords: ["sidebar", "section", "move", "top", "pinned"], category: .sidebar, symbol: "arrow.up.to.line",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-top",
                 surfacePlan: plan(menus: [p(.sidebarSection, .move, 100, folder: .move)])
             ),
@@ -89,7 +89,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "sidebar.section.moveToBottom", title: t("action.sidebar.section.moveToBottom", "Move Section to Bottom"),
-                keywords: ["sidebar", "section", "move", "bottom", "sticky"], category: .sidebar, symbol: "arrow.down.to.line",
+                keywords: ["sidebar", "section", "move", "bottom", "pinned"], category: .sidebar, symbol: "arrow.down.to.line",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-bottom",
                 surfacePlan: plan(menus: [p(.sidebarSection, .move, 120, folder: .move)])
             ),

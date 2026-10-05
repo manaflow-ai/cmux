@@ -23,6 +23,8 @@ public nonisolated enum ActionCatalog {
         // Go to Tab… became Search Tabs (one tab list); with a tab target it
         // still focuses that tab.
         "palette.goToTab": "tab.search",
+        // The link menu's Open Link in New Tab (R123): keybindings and scripts keep working.
+        "openLinkInNewTab": "browser.link.openInNewTab",
         // Browser profile placeholders from before browser profiles existed.
         "browserNewProfile": "browserProfile.new",
         "browserRenameProfile": "browserProfile.rename",
@@ -81,6 +83,10 @@ public nonisolated enum ActionCatalog {
         ScreenGroupActionCatalog.self,
         TerminalActionCatalog.self,
         BrowserActionCatalog.self,
+        BrowserToolbarActionCatalog.self,
+        BrowserChromeActionCatalog.self,
+        BrowserHitActionCatalog.self,
+        ViewerActionCatalog.self,
         PageInfoActionCatalog.self,
         ExtensionActionCatalog.self,
         BrowserProfileActionCatalog.self,
@@ -100,6 +106,8 @@ public nonisolated enum ActionCatalog {
         TasksActionCatalog.self,
         LinkActionCatalog.self,
         ServerActionCatalog.self,
+        MarkdownPageActionCatalog.self,
+        ListActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

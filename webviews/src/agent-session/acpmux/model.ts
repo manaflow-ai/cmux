@@ -31,6 +31,8 @@ export type AcpmuxRow = {
   settled?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
+  /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
+  queued?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
@@ -94,6 +96,9 @@ export type AcpmuxSnapshot = {
     name?: string;
     harness?: string;
     model?: string;
+    /// The model the agent last reported, when the pane draws a pick (`model`) it has not
+    /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
+    confirmedModel?: string;
     effort?: string;
     promptCapabilities?: { image?: boolean };
     status?: string;
@@ -117,11 +122,20 @@ export type AcpmuxSnapshot = {
   permissionGroups?: PermissionClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
-  /** `unavailable`: why acpmux will not run that model (its backend refused it). */
-  catalog: { id: string; name: string; models: { id: string; name?: string; unavailable?: string }[] }[];
+  /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
+   * (its launcher check or its model probe failed). */
+  catalog: {
+    id: string;
+    name: string;
+    models: { id: string; name?: string; unavailable?: string }[];
+    unavailable?: string;
+  }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
+  /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
+   * the next turn while one streams (deferred), or failed with acpmux's reason. */
+  switching?: { harness: string; name: string; phase: "starting" | "deferred" | "failed"; error?: string };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
@@ -133,6 +147,12 @@ export type PreparedRow = {
   text: string;
   /// The row's markdown blocks, as the estimator measures them (conversation/Markdown.tsx draws them).
   blocks: Token[];
+  /// A growing row (a streaming reply) lexes once the text before its last safe block boundary
+  /// (lastBlockBoundary): those blocks and where they end. Only the text after it is lexed again.
+  closedBlocks: Token[];
+  closedEnd: number;
+  /// The characters the last update lexed (tests, perf).
+  lexedLength: number;
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
 };
@@ -148,7 +168,10 @@ const MEASURE_FONT = "14px system-ui";
 const MESSAGE_LINE_HEIGHT = 22.75;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 20;
-const chromeHeight = (row: AcpmuxRow) => (row.kind === "user" ? USER_BUBBLE_PADDING : 0);
+/// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
+const USER_STATUS_HEIGHT = 20;
+const chromeHeight = (row: AcpmuxRow) =>
+  row.kind === "user" ? USER_BUBBLE_PADDING + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
 const USER_BUBBLE_SIDES = 32;
@@ -348,15 +371,35 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
   }
 }
 
+/// Lexes `text` into `entry`, reusing the blocks before the last safe boundary when `text` grew.
+function lexIncrementally(entry: PreparedRow, text: string): void {
+  if (!text.startsWith(entry.text.slice(0, entry.closedEnd))) {
+    entry.closedBlocks = [];
+    entry.closedEnd = 0;
+  }
+  entry.lexedLength = 0;
+  const boundary = lastBlockBoundary(text, entry.closedEnd);
+  if (boundary > entry.closedEnd) {
+    const chunk = text.slice(entry.closedEnd, boundary);
+    entry.closedBlocks = [...entry.closedBlocks, ...markdownBlocks(chunk)];
+    entry.lexedLength += chunk.length;
+    entry.closedEnd = boundary;
+  }
+  const tail = text.slice(entry.closedEnd);
+  entry.lexedLength += tail.length;
+  entry.blocks = [...entry.closedBlocks, ...markdownBlocks(tail)];
+  entry.text = text;
+}
+
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {
-    entry = { text: row.text, blocks: markdownBlocks(row.text), prepared: new Map() };
+    entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
-  } else if (entry.text !== row.text) {
-    entry.text = row.text;
-    entry.blocks = markdownBlocks(row.text);
+  }
+  if (entry.text !== row.text || entry.lexedLength === 0) {
+    lexIncrementally(entry, row.text);
     // A streaming row prepares a new last block on every version; keep the cache bounded.
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
@@ -438,6 +481,7 @@ import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
 import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
+import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
 /// The pane header: the agent the session runs (its first prompt already titles the session
 /// picker and opens the transcript), and a status only when it says something to act on.

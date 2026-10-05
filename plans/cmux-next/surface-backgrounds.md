@@ -56,7 +56,7 @@ The CLI, MCP and palette need no new code:
   (`WebTheme(surface:)` paints the document root once; the bridge's page
   colors are clear so nothing stacks), Settings (`SettingsPaneHostingView`),
   Home (`HomeThemePalette`), browser chrome (`BrowserChromeView` toolbar),
-  docks (sticky column panes, `PaneHostView.isDocked`, and the overlay
+  docks (docked column panes, `PaneHostView.isDocked`, and the overlay
   backdrop's opaque fill), diff viewer (its host passes
   `WebTheme(surface: .diff)`; the viewer reads `--cmux-surface-background`,
   webviews/src/backdrop.ts, so it has its own override, not its host's).

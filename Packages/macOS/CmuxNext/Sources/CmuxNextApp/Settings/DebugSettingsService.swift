@@ -87,7 +87,7 @@ final class DebugSettingsService: InternalPageProvider {
         if SettingsWindowLayout.presentation.value == .pane, let window = services.windows.active {
             if let query { model.query = query }
             if let selection { model.selection = selection }
-            SettingsWindowModel.followTheme(window.themeScope)
+            DebugSettingsModel.followTheme(window.themeScope)
             if services.pages.show(.debugSettings, in: window, focus: focus) != nil { return }
         }
         if controller == nil {

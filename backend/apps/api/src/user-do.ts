@@ -6,7 +6,7 @@ import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
-import { chiefActive, grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, inboxRefusalFor, installActive, iosGrantsToMigrate, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
@@ -17,7 +17,7 @@ import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./
 import { SecondaryStream } from "./secondary-stream.ts"
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
-import { HOME_RATE_WINDOW_MS, homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
+import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -55,7 +55,7 @@ export class UserDO extends OwnerDO<UserState> {
       // The list order index is derived owner data: its writes never reach subscribers.
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
-      maySubscribe: (_head, principal, entity) => principal.user === entity
+      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.install_kind !== "vm" && !(principal.install !== undefined && this.existing()?.currentState.installs[principal.install]?.kind === "vm")
     }, (ws, a) => this.socketLive(ws, a))
   }
 
@@ -86,6 +86,13 @@ export class UserDO extends OwnerDO<UserState> {
     this.inbox.onFrame(ws, a, engine.stream.slice("user:".length), frame)
     this.scheduleAlarm()
     return true
+  }
+
+  /** CLOUD-LINK-FOLLOWUPS decision 2: old iPhone grants get cloud-link once (idempotent; nothing to do = no op). */
+  protected override bind(entity: string) {
+    const engine = super.bind(entity)
+    if (iosGrantsToMigrate(engine.currentState).length) this.submitSystem("install.ios_cloud_link_migrate", {}, `ios-cloud-link:${engine.currentSeq}`)
+    return engine
   }
 
   protected override systemEngine(op: string, entity: string) {
@@ -233,12 +240,12 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
-   * RPC from the Worker before an op that resolves human reach: one attempt from `actor`'s
-   * hourly budget for `op` (home-rate.ts homeRateTakeSql).
+   * RPC from the Worker before an op that resolves human reach: takes one attempt from `actor`'s
+   * hourly budget for `op` (home-rate.ts homeRateTakeSql). An object that never served this user
+   * (no user.ensure yet) creates no storage and answers `not_ready`.
    */
   async homeRateTake(entity: string, actor: string, op: HomeRateOp): Promise<HomeRateGate> {
-    const bound = this.boundEntity()
-    if (bound !== null && bound !== entity) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
+    if (!this.isBound(entity)) return { ok: false, not_ready: true }
     return homeRateTakeSql(this.sqlStore, actor, op, Date.now())
   }
 
@@ -311,21 +318,15 @@ export class UserDO extends OwnerDO<UserState> {
     return reply.value as { asserted: boolean; code?: string; expires_at?: number }
   }
 
-  /**
-   * Inbox calls come from this user only, through an active install whose grant covers the op
-   * (the catalog check other owners apply), checked before the object binds the entity.
-   */
-  private inboxRefusal(entity: string, principal: Principal, op: string): { code: string; message: string } | undefined {
-    if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
-    const state = this.bind(entity).currentState
-    if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
-    return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+  /** Inbox calls: this user only, through an active install whose grant covers the op (domains/user.ts). */
+  private inboxRefusal(entity: string, principal: Principal, op: string) {
+    return principal.user !== entity ? { code: "auth.forbidden", message: "not this user's inbox" } : inboxRefusalFor(this.bind(entity).currentState, entity, principal, op)
   }
 
   protected read(state: UserState, op: string, params: unknown, principal: Principal): ReadResult {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
     // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
-    if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
+    if (!userPathAllowed(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
     if (op === "chief.list") {
       const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
       return refused ? { ok: false, ...refused } : { ok: true, value: chiefList(state, Date.now(), (params as { include_archived?: unknown } | null)?.include_archived === true), revision: "" }
@@ -352,7 +353,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   protected maySubscribe(state: UserState, principal: Principal): boolean {
-    return (!state.user || state.user.id === principal.user) && installActive(state, principal)
+    return (!state.user || state.user.id === principal.user) && userPathAllowed(state, principal)
   }
 
   /** RPC from other owners (OwnerDO.runInstallChecks): which of these installs (with the token's grant) are active. Never creates an object. */
@@ -444,7 +445,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
-  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean } | { ok: false }> {
+  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string } | { ok: false }> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false }
     const state = engine.currentState
@@ -453,7 +454,7 @@ export class UserDO extends OwnerDO<UserState> {
     if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
     if (agent !== undefined && !chiefActive(state, agent)) return { ok: false }
     // The email from the user's last Stack session, so other owners can check email-domain rules for installs.
-    return { ok: true, op_classes: g.op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true }
+    return { ok: true, op_classes: g.op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}) }
   }
 
   async challenge(entity: string, install: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
@@ -491,8 +492,8 @@ export class UserDO extends OwnerDO<UserState> {
     const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
     if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
     // A chief token only for an unarchived chief of this user.
-    if (agent !== undefined && !chiefActive(now, agent)) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
+    if (agent !== undefined && (!chiefActive(now, agent) || inst.kind === "vm")) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
     const emailDomain = emailDomainOf(now.user.email)
-    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}) }
+    return { ok: true, user: now.user.id, team: inst.kind === "vm" && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}) }
   }
 }

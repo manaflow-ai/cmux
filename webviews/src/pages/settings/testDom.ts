@@ -1,5 +1,6 @@
 // Installs a jsdom window (with the page stylesheet) as globals. Test files call this at the
 // top level and import ./testing (React DOM) afterwards, so React sees a DOM when it loads.
+import "./testCatalog";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 

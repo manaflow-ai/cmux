@@ -80,6 +80,8 @@ export class MockKeybindingsProvider implements PageClient {
   unsupported = false;
   /** Set to make every call reject as if the host went away. */
   offline = false;
+  /** Set to make keymap import and export fail (a broken file). */
+  keymapFails = false;
   recording = false;
   readonly page = new MockPageStreams();
   private readonly titles: Record<string, string>;
@@ -120,6 +122,10 @@ export class MockKeybindingsProvider implements PageClient {
       case KeybindingOps.recordStop:
         this.stopRecording();
         return {} as R;
+      case KeybindingOps.keymapExport:
+      case KeybindingOps.keymapImport:
+        if (this.keymapFails) throw pageError("cmux.keybindings.keymap_failed", "the keymap file does not parse");
+        return { path: "/tmp/cmux-next-keymap.json" } as R;
       default:
         throw pageError("cmux.protocol.unknown_op", op);
     }

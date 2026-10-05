@@ -138,6 +138,7 @@ extension PaletteController {
         provider.targets = sources.targets
         provider.capturedTargets = capturedTargets
         provider.argumentPreview = sources.argumentPreview
+        provider.argumentSwatches = sources.argumentSwatches
         provider.effectOverrides["palette.searchShortcuts"] = { [weak self] in
             self.map { .push($0.keyboardShortcutsPage()) }
         }

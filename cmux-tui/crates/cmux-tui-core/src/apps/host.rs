@@ -62,6 +62,15 @@ pub fn resolve_binary() -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
+/// Where first-party app server binaries ship: `CMUX_APP_SERVER_DIR`, else
+/// the directory of the daemon executable (next to `cmux-app-host`).
+pub fn resolve_server_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("CMUX_APP_SERVER_DIR").map(PathBuf::from) {
+        return dir.is_dir().then_some(dir);
+    }
+    Some(std::env::current_exe().ok()?.parent()?.to_path_buf())
+}
+
 impl HostProcess {
     /// Spawns the host with a clean environment and only fd 3 open beyond
     /// the null stdio. `on_message` runs on the reader thread for every line;

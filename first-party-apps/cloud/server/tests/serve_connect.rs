@@ -13,8 +13,7 @@ use serve_common::Host;
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
-const FIXTURES: &[&str] =
-    &["vm-list", "vm-resume", "attach_endpoint_alpha", "attach_endpoint_beta"];
+const FIXTURES: &[&str] = &["vm-list", "vm-resume"];
 
 fn link_line(line: &Value, machine: &str, state: &str) -> bool {
     line["type"] == "event"

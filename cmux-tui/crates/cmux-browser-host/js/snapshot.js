@@ -781,10 +781,25 @@
     return out;
   }
 
+  // The longest header line printed (the title, URL and dialog lines are the page's).
+  const HEADER_LINE_MAX = 500;
+  // Header text comes from the page and reaches the caller's terminal, so
+  // escape sequences (CSI, and OSC, DCS, SOS, PM and APC up to their
+  // terminator, in 7- and 8-bit forms) and every other C0 or C1 control go,
+  // and a long line is cut with its length.
+  function headerLine(text) {
+    const clean = String(text)
+      .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]?/g, "")
+      .replace(/(?:\u001b[\]PX^_]|[\u0090\u0098\u009d\u009e\u009f])[\s\S]*?(?:\u0007|\u009c|\u001b\\|$)/g, "")
+      .replace(/[\t\n\r]/g, " ")
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+    if (clean.length <= HEADER_LINE_MAX) return clean;
+    return `${clean.slice(0, HEADER_LINE_MAX)}… (${commas(clean.length - HEADER_LINE_MAX)} more characters)`;
+  }
 
   class Snapshot {
     constructor({ header, body, nodes, trailer, previous, maxChars, extraChanges }) {
-      this._header = header;
+      this._header = header.map(headerLine);
       this._body = body;
       this._nodes = nodes || null;
       this._trailer = trailer || [];
@@ -947,6 +962,9 @@
         if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true) };
       } catch (e) {
         if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };
+        // The driver does not read a frame that shows a page the domain
+        // policy blocks.
+        else if (e && e.code === "blocked") node._child = { frame: child, blocked: true };
         else if (child && !child._detached) node._child = { frame: child, tree: null };
       }
     }));
@@ -974,6 +992,7 @@
           delete node.frameFocused;
           delete node._child;
           if (child && child.timedOut) node.unread = "timed out";
+          if (child && child.blocked) node.unread = "blocked by the domain policy";
           if (child && child.tree) {
             const inner = stitch(page, child.tree, focusChain && focused, shown);
             if (inner.length) node.children = inner;
@@ -1000,7 +1019,8 @@
   }
 
   async function blockingLines(page) {
-    const lines = [];
+    // Dialogs cmux dismissed during Copy, Cut or Paste, reported once.
+    const lines = page._dismissedDialogs.splice(0).map((d) => `dialog dismissed: ${d.type()} ${q(d.message())} (it opened during a ${d._p.dismissedDuring})`);
     const dialog = page._pendingDialog();
     if (dialog) {
       let line = `dialog: ${dialog.type()} ${q(dialog.message())}`;

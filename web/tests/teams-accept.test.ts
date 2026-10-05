@@ -211,6 +211,24 @@ describe("Stack invitation-code client", () => {
     expect(calls[0]!.init.body).toBe(JSON.stringify({ code: "the-code" }));
   });
 
+  test("omits the publishable key headers when none is configured", async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const client = createInvitationCodeClient({
+      environment: { NEXT_PUBLIC_STACK_PROJECT_ID: "project-1" },
+      fetch: async (url, init) => {
+        calls.push({ url, init });
+        return new Response(JSON.stringify({ team_id: TEAM_ID, team_display_name: "Acme" }), { status: 200 });
+      },
+    });
+    expect(await client.details("the-code", "user-token")).toEqual({
+      ok: true,
+      value: { teamId: TEAM_ID, teamDisplayName: "Acme" },
+    });
+    const headers = calls[0]!.init.headers as Record<string, string>;
+    expect(headers["x-stack-project-id"]).toBe("project-1");
+    expect(Object.keys(headers).some((name) => name.includes("publishable"))).toBe(false);
+  });
+
   test("maps known errors from override-status responses", async () => {
     const mismatch = respond(
       { code: "TEAM_INVITATION_EMAIL_MISMATCH" },

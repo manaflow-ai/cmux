@@ -131,6 +131,19 @@ export const pairPreview = async (env: Env, principal: Principal, params: unknow
 }
 
 /**
+ * The principal pairing registers the daemon install with (a server kind: never declared by a client).
+ * Built by the Worker for the approving user; it keeps the approver's SSO team (resolved in http.ts),
+ * so the daemon in an SSO-required team is bound like a session-registered install.
+ */
+export const pairingServerPrincipal = (approver: Principal, team: string): Principal => ({
+  identity: `system:pairing:${team}`,
+  kind: "system",
+  user: approver.user,
+  team,
+  ...(approver.sso_team ? { sso_team: approver.sso_team } : {})
+})
+
+/**
  * server.pair.approve: register the server's install key under the approver
  * (narrow grant), add the host to the team, then push the result to the
  * waiting server. Each step is keyed by the code, so a retry finishes a
@@ -177,8 +190,8 @@ export const pairApprove = async (
   const done = (result: PairingResult): OpReply => ({ ok: true, op, value: result, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `team:${result.team}`, sequence: 0 })
   if (claimed.result) return done(claimed.result)
   const rec = claimed.record
-  const reg = await submit("cloud:UserDO", principal, {
-    op: "install.register",
+  const reg = await submit("cloud:UserDO", pairingServerPrincipal(principal, team), {
+    op: "install.register_server",
     params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"], bound_team: principal.team },
     idempotency_key: `pair:${code}:${rec.thumbprint}:install`,
     origin: "user"

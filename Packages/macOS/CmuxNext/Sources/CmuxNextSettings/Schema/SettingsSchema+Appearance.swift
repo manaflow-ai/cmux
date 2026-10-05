@@ -113,6 +113,12 @@ nonisolated enum AppearanceSettingsSchema {
                 default: nil, defaultLabel: densityDefault,
                 keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "chromeFontSize"]
             ),
+            metric(.sidebarWidth, SettingsText.keyed("settings.appearance.sidebarWidth", "Sidebar Width"), look, densityDefault,
+                   keywords: ["sidebar", "width", "size", "sidebarWidth"]),
+            metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,
+                   keywords: ["column", "gap", "spacing", "columnGap"]),
+            metric(.titlebarHeight, SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"), look, densityDefault,
+                   keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]),
             SettingDescriptor(
                 BordersSetting.configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.borders", "Borders"),
@@ -157,6 +163,20 @@ nonisolated enum AppearanceSettingsSchema {
                     SettingChoice(MotionSpeed.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                 ]),
                 default: .string(AnimationSpeedSetting.fallback.rawValue), keywords: ["motion", "speed"]
+            ),
+            SettingDescriptor(
+                ["layout", "paneSeparation"], section: .appearance, group: panes,
+                title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
+                help: SettingsText.keyed("settings.layout.paneSeparation.help",
+                                        "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."),
+                kind: .choice([
+                    SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
+                    SettingChoice(PaneSeparation.dividers.rawValue, SettingsText.keyed("settings.choice.dividers", "Dividers")),
+                    SettingChoice(PaneSeparation.borders.rawValue, SettingsText.keyed("settings.choice.borders", "Borders")),
+                    SettingChoice(PaneSeparation.cards.rawValue, SettingsText.keyed("settings.choice.cards", "Cards")),
+                ]),
+                default: .string(PaneSeparation.borders.rawValue),
+                keywords: ["border", "divider", "separator", "gap", "cards", "lines", "seamless", "pane"]
             ),
             SettingDescriptor(
                 ["layout", "panePadding"], section: .appearance, group: panes,
@@ -236,5 +256,16 @@ nonisolated enum AppearanceSettingsSchema {
 
     private static func appearancePoints(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {
         SettingNumber(Double(range.lowerBound)...Double(range.upperBound), step: step, unit: .points, placeholder: placeholder)
+    }
+
+    /// An `appearance.metrics.*` size row: its default is the density's (the compact one is the
+    /// placeholder). cmux-next and cmux-browser read it.
+    private static func metric(_ metric: LayoutMetricSetting, _ title: SettingText, _ group: SettingText, _ densityDefault: SettingText,
+                               keywords: [String]) -> SettingDescriptor {
+        SettingDescriptor(
+            metric.configPath, section: .appearance, group: group, title: title,
+            kind: .number(SettingNumber(metric.range, step: 1, unit: .points, placeholder: metric.compact)),
+            default: nil, defaultLabel: densityDefault, keywords: keywords
+        ).consumed(by: [.cmuxNext, .cmuxBrowser])
     }
 }

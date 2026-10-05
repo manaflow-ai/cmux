@@ -6,7 +6,7 @@ import Testing
 /// actions change.
 @Suite struct ActionCatalogChangedEventTests {
     @MainActor @Test func publishesOnlyWhenTheActionsChange() {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), settings: nil)
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), settings: nil, configuration: .loadTolerant)
         let start = router.events.latestSequence
 
         router.updateCatalog(sampleCatalog())

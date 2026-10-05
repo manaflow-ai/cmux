@@ -18,14 +18,14 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | sticky under the titlebar row; never scrolls with the list | section (hidden title, `max_rows` 4): Home, the App Store, History, Notifications, Settings, Customize Appearance, CodeRouter, built-in look. With the default rail (section 11) the first four are rail buttons and the rest sit under its More menu |
+| Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `max_rows` 4): Home, the App Store, History, Notifications, Settings, Customize Appearance, CodeRouter, built-in look. With the default rail (section 11) the first four are rail buttons and the rest sit under its More menu |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
-| Bottom | sticky above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
+| Bottom | pinned above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
 
 Every section has: an optional title (hidden titles draw no header), a region, an ordered item list, a
 **look** (`builtIn`: compact rows that read as app chrome, like Home; `list`: rows that look like
 workspace rows), a collapse state (only sections with a visible title can collapse), and a scroll
-policy (sticky regions only).
+policy (pinned regions only).
 
 Items:
 
@@ -54,7 +54,7 @@ too". Candidates:
 | --- | --- | --- |
 | **sections** (recommended) | what Finder, Mail, Xcode and Notion call these; self-explanatory in a menu ("Add Section", "Move Section to Bottom"); no new metaphor to learn | generic |
 | shelves | pairs with spaces ("this space's shelves"); playful, ownable | a second invented noun next to spaces; "shelf" also suggests a drawer that slides out (Yoink, Dropover); translators need a metaphor |
-| docks | sticky feel | collides with the macOS Dock |
+| docks | pinned feel | collides with the macOS Dock |
 | zones / areas | neutral | read as regions, not as named lists |
 | stacks | switchable sets | collides with Leo's "stack of workspaces" |
 | groups / folders | familiar | taken by workspace groups and bookmark folders |
@@ -221,14 +221,14 @@ visual order; Return activates.
 Look: setting `sidebar.sectionLook` in cmux.json and Settings > Appearance > Sidebar, default
 `quiet` (Lawrence, 2026-10-02); Debug Settings `sidebar.sections.look` overrides it in DEV. The band
 caps are settings too: `sidebar.topBandMaxShare` (default 1/3), `sidebar.bottomBandMaxShare`
-(default 1/4), `sidebar.stickyBandsScroll` (default true; false = the bands never scroll and the list
-shrinks to three rows). In both modes the two bands together leave the list three rows (they
+(default 1/4), `sidebar.pinnedBandsScroll` (default true; false = the bands never scroll and the list
+shrinks to three rows; the pre-R87 key `sidebar.stickyBandsScroll` is read for one release). In both modes the two bands together leave the list three rows (they
 shrink in proportion and scroll inside), and each band keeps at least its first row, so Home and
 Settings never vanish in a short window. The two shares together are at most 0.8; past that both
 shrink in proportion. Looks:
 
-- quiet: icon + label rows, no fill at rest; a hairline separates the sticky bands from the list.
-- card: each section of a sticky band sits in a rounded inset card.
+- quiet: icon + label rows, no fill at rest; a hairline separates the pinned bands from the list.
+- card: each section of a pinned band sits in a rounded inset card.
 - tray: built-in sections as an icon grid (Arc favorites).
 - lines: no headers and no labels on section boundaries; a thin line between every section and
   between subsections (the shared `Borders` metric; under `appearance.borders = none` a tonal step
@@ -236,7 +236,7 @@ shrink in proportion. Looks:
 - lines-icons: lines, and built-in items show icons only (a compact row of icon buttons per
   built-in section); list-look sections keep their labels.
 
-Every look: section titles are optional per section and the new looks hide them; sticky bands and
+Every look: section titles are optional per section and the new looks hide them; pinned bands and
 the middle list show gradient edge fades while more content is hidden (the shared
 `ScrollEdgeFadeView`). Spaces model B is mocked in the screenshots by scoping every section to one
 space. The menus' noun stays "Section"; "Shelf" copy is listed in the report instead of a runtime
@@ -245,7 +245,7 @@ switch (descriptor titles are built once at launch).
 ## 8. Phases
 
 1. Done (9c2d458fb75, 96e8343fec6): pure document model + reducer + tests, default layout.
-2. Done (9ef77a69a9b, 3c7de1001eb): sticky bands, built-in and list looks, quiet/card/tray, Home as
+2. Done (9ef77a69a9b, 3c7de1001eb): pinned bands, built-in and list looks, quiet/card/tray, Home as
    an item, scroll caps.
 3. Registry actions with surface plans, App-wide `SidebarLayoutService`, palette targets. Then:
    lines and lines-icons looks, optional titles, edge fades, the space bar's hover-only "+", Cmd-1 rule
@@ -270,16 +270,16 @@ switch (descriptor titles are built once at launch).
 - Bottom band: Settings and the account avatar on one line (above).
 - Per-section arrangement list | inline | grid with alignment, gap and columns (section 4).
 - Band caps 1/3 and 1/4, then scroll; customizable (section 7).
-- Custom icons (emoji, SF Symbol or image) for workspaces and Home: the existing workspace
-  `icon` string of workspace-metadata-v1 is extended (sidebar sections lead); the Home lead reuses
-  it. Done: one emoji draws as text, any other value is an SF Symbol name
-  (`WorkspaceIcon.parse`). Images: accepted (Lawrence, 2026-10-02); the state-module owner asked for a generic
-  shape. `blob.put {media_type, data}` -> `{ref: "blob:sha256-<hex>", size}` and `blob.get {ref}`,
-  personal store, content-addressed and idempotent by hash, at most 256 KiB, png/jpeg/webp (svg
-  refused for now); the workspace `icon` holds `blob:sha256-<hex>`. GC: a sweep at daemon start and
-  after each put deletes blobs no registered reference field names and older than 7 days, and a
-  64 MiB total cap refuses a put the sweep cannot make room for. Built after #16174 merges,
-  reviewed by the state-module owner.
+- Custom icons (emoji, SF Symbol, image or SVG) for workspaces and Home: the existing workspace
+  `icon` string of workspace-metadata-v1 carries the one icon value (R94, plans/cmux-next/icons.md):
+  one emoji, an SF Symbol name, `image:sha256-<hex>` or `svg:sha256-<hex>`. Assets are stored once
+  in the daemon's personal blob store (`put-blob {media_type, data}` -> `{ref, icon, size}`,
+  `get-blob {blob}`, capability `icon-assets-v1`): png/jpeg/webp at most 256 KiB (the picker scales
+  images to 256 px PNG), SVG at most 64 KiB after the allowlist sanitizer, content addressed and
+  idempotent. GC: a sweep at open and before each put deletes blobs no icon field references and
+  older than 7 days; a 64 MiB cap refuses a put the sweep cannot make room for. A replica without
+  the blob draws the kind's default icon (coordination/icons.md). Picker: the one icon picker
+  (Set Workspace Icon from the palette, the context menu or `cmux workspace set-icon`).
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
   by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
   derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`
@@ -312,7 +312,7 @@ through the coordinator.
 Rail by default (Leo, 2026-10-03: keep Home and the App Store, but tuck them into a skinny strip like
 the Codex app). `window.rail` defaults to "leading": the rail sits at the window's leading edge and
 the sidebar beside it is an inset panel (rounded top leading corner, the theme's `stripStep` fill
-over the backdrop), starting directly with the workspace list. The rail draws the sticky bands: the
+over the backdrop), starting directly with the workspace list. The rail draws the pinned bands: the
 top band from the top, the bottom band pinned to the bottom. In the rail look a section's
 `max_rows` caps its buttons; the rest go under a More ("...") button placed after that section's
 buttons (a short window also spills the last buttons into it, in document order). The default
