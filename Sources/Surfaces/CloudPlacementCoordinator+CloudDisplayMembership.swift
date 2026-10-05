@@ -15,12 +15,11 @@ extension CloudPlacementCoordinator {
               let provider = catalog.provider(for: projection.resource.machine) as? any CloudDisplayMembershipSyncing
         else { return }
         ownedDisplayViewIDs.insert(projection.panelID.uuidString.lowercased())
+        // A pane of this display opened here again: it is back in its
+        // workspace, and a close or retry already queued must not undo that.
+        displayReopenGenerations[projection.resource, default: 0] += 1
         if let workspaceID = projection.remoteWorkspaceID {
-            // A pane of this display opened here again: the display is back in
-            // the workspace, so its earlier removal no longer applies.
-            let closed = ClosedCloudDisplay(projection: projection, workspaceID: workspaceID)
-            closedDisplays.remove(closed)
-            closedDisplayRemovalAttempts[closed] = nil
+            closedDisplays[ClosedCloudDisplay(projection: projection, workspaceID: workspaceID)] = nil
         }
         enqueue(projection, catalog: catalog, presentFailure: false) {
             guard let latest = catalog.projection(forPanel: projection.panelID),
@@ -91,7 +90,8 @@ extension CloudPlacementCoordinator {
         // reads a graph that may still hold (or not yet hold) a token for it.
         let known = projection.remoteWorkspaceID
             ?? boundRemoteWorkspaceID(forLocalWorkspace: projection.workspaceID, on: projection.resource.machine)
-        if let known { closedDisplays.insert(ClosedCloudDisplay(projection: projection, workspaceID: known)) }
+        if let known { fence(ClosedCloudDisplay(projection: projection, workspaceID: known)) }
+        let generation = displayReopenGenerations[projection.resource, default: 0]
         enqueue(projection, catalog: catalog, presentFailure: false) { [weak self] in
             // The token can name a workspace the pane was moved out of.
             let recorded = try? await provider.cloudDisplayMembershipWorkspace(
@@ -101,8 +101,11 @@ extension CloudPlacementCoordinator {
             let workspaces = Set([known, recorded].compactMap { $0 })
             guard !workspaces.isEmpty else { return false }
             for workspaceID in workspaces {
-                self?.closedDisplays.insert(ClosedCloudDisplay(projection: projection, workspaceID: workspaceID))
-                try await provider.removeCloudDisplay(displayID: projection.resource.key, fromWorkspace: workspaceID)
+                guard let self, self.displayReopenGenerations[projection.resource, default: 0] == generation else { return true }
+                let closed = ClosedCloudDisplay(projection: projection, workspaceID: workspaceID)
+                self.fence(closed)
+                let removed = try await provider.removeCloudDisplay(displayID: closed.displayID, fromWorkspace: workspaceID)
+                self.closedDisplays[closed]?.removed = removed
             }
             return true
         }
@@ -115,47 +118,66 @@ extension CloudPlacementCoordinator {
         guard resource.kind == .display,
               let provider = catalog.provider(for: resource.machine) as? any CloudDisplayMembershipSyncing else { return }
         let closed = ClosedCloudDisplay(machine: resource.machine, workspaceID: workspaceID, displayID: resource.key)
-        closedDisplays.insert(closed)
+        fence(closed)
         let panes = catalog.projections.filter { $0.resource == resource && $0.remoteWorkspaceID == workspaceID }
         for pane in panes {
             _ = Workspace.liveWorkspace(id: pane.workspaceID)?.closePanel(pane.panelID, force: true)
         }
-        if panes.isEmpty { removeClosedDisplay(closed, provider: provider) }
+        if panes.isEmpty { removeClosedDisplay(closed, provider: provider, catalog: catalog) }
     }
 
-    /// Releases closed displays whose membership is gone from `state`, and
-    /// retries the removal of any still present (a removal can fail while the
-    /// link is down or after repeated revision conflicts).
+    private func fence(_ closed: ClosedCloudDisplay) {
+        if closedDisplays[closed] == nil { closedDisplays[closed] = ClosedCloudDisplayRemoval() }
+    }
+
+    /// Releases a closed display once the graph no longer shows it, or shows a
+    /// membership its removal did not delete (another client put it back).
+    /// A graph holding only deleted tokens predates the removal. A removal
+    /// that has not landed is retried.
     func settleClosedDisplays(_ state: CloudVMState, catalog: SurfaceCatalog) {
-        let fenced = closedDisplays.filter { $0.machine == state.machine }
+        let fenced = closedDisplays.filter { $0.key.machine == state.machine }
         guard !fenced.isEmpty else { return }
-        let present = Set(state.displayMemberships.map {
-            ClosedCloudDisplay(machine: state.machine, workspaceID: $0.workspaceID, displayID: $0.displayID)
-        })
-        for closed in fenced where !present.contains(closed) {
-            closedDisplays.remove(closed)
-            closedDisplayRemovalAttempts[closed] = nil
-        }
-        guard let provider = catalog.provider(for: state.machine) as? any CloudDisplayMembershipSyncing else { return }
-        for closed in fenced where present.contains(closed) {
-            removeClosedDisplay(closed, provider: provider)
+        let provider = catalog.provider(for: state.machine) as? any CloudDisplayMembershipSyncing
+        for (closed, removal) in fenced {
+            let present = Set(state.displayMemberships.filter {
+                $0.workspaceID == closed.workspaceID && $0.displayID == closed.displayID
+            })
+            if let removed = removal.removed {
+                if !present.isSubset(of: removed) || present.isEmpty { closedDisplays[closed] = nil }
+            } else if present.isEmpty {
+                closedDisplays[closed] = nil
+            } else if let provider {
+                removeClosedDisplay(closed, provider: provider, catalog: catalog)
+            }
         }
     }
 
     /// Bounded: a membership that never clears must not cost a guest write on
-    /// every graph. A machine that cannot take the write yet (asleep) does not
-    /// spend an attempt.
-    private func removeClosedDisplay(_ closed: ClosedCloudDisplay, provider: any CloudDisplayMembershipSyncing) {
-        guard closedDisplayRemovalAttempts[closed, default: 0] < Self.maxDisplayRemovalAttempts,
-              closedDisplayRemovalsInFlight.insert(closed).inserted else { return }
-        Task { @MainActor [weak self] in
-            defer { self?.closedDisplayRemovalsInFlight.remove(closed) }
+    /// every graph. Runs on the machine's lane, so it is ordered against a
+    /// reopen's attach; a machine that cannot take the write yet (asleep) does
+    /// not spend an attempt.
+    private func removeClosedDisplay(
+        _ closed: ClosedCloudDisplay,
+        provider: any CloudDisplayMembershipSyncing,
+        catalog: SurfaceCatalog
+    ) {
+        guard let removal = closedDisplays[closed], !removal.retrying,
+              removal.attempts < Self.maxDisplayRemovalAttempts else { return }
+        closedDisplays[closed]?.retrying = true
+        let resource = SurfaceResourceID(machine: closed.machine, kind: .display, key: closed.displayID)
+        let generation = displayReopenGenerations[resource, default: 0]
+        enqueue(resource: resource, catalog: catalog) { [weak self] in
+            defer { self?.closedDisplays[closed]?.retrying = false }
+            guard let self, self.closedDisplays[closed] != nil,
+                  self.displayReopenGenerations[resource, default: 0] == generation else { return false }
             do {
-                try await provider.removeCloudDisplay(displayID: closed.displayID, fromWorkspace: closed.workspaceID)
+                let removed = try await provider.removeCloudDisplay(displayID: closed.displayID, fromWorkspace: closed.workspaceID)
+                self.closedDisplays[closed]?.removed = removed
             } catch {
-                guard !Self.isTransientDisplayMembershipFailure(error) else { return }
+                if !Self.isTransientDisplayMembershipFailure(error) { self.closedDisplays[closed]?.attempts += 1 }
+                throw error
             }
-            self?.closedDisplayRemovalAttempts[closed, default: 0] += 1
+            return true
         }
     }
 
@@ -194,6 +216,14 @@ extension CloudPlacementCoordinator {
         if let error = error as? CmuxTuiSurfaceProvider.ProviderError, case .machineAsleep = error { return true }
         return false
     }
+}
+
+/// Progress of removing a closed display from its workspace.
+struct ClosedCloudDisplayRemoval: Equatable {
+    /// The tokens the landed removal deleted; nil until it lands.
+    var removed: Set<CloudVMDisplayMembership>?
+    var attempts = 0
+    var retrying = false
 }
 
 /// One display in one Cloud workspace on one machine.

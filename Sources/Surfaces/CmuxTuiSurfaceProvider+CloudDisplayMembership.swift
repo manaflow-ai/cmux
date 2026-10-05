@@ -46,18 +46,21 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
         }
     }
 
-    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws {
+    @discardableResult
+    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> Set<CloudVMDisplayMembership> {
         try await updateCloudDisplayMemberships(workspaceID: workspaceID) { memberships in
             memberships = memberships.filter { $0.displayID != displayID }
         }
     }
 
     /// Rewrites one workspace's membership row, revision-checked and retried
-    /// on a conflict. An unchanged set writes nothing.
+    /// on a conflict. An unchanged set writes nothing. Returns the memberships
+    /// the accepted write removed.
+    @discardableResult
     private func updateCloudDisplayMemberships(
         workspaceID: String,
         _ change: (inout Set<CloudVMDisplayMembership>) -> Void
-    ) async throws {
+    ) async throws -> Set<CloudVMDisplayMembership> {
         guard let connected = try? await links.connected(machineID: machineID),
               let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
@@ -82,7 +85,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             change(&memberships)
             let rows = (object["frontend_projections"] as? [[String: Any]]) ?? []
             let row = rows.first { ($0["id"] as? String) == projectionID }
-            if row != nil, memberships == previousMemberships { return }
+            if row != nil, memberships == previousMemberships { return [] }
             let projection: [String: Any] = [
                 "schema": CloudVMDisplayMembership.projectionSchema,
                 "machine_id": machine.rawValue,
@@ -108,7 +111,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             do {
                 _ = try await link.run(arguments: request)
                 scheduleRefresh()
-                return
+                return previousMemberships.subtracting(memberships)
             } catch {
                 lastError = error
                 guard Self.isRevisionConflict(error) else { throw error }
@@ -118,8 +121,10 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
     }
 
     /// Names (or, with an empty name, un-names) one of this machine's displays
-    /// for every client. Revision-checked like a membership write.
-    func renameDisplay(displayID: String, name: String) async throws {
+    /// for every client. Revision-checked like a membership write. Returns
+    /// false when the name was already that.
+    @discardableResult
+    func renameDisplay(displayID: String, name: String) async throws -> Bool {
         guard displayID.hasPrefix("display:") else { throw SurfaceCatalogError.unknownResource(
             SurfaceResourceID(machine: machine, kind: .display, key: displayID)) }
         guard let connected = try? await links.connected(machineID: machineID),
@@ -142,7 +147,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             if trimmed.isEmpty { names.removeValue(forKey: displayID) } else { names[displayID] = trimmed }
             let rows = (object["frontend_projections"] as? [[String: Any]]) ?? []
             let row = rows.first { ($0["id"] as? String) == projectionID }
-            if row != nil, names == state.displayNames { return }
+            if row != nil, names == state.displayNames { return false }
             let request = CloudTuiRequests.putCloudDisplayMembershipProjection(
                 projectionID: projectionID,
                 frontendID: CloudVMDisplayMembership.projectionFrontendID,
@@ -159,7 +164,7 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
             do {
                 _ = try await link.run(arguments: request)
                 scheduleRefresh()
-                return
+                return true
             } catch {
                 lastError = error
                 guard Self.isRevisionConflict(error) else { throw error }
@@ -169,15 +174,18 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
     }
 
     /// A rename typed into a display pane's tab. Renames run in order, so an
-    /// earlier name cannot land last. Afterwards every pane shows the
-    /// display's actual name: a cleared name reads "Display N" again, and a
-    /// rename that failed (machine asleep) puts the real name back.
+    /// earlier name cannot land last. A rename that changed the name settles
+    /// through the refresh it schedules; one that changed nothing (clearing an
+    /// unnamed display) or failed (machine asleep) puts the display's actual
+    /// name back on its panes right away.
     func renameDisplayFromTab(displayID: String, name: String) {
         let previous = displayRenameLane
         displayRenameLane = Task { [weak self] in
             await previous?.value
-            try? await self?.renameDisplay(displayID: displayID, name: name)
-            self?.applyDisplayPaneTitles()
+            guard let self else { return }
+            if (try? await self.renameDisplay(displayID: displayID, name: name)) != true {
+                self.applyDisplayPaneTitles()
+            }
         }
     }
 

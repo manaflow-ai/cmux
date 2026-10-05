@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Persists a local VNC view in the VM's revisioned Cloud workspace projection.
@@ -16,5 +17,7 @@ protocol CloudDisplayMembershipSyncing: AnyObject {
     ) async throws
 
     /// Removes `displayID` from the workspace for every client and view.
-    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws
+    /// Returns the memberships the write removed.
+    @discardableResult
+    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> Set<CloudVMDisplayMembership>
 }
