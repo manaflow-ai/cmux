@@ -1149,18 +1149,20 @@ function AcpmuxPane() {
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// Who is signed in, when the host says: the sidebar's account row.
   const [account, setAccount] = useState<SidebarAccount>();
-  /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
-  const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
+  /// The main cmux sidebar already owns agent chat rows. Keep this secondary list collapsed until
+  /// the user explicitly asks for it with the pane toggle, regardless of pane width.
+  const [sidebar, setSidebar] = useState<"open" | "closed">("closed");
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   const newTabGeneration = useNewTabAdoption(setNewTab);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
   // Escape and the scrim close the narrow-pane overlay and give focus back to its toggle.
   const closeOverlay = useCallback(() => {
-    setSidebar("auto");
+    setSidebar("closed");
     sidebarToggle.current?.focus();
   }, []);
-  // Crossing the width threshold resets the list to the default for the new width, so a list opened beside the transcript never turns into an overlay.
+  // Crossing the width threshold closes the optional list so it never appears just because the
+  // pane became wide. The user can reopen it with the same toggle in either layout.
   const [wide, setWide] = useState(wideSidebar);
   useEffect(() => {
     const query = window.matchMedia?.(WIDE_PANE);
@@ -1169,18 +1171,18 @@ function AcpmuxPane() {
     setWide(query.matches);
     const onChange = () => {
       setWide(query.matches);
-      setSidebar("auto");
+      setSidebar("closed");
     };
     query.addEventListener("change", onChange);
     return () => query.removeEventListener("change", onChange);
   }, []);
   // Picking a session closes the narrow-pane overlay. Stable so unchanged sidebar rows skip rendering.
   const selectSession = useCallback((sessionId: string) => {
-    setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
+    setSidebar((current) => (current === "open" && !wideSidebar() ? "closed" : current));
     void callNative("chat.select", { sessionId });
   }, []);
   const newChat = useCallback(() => {
-    setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
+    setSidebar((current) => (current === "open" && !wideSidebar() ? "closed" : current));
     void callNative("chat.new").catch(() => undefined);
   }, []);
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
@@ -1725,7 +1727,7 @@ function AcpmuxPane() {
     ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
       | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
       | undefined) ?? DefaultComposerChips;
-  const sidebarShown = sidebar === "open" || (sidebar === "auto" && wide);
+  const sidebarShown = sidebar === "open";
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
@@ -1744,8 +1746,8 @@ function AcpmuxPane() {
     handoffTargets.length > 0;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
-  // The page's recent sessions stand in for the session list, which opens on demand (All sessions).
-  const shellSidebar = showNewTab && sidebar === "auto" ? "closed" : sidebar;
+  // The page's recent sessions stand in for the optional session list, which opens on demand.
+  const shellSidebar = sidebar;
   const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
     if (kind !== "agent") {
       void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
