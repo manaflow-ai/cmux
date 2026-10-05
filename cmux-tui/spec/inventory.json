@@ -421,7 +421,8 @@
       "conversation-op",
       "conversation-typing",
       "conversation-bind",
-      "conversation-agent-token"
+      "conversation-agent-token",
+      "browser-host-provider"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

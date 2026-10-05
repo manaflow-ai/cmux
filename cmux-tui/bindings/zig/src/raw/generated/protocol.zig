@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "3117b4552592c333990727719bd3f574a23fcf0977583a45c9e05e63b269fcaa";
+pub const ir_sha256 = "b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -129,6 +129,12 @@ pub const BrowserFrame = struct {
     height: u32,
     seq: u64,
     width: u32,
+};
+
+pub const BrowserHostProviderResult = struct {
+    host_pid: u32,
+    secret: []const u8,
+    socket: []const u8,
 };
 
 pub const BrowserProviderAuthentication = enum {
@@ -2768,6 +2774,21 @@ pub fn browserFramePresented(client: anytype, request: BrowserFramePresentedRequ
             .authority = "frontend",
             .since = 10,
             .capability = "browser-pointer-frame-guard-v1",
+        },
+        request,
+    );
+}
+
+pub const BrowserHostProviderRequest = struct {};
+
+pub fn browserHostProvider(client: anytype, request: BrowserHostProviderRequest) !wire.Decoded(BrowserHostProviderResult) {
+    return client.callTyped(
+        BrowserHostProviderResult,
+        .{
+            .name = "browser-host-provider",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "browser-host-provider-v1",
         },
         request,
     );
@@ -8635,7 +8656,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 216;
+pub const command_count: usize = 217;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -8647,6 +8668,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-back", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-forward", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-frame-presented", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
+    .{ .name = "browser-host-provider", .authority = "local-admin", .since = 12, .capability = "browser-host-provider-v1", .stream = null },
     .{ .name = "browser-insert-text", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-key", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-key-press", .authority = "frontend", .since = 10, .capability = null, .stream = null },

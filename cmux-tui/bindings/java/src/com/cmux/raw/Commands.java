@@ -20,6 +20,7 @@ public final class Commands {
     public static final CommandMetadata BROWSER_BACK = new CommandMetadata("browser-back", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_FORWARD = new CommandMetadata("browser-forward", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_FRAME_PRESENTED = new CommandMetadata("browser-frame-presented", Authority.FRONTEND, 10, "browser-pointer-frame-guard-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata BROWSER_HOST_PROVIDER = new CommandMetadata("browser-host-provider", Authority.LOCAL_ADMIN, 12, "browser-host-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_INSERT_TEXT = new CommandMetadata("browser-insert-text", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_KEY = new CommandMetadata("browser-key", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_KEY_PRESS = new CommandMetadata("browser-key-press", Authority.FRONTEND, 10, null, StreamKind.NONE, Map.of(), Map.of());
@@ -240,6 +241,7 @@ public final class Commands {
         values.put("browser-back", BROWSER_BACK);
         values.put("browser-forward", BROWSER_FORWARD);
         values.put("browser-frame-presented", BROWSER_FRAME_PRESENTED);
+        values.put("browser-host-provider", BROWSER_HOST_PROVIDER);
         values.put("browser-insert-text", BROWSER_INSERT_TEXT);
         values.put("browser-key", BROWSER_KEY);
         values.put("browser-key-press", BROWSER_KEY_PRESS);
