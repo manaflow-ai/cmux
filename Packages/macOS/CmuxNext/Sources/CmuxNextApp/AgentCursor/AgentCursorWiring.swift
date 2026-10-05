@@ -1,4 +1,6 @@
+import CmuxAgentCursor
 import CmuxNextAgentCursor
+import QuartzCore
 
 /// App wiring of agent cursors that is not part of `AppServices` itself.
 enum AgentCursorWiring {
@@ -14,15 +16,36 @@ enum AgentCursorWiring {
         return source
     }
 
-    /// Every workspace content of every window (shown and parked) re-places
-    /// the cursors whose last input went to `target`; a content whose window
-    /// does not show it resolves the target elsewhere and hides them.
+    /// Every window re-places the cursors whose last input went to `target`
+    /// (a window that does not show it resolves it elsewhere and hides them).
     static func placementsDidChange(target: String, in services: AppServices) {
         for controller in services.windows.controllers {
-            controller.content?.agentCursor?.model.placementsDidChange(target: target)
-            for parked in controller.parked {
-                parked.agentCursor?.model.placementsDidChange(target: target)
-            }
+            controller.agentCursor.placementsDidChange(target: target)
         }
+    }
+
+    /// The one app entry point for published agent input (the provider-link
+    /// `input {event}` bridge and debug tools): every window gets it; only a
+    /// window that draws the target makes its cursor layer.
+    static func publish(_ event: AutomationInputEvent, in services: AppServices) {
+        for controller in services.windows.controllers {
+            controller.agentCursor.publish(event)
+        }
+    }
+
+    /// One window's cursor slot on its window-level cursor layer
+    /// (plans/cmux-next/agent-cursor.md), with a9's per-window resolver.
+    static func slot(for controller: WindowController) -> AgentCursorWindowSlot {
+        let services = controller.services
+        let slot = AgentCursorWindowSlot(resolver: services.agentCursorVisibility.resolver(forWindow: controller.state.id)) {
+            [weak controller] in (controller?.window as? ShellWindow)?.overlayLayer.agentCursorLayer ?? CALayer()
+        }
+        slot.onUntrack = { [weak services] target in services?.agentCursorVisibility.untrack(target) }
+        return slot
+    }
+
+    /// Every window's cursor slot, for lease fan-out.
+    static func slots(in services: AppServices) -> [AgentCursorWindowSlot] {
+        services.windows.controllers.map(\.agentCursor)
     }
 }

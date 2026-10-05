@@ -2,8 +2,10 @@ public import Foundation
 public import WebKit
 
 /// Downloads: WebKit hands a `WKDownload` to the tab, which mirrors it into a
-/// `BrowserDownload` for the host and writes it to the engine's folder.
-extension WebKitTab: WKDownloadDelegate {
+/// `BrowserDownload` for the host and writes it where `BrowserDownloadPolicy`
+/// places it (a temporary sibling of the engine-folder file or of the file
+/// the person chose, moved into place when it completes).
+extension WebKitTab: WKDownloadDelegate, BrowserURLSaving {
     func register(_ download: WKDownload, source: URL?) {
         let item = BrowserDownload(sourceURL: source, filename: source?.lastPathComponent ?? "download")
         item.cancelHandler = { [weak download] in download?.cancel(nil) }
@@ -17,14 +19,23 @@ extension WebKitTab: WKDownloadDelegate {
         emit(.download(item))
     }
 
+    /// Downloads `url` with the page's session into `destination`, a file
+    /// the person chose (Save Link As…, Save Image As…).
+    public func save(_ url: URL, to destination: URL) {
+        webView.startDownload(using: URLRequest(url: url)) { [weak self] download in
+            guard let self else { return download.cancel(nil) }
+            self.chosenDestinations[ObjectIdentifier(download)] = destination
+            self.register(download, source: url)
+        }
+    }
+
     func download(for download: WKDownload) -> BrowserDownload? {
         downloads[ObjectIdentifier(download)]
     }
 
     func finishDownload(_ download: WKDownload, status: BrowserDownload.Status) {
-        guard let item = downloads.removeValue(forKey: ObjectIdentifier(download)) else { return }
-        if status == .finished { item.fraction = 1 }
-        if item.status == .inProgress { item.status = status }
+        // `complete` quarantines a finished file (`BrowserDownloadPolicy`).
+        downloads.removeValue(forKey: ObjectIdentifier(download))?.complete(status)
     }
 
     public func download(
@@ -32,12 +43,19 @@ extension WebKitTab: WKDownloadDelegate {
         decideDestinationUsing response: URLResponse,
         suggestedFilename: String
     ) async -> URL? {
-        let destination = DownloadDestination.uniqueURL(in: downloadsDirectory, suggestedFilename: suggestedFilename)
-        if let item = self.download(for: download) {
-            item.filename = destination.lastPathComponent
-            item.destination = destination
+        let chosen = chosenDestinations.removeValue(forKey: ObjectIdentifier(download))
+        // The chosen file (the save panel already asked before replacing
+        // it) stays until the download completes; nil cancels the download.
+        guard let placement = BrowserDownloadPolicy.place(chosen: chosen, suggestedFilename: suggestedFilename,
+                                                          directory: downloadsDirectory) else { return nil }
+        guard let item = self.download(for: download) else {
+            placement.discard()
+            return nil
         }
-        return destination
+        item.filename = placement.finalURL.lastPathComponent
+        item.destination = placement.finalURL
+        item.placement = placement
+        return placement.temporaryURL
     }
 
     public func downloadDidFinish(_ download: WKDownload) {

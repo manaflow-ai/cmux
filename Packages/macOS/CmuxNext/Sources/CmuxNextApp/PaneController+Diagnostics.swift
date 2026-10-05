@@ -125,6 +125,8 @@ extension PaneController {
             terminal = entry.session.diagnostics
         case .placeholder:
             kind = "remote-placeholder"
+        case .notice:
+            kind = "agent-elsewhere"
         case .conversation:
             kind = "conversation"
         case .browser(let entry):

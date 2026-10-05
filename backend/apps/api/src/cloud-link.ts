@@ -1,4 +1,5 @@
 import type { Env } from "./env.ts"
+import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 
 /**
  * Bind-path helpers for CloudDO (state-placement.md 5.8 items 1-2): the one-time bind token, its
@@ -19,6 +20,8 @@ export interface BindRequest {
   readonly bind_token: string
   readonly wg_public_key: string
   readonly daemon: { readonly version: string; readonly capabilities: ReadonlyArray<string> }
+  /** The VM's install key (ES256 P-256, made per clone on the VM); the server registers the VM install with it. */
+  readonly install_public_jwk: { readonly kty: "EC"; readonly crv: "P-256"; readonly x: string; readonly y: string }
 }
 
 const str = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max
@@ -44,7 +47,10 @@ export const parseBindRequest = (body: unknown): BindRequest | null => {
   if (!str(b.bind_token, 128)) return null
   if (!isWgKey(b.wg_public_key)) return null
   if (!printable(d.version, 64) || !Array.isArray(d.capabilities) || d.capabilities.length > 32 || !d.capabilities.every((c) => printable(c, 64))) return null
-  return { team: b.team, machine: b.machine, bind_token: b.bind_token, wg_public_key: b.wg_public_key, daemon: { version: d.version, capabilities: d.capabilities as Array<string> } }
+  const j = (b.install_public_jwk ?? {}) as Record<string, unknown>
+  const coord = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9_-]{43}$/.test(v)
+  if (j.kty !== "EC" || j.crv !== "P-256" || !coord(j.x) || !coord(j.y)) return null
+  return { team: b.team, machine: b.machine, bind_token: b.bind_token, wg_public_key: b.wg_public_key, daemon: { version: d.version, capabilities: d.capabilities as Array<string> }, install_public_jwk: { kty: "EC", crv: "P-256", x: j.x, y: j.y } }
 }
 
 export type BindReply = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string }
@@ -101,4 +107,19 @@ export const handleCloudBind = async (request: Request, env: Env): Promise<Respo
   }
   if (r.ok) return Response.json({ ok: true, value: r.value })
   return Response.json({ ok: false, error: { code: r.code, message: r.message } }, { status: STATUS[r.code] ?? 503 })
+}
+
+/**
+ * GET /v1/cloud/keyset (CLOUD-LINK-FOLLOWUPS 1): the public link keyset, JWKS-style, no credential.
+ * The VM daemon refetches it on an unknown kid and once a day; the body is the bind answer's
+ * `keyset` ({version, keys: {kid: public JWK}}), never a private part. Limited per client IP.
+ */
+export const handleCloudKeyset = async (request: Request, env: Env): Promise<Response> => {
+  if (request.method !== "GET") return Response.json({ ok: false, error: { code: "validation.invalid", message: "GET only" } }, { status: 405, headers: { allow: "GET" } })
+  const limit = env.CLOUD_KEYSET_LIMIT
+  if (limit && !(await limit.limit({ key: request.headers.get("cf-connecting-ip") ?? "unknown" })).success)
+    return Response.json({ ok: false, error: { code: "cloud.rate_limited", message: "too many keyset requests; retry in a minute" } }, { status: 429, headers: { "retry-after": "60" } })
+  const keys = parseSigningKeys(env.CLOUD_LINK_SIGNING_KEYS)
+  if (!keys) return Response.json({ ok: false, error: { code: "owner.unreachable", message: "link signing keys are not configured on this deployment" } }, { status: 503, headers: { "cache-control": "no-store" } })
+  return Response.json({ ok: true, value: await publicKeyset(keys) }, { headers: { "cache-control": "public, max-age=300" } })
 }

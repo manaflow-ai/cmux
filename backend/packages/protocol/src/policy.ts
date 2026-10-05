@@ -62,6 +62,12 @@ export const policyKeySchemas = {
    * `ssh`: a principal without a shell never gets one through the files path.
    */
   "cloud.connectServices": CloudConnectServices,
+  /**
+   * Pause a running Cloud machine when its own activity reports show no sessions and no activity past
+   * its idle policy. Default off until auto-start of paused machines is decided (with no auto-start, a
+   * paused machine needs a manual Start on return).
+   */
+  "cloud.idlePause": Schema.Boolean,
   "telemetry.level": Schema.Literals(["full", "crash_only", "off"]),
   "updates.channel": Schema.Literals(["stable", "nightly"]),
   "updates.minimumVersion": Version,
@@ -102,6 +108,7 @@ export const policyProductDefaults: { readonly [K in PolicyKey]?: (typeof policy
   "browserAutomation.rawCdp": true,
   "cloud.sandboxes": true,
   "cloud.connectServices": ["daemon", "ssh"],
+  "cloud.idlePause": false,
   "telemetry.level": "full",
   "updates.channel": "stable",
   "retention.cuaEventsDays": RETENTION_MAX.cuaEventsDays,

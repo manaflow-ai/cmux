@@ -21,7 +21,7 @@ export function SectionView({ section, focus }: { section: string; focus: string
       {section === "machines" && <MachinesSection />}
       {section === "accounts" && <AccountsSection />}
       {section === "advanced" && <AdvancedInfo />}
-      {section === "advanced" && <PlaceholderSection section={section} openInWindow={false} />}
+      {section === "advanced" && <PlaceholderSection section={section} />}
       <SectionActions section={section} />
     </div>
   );

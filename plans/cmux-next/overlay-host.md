@@ -24,7 +24,7 @@ host panel, a page window or a presenter still listed for migration.
 | Omnibox suggestions | CmuxNextBrowser/UI/OmniboxSuggestionPanel.swift (`SuggestionWindow`) | own child panel | `.pane` presentation (R110 lead) |
 | Page info | CmuxNextBrowser/PageInfo/UI/PageInfoController.swift | own key child panel | `.window` popover |
 | Tab group editor | CmuxNextTabs/Groups/Editor/TabGroupEditorPanel.swift | own key child panel | `.window` popover |
-| Appearance studio | CmuxNextApp/Appearance/AppearanceStudioController.swift | own key child panels | `.window` popover |
+| Appearance studio | removed (R82 commit 6: Customize Appearance opens Settings > Appearance) | none | none |
 | Feed panel | CmuxNextApp/Feed/FeedPanelController.swift | own child panel | `.window` popover |
 | Notifications panel | CmuxNextApp/Notifications/Panel/NotificationsPanelController.swift | own child panel | `.window` popover |
 | Restart notice | CmuxNextApp/Crash/RestartNoticePanel.swift (plain NSPanel) | own child panel | `.window` toast |

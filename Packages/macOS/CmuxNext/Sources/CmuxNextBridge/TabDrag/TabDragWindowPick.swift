@@ -6,7 +6,8 @@ public import CoreGraphics
 /// CEF fork orders them above the content), the overlay plane panel, the
 /// drag ghost and app panels. So a drag over a web page resolves against
 /// the window that hosts the page (tab-dnd, 2026-10-04).
-public nonisolated enum TabDragWindowPick {
+public nonisolated struct TabDragWindowPick {
+    public nonisolated init() {}
     public struct Candidate: Hashable, Sendable {
         public var frame: CGRect
         /// The content window's id; nil for any other window.

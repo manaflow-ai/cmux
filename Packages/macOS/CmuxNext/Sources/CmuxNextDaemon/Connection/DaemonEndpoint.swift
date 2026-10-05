@@ -79,6 +79,8 @@ public struct DaemonCapabilities: Sendable {
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public let batchClose = "batch-close-v1"
+    /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
+    public let closeReason = "close-reason-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
@@ -141,6 +143,9 @@ public struct DaemonCapabilities: Sendable {
     /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
     /// Echoed so the daemon sends the canonical kind instead of `browser`.
     public let conversationTabs = "conversation-tabs-v1"
+    /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
+    /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
+    public let agentSessionTabs = "agent-session-tabs-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
     /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
@@ -178,6 +183,9 @@ public struct DaemonCapabilities: Sendable {
     /// history as raw-DEFLATE `snapshot {phase: "history"}` chunks
     /// (`TerminalAttachment`; plans/cmux-next/ghostty-next.md 2.2).
     public let terminalSnapshotHistory = "terminal-snapshot-history-v1"
+    /// A READY cut exactly at a host resize, restored with the view's own
+    /// reflowed history (S2c; plans/cmux-next/ghostty-next.md 2.2).
+    public let terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -187,14 +195,14 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, batchClose, closeReason, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, conversationSearch, cloudConversations,
-                                            tabWorkspaceName, terminalSnapshotHistory] }
+                                            workspaceKind, conversationTabs, agentSessionTabs, conversationSearch, cloudConversations,
+                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

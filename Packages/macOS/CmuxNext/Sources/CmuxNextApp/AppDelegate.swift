@@ -109,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.observeBorders()
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         services.newTabSpares.start()
-        AgentTabPersistence.start(services)
+        AgentTabImport.start(services)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
         services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }

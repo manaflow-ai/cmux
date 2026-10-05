@@ -59,6 +59,21 @@ extension WindowOverlayHost {
         placeAgentCursor()
     }
 
+    /// The content view's layout pass (`WindowRootView.layout`): a reorder
+    /// that added nothing (`sortSubviews`, a `subviews =` assignment) may
+    /// have covered the cursor while the panel is detached. Puts it back on
+    /// top; true when it had to (logged in debug builds).
+    @discardableResult
+    public func repairAgentCursorOrder() -> Bool {
+        guard let carrier = agentCursorCarrier, !isPanelAttached, !isAppHost,
+              let content = window?.contentView, carrier.superview === content, content.subviews.last !== carrier else { return false }
+        #if DEBUG
+        NSLog("cmux: the agent cursor was covered by a reorder of the window's content view; raised again")
+        #endif
+        placeAgentCursor()
+        return true
+    }
+
     /// Puts the cursor carrier where it draws now and sizes it to the
     /// content view. Runs on every attach, detach and window geometry change.
     func placeAgentCursor() {

@@ -9,11 +9,22 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + UpdateSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
             + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + NotificationSettingsSchema.descriptors
             + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
+        return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
+            + BrowserAppSettingsSchema.descriptors
     }
+
+    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
+    /// `appearance.metrics.*` rows say so themselves.
+    static let sharedWithBrowser: Set<String> = [
+        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
+        "focusRing.enabled", "focusRing.width", "focusRing.color",
+        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
+        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
+    ]
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
     /// (the app theme and the terminal font), which each row still resets.
@@ -21,9 +32,9 @@ public nonisolated enum SettingsSchema {
         AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
     ]
 
-    /// The descriptors of one section, in order.
+    /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads stay out).
     public static func settings(in section: SettingsSection) -> [SettingDescriptor] {
-        all.filter { $0.section == section }
+        all.filter { $0.section == section && $0.isShownInCmuxNext }
     }
 
     /// The descriptor for a dotted key or key path.
@@ -36,7 +47,7 @@ public nonisolated enum SettingsSchema {
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
         case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
-        case .appearance: ["appearance.customize", "space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
+        case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
@@ -102,7 +113,7 @@ public nonisolated enum SettingsSchema {
             ),
             TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
-            ChromePlacementSetting.tabBarPositionDescriptor(group: tabs),
+        ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,

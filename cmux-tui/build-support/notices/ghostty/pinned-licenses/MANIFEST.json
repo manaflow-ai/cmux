@@ -1,0 +1,354 @@
+{
+  "schema": 1,
+  "description": "Upstream license texts for Ghostty Zig packages whose fetched tree has no license file. scripts/collect-ghostty-licenses.py ships these files from the repository, checks each SHA-256, and never downloads them. Each upstream URL is immutable (a commit, a content-addressed archive, or an archived snapshot). To change a file: copy it byte for byte from its upstream, update its sha256 here, update PINNED_MANIFEST_SHA256 in the collector, and record the review in NOTICES-REVIEW-LEDGER.md. \"vendored\" reviews every Ghostty pkg/<name> and vendor/<name> directory that has no license file of its own (ghostty_vendored.py): Reviewed in Ghostty trees aea262f8, 324c0273, b1a49b60 (manaflow-ai/ghostty) and 68ac618d, bbb7320b (manaflow-ai/ghostty-next). Each file is listed with the sha256 values reviewed.",
+  "packages": {
+    "dear-bindings": {
+      "files": [
+        {
+          "filename": "DearBindings-LICENSE.txt",
+          "path": "dear-bindings-0.17/LICENSE.txt",
+          "sha256": "b08fd9947ec127fd7785801cac8b1eea2ab4282008cdaae8e50331d870f30d0d",
+          "upstream": "https://raw.githubusercontent.com/dearimgui/dear_bindings/2b12a29197ec944cd364031a9776cde814546d52/LICENSE.txt"
+        }
+      ],
+      "note": "dearimgui/dear_bindings tag DearBindings_v0.17_ImGui_v1.92.5-docking (commit 2b12a291), the archive pkg/dcimgui fetches.",
+      "packages": [
+        "N-V-__8AANT61wB--nJ95Gj_ctmzAtcjloZ__hRqNw5lC1Kr"
+      ]
+    },
+    "iterm2-themes": {
+      "files": [
+        {
+          "filename": "iTerm2-Color-Schemes-LICENSE.txt",
+          "path": "iterm2-color-schemes-c3968b3/LICENSE",
+          "sha256": "2373168614b527494dff99eb393024608216db79f687d58bad420f6c1e0ad192",
+          "upstream": "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/c3968b385e8072d61651eb8e32f498703058c2fd/LICENSE"
+        }
+      ],
+      "note": "mbadolato/iTerm2-Color-Schemes release-20260713-155359-c3968b3 (commit c3968b38), the archive Ghostty's iterm2_themes dependency fetches: https://deps.files.ghostty.org/ghostty-themes-release-20260713-155359-c3968b3.tgz is byte-equal to that release's ghostty-themes.tgz (sha256 14b3044bef67a3cb83523973bd16d3aa0fb0096ddd1e0ecba3916d14d6d67f20). The archive holds the theme files only. The LICENSE is byte-equal at fc73ce39 (release-20260216-151611-fc73ce3, the snapshot in cmux's Resources/ghostty/themes). ghostty-next fetches release-20260921-150923-0b55a9e (https://deps.files.ghostty.org/ghostty-themes-release-20260921-150923-0b55a9e.tgz, sha256 da83fb32fcef53c8cb1dca868fb700a904d5d86420d7588e574a0f81a75008d5, theme files only); its LICENSE at commit 0b55a9e6 is byte-equal to this text.",
+      "packages": [
+        "N-V-__8AALZGBAAS5NLVH-c8eC-6VtCdcH-9nUvVfUSkWS__",
+        "N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB"
+      ]
+    },
+    "unicode-16": {
+      "files": [
+        {
+          "filename": "Unicode-LICENSE-3.0.txt",
+          "path": "unicode-ucd-16.0.0/license.txt",
+          "sha256": "f5062c9a188d81dfe66b56db4182dcf9e4b17c0d9b0d311a8e20b3a1b075c443",
+          "upstream": "https://web.archive.org/web/20240925081522id_/https://www.unicode.org/license.txt"
+        }
+      ],
+      "note": "Unicode License v3 as https://www.unicode.org/license.txt published it on 2024-09-25, two weeks after Unicode 16.0.0 (2024-09-10). The live URL changes its copyright year; this archived snapshot does not."
+    },
+    "z2d": {
+      "files": [
+        {
+          "filename": "z2d-LICENSE.txt",
+          "path": "z2d-0.11.0/LICENSE",
+          "sha256": "3ca3ed7707db3f5561bff7c2eec62ee1c127947af928189572148f122917b474",
+          "upstream": "https://raw.githubusercontent.com/vancluever/z2d/5184a79622dce6b885c45ef6666f8c92385bed10/LICENSE"
+        },
+        {
+          "filename": "z2d-COPYING-MPL-2.0.txt",
+          "path": "z2d-0.11.0/COPYING",
+          "sha256": "d8d2562a7cb68ffdfe91fc66af1ed4a8a4e272aa4ab59bea7451ba34b9aba3d4",
+          "upstream": "https://raw.githubusercontent.com/vancluever/z2d/5184a79622dce6b885c45ef6666f8c92385bed10/COPYING"
+        }
+      ],
+      "note": "vancluever/z2d tag v0.11.0 (commit 5184a796). Both files are byte-equal to the release archive https://deps.files.ghostty.org/z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR.tar.gz (sha256 d48b117307f767ca379bf31bd171880e66dcafb89eca4a8f923222619992fcb4); the package's build.zig.zon .paths drops them from the fetched tree.",
+      "packages": [
+        "z2d-0.11.0-j5P_HtLzDwBGyQt49DrT0v4BuVqI_SRs6CXsuj7eBVhR"
+      ],
+      "source_offer": {
+        "license": "Mozilla Public License 2.0 (MPL-2.0)",
+        "name": "z2d 0.11.0",
+        "upstream": "https://github.com/vancluever/z2d/tree/5184a79622dce6b885c45ef6666f8c92385bed10",
+        "upstream_tag": "v0.11.0"
+      }
+    },
+    "z2d@0.12.1": {
+      "files": [
+        {
+          "filename": "z2d-LICENSE.txt",
+          "path": "z2d-0.12.1/LICENSE",
+          "sha256": "c3c0b845181a67c2f926485299855769afa675bc90b18904c3087ae884cb1873",
+          "upstream": "https://raw.githubusercontent.com/vancluever/z2d/7dbae85c81784dba9988320bf9543ed9a81350c8/LICENSE"
+        },
+        {
+          "filename": "z2d-COPYING-MPL-2.0.txt",
+          "path": "z2d-0.12.1/COPYING",
+          "sha256": "d8d2562a7cb68ffdfe91fc66af1ed4a8a4e272aa4ab59bea7451ba34b9aba3d4",
+          "upstream": "https://raw.githubusercontent.com/vancluever/z2d/7dbae85c81784dba9988320bf9543ed9a81350c8/COPYING"
+        }
+      ],
+      "note": "vancluever/z2d tag v0.12.1 (commit 7dbae85c), the version ghostty-next (bin/cmux's libghostty-vt source) fetches. Both files are byte-equal to the archive https://deps.files.ghostty.org/z2d-7dbae85c81784dba9988320bf9543ed9a81350c8.tar.gz (sha256 e55c9d0b156edaddfea32fb1c0e3597e1b6306b9a4ec1888e2f8008c598bced8); the package's build.zig.zon .paths drops them. COPYING is byte-equal to 0.11.0's; LICENSE changes the copyright years to 2024-2026.",
+      "packages": [
+        "z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-"
+      ],
+      "source_offer": {
+        "license": "Mozilla Public License 2.0 (MPL-2.0)",
+        "name": "z2d 0.12.1",
+        "upstream": "https://github.com/vancluever/z2d/tree/7dbae85c81784dba9988320bf9543ed9a81350c8",
+        "upstream_tag": "v0.12.1"
+      }
+    },
+    "zig-gobject": {
+      "files": [
+        {
+          "filename": "zig-gobject-LICENSE.txt",
+          "path": "zig-gobject-0.8.0-2026-04-23-26-1/LICENSE",
+          "sha256": "16559f97a5753e9329a712b11b8e3ecff233273acffd1ebfb1d747567a8f020d",
+          "upstream": "https://raw.githubusercontent.com/ghostty-org/zig-gobject/6971b412dc77003c52f5e8d16e7d0a828fc95539/LICENSE"
+        }
+      ],
+      "note": "ghostty-org/zig-gobject release 0.8.0-2026-04-23-26-1 (commit 6971b412), the generated GTK bindings Ghostty's gobject dependency fetches: https://deps.files.ghostty.org/gobject-2026-04-23-26-1.tar.zst is byte-equal to that release's ghostty-gobject-0.8.0-2026-04-23-26-1.tar.zst (sha256 642e324b3644c00464a2161e4af497f73cbbe8ce02a4c0edb92aacb365748047); its build.zig.zon .paths drops the LICENSE. ghostty-next fetches gobject 0.3.2 (https://deps.files.ghostty.org/gobject-2026-07-28-36-1.tar.zst, release 0.10.0-2026-07-28-36-1, commit 5c8e70b0); its build.zig.zon .paths also drops the LICENSE, and the LICENSE at commit 5c8e70b0 is byte-equal to this text.",
+      "packages": [
+        "gobject-0.3.1-Skun7E1KnwBGMX5nslHYG1yWHaSevywxQO8oM7tTOgIp",
+        "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3"
+      ]
+    },
+    "simdutf": {
+      "files": [
+        {
+          "filename": "simdutf-LICENSE-APACHE.txt",
+          "path": "simdutf-9.0.0/LICENSE-APACHE",
+          "sha256": "3d34610fc6b5e1b0bfe4e2f36171c2d62c28ef05cb8d704f5a0073be41a43b3d",
+          "upstream": "https://raw.githubusercontent.com/simdutf/simdutf/ca7acbcea967b5dcbab490066e99e3a6e6925539/LICENSE-APACHE"
+        },
+        {
+          "filename": "simdutf-LICENSE-MIT.txt",
+          "path": "simdutf-9.0.0/LICENSE-MIT",
+          "sha256": "fc8dbc04e03ad4efc08a647ffe7f995b811a95bc04c0e85a56d5277c6593fa5f",
+          "upstream": "https://raw.githubusercontent.com/simdutf/simdutf/ca7acbcea967b5dcbab490066e99e3a6e6925539/LICENSE-MIT"
+        },
+        {
+          "filename": "simdutf-isadetection-PyTorch-NOTICE.txt",
+          "path": "simdutf-9.0.0/isadetection-NOTICE.txt",
+          "sha256": "204bbed08ddeeecb362b4da36d3479a0167b7356a9d6024a24f9833affbe228a",
+          "upstream": "https://raw.githubusercontent.com/simdutf/simdutf/ca7acbcea967b5dcbab490066e99e3a6e6925539/include/simdutf/internal/isadetection.h"
+        }
+      ],
+      "note": "simdutf/simdutf tag v9.0.0 (commit ca7acbce), the version of Ghostty's vendored amalgamation pkg/simdutf/vendor/ (SIMDUTF_VERSION 9.0.0). simdutf is Apache-2.0 OR MIT; both texts ship. isadetection-NOTICE.txt is lines 1-44 of include/simdutf/internal/isadetection.h at that commit (the PyTorch BSD-3-Clause notice for the CPU feature detection code), byte-equal to the copy inside the vendored simdutf.h."
+    },
+    "lss": {
+      "files": [
+        {
+          "filename": "linux_syscall_support-NOTICE.txt",
+          "path": "lss-ghostty-b1a49b6/linux_syscall_support-NOTICE.txt",
+          "sha256": "325b8440550179bd46d3389d9defd6cdab7bb9a3519ef38d2eda008dd02236ab",
+          "upstream": "https://raw.githubusercontent.com/manaflow-ai/ghostty/b1a49b6015235d2b36a8473ff5ae72aa16db82b0/pkg/breakpad/vendor/third_party/lss/linux_syscall_support.h"
+        }
+      ],
+      "note": "Linux Syscall Support (Google LLC, BSD-3-Clause), vendored by Ghostty as pkg/breakpad/vendor/third_party/lss/linux_syscall_support.h. The text is lines 1-31 of that header (its license comment); the URL is the Ghostty fork commit b1a49b60 that the reviewed trees share (same blob c80fbfd7 in every reviewed tree). Breakpad and LSS build only for Linux targets; the notice ships anyway (remove-doubt rule). Upstream source: https://chromium.googlesource.com/linux-syscall-support commit ed31caa60f20a4f6569883b2d752ef7522de51e0 (linux_syscall_support.h is the same blob c80fbfd7 there); the fork URL stays the immutable fetch source."
+    },
+    "glad": {
+      "files": [
+        {
+          "filename": "glad-LICENSE.txt",
+          "path": "glad-2.0.8/LICENSE",
+          "sha256": "cbb325cd4ac5bd06717ffa34a322b984f9d285e4c67c8ca1b7380d6ef08c2a77",
+          "upstream": "https://raw.githubusercontent.com/Dav1dde/glad/73db193f853e2ee079bf3ca8a64aa2eaf6459043/LICENSE"
+        },
+        {
+          "filename": "glad-khrplatform-NOTICE.txt",
+          "path": "glad-2.0.8/khrplatform-NOTICE.txt",
+          "sha256": "438187dca092de4032c1a16524aa4c34c71a0f985a71251a675aad54e77ed561",
+          "upstream": "https://raw.githubusercontent.com/manaflow-ai/ghostty/b1a49b6015235d2b36a8473ff5ae72aa16db82b0/vendor/glad/include/KHR/khrplatform.h"
+        }
+      ],
+      "note": "Dav1dde/glad tag v2.0.8 (commit 73db193f), the generator of Ghostty's vendor/glad (gl.h: 'Loader generated by glad 2.0.8', SPDX (WTFPL OR CC0-1.0) AND Apache-2.0). The LICENSE covers the generator (MIT), the Khronos specifications (Apache-2.0 notice) and the EGL headers (Khronos MIT-style text, as in khrplatform.h); the full Apache-2.0 text ships with simdutf. khrplatform-NOTICE.txt is lines 4-25 of vendor/glad/include/KHR/khrplatform.h (the Khronos license comment) at Ghostty fork commit b1a49b60 (same blob 01646449 in every reviewed tree). Upstream source of khrplatform.h: https://github.com/KhronosGroup/EGL-Registry commit 57b4876de0f33677ece92dd9de0ef105ce69139d (api/KHR/khrplatform.h, same blob 01646449); the fork URL stays the immutable fetch source."
+    },
+    "fira-code": {
+      "files": [
+        {
+          "filename": "FiraCode-OFL-1.1.txt",
+          "path": "fira-code-6.2/LICENSE",
+          "sha256": "1d41e10031ab125302780a05ec4c91d218e47db0c7e37cf315cce5e608cdc25c",
+          "upstream": "https://raw.githubusercontent.com/tonsky/FiraCode/eee6db993696aba61ff4eef03698e2987d79910c/LICENSE"
+        }
+      ],
+      "note": "tonsky/FiraCode tag 6.2 (commit eee6db99); Ghostty's pkg/freetype/res/FiraCode-Regular.ttf is Version 6.002 (name table) under the SIL Open Font License 1.1. Used by Ghostty's freetype tests; the notice ships anyway (remove-doubt rule)."
+    }
+  },
+  "vendored": {
+    "pkg/android-ndk": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig wrapper that adds Android NDK paths; no third-party files."
+    },
+    "pkg/apple-sdk": {
+      "covered_by": "ghostty",
+      "files": {
+        "include/math.h": "31753b6463bf7b7d251fcb13a486da8dffcb5f57cd433ba40b7aee234c456131"
+      },
+      "note": "Ghostty's Zig wrapper and its own include/math.h shim."
+    },
+    "pkg/breakpad": {
+      "covered_by": "pinned:lss",
+      "files": {
+        "vendor/third_party/lss/linux_syscall_support.h": "6de367817ca407568ee10247e5b5553b36a0ec36edade1274d11d44577cc37a2"
+      },
+      "note": "Ghostty's Zig build of breakpad (fetched package, its license is collected) plus the vendored LSS header; LSS ships its BSD-3-Clause text."
+    },
+    "pkg/dcimgui": {
+      "covered_by": "ghostty",
+      "files": {
+        "ext.cpp": "753dca7f736471d8722a34f618e7e2e0a1816dcaf392d850ac2bbb69ebb25386"
+      },
+      "note": "Ghostty's Zig wrapper and its own ext.cpp; Dear Bindings and Dear ImGui are fetched packages (dear-bindings is pinned in packages)."
+    },
+    "pkg/fontconfig": {
+      "covered_by": "zig-dependency:fontconfig",
+      "files": {
+        "override/fc-case/fccase.h": "379b8c9b6b9a46d0211be25298542a49691bdd0be0508e1b7d143b0857fd23a0",
+        "override/fc-const/fcconst.h": "1cfb6ba5313d2683a747156f5b22fe74280fd37107e24ed0c0cc1661855629dd",
+        "override/fc-genericfamily/fcgenericfamily.h": "b53e2816d3a0a2b798144b572d6c14add34c5e14cc28890b4c0b007868feead9",
+        "override/fc-lang/fclang.h": "efcc1203e94b27fbf9296ad10a5c0e93f561a417767c4dd268f8c685fa4896ec",
+        "override/fontconfig/fontconfig.h": "3b72858553922d124bc43c40cc45e94c6cdca21ae8d58faba60c562dc7fc315a",
+        "override/include/fcalias.h": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "override/include/fcaliastail.h": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "override/include/fcftalias.h": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "override/include/fcftaliastail.h": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "override/include/fcobjshash.h": "13a7e5c07cbbcb7c214e2afc0252f475ab5409cb5b2a78e338db8fe80d90ed26",
+        "override/src/fcalias.h": "a5ad32f35522a8cd27ca62dd64788dcbc59b2fb8da22743158a5d6e40ba4907e",
+        "override/src/fcaliastail.h": "009194227e931838c8bb4c649961a8dac98f173798aa935703dba6379e7bd795",
+        "override/src/fcftalias.h": "b30b29c90676787ec3ee0f8f08ae44b727014814e2b8571015a1ece2a6c0d9d5",
+        "override/src/fcftaliastail.h": "5d273b796e04990e848e36212b208c7c9a704d27332823408faed9135a708298",
+        "override/src/fcint.h": "728c129c75fe9b20b879b1effae78346d44bdc5b5bcac13b6edeb0c5642592c4",
+        "override/src/fcobjshash.h": "f09a79b94eab535586206f85d9ef9a7f6e9bec06fa149377a73790e3f750c307",
+        "override/src/fcstdint.h": "e5fe2548296c1fb99d504e2968d6f68dfb45c54391d222e9078a95d73c4c1d8b"
+      },
+      "note": "Override headers derived from fontconfig (Keith Packard and others, fontconfig license); the fetched fontconfig package's COPYING is collected."
+    },
+    "pkg/freetype": {
+      "covered_by": "pinned:fira-code",
+      "files": {
+        "freetype-zig.h": "ecfcaecf48d78128b4f760022027ed09941021eb0005dcffd170ac28bb3b912c",
+        "res/FiraCode-Regular.ttf": "5992ab9640e2df491b2f609467b1de60e8bc39b2c28db184342a0592d98f6117"
+      },
+      "note": "Ghostty's Zig wrapper, its own freetype-zig.h, and the FiraCode test font (OFL-1.1, pinned)."
+    },
+    "pkg/glslang": {
+      "covered_by": "zig-dependency:glslang",
+      "files": {
+        "override/glslang/build_info.h": "441f7d02c4bd0ec0365b4adb0e31784d75b98f23212dc1ad01607599d016c841",
+        "test/simple.frag": "4e4ebcb36eb67c00b8c754765ca3dfd973be7c89c14071839125d5e732a07fd6"
+      },
+      "note": "override/glslang/build_info.h is Khronos BSD-3-Clause from glslang; the fetched glslang package's license is collected. test/simple.frag is Ghostty's test shader."
+    },
+    "pkg/gtk4-layer-shell": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig wrapper; no third-party files."
+    },
+    "pkg/harfbuzz": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig wrapper; no third-party files."
+    },
+    "pkg/highway": {
+      "covered_by": "zig-dependency:highway",
+      "files": {
+        "src/cpp/abort.cc": "a649c742c96e6985343f376b41af3de16d3c3d6bf98e5b37dc85d87a637a1d2c",
+        "src/cpp/per_target.cc": "5d3063e332cbbc28b44c5f44c12b3fbcd6b687549edabff65ffabcb5db9692e6",
+        "src/cpp/targets.cpp": "9c12932cec47755fa60100e338198e56b0998157e8c8d934e4223db1a3e909b4"
+      },
+      "note": "src/cpp/*.cc are modified copies of google/highway (Apache-2.0 / BSD-3-Clause, SPDX headers kept); the fetched highway package's licenses are collected."
+    },
+    "pkg/libintl": {
+      "covered_by": "zig-dependency:gettext",
+      "files": {
+        "config.h": "00ec8d3fdd1b65c88739a1fbbfcd1d8dfbbf4b81c525cdcf51c16388004e01d3",
+        "libgnuintl.h": "99f5c76ac54a61c205ab4e3d1a7f33b477297a4880394bbb30bfe89b7c5c15b2",
+        "libintl.h": "311c1dc1e6727196f575e9eae44f440b45c955af2f8fe48b2c665820fa0d9393"
+      },
+      "note": "GNU gettext libintl headers and a generated config.h (LGPL-2.1-or-later); the fetched gettext package's COPYING texts are collected."
+    },
+    "pkg/libpng": {
+      "covered_by": "zig-dependency:libpng",
+      "files": {
+        "pnglibconf.h": "55f750982065c6ad000029104dbb6bbb7e9d5b0f2f3ae8fdc26c5c50ca41fec7"
+      },
+      "note": "pnglibconf.h is libpng's generated configuration header (libpng license); the fetched libpng package's LICENSE is collected."
+    },
+    "pkg/libxml2": {
+      "covered_by": "zig-dependency:libxml2",
+      "files": {
+        "override/config/posix/config.h": "80c6159bcfd2a69f3d521bbce2ca5fb7a61490c4bb13ced47d86caa95103a3f8",
+        "override/config/win32/config.h": "03c438f2d356632d521858e0def57cd39d4cbca2ed78f10e832021a57d7a3729",
+        "override/include/libxml/xmlversion.h": "e4c183963689a2a5219c7da54aa7eb1a03fe469ada829511c4486b5293568ab0"
+      },
+      "note": "Override config headers that recreate libxml2's generated headers; the fetched libxml2 package's Copyright is collected."
+    },
+    "pkg/macos": {
+      "covered_by": "ghostty",
+      "files": {
+        "os/zig_macos.c": "b0c70f38190ac54ca1fc2c1523cb8536859ad6c5d6fa70adf73e2e3cc238da6c",
+        "text/ext.c": "ec694f620c6982ed76fc83fe15ead5ad2bab04d3f300d3d3691c5d92c2da2874"
+      },
+      "note": "Ghostty's Zig bindings and its own C helpers (os/zig_macos.c, text/ext.c)."
+    },
+    "pkg/oniguruma": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig wrapper; no third-party files."
+    },
+    "pkg/opengl": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig bindings; no third-party files."
+    },
+    "pkg/sentry": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig wrapper; no third-party files."
+    },
+    "pkg/simdutf": {
+      "covered_by": "pinned:simdutf",
+      "files": {
+        "vendor/simdutf.cpp": "38dc5481dc4b7eef95cea8056b84d940419288100f317ecaff683bd89f163263",
+        "vendor/simdutf.h": "d3501fc2143f0edc5c84e6bb013a7fdb8ccd95514f7fd0816669248e62676301"
+      },
+      "note": "Vendored simdutf 9.0.0 amalgamation (Apache-2.0 OR MIT, with the PyTorch BSD-3-Clause notice); no fetched package carries its license."
+    },
+    "pkg/spirv-cross": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig wrapper; no third-party files."
+    },
+    "pkg/translate-c": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig translate-c helper; no third-party files."
+    },
+    "pkg/wuffs": {
+      "covered_by": "ghostty",
+      "files": {
+        "include/stdlib.h": "064234a5b1b46f433e2bda24efe4005a4deedfbd6a0bbab7da603971e92e00ac",
+        "include/string.h": "c1edff34f92889fa7f8cc698dded7a36dbf61e4b93cfdd87e2541e09b12f4a30",
+        "src/too_big.jpg": "ee0d5bbc5b13c2ff87b0231835fc7b8816af527c38f80fe822f6452bcfd7ed97",
+        "src/too_big.png": "8fc5d611e771d68c8283cf9f7ce77bc191ed4a588199a6063c9f02231954524c"
+      },
+      "note": "Ghostty's Zig wrapper, its own minimal libc headers and its own test images."
+    },
+    "pkg/zlib": {
+      "covered_by": "ghostty",
+      "files": {},
+      "note": "Ghostty's Zig wrapper; no third-party files."
+    },
+    "vendor/glad": {
+      "covered_by": "pinned:glad",
+      "files": {
+        "include/EGL/eglplatform.h": "25b5391655effcf363a38fa00c3154f356a3eab3d35dc067847875513cf1e441",
+        "include/KHR/khrplatform.h": "7b1e01aaa7ad8f6fc34b5c7bdf79ebf5189bb09e2c4d2e79fc5d350623d11e83",
+        "include/glad/gl.h": "945c3068847615c6b01e2b684aeb368554f640978341b7ec83058ba4c420b26e",
+        "include/glad/glad_egl.h": "b8f91c4c0ae0cfd8780e68af216b97b9ef2b801c09e18451183ff0641f4ac937",
+        "src/gl.c": "8ed2dce8bf14ed89ae874cef0df31720aef44e8f52ca3395c2b2bd6f791f5cc8",
+        "src/glad_egl.c": "228baf73519f2cc7332a51a8b2b82268038f1932242a45e37a3bd0dfaeaf2237"
+      },
+      "note": "glad 2.0.8 generated OpenGL/EGL loader and Khronos headers, LINKED into libghostty for the OpenGL renderer on Linux and Windows; the glad LICENSE and the khrplatform.h notice ship."
+    }
+  }
+}

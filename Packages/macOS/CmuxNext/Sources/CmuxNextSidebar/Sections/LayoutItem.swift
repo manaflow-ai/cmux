@@ -14,7 +14,7 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case newTerminal = "new_terminal"
     case newBrowser = "new_browser"
     case newAgentChat = "new_agent_chat"
-    /// The appearance studio (Customize Appearance).
+    /// Customize Appearance (opens Settings > Appearance).
     case customize
 }
 

@@ -12,7 +12,8 @@ public nonisolated enum ProviderCodecError: Error, Hashable, Sendable {
 /// The provider framing (plans/cmux-next/browser-host.md, "Provider
 /// connection"): a big-endian u32 byte length, then that many bytes of UTF-8
 /// JSON tagged by `t`, at most 64 MiB, in both directions.
-public nonisolated enum ProviderCodec {
+public nonisolated struct ProviderCodec {
+    public nonisolated init() {}
     public static let version: UInt32 = 1
     public static let maxFrameBytes = 64 << 20
     /// The host reads `hello` with this smaller limit (`MAX_HELLO_BYTES`).
@@ -62,6 +63,8 @@ public nonisolated enum ProviderCodec {
         case .cdp(let target, let message):
             o["targetId"] = target
             o["message"] = message
+        case .input(let event):
+            o["event"] = event.foundationValue
         case .lease(let target, let lease):
             o["targetId"] = target
             o["lease"] = lease.map(leaseObject) ?? NSNull()
@@ -100,6 +103,9 @@ public nonisolated enum ProviderCodec {
         case "cdp.detach": return .cdpDetach(targetID: try f.string("targetId"))
         case "cdp": return .cdp(targetID: try f.string("targetId"), message: try f.string("message"))
         case "user.input": return .userInput(targetID: try f.string("targetId"))
+        case "input":
+            guard let event = f.json("event"), case .object = event else { throw .missing(field: "event", in: "input") }
+            return .input(event: event)
         case "lease":
             let lease = try (object["lease"] as? [String: Any]).map { item throws(ProviderCodecError) in
                 try leaseValue(Fields(object: item, tag: "Lease"))

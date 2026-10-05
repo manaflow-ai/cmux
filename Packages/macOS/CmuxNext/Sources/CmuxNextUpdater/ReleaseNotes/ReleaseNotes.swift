@@ -16,6 +16,15 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     /// Commit-subject lines for the full history.
     public var changes: [String]
 
+    public init(version: Int, build: String, shortVersion: String, date: String, highlights: [Highlight], changes: [String]) {
+        self.version = version
+        self.build = build
+        self.shortVersion = shortVersion
+        self.date = date
+        self.highlights = highlights
+        self.changes = changes
+    }
+
     public struct Highlight: Codable, Equatable, Sendable {
         public var id: String
         public var title: String
@@ -23,6 +32,14 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         public var media: [Media]
         /// "Try it": an action id from the allow-list.
         public var action: Action?
+
+        public init(id: String, title: String, body: String, media: [Media], action: Action?) {
+            self.id = id
+            self.title = title
+            self.body = body
+            self.media = media
+            self.action = action
+        }
     }
 
     public struct Media: Codable, Equatable, Sendable {
@@ -31,16 +48,29 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         public var sha256: String
         public var kind: String
         public var alt: String
+
+        public init(url: URL, sha256: String, kind: String, alt: String) {
+            self.url = url
+            self.sha256 = sha256
+            self.kind = kind
+            self.alt = alt
+        }
     }
 
     public struct Action: Codable, Equatable, Sendable {
         public var id: String
         public var title: String
+
+        public init(id: String, title: String) {
+            self.id = id
+            self.title = title
+        }
     }
 }
 
 /// Ed25519 signatures of published content (release notes, announcements).
-nonisolated public enum ContentSignature {
+nonisolated public struct ContentSignature {
+    public init() {}
     /// The `content-signing` public key (raw, base64), compiled in.
     public static let publicKey = "AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4="
 
@@ -53,7 +83,8 @@ nonisolated public enum ContentSignature {
 }
 
 /// When the what's-new card shows (pure).
-nonisolated public enum WhatsNew {
+nonisolated public struct WhatsNew {
+    public init() {}
     /// Once per build, after an update to it (`lastSeenBuild` older), and
     /// only when the build has human-written highlights.
     public static func shows(currentBuild: String, lastSeenBuild: String?, notes: ReleaseNotes?) -> Bool {

@@ -9,17 +9,24 @@ import Foundation
 ///
 /// Params: `action` (move, click, double_click, right_click, type, key,
 /// pause, resume, takeover, end, report), `target` (a browser tab id),
-/// `session` (default "demo"), `x`/`y` (viewport CSS px), `zoom`.
-/// Input goes to the shown content of every window (each resolves the
-/// target; only the window that shows it draws); lease actions go to every
-/// content. One call is one step: the caller paces the steps, so the app
+/// `session` (default "demo"), `x`/`y` (viewport CSS px), `zoom`; or
+/// `kind` and `point {x, y}` instead of `action`, `x`, `y`.
+/// Input goes to every window's cursor slot on its window-level layer
+/// (only a window that draws the target makes its layer); lease actions go
+/// to every window. One call is one step: the caller paces the steps, so the app
 /// runs no timer. Every reply reports each window's cursor layers.
 @MainActor
 enum DebugAgentCursorDemo {
     private static var demo = AgentCursorDemo()
 
     static func handle(_ params: [String: CmuxNextSettings.JSONValue], services: AppServices) -> CmuxNextSettings.JSONValue {
-        let action = params["action"]?.stringValue ?? "report"
+        let point = params["point"]?.objectValue
+        let request = AgentCursorDemo.Request(
+            action: params["action"]?.stringValue, kind: params["kind"]?.stringValue,
+            x: params["x"]?.doubleValue, y: params["y"]?.doubleValue,
+            pointX: point?["x"]?.doubleValue, pointY: point?["y"]?.doubleValue
+        )
+        let action = request.action
         var result: [String: CmuxNextSettings.JSONValue] = ["action": .string(action)]
         if action != "report" {
             guard let target = params["target"]?.stringValue, !target.isEmpty else {
@@ -29,7 +36,7 @@ enum DebugAgentCursorDemo {
             do {
                 let step = try demo.step(
                     action: action, session: session, target: target,
-                    x: params["x"]?.doubleValue, y: params["y"]?.doubleValue, zoom: params["zoom"]?.doubleValue,
+                    x: request.x, y: request.y, zoom: params["zoom"]?.doubleValue,
                     tMs: Date().timeIntervalSince1970 * 1000
                 )
                 apply(step, services: services)
@@ -45,15 +52,10 @@ enum DebugAgentCursorDemo {
         let controllers = services.windows.controllers
         switch step {
         case let .input(event):
-            for controller in controllers {
-                controller.content?.agentCursor?.publisher.publish(event)
-            }
+            AgentCursorWiring.publish(event, in: services)
         case let .lease(session, state):
             for controller in controllers {
-                for content in controller.parked + [controller.content].compactMap({ $0 }) {
-                    content.agentCursor?.model.leaseDidChange(session: session, state: state)
-                    if state == nil { content.agentCursor?.publisher.endSession(session) }
-                }
+                controller.agentCursor.leaseDidChange(session: session, state: state)
             }
         }
     }
@@ -61,7 +63,7 @@ enum DebugAgentCursorDemo {
     private static func report(_ services: AppServices) -> [CmuxNextSettings.JSONValue] {
         services.windows.controllers.map { controller in
             var cursors: [CmuxNextSettings.JSONValue] = []
-            if let host = controller.content?.agentCursor?.host {
+            if let host = controller.agentCursor.stack?.host {
                 for session in host.sessions {
                     guard let cursor = host.cursorLayer(for: session) else { continue }
                     let position = cursor.root.position

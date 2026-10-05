@@ -17,6 +17,16 @@ import urllib.request
 
 
 DEFAULT_NAME_PREFIX = "cmux-nightly-macos-"
+# The cmux-next release source archive (nightly.yml, "Publish the cmux-next
+# source archive"). Each nightly-next app's MPL-2.0 source offer names
+# cmux-next-source-<build>.tar.gz, so the archive belongs to <build> and goes
+# only together with that build's app assets, never on its own and never by
+# age. Channel-independent like the daemon assets: other channels have none.
+SOURCE_ARCHIVE_PATTERN = re.compile(r"^cmux-next-source-(?P<build>\d+)\.tar\.gz$")
+
+
+def is_source_archive(name: str) -> bool:
+    return SOURCE_ARCHIVE_PATTERN.match(name) is not None
 
 
 def immutable_asset_patterns(name_prefix: str) -> list[re.Pattern[str]]:
@@ -35,6 +45,7 @@ def immutable_asset_patterns(name_prefix: str) -> list[re.Pattern[str]]:
         re.compile(r"^cmuxd-remote-(?:darwin|linux)-(?:arm64|amd64)-(?P<build>\d+)$"),
         re.compile(r"^cmuxd-remote-checksums-(?P<build>\d+)\.txt$"),
         re.compile(r"^cmuxd-remote-manifest-(?P<build>\d+)\.json$"),
+        SOURCE_ARCHIVE_PATTERN,
     ])
     if name_prefix == DEFAULT_NAME_PREFIX:
         # Pre-variant nightly naming that still exists on the nightly release.
@@ -232,6 +243,33 @@ def collect_immutable_assets(
     return immutable_assets, ignored_assets
 
 
+def deletion_order(asset: ReleaseAsset) -> tuple[bool, str]:
+    """Within one build the source archive goes last, so an interrupted pass
+    leaves an archive with no app, never an app with no archive."""
+    return (is_source_archive(asset.name), asset.name)
+
+
+def check_source_archive_retention(
+    assets: list[ReleaseAsset], to_delete: list[ReleaseAsset]
+) -> None:
+    """Refuse a plan that deletes a source archive while an app asset that
+    names it (any other asset of its build) stays on the release."""
+    deleted = {asset.asset_id for asset in to_delete}
+    for archive in to_delete:
+        if not is_source_archive(archive.name):
+            continue
+        kept = sorted(
+            asset.name
+            for asset in assets
+            if asset.build == archive.build and asset.asset_id not in deleted
+        )
+        if kept:
+            raise RuntimeError(
+                f"refusing to delete {archive.name}: build {archive.build} still has "
+                f"{', '.join(kept)}, whose source offer names it"
+            )
+
+
 def partition_assets(
     assets: list[ReleaseAsset], keep_builds: int, total_assets: int, max_assets: int
 ) -> tuple[list[ReleaseAsset], list[int]]:
@@ -242,13 +280,13 @@ def partition_assets(
     ordered_builds = sorted(assets_by_build, reverse=True)
     to_delete: list[ReleaseAsset] = []
     for build in ordered_builds[keep_builds:]:
-        to_delete.extend(sorted(assets_by_build[build], key=lambda asset: asset.name))
+        to_delete.extend(sorted(assets_by_build[build], key=deletion_order))
 
     assets_after_prune = total_assets - len(to_delete)
     for build in reversed(ordered_builds[:keep_builds]):
         if assets_after_prune <= max_assets:
             break
-        build_assets = sorted(assets_by_build[build], key=lambda asset: asset.name)
+        build_assets = sorted(assets_by_build[build], key=deletion_order)
         to_delete.extend(build_assets)
         assets_after_prune -= len(build_assets)
 
@@ -258,6 +296,7 @@ def partition_assets(
             f"without deleting the newest immutable build"
         )
 
+    check_source_archive_retention(assets, to_delete)
     return to_delete, ordered_builds
 
 

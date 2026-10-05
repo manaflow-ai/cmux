@@ -73,6 +73,7 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;
 #[cfg(test)]
@@ -1609,8 +1610,9 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() -> std::process::ExitCode {
-    // One binary ships as `cmux` (this CLI and mux) and as `acpmux` through a
-    // symlink, so both always have the same version.
+    // SAFETY: the first statement of main: no other thread runs yet (G4).
+    unsafe { startup_env::take_link_token_from_env() };
+    // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
         .next()
@@ -1629,9 +1631,8 @@ fn main() -> std::process::ExitCode {
         return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
     }
     run_main();
-    // Reached only by the normal return paths, which never call
-    // client_log::exit; flush so the last queued records (final status,
-    // shutdown diagnostics) reach the client log on every platform.
+    // Reached only by the normal return paths (never client_log::exit): flush
+    // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
     std::process::ExitCode::SUCCESS
 }
@@ -1646,31 +1647,9 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
-/// Read the Cloud template settings and remove them from this process's
-/// environment, so no terminal host, shell, agent, or plugin it spawns
-/// inherits them. Must run before any thread starts.
-fn take_cloud_template_env() {
-    const KEYS: [&str; 3] = [
-        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
-        "CMUX_TUI_TEMPLATE_BOUND_FILE",
-        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
-    ];
-    let settings = CloudTemplateEnv {
-        adopt: std::env::var(KEYS[0]).is_ok_and(|value| value == "1"),
-        bound_file: std::env::var_os(KEYS[1]).filter(|value| !value.is_empty()).map(PathBuf::from),
-        workspace_name: std::env::var(KEYS[2]).ok().filter(|value| !value.is_empty()),
-    };
-    for key in KEYS {
-        // SAFETY: called first in run_main, before this process starts any
-        // thread, so no other thread can read the environment concurrently.
-        unsafe { std::env::remove_var(key) };
-    }
-    let _ = CLOUD_TEMPLATE_ENV.set(settings);
-}
-
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
-    take_cloud_template_env();
+    startup_env::take_cloud_template_env();
     // The pane's `claude` shim lands here. Dispatch before the signal
     // handlers and argv decoding: the wrapper execs Claude with arguments
     // that need not be UTF-8 or valid cmux-tui flags.

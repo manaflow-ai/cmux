@@ -13,7 +13,8 @@ nonisolated public enum UpdateMeteredMode: String, Sendable, CaseIterable {
 /// Whether found updates download by themselves right now (pure). While
 /// deferred, a found update waits as the available card and one click
 /// downloads it.
-nonisolated public enum UpdateNetworkPolicy {
+nonisolated public struct UpdateNetworkPolicy {
+    public init() {}
     public static func downloadsAutomatically(setting: Bool, mode: UpdateMeteredMode, constrained: Bool, expensive: Bool) -> Bool {
         guard setting else { return false }
         switch mode {

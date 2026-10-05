@@ -204,12 +204,18 @@ function parseEmits(outputs, cells) {
 // keys recorded for this platform and backend fails for a known
 // environment reason; returns that reason, else null.
 export function knownFailure(backend, name, problems, platform = process.platform) {
-  // Only value differences can be known: a missing or unexpected key (an
-  // error included) is always a failure.
-  if (!problems.length || problems.some((p) => !p.startsWith('"'))) return null;
+  if (!problems.length) return null;
   const file = path.join(root, "known-failures.json");
-  const entry = JSON.parse(fs.readFileSync(file, "utf8"))[platform]?.[backend]?.[name];
+  const known = JSON.parse(fs.readFileSync(file, "utf8"));
+  // "*" lists engine differences that hold on every platform.
+  const entry = known[platform]?.[backend]?.[name] ?? known["*"]?.[backend]?.[name];
   if (!entry) return null;
+  // A scenario that tests a behavior this backend's engine does not have:
+  // any difference is known.
+  if (entry.notApplicable === true) return entry.reason;
+  // Otherwise only value differences can be known: a missing or unexpected
+  // key (an error included) is always a failure.
+  if (problems.some((p) => !p.startsWith('"'))) return null;
   const keys = problems.map((p) => (/"([^"]+)"/.exec(p) || [])[1]);
   const listed = new Set(entry.keys);
   const same = keys.every((k) => k && listed.has(k)) && new Set(keys).size === listed.size;

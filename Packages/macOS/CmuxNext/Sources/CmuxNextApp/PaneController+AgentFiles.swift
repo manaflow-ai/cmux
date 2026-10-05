@@ -9,7 +9,9 @@ import Foundation
 /// web page opens in a new browser tab of this pane through `openBrowser`.
 extension PaneController {
     func agentContent(_ key: String) -> TabContent? {
-        guard let view = services.agentTabs.view(for: key) else { return nil }
+        guard let view = services.agentTabs.view(for: key) else {
+            return services.agentTabs.notice(for: key).map(TabContent.notice)
+        }
         // Set on each show, so a tab moved to another pane opens files there.
         view.model.onOpenFile = { [weak self] url, target in
             guard let self else { return false }

@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAgentCursor
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -18,11 +17,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) var contentView: WorkspaceContentView!
     private(set) var screenBar: ScreenBarController!
-    /// Agent cursors drawn in this content's overlay plane
-    /// (plans/cmux-next/agent-cursor.md). Drivers publish through
-    /// `agentCursor.publisher`; placement comes from the visibility source.
-    /// With no input events it draws nothing.
-    private(set) var agentCursor: AgentCursorStack?
     /// The workspace theme: only this content area, under the window's
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
@@ -66,10 +60,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
-        if let planeLayer = layoutView.overlayPlane.layer {
-            agentCursor = AgentCursorStack(hostLayer: planeLayer, resolver: services.agentCursorVisibility.resolver(for: self))
-            agentCursor?.model.onUntrack = { [weak services] target in services?.agentCursorVisibility.untrack(target) }
-        }
         observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
@@ -173,6 +163,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.workspace = self
         panes[pane] = controller
         sendTopology()
+        // Settings… asked before any window had a pane waits for the first one (R82). It opens
+        // its tab after this layout pass, never inside it.
+        if panes.count == 1, services.settingsWindow.isWaiting {
+            let settings = services.settingsWindow
+            Task { settings.windowDidShowContent() }
+        }
         return controller.view
     }
 

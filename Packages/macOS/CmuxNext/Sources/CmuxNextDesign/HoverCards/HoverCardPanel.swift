@@ -128,11 +128,7 @@ final class HoverCardPanel: NSPanel {
     private func place() {
         glass.layoutSubtreeIfNeeded()
         let size = glass.fittingSize
-        var origin: CGPoint = switch placement {
-        case .below: CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
-        case .above: CGPoint(x: anchor.minX, y: anchor.maxY + Metrics.space2)
-        case .beside: CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
-        }
+        var origin = Self.origin(for: placement, anchor: anchor, size: size)
         if let screen = parentWindowRef?.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
             let margin = Metrics.space2
@@ -158,3 +154,15 @@ final class HoverCardPanel: NSPanel {
 }
 
 extension HoverCardPanel: ThemeResponsive {}
+
+extension HoverCardPanel {
+    /// The card's origin (screen coordinates, y up) for `placement` next to
+    /// `anchor`, before the screen clamp.
+    static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize) -> CGPoint {
+        switch placement {
+        case .below: CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
+        case .above: CGPoint(x: anchor.minX, y: anchor.maxY + Metrics.space2)
+        case .beside: CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
+        }
+    }
+}

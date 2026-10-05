@@ -18,7 +18,7 @@ import PackageDescription
 //   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
-//   CmuxNextSettingsWindow -> Settings, Design, Actions, Wakeups (the Settings window, SwiftUI; the App supplies SettingsWindowHost)
+//   CmuxNextSettingsWindow -> Settings, Design, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
@@ -103,6 +103,17 @@ let remoteDesktopCoreDependency: [Target.Dependency] = remoteDesktopCoreLinked ?
 /// module, so switching CMUX_NEXT_RD_FFI in one .build never links stale objects.
 let remoteDesktopCoreSettings: [SwiftSetting] = remoteDesktopCoreLinked ? [.define("CMUX_RD_FFI")] : []
 
+/// The sidebar's hit testing and reorder rules live in the shared Rust
+/// `cmux-layout-reducer` crate. The fleet build produces this client
+/// xcframework with `scripts/cmux-next/build-layout-reducer-ffi.sh` before
+/// setting CMUX_NEXT_LAYOUT_REDUCER_FFI=1.
+let layoutReducerLinked = Context.environment["CMUX_NEXT_LAYOUT_REDUCER_FFI"] == "1"
+let layoutReducerTargets: [Target] = layoutReducerLinked
+    ? [.binaryTarget(name: "CCmuxLayoutReducerFFI", path: "../../../cmux-tui/target/cmux-layout-reducer-ffi/CCmuxLayoutReducerFFI.xcframework")]
+    : []
+let layoutReducerDependency: [Target.Dependency] = layoutReducerLinked ? ["CCmuxLayoutReducerFFI"] : []
+let layoutReducerSettings: [SwiftSetting] = layoutReducerLinked ? [.define("CMUX_LAYOUT_REDUCER_FFI")] : []
+
 let package = Package(
     name: "CmuxNext",
     defaultLocalization: "en",
@@ -175,6 +186,7 @@ let package = Package(
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
                 "CmuxNextAgentCursor",
+                .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
                 "CmuxNextApps",
                 "CmuxNextTasks",
@@ -771,22 +783,23 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSidebar",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")] + layoutReducerDependency,
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings + layoutReducerSettings
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources"],
-            swiftSettings: uiSwiftSettings
+            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources"] + layoutReducerDependency,
+            swiftSettings: uiSwiftSettings + layoutReducerSettings
         ),
         .target(
             name: "CmuxNextPalette",
             dependencies: ["CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
             resources: [
                 .process("Localizable.xcstrings"),
+                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -933,5 +946,5 @@ let package = Package(
             dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
-    ] + remoteDesktopCoreTargets
+    ] + remoteDesktopCoreTargets + layoutReducerTargets
 )

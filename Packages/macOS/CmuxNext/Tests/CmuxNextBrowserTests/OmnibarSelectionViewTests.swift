@@ -116,7 +116,7 @@ import Testing
         #expect(h.snapshot.fieldSelection == range(0, 0))
     }
 
-    @Test func copyingTheElidedURLCopiesTheFullURL() async throws {
+    @Test(.requiresPasteboard) func copyingTheElidedURLCopiesTheFullURL() async throws {
         let h = Harness()
         await h.click(selecting: range(3, 0))
         let editor = try #require(h.bar.fieldEditor)

@@ -16,9 +16,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 
 mod handshake;
+mod input_wire;
 mod lease_wire;
 mod tab_table;
 pub use handshake::{ProviderInfo, accept};
+pub use input_wire::{AUTOMATION_INPUT, tee_inputs};
 use lease_wire::{Leases, apply_lease, user_lease_op};
 use tab_table::TabTable;
 pub use tab_table::{BROWSER_PAGE, EXTENSION_HOST_ACCESS};
@@ -304,6 +306,15 @@ impl ProviderDriver {
     }
 
     /// Adds an event receiver (one per session); returns its id.
+    /// The lease state of a tab, if it has a lease.
+    pub fn lease_state(&self, target_id: &str) -> Option<crate::provider::LeaseState> {
+        self.leases
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(target_id)
+            .map(|record| record.lease.state)
+    }
+
     pub fn subscribe(&self, sink: EventSink) -> u64 {
         let id = self.next_subscriber.fetch_add(1, Ordering::Relaxed);
         self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).push((id, sink));
@@ -385,6 +396,9 @@ pub fn target_payload(target_id: &str) -> Value {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod input_tests;
 
 #[cfg(test)]
 #[path = "provider_link_table_tests.rs"]

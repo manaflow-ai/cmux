@@ -26,14 +26,14 @@ extension AppActions {
                 services.windows.active?.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
             }
         })
-        registry.bind("nextSidebarTab") { selectWorkspace(services, offset: 1) }
-        registry.bind("prevSidebarTab") { selectWorkspace(services, offset: -1) }
+        // Next / previous item in the current sidebar section; in the workspaces list, the workspaces (R119).
+        registry.bind("nextSidebarTab") { stepSidebar(services, offset: 1) }
+        registry.bind("prevSidebarTab") { stepSidebar(services, offset: -1) }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
-            // Sidebar order across every machine section.
-            let all = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
-            guard !all.isEmpty else { return }
-            let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
+            // Home is 1, then the visible rows top to bottom across every machine section (R119).
+            let all = services.windows.active?.sidebar.model.visibleWorkspaceIDs ?? []
+            guard let pick = SidebarNumbering(home: services.home.homeWorkspace?.id, workspaces: all).pick(number) else { return }
             services.windows.show(workspaceID: pick, in: state)
         })
         // Home is the store's home workspace (home.md 7): shown like any
@@ -116,6 +116,14 @@ extension AppActions {
         guard let window = controller.window else { return }
         WindowActivation.show(window, .focus)
         windows.didActivate(controller)
+    }
+
+    private static func stepSidebar(_ services: AppServices, offset: Int) {
+        let window = services.windows.active
+        let shownPage = window?.focus.state.resolved.tab.flatMap(LocalPageTab.page(of:))
+        if let sidebar = window?.sidebar,
+           SidebarItemStepper.step(sidebar, by: offset, shownWorkspace: { window?.state.workspaceID }, shownPage: shownPage) { return }
+        selectWorkspace(services, offset: offset)
     }
 
     private static func selectWorkspace(_ services: AppServices, offset: Int) {

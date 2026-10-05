@@ -26,7 +26,7 @@ export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
-import { handleCloudBind } from "./cloud-link.ts"
+import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -48,6 +48,8 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
   const authenticated = await authenticate(env, token)
   if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
+  // A VM install has no socket (review P1): it reaches only the cloud.vm.* ops.
+  if (authenticated.install_kind === "vm") return Response.json({ error: { code: "auth.forbidden", message: "a VM install has no socket" } }, { status: 403 })
   // Team policy (P17-4): SSO (own team and the email domain's team), minimum client version for every connect.
   const rules = await signInRules(env, authenticated.team, authenticated.user)
   const gate = await ssoGate(env, authenticated)
@@ -85,6 +87,7 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   const auth = request.headers.get("authorization") ?? ""
   const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!authenticated?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
+  if (authenticated.install_kind === "vm") return Response.json({ ok: false, error: { code: "auth.forbidden", message: "a VM install has no presence key" } }, { status: 403 })
   const gate = await ssoGate(env, authenticated)
   if (gate.refusal) return Response.json({ ok: false, error: gate.refusal }, { status: 403 })
   const { stack_session: _session, email_domain: _domain, ...principal } = gate.principal
@@ -107,6 +110,7 @@ export default {
     const url = new URL(request.url)
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
+    if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.

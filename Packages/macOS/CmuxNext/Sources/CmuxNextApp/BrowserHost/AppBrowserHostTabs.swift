@@ -48,6 +48,11 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         localBrowserTabs.contains { $0.model.id == targetID }
     }
 
+    /// The workspace that holds an announced tab (agent input routing).
+    func workspaceID(ofTab targetID: String) -> String? {
+        localBrowserTabs.first { $0.model.id == targetID }?.workspace.id
+    }
+
     // MARK: ProviderTabSource
 
     var providerTabs: [ProviderTab] {
@@ -131,6 +136,27 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
 
     /// Tabs belong to the person's layout: the provider never closes one.
     func closeAutomationTab(_ id: BrowserTabID) {}
+
+    /// The one exception: a browser session's end closes the tabs it created and did not keep
+    /// (the host filters out kept, person-driven and paused tabs). It is a normal store close
+    /// (`close-tabs`), marked `session_end` so Reopen Closed leaves it out; an older daemon
+    /// without `close-reason-v1` keeps the tab (never an unmarked close). The host decides which
+    /// tabs a session created and that no person holds (gap: the store does not check it).
+    func endSessionTab(_ id: String) -> Bool {
+        guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
+        let daemon = services.daemon
+        guard daemon.supports(DaemonCapabilities.shared.closeReason) else { return false }
+        let surface = tab.surface
+        let cache: TabContentCache = services.cache
+        // task-owner: one store close; the page goes with it, as after a person's close
+        Task {
+            let closed = await daemon.run(CloseTabsRequest.command) { connection in
+                _ = try await connection.closeTabs([surface], endTerminals: false, reason: .sessionEnd)
+            }
+            if closed { cache.release(id) }
+        }
+        return true
+    }
 
     /// Selecting a tab changes the person's view: not through the provider.
     func activateAutomationTab(_ id: BrowserTabID) {}

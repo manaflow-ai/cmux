@@ -19,6 +19,10 @@ final class AppBrowserHost {
     /// Lease frames to every content's agent cursor (agent-cursor.md section 3).
     private let cursorLeases: AgentCursorLeaseFanOut
     private var leaseObservation: ProviderLeaseObservation?
+    /// `input {event}` frames to the owning window's agent cursor (agent-cursor.md section 2).
+    private let inputBridge: AgentCursorInputBridge
+    private var inputObservation: ProviderInputObservation?
+    private var inputLeaseObservation: ProviderLeaseObservation?
 
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
         self.services = services
@@ -33,10 +37,17 @@ final class AppBrowserHost {
         self.driver = driver
         cursorLeases = AgentCursorLeaseFanOut(models: { [weak services] in
             guard let services else { return [] }
-            return services.windows.controllers.flatMap { controller in
-                (controller.parked + [controller.content].compactMap { $0 }).compactMap { $0.agentCursor?.model }
-            }
+            return AgentCursorWiring.slots(in: services)
         })
+        inputBridge = AgentCursorInputBridge(
+            publisher: { [weak services, weak tabs] targetID in
+                guard let services, let workspaceID = tabs?.workspaceID(ofTab: targetID) else { return nil }
+                return Self.window(ofWorkspace: workspaceID, in: services)?.agentCursor.publisher
+            },
+            publishers: { [weak services] in
+                guard let services else { return [] }
+                return services.windows.controllers.map(\.agentCursor.publisher)
+            })
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
             credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs)
@@ -49,6 +60,13 @@ final class AppBrowserHost {
         provider.onTabGone = { [driver] targetID in driver.tabClosed(BrowserTabID(rawValue: targetID)) }
         leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
             cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
+        }
+        inputObservation = provider.observeInputs { [inputBridge] event in
+            guard let data = try? JSONSerialization.data(withJSONObject: event.foundationValue) else { return }
+            inputBridge.receive(data)
+        }
+        inputLeaseObservation = provider.observeLeases { [inputBridge] targetID, lease in
+            inputBridge.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
         }
     }
 
@@ -80,6 +98,15 @@ final class AppBrowserHost {
               let services, let controller = services.windows.controllers.first(where: { $0.window === window }),
               case .browserPage(_, let tab) = controller.focus.state.resolved else { return }
         provider.reportUserInput(event: event, synthetic: synthetic, targetID: tab)
+    }
+
+    /// The content that shows or parks `workspaceID`: its window's shown content first.
+    /// The window that shows `workspaceID`, else one that keeps it parked:
+    /// its window-level cursor slot draws the workspace's agent cursors.
+    static func window(ofWorkspace workspaceID: String, in services: AppServices) -> WindowController? {
+        let controllers = services.windows.controllers
+        if let shown = controllers.first(where: { $0.content?.workspace.id == workspaceID }) { return shown }
+        return controllers.first { controller in controller.parked.contains { $0.workspace.id == workspaceID } }
     }
 
     /// One provider per install: a random id kept in the app's defaults.

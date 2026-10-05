@@ -7,7 +7,7 @@ import Testing
 
 @Suite(.serialized) struct ControlSocketServerTests {
     func makeServer(_ mode: ControlAccessMode, path: String = temporarySocketPath(), trustedAncestor: pid_t = getpid(), password: String? = nil) throws -> ControlSocketServer {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         router.updateCatalog(sampleCatalog())
         let server = ControlSocketServer(
             configuration: .init(
@@ -131,7 +131,7 @@ import Testing
     @Test func offModeDoesNotStart() {
         let server = ControlSocketServer(
             configuration: .init(path: temporarySocketPath(), accessMode: .off),
-            router: ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+            router: ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         )
         #expect(throws: ControlSocketServer.StartError.disabled) { try server.start() }
     }
@@ -144,7 +144,7 @@ import Testing
     /// at once: 100% CPU on the accept queue until descriptors freed up.
     @Test func descriptorExhaustionBacksOffInsteadOfSpinning() async throws {
         let calls = Atomic<Int>(0)
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let server = ControlSocketServer(
             configuration: .init(path: temporarySocketPath(), accessMode: .allowAll),
             router: router,
@@ -194,7 +194,7 @@ import Testing
         let probe = "/tmp/cnc-probe-\(UUID().uuidString.prefix(8).lowercased())"
         let expected = try #require(Self.createdMode(probe), "the reference file could not be created")
         let seen = Mutex<[mode_t?]>([])
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let server = ControlSocketServer(
             configuration: .init(path: temporarySocketPath(), accessMode: mode),
             router: router,

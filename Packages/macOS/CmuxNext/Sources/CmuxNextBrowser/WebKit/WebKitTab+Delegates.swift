@@ -137,8 +137,8 @@ extension WebKitTab: WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         // Without a host there is nowhere to show the page: block the popup.
-        // The link menu's pick, else the modified click's mapping.
-        let click = takeContextMenuDisposition().map(LinkClick.open) ?? LinkClick(navigationAction, in: self)
+        // The modified click's mapping (the link menu's rows open by URL).
+        let click = LinkClick(navigationAction, in: self)
         guard hasDelegate, !click.runsInOpener(navigationAction.request, tab: self),
               let child = makeChildTab(configuration: configuration) else { return nil }
         if case .open(let explicit) = click {
@@ -248,6 +248,10 @@ extension WebKitTab: WKUIDelegate {
 
 extension WebKitTab: WKScriptMessageHandler {
     public func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == WebKitContextHit.handlerName {
+            contextHit = BrowserContextMenuTarget.webKitHit(message.body).map { (target: $0, at: ContinuousClock.now) }
+            return
+        }
         guard message.name == PaneFullscreenScript.messageHandlerName,
               message.frameInfo.isMainFrame,
               let on = message.body as? Bool else { return }

@@ -920,7 +920,7 @@
       "op": "cloud.machine.start",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000002"
@@ -977,7 +977,7 @@
       "op": "cloud.machine.start",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000002"
@@ -1017,7 +1017,7 @@
       "op": "cloud.machine.pause",
       "class": "mutation",
       "principal": {
-        "kind": "install"
+        "kind": "session"
       },
       "params": {
         "machine": "vm_m0000000000000000001"
@@ -1065,6 +1065,82 @@
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 105
+          }
+        }
+      ]
+    },
+    {
+      "name": "machine.pause.not_running",
+      "op": "cloud.machine.pause",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000002"
+      },
+      "idempotency_key": "key-pause-2",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.pause",
+            "error": {
+              "code": "cloud.machine.not_running",
+              "message": "only a running machine can be paused",
+              "retryable": false,
+              "details": {
+                "machine": "vm_m0000000000000000002",
+                "state": "paused"
+              }
+            },
+            "transaction": "",
+            "idempotency_key": "key-pause-2",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "machine.start.not_paused",
+      "op": "cloud.machine.start",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001"
+      },
+      "idempotency_key": "key-start-2",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.start",
+            "error": {
+              "code": "cloud.machine.not_paused",
+              "message": "only a paused machine can be started",
+              "retryable": false,
+              "details": {
+                "machine": "vm_m0000000000000000001",
+                "state": "running"
+              }
+            },
+            "transaction": "",
+            "idempotency_key": "key-start-2",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
           }
         }
       ]
@@ -1127,6 +1203,50 @@
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
             "sequence": 106
+          }
+        }
+      ]
+    },
+    {
+      "name": "machine.resize.grow_only",
+      "op": "cloud.machine.resize",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "size": {
+          "cpu": 1
+        }
+      },
+      "idempotency_key": "key-resize-2",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.resize",
+            "error": {
+              "code": "cloud.size.grow_only",
+              "message": "a machine can only grow (vCPU, memory and disk)",
+              "retryable": false,
+              "details": {
+                "size": {
+                  "cpu": 2,
+                  "memory_mb": 4096,
+                  "disk_mb": 16384
+                }
+              }
+            },
+            "transaction": "",
+            "idempotency_key": "key-resize-2",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
           }
         }
       ]
@@ -1686,6 +1806,47 @@
       "note": "Two calls, two fresh tokens: no key, no replay."
     },
     {
+      "name": "machine.link_token.paused",
+      "op": "cloud.machine.link_token",
+      "class": "mutation",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "host": "host_h0000000000000000002",
+        "services": [
+          "ssh"
+        ]
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.link_token",
+            "error": {
+              "code": "cloud.machine.paused",
+              "message": "the machine is paused; start it first",
+              "retryable": false,
+              "details": {
+                "machine": "vm_m0000000000000000002",
+                "state": "paused"
+              }
+            },
+            "transaction": "tx_0013",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "No dial to a machine that cannot answer and no automatic start: the client shows \"Start machine?\" and calls cloud.machine.start."
+    },
+    {
       "name": "machine.link_token.not_bound",
       "op": "cloud.machine.link_token",
       "class": "mutation",
@@ -1712,7 +1873,7 @@
               "message": "the machine is still provisioning",
               "retryable": false
             },
-            "transaction": "tx_0013",
+            "transaction": "tx_0014",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -1748,7 +1909,7 @@
               "message": "no such machine in this team",
               "retryable": false
             },
-            "transaction": "tx_0014",
+            "transaction": "tx_0015",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -1784,7 +1945,7 @@
               "message": "link tokens are minted only for an install's cmux link",
               "retryable": false
             },
-            "transaction": "tx_0015",
+            "transaction": "tx_0016",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -1793,6 +1954,51 @@
         }
       ],
       "note": "Install principals only (LINK-RESOLVE): an app or page caller never holds a link token."
+    },
+    {
+      "name": "machine.link_token.install_refused",
+      "op": "cloud.machine.link_token",
+      "class": "mutation",
+      "principal": {
+        "kind": "install"
+      },
+      "params": {
+        "host": "host_h0000000000000000001",
+        "services": [
+          "ssh"
+        ]
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.link_token",
+            "error": {
+              "code": "cloud.link.install_refused",
+              "message": "only the cli, mac app and ios installs mint link tokens",
+              "retryable": false,
+              "details": {
+                "install_kind": "web",
+                "allowed": [
+                  "cli",
+                  "mac",
+                  "ios"
+                ]
+              }
+            },
+            "transaction": "tx_0017",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "CLOUD-LINK-FOLLOWUPS (2): a vm, daemon or web install never mints; the check runs before the machine lookup."
     },
     {
       "name": "snapshot.list.machine",
@@ -1907,7 +2113,7 @@
                 "revision": "1"
               }
             },
-            "transaction": "tx_0016",
+            "transaction": "tx_0018",
             "idempotency_key": "key-snap-1",
             "revision": "1",
             "replayed": false,
@@ -2006,7 +2212,7 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0017",
+            "transaction": "tx_0019",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": false,
@@ -2049,7 +2255,7 @@
                 "revision": "44"
               }
             },
-            "transaction": "tx_0017",
+            "transaction": "tx_0019",
             "idempotency_key": "key-restore-1",
             "revision": "44",
             "replayed": true,
@@ -2118,7 +2324,7 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0018",
+            "transaction": "tx_0020",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": false,
@@ -2137,7 +2343,7 @@
             "value": {
               "deleted": true
             },
-            "transaction": "tx_0018",
+            "transaction": "tx_0020",
             "idempotency_key": "key-snap-delete-1",
             "revision": "4",
             "replayed": true,
@@ -2217,7 +2423,7 @@
             "value": {
               "url": "https://checkout.example.com/session/cs_vector_0001"
             },
-            "transaction": "tx_0019",
+            "transaction": "tx_0021",
             "idempotency_key": "key-checkout-1",
             "revision": "13",
             "replayed": false,
@@ -2312,7 +2518,7 @@
             "value": {
               "state": "moving"
             },
-            "transaction": "tx_0020",
+            "transaction": "tx_0022",
             "idempotency_key": "key-migrate-1",
             "revision": "4",
             "replayed": false,
@@ -2434,7 +2640,7 @@
                 "revision": "54"
               }
             },
-            "transaction": "tx_0021",
+            "transaction": "tx_0023",
             "idempotency_key": "key-upgrade-1",
             "revision": "54",
             "replayed": false,
@@ -2537,7 +2743,7 @@
             "value": {
               "stream": "wst_w0000000000000000001"
             },
-            "transaction": "tx_0022",
+            "transaction": "tx_0024",
             "idempotency_key": "key-shell-1",
             "revision": "7",
             "replayed": false,
@@ -2582,6 +2788,300 @@
           }
         }
       ]
+    },
+    {
+      "name": "vm.self.get",
+      "op": "cloud.vm.self.get",
+      "class": "read",
+      "principal": {
+        "kind": "install",
+        "install_kind": "vm",
+        "grant_classes": [
+          "vm-self"
+        ],
+        "bound_machine": "vm_m0000000000000000001"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001"
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/read",
+            "status": 200
+          },
+          "body": {
+            "op": "cloud.vm.self.get",
+            "value": {
+              "machine": {
+                "id": "vm_m0000000000000000001",
+                "team": "team_t0000000000000000001",
+                "creator": "user_u0000000000000000001",
+                "name": "build box",
+                "size": {
+                  "cpu": 2,
+                  "memory_mb": 4096,
+                  "disk_mb": 16384
+                },
+                "status": "running",
+                "image": {
+                  "id": "img_i0000000000000000001",
+                  "daemon_version": "0.40.0"
+                },
+                "host": "host_h0000000000000000001",
+                "classic": false,
+                "created_at": 1790000001000,
+                "last_active_at": 1790000601000,
+                "idle_policy": {
+                  "idle_seconds": 1800
+                },
+                "error": null,
+                "revision": "7"
+              }
+            },
+            "stream": "cloud:team_t0000000000000000001",
+            "revision": "41"
+          }
+        }
+      ],
+      "note": "The VM's own machine (public view). VM installs only: kind vm, grant vm-self, params.machine = its bound machine."
+    },
+    {
+      "name": "vm.self.get.other_machine",
+      "op": "cloud.vm.self.get",
+      "class": "read",
+      "principal": {
+        "kind": "install",
+        "install_kind": "vm",
+        "grant_classes": [
+          "vm-self"
+        ],
+        "bound_machine": "vm_m0000000000000000001"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000002"
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/read",
+            "status": 403
+          },
+          "body": {
+            "_tag": "Forbidden",
+            "code": "auth.forbidden",
+            "message": "a VM install speaks only for its own machine"
+          }
+        }
+      ]
+    },
+    {
+      "name": "vm.status.report",
+      "op": "cloud.vm.status.report",
+      "class": "mutation",
+      "principal": {
+        "kind": "install",
+        "install_kind": "vm",
+        "grant_classes": [
+          "vm-self"
+        ],
+        "bound_machine": "vm_m0000000000000000001"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "state": "running",
+        "daemon": {
+          "version": "0.41.0",
+          "capabilities": [
+            "terminal",
+            "files"
+          ]
+        },
+        "health": {
+          "disk_free_mb": 20480,
+          "load": 0.4
+        },
+        "activity": {
+          "last_user_input_at": 1790000000000,
+          "last_agent_action_at": 1790000005000,
+          "active_sessions": 2
+        }
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": true,
+            "op": "cloud.vm.status.report",
+            "value": {
+              "applied": true
+            },
+            "transaction": "tx_0025",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        },
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": true,
+            "op": "cloud.vm.status.report",
+            "value": {
+              "applied": false
+            },
+            "transaction": "tx_0026",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "responses[0] applies at once; responses[1] came within 10 s and is held (latest wins): it applies when the window ends. Activity feeds CloudDO's idle pause; only a daemon change emits cloud.machine.upsert."
+    },
+    {
+      "name": "vm.event.emit",
+      "op": "cloud.vm.event.emit",
+      "class": "mutation",
+      "principal": {
+        "kind": "install",
+        "install_kind": "vm",
+        "grant_classes": [
+          "vm-self"
+        ],
+        "bound_machine": "vm_m0000000000000000001"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "kind": "agent.finished",
+        "at": 1790000010000,
+        "data": {
+          "title": "Done: https://example.com/pr/1?token=x",
+          "outcome": "success"
+        }
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": true,
+            "op": "cloud.vm.event.emit",
+            "value": {
+              "delivered": true
+            },
+            "transaction": "tx_0027",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "Delivered as the ephemeral cloud.machine.event (URL query strings and fragments removed)."
+    },
+    {
+      "name": "vm.event.emit.rate_limited",
+      "op": "cloud.vm.event.emit",
+      "class": "mutation",
+      "principal": {
+        "kind": "install",
+        "install_kind": "vm",
+        "grant_classes": [
+          "vm-self"
+        ],
+        "bound_machine": "vm_m0000000000000000001"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "kind": "service.port.opened",
+        "at": 1790000010000,
+        "data": {
+          "port": 3000,
+          "proto": "tcp"
+        }
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.vm.event.emit",
+            "error": {
+              "code": "cloud.rate_limited",
+              "message": "too many VM events; slow down",
+              "retryable": false,
+              "details": {
+                "retry_after_ms": 100
+              }
+            },
+            "transaction": "tx_0028",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "10 per second, burst 50 per install; wait retry_after_ms."
+    },
+    {
+      "name": "vm.event.emit.invalid",
+      "op": "cloud.vm.event.emit",
+      "class": "mutation",
+      "principal": {
+        "kind": "install",
+        "install_kind": "vm",
+        "grant_classes": [
+          "vm-self"
+        ],
+        "bound_machine": "vm_m0000000000000000001"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "kind": "notification",
+        "at": 1790000010000,
+        "data": {
+          "title": "x",
+          "url": "https://example.com"
+        }
+      },
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.vm.event.emit",
+            "error": {
+              "code": "validation.invalid",
+              "message": "invalid data for notification",
+              "retryable": false
+            },
+            "transaction": "tx_0029",
+            "idempotency_key": "",
+            "replayed": false,
+            "stream": "",
+            "sequence": 0
+          }
+        }
+      ],
+      "note": "Unknown fields, unknown kinds and data over 4 KB are refused."
     }
   ],
   "events": [
@@ -2799,6 +3299,196 @@
           }
         }
       }
+    },
+    {
+      "name": "machine.upsert.no_report",
+      "event": "cloud.machine.upsert",
+      "stream": "cloud:team_t0000000000000000001",
+      "seq": 127,
+      "data": {
+        "machine": {
+          "id": "vm_m0000000000000000001",
+          "team": "team_t0000000000000000001",
+          "creator": "user_u0000000000000000001",
+          "name": "build box",
+          "size": {
+            "cpu": 2,
+            "memory_mb": 4096,
+            "disk_mb": 16384
+          },
+          "status": "paused",
+          "image": {
+            "id": "img_i0000000000000000001",
+            "daemon_version": "0.40.0"
+          },
+          "host": "host_h0000000000000000001",
+          "classic": false,
+          "created_at": 1790000001000,
+          "last_active_at": 1790000601000,
+          "idle_policy": {
+            "idle_seconds": 1800
+          },
+          "error": null,
+          "revision": "57",
+          "pause_reason": "no_report"
+        }
+      },
+      "note": "The cost backstop paused it: no report from its VM for 24 h after its last start or bind. The app shows why; a start clears pause_reason."
+    },
+    {
+      "name": "machine.event.agent.started",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "agent.started",
+        "at": 1790000020000,
+        "data": {
+          "title": "Fix the flaky test",
+          "agent": "claude",
+          "session": "s1"
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
+    },
+    {
+      "name": "machine.event.agent.finished",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "agent.finished",
+        "at": 1790000020000,
+        "data": {
+          "title": "Done: https://example.com/pr/1",
+          "agent": "claude",
+          "session": "s1",
+          "outcome": "success"
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
+    },
+    {
+      "name": "machine.event.agent.needs_input",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "agent.needs_input",
+        "at": 1790000020000,
+        "data": {
+          "title": "Approve the migration?",
+          "agent": "codex",
+          "session": "s2"
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
+    },
+    {
+      "name": "machine.event.notification",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "notification",
+        "at": 1790000020000,
+        "data": {
+          "title": "Build finished",
+          "body": "All 412 tests passed."
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
+    },
+    {
+      "name": "machine.event.browser.lease.changed",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "browser.lease.changed",
+        "at": 1790000020000,
+        "data": {
+          "tab": "tab_1",
+          "state": "acquired"
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
+    },
+    {
+      "name": "machine.event.cua.session.started",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "cua.session.started",
+        "at": 1790000020000,
+        "data": {
+          "session": "cua_1"
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
+    },
+    {
+      "name": "machine.event.cua.session.ended",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "cua.session.ended",
+        "at": 1790000020000,
+        "data": {
+          "session": "cua_1"
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
+    },
+    {
+      "name": "machine.event.service.port.opened",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "service.port.opened",
+        "at": 1790000020000,
+        "data": {
+          "port": 3000,
+          "proto": "tcp",
+          "process": "node"
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
+    },
+    {
+      "name": "machine.event.service.port.closed",
+      "event": "cloud.machine.event",
+      "stream": "cloud:team_t0000000000000000001",
+      "ephemeral": true,
+      "data": {
+        "machine": "vm_m0000000000000000001",
+        "host": "host_h0000000000000000001",
+        "kind": "service.port.closed",
+        "at": 1790000020000,
+        "data": {
+          "port": 3000
+        }
+      },
+      "note": "Ephemeral frame {t: ephemeral, stream, event, data}: never stored, no seq, no cursor; members of the team receive it, never a VM install."
     }
   ],
   "backend_only": [
@@ -2874,6 +3564,12 @@
             "terminal",
             "files"
           ]
+        },
+        "install_public_jwk": {
+          "kty": "EC",
+          "crv": "P-256",
+          "x": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "y": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
         }
       },
       "responses": [
@@ -2900,6 +3596,11 @@
                     "use": "sig"
                   }
                 }
+              },
+              "install": {
+                "id": "inst_v0000000000000000004",
+                "user": "user_u0000000000000000001",
+                "grant": "grant_v000000000000000004"
               }
             }
           }
@@ -2918,7 +3619,7 @@
           }
         }
       ],
-      "note": "responses[0]: the answer carries the public link keyset (at most 2 kids, no private part) and the machine becomes running with its host (cloud.machine.upsert). responses[1]: a second bind with the spent token; any wrong, expired or unknown token is the same auth.forbidden."
+      "note": "responses[0]: the answer carries the public link keyset (at most 2 kids, no private part) and the VM install the server registered with install_public_jwk (kind vm, the machine creator, grant vm-self; the VM gets tokens through /v1/auth/challenge and /v1/auth/token), and the machine becomes running with its host (cloud.machine.upsert). responses[1]: a second bind with the spent token; any wrong, expired or unknown token is the same auth.forbidden."
     },
     {
       "name": "machine.bind.invalid",

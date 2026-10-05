@@ -41,7 +41,7 @@ enum FeedGitHubActions {
             guard let pane = services.windows.active?.focusedPane else { return }
             let draft = "Review this GitHub pull request:\n\(url.absoluteString)\n\nTitle: \(detail.title)"
             let seed = AgentPaneSeed(cwd: nil, draft: draft)
-            pane.showAgentTab(services.agentTabs.open(in: pane.paneKey, of: pane.daemon.store, seed: AgentPaneSeedSource(seed)))
+            pane.openAgentTab(seed: AgentPaneSeedSource(seed))
         case .checkout:
             guard let number = detail.number, let branch = detail.branch else { return }
             guard let pane = services.windows.active?.focusedPane else { return }

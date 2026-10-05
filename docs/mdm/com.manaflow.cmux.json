@@ -14,6 +14,18 @@
       "title" : "AllowedSignInMethods",
       "type" : "array"
     },
+    "announcements.enabled" : {
+      "default" : true,
+      "description" : "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar.",
+      "title" : "Show Announcements",
+      "type" : "boolean"
+    },
+    "announcements.fetch" : {
+      "default" : true,
+      "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
+      "title" : "Download Announcements",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -131,6 +143,27 @@
       "maximum" : 16,
       "minimum" : 10,
       "title" : "Interface Size",
+      "type" : "number"
+    },
+    "appearance.metrics.columnGap" : {
+      "description" : "appearance.metrics.columnGap",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Column Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarWidth" : {
+      "description" : "appearance.metrics.sidebarWidth",
+      "maximum" : 420,
+      "minimum" : 160,
+      "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.titlebarHeight" : {
+      "description" : "appearance.metrics.titlebarHeight",
+      "maximum" : 56,
+      "minimum" : 24,
+      "title" : "Titlebar Height",
       "type" : "number"
     },
     "appearance.saturation" : {
@@ -1200,6 +1233,16 @@
       "description" : "status.runNotifyWhenVisible",
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
+    },
+    "tabs.barOrder" : {
+      "default" : "aboveToolbar",
+      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "enum" : [
+        "aboveToolbar",
+        "belowToolbar"
+      ],
+      "title" : "Tab Bar and Browser Toolbar",
+      "type" : "string"
     },
     "tabs.barPosition" : {
       "default" : "top",

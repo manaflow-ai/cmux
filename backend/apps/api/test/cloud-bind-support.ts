@@ -14,6 +14,7 @@ export interface BindBody {
   readonly bind_token: string
   readonly wg_public_key: string
   readonly daemon: { readonly version: string; readonly capabilities: ReadonlyArray<string> }
+  readonly install_public_jwk?: { readonly kty: string; readonly crv: string; readonly x: string; readonly y: string }
 }
 export interface CloudStub {
   submit(entity: string, principal: Principal, frame: Frame): Promise<SubmitResult>
@@ -33,9 +34,9 @@ export const person = (team?: string) => {
   const p: Principal = { identity: `user:${user}`, user, team: t, kind: "session" }
   return { team: t, user, p, stub: cloudStub(t) }
 }
-export const installOf = (p: Principal, classes: ReadonlyArray<string> = ["read", "mutate-own", "mutate-shared", "execute"]): Principal => {
+export const installOf = (p: Principal, classes: ReadonlyArray<string> = ["read", "mutate-own", "mutate-shared", "execute"], installKind = "cli"): Principal => {
   const install = `inst_${(p.user ?? "").slice(5, 9)}${"7".repeat(16)}`
-  return { identity: `install:${install}`, user: p.user, team: p.team, kind: "install", install, grant_classes: [...classes] }
+  return { identity: `install:${install}`, user: p.user, team: p.team, kind: "install", install, grant_classes: [...classes], install_kind: installKind }
 }
 export const frame = (op: string, params: unknown, key: string = crypto.randomUUID()): Frame => ({ t: "op", op, params, idempotency_key: key, origin: "user" })
 export const reply = (r: SubmitResult) => r.frames.find((x: OwnerFrame) => x.t === "result" || x.t === "reject") as { t: string; value?: any; code?: string; message?: string }
@@ -51,15 +52,37 @@ export const bindFile = async (stub: CloudStub, machine: string) => {
   return { ...f, json: JSON.parse(f.content) as { team: string; machine: string; bind_token: string } }
 }
 
+/** The VM's install key pair (per clone): the bind request carries the public half (install_public_jwk). */
+export const vmKey = async () => {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+  const j = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+  return { pair, jwk: { kty: "EC", crv: "P-256", x: j.x!, y: j.y! } }
+}
+
+/** The machine creator's UserDO must exist: bind registers the VM's install under the creator. */
+export const ensureUser = async (x: { user: string; team: string }) => {
+  const ns = (env as unknown as { USER_DO: DurableObjectNamespace }).USER_DO
+  const stub = ns.get(ns.idFromName(x.user)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<SubmitResult> }
+  await stub.submit(x.user, { identity: `user:${x.user}`, user: x.user, team: x.team, kind: "session", stack_user_id: `stack_${x.user}`, email: `${x.user}@example.com` }, { t: "op", op: "user.ensure", params: {}, idempotency_key: `ensure-${x.user}`, origin: "user" })
+}
+
+/** A bind body for `machine` with a fresh VM install key (and the creator's UserDO ensured). */
+export const bindBody = async (x: { user: string; team: string }, machine: string, bindToken: string) => {
+  await ensureUser(x)
+  const key = await vmKey()
+  return { body: { team: x.team, machine, bind_token: bindToken, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk }, key }
+}
+
 /** Create a machine and bind it with the token from its bind file. */
 export const createdAndBound = async (x: ReturnType<typeof person>) => {
   const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
   if (created.t !== "result") throw new Error(JSON.stringify(created))
   const machine = created.value.machine.id as string
   const file = await bindFile(x.stub, machine)
-  const bound = await x.stub.bindMachine(x.team, { team: x.team, machine, bind_token: file.json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON })
+  const { body, key } = await bindBody(x, machine, file.json.bind_token)
+  const bound = await x.stub.bindMachine(x.team, body)
   if (!bound.ok) throw new Error(JSON.stringify(bound))
-  return { machine, host: bound.value.host as string, keyset: bound.value.keyset as { version: string; keys: Record<string, JWK> } }
+  return { machine, host: bound.value.host as string, keyset: bound.value.keyset as { version: string; keys: Record<string, JWK> }, install: bound.value.install as { id: string; user: string; grant: string }, key }
 }
 
 // ---- Worker-level helpers
@@ -81,14 +104,14 @@ export const post = async (path: string, token: string | undefined, body: unknow
 const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 /** A signed-in person with a registered mac install and an install token for it. */
-export const signedInWithInstall = async (sub: string) => {
+export const signedInWithInstall = async (sub: string, kind = "mac") => {
   const session = await sessionToken(sub)
   const ensured = (await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })).body.value
   const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
   const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
   const reg = await post("/v1/ops", session, {
     op: "install.register",
-    params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "mac", name: "mac", device_name: "mac", platform: "macos" },
+    params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind, name: kind, device_name: kind, platform: "macos" },
     idempotency_key: crypto.randomUUID(),
     origin: "user"
   })

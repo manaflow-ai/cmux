@@ -39,6 +39,25 @@ pub(crate) struct BatchCloseRequest<'a> {
     pub expected_workspace_revision: Option<u64>,
     /// Hold the provider workspace authority (workspace lifecycle closes).
     pub authorize_workspace: bool,
+    /// Record the close in the closed history (false: a session-end close).
+    pub record_closed: bool,
+}
+
+/// Why a client closes tabs (`close-reason-v1`, SDK type `CloseReason`).
+/// An unknown value fails the request's deserialization (`bad request`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CloseReason {
+    /// A browser session ended and closes the tabs it opened for itself.
+    SessionEnd,
+}
+
+impl CloseReason {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::SessionEnd => "session_end",
+        }
+    }
 }
 
 /// A terminal the batch close ended.
@@ -205,6 +224,7 @@ impl Mux {
             &plan.terminal_batch,
             plan.workspace_close.as_ref(),
             tab_groups.as_ref(),
+            request.record_closed,
         )?;
         if committed.resource.replayed {
             state.resource_revision = state.resource_revision.max(committed.resource.revision);
@@ -364,17 +384,34 @@ impl Mux {
 
 impl Mux {
     /// `close-tabs`: close these tab placements in one commit.
+    #[cfg(test)]
     pub(crate) fn close_tabs(
         &self,
         surfaces: Vec<SurfaceId>,
         end_terminals: bool,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<BatchCloseOutcome> {
-        let fingerprint = json!({
+        self.close_tabs_for(surfaces, end_terminals, None, mutation)
+    }
+
+    /// `close-tabs` with an optional `reason` (`close-reason-v1`): a
+    /// `session_end` close commits the same way but is not recorded in the
+    /// closed history. The reason is part of the request a key names.
+    pub(crate) fn close_tabs_for(
+        &self,
+        surfaces: Vec<SurfaceId>,
+        end_terminals: bool,
+        reason: Option<CloseReason>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<BatchCloseOutcome> {
+        let mut fingerprint = json!({
             "op": "close-tabs",
             "surfaces": surfaces,
             "end_terminals": end_terminals,
         });
+        if let Some(reason) = reason {
+            fingerprint["reason"] = json!(reason.as_str());
+        }
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
             end_terminals,
@@ -384,6 +421,7 @@ impl Mux {
             expected_generation: None,
             expected_workspace_revision: None,
             authorize_workspace: false,
+            record_closed: reason.is_none(),
         })
     }
 
@@ -416,6 +454,7 @@ impl Mux {
             expected_generation: None,
             expected_workspace_revision: None,
             authorize_workspace: false,
+            record_closed: true,
         })
     }
 
@@ -469,6 +508,7 @@ impl Mux {
             expected_generation,
             expected_workspace_revision: expected_revision,
             authorize_workspace: true,
+            record_closed: true,
         })?;
         let revision = match outcome.workspace_revision {
             Some(revision) => revision,

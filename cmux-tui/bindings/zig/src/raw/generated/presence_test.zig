@@ -19,6 +19,7 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenGroupRequest, "end_terminals");
@@ -123,6 +124,9 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "emoji");
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "tapback");
     try expectExplicitNullRejected(protocol.ConversationSummary, "last_message");
+    try expectExplicitNullRejected(protocol.ConversationTabRecord, "agent_session");
+    try expectExplicitNullRejected(protocol.ConversationTabRecord, "conversation");
+    try expectExplicitNullRejected(protocol.ConversationTabRecord, "owner");
     try expectExplicitNullRejected(protocol.ConversationTextRun, "link");
     try expectExplicitNullRejected(protocol.ConversationTextRun, "mention");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");

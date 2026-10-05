@@ -116,3 +116,13 @@ hosts (off the startup path); clipboard-read prompts need a client round trip.
    frontend answers; zero or several = deny; client default deny/ask).
 3. Fork PR 1 pin bump (needs a window): key list, key sources, loaded files.
 
+## Clipboard-read broker decisions (coordinator, 2026-10-04)
+
+Negotiated by a feature flag in the terminal-host ClientHello rights set (`clipboard-read-v1`), not a
+protocol version, so it does not couple to the v4 split. Conditions: `ask` is per request and the
+sheet names the terminal and its host (local, Cloud machine name, ssh host); reply text capped at
+1 MiB; one open ask per terminal, extra reads while it is open are denied at once; Ghostty `allow`
+applies to local terminals only, remote and Cloud terminals always ask unless a separate explicit
+setting allows them (default off); agents and the socket can never answer a read (frontend user path
+only); logs never contain clipboard content. Needs the full window, after agent-tabs-store.
+

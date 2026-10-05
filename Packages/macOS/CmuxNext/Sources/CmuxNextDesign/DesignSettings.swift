@@ -12,6 +12,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case columnGap
     case panelCornerRadius
     case chromeFontSize
+    /// The unified titlebar height (cmux-browser's header height reads the same key).
+    case titlebarHeight
 }
 
 /// Live, user-configurable design settings. The App fills this from
@@ -22,6 +24,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 public final class DesignSettings {
     public static let shared = DesignSettings()
 
+    /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
+    public var showModifierHoldHints = true
     public var density: Density = .compact
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
     public var animationSpeed: MotionSpeed = .fast
@@ -97,6 +101,8 @@ public final class DesignSettings {
     public var spacesPosition: SpacesPosition = .bottom
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
+    /// `tabs.barOrder` (R109).
+    public var tabBarOrder: TabBarOrder = .aboveToolbar
 
     public init() {}
 
@@ -124,6 +130,7 @@ public final class DesignSettings {
         case .columnGap: 0...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
+        case .titlebarHeight: 24...56
         }
     }
 }

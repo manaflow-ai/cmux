@@ -23,6 +23,7 @@ use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
+mod call;
 mod keybinding;
 mod run;
 mod settings;
@@ -82,6 +83,11 @@ pub(super) enum AppCommand {
     Open {
         requests: Vec<OpenRequest>,
     },
+    /// `app call`: one method of a debug build (app/call.rs).
+    DebugCall {
+        method: String,
+        params: Map<String, Value>,
+    },
     Events {
         params: Value,
     },
@@ -110,6 +116,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
+        ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
@@ -552,7 +559,13 @@ pub(super) fn run_action(
 pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
     match run_command(global, command) {
         Ran::Done(code) => code,
-        Ran::NoSuchCliAction(scope) => {
+        Ran::NoSuchCliAction { name, .. }
+            if super::action_hint::non_verb_action(&name).is_some() =>
+        {
+            super::action_hint::report(&name, global.output)
+                .unwrap_or(super::action_hint::EXIT_CODE)
+        }
+        Ran::NoSuchCliAction { scope, .. } => {
             let messages = &crate::localization::catalog().app_control;
             failure(
                 "usage.invalid",
@@ -573,14 +586,18 @@ pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -
     let mut stream = connect(&socket).ok()?;
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
-        Ran::NoSuchCliAction(_) => None,
+        Ran::NoSuchCliAction { .. } => None,
     }
 }
 
 enum Ran {
     Done(i32),
-    /// The app ran nothing: no action marked for the CLI has this name.
-    NoSuchCliAction(String),
+    /// The app ran nothing: no action marked for the CLI has this name
+    /// (`scope` is its first word).
+    NoSuchCliAction {
+        scope: String,
+        name: String,
+    },
 }
 
 fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
@@ -600,6 +617,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick),
         AppCommand::Events { params } => {
             return Ran::Done(stream_events(stream, params, global.output));
+        }
+        AppCommand::DebugCall { method, params } => {
+            return Ran::Done(call::run(global, stream, &method, params));
         }
         AppCommand::Open { requests } => {
             let mut status = 0;
@@ -664,8 +684,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
         Err(error) if cli_name && error_code(&error) == Some("not_found") => {
-            let scope = params["action"].as_str().unwrap_or_default();
-            Ran::NoSuchCliAction(scope.split(' ').next().unwrap_or_default().to_owned())
+            let name = params["action"].as_str().unwrap_or_default().to_owned();
+            let scope = name.split(' ').next().unwrap_or_default().to_owned();
+            Ran::NoSuchCliAction { scope, name }
         }
         Err(mut error) => {
             settings::explain_refusal(method, &params, &mut error);
@@ -745,8 +766,18 @@ pub(super) fn request(
     params: Value,
     timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
+    exchange(stream, method, with_read_barrier(params), timeout)
+}
+
+/// One request with exactly `params` (no read barrier) and its response.
+fn exchange(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: impl Into<Option<Duration>>,
+) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
-    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(params) });
+    let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
     stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(

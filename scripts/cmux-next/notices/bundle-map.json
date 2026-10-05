@@ -1,5 +1,5 @@
 {
-  "comment": "Every Mach-O file in a cmux-next app bundle maps to the notices it needs. check_bundle_notices.py fails on a Mach-O that no entry matches and on a missing notice. Requirements: first-party (Contents/Resources/LICENSE), section:<id> (a `<!-- notices-section: <id> -->` marker in Contents/Resources/THIRD_PARTY_LICENSES.md), file:<bundle path> (a non-empty file). Paths are fnmatch patterns relative to the .app; `*` also matches `/`. Add an entry in the same change that adds a binary.",
+  "comment": "Every Mach-O file in a cmux-next app bundle maps to the notices it needs. check_bundle_notices.py fails on a Mach-O that no entry matches and on a missing notice. Requirements: first-party (Contents/Resources/LICENSE), section:<id> (a `<!-- notices-section: <id> -->` marker in Contents/Resources/THIRD_PARTY_LICENSES.md), file:<bundle path> (a non-empty file), ghostty-license-tree:<bundle path> (a Ghostty dependency license tree that verify-ghostty-license-bundle.py accepts). Paths are fnmatch patterns relative to the .app; `*` also matches `/`. Add an entry in the same change that adds a binary.",
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
@@ -19,27 +19,27 @@
     {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
       "what": "CEF and Chromium, including libcef_sandbox, SwiftShader and the Vulkan loader",
-      "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+      "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Frameworks/libcmux_cef_shim.dylib",
       "what": "first-party CEF shim (links CEF)",
-      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Frameworks/cmux Helper*.app/Contents/MacOS/*",
       "what": "first-party CEF helper processes (link CEF)",
-      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html"]
+      "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
       "path": "Contents/Resources/bin/cmux",
-      "what": "the cmux CLI and daemon (cmux-tui crates; acpmux is linked in)",
-      "notices": ["first-party", "section:rust-cmux-cli"]
+      "what": "the cmux CLI and daemon (cmux-tui crates; acpmux and libghostty-vt are linked in; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty"]
     },
     {
       "path": "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
       "what": "the same cmux-tui binary for remote hosts",
-      "notices": ["first-party", "section:rust-cmux-cli"]
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty"]
     },
     {
       "path": "Contents/Resources/bin/cmux-app-host",
@@ -65,6 +65,23 @@
       "path": "Contents/Resources/libexec/cmux-server-helper",
       "what": "first-party server helper (Swift, no third-party code)",
       "notices": ["first-party"]
+    }
+  ],
+  "resources": [
+    {
+      "path": "Contents/Resources/ghostty/themes",
+      "what": "Ghostty themes from iTerm2-Color-Schemes (Resources/ghostty/themes, or Ghostty's zig-out share)",
+      "notices": ["section:ghostty-themes"]
+    },
+    {
+      "path": "Contents/Resources/ghostty-licenses",
+      "what": "Ghostty dependency license tree with the MPL-2.0 source offer (collect-ghostty-licenses.py; nightly-next)",
+      "notices": ["section:manual-ghostty", "ghostty-license-tree:Contents/Resources/ghostty-licenses"]
+    },
+    {
+      "path": "Contents/Resources/ghostty-next-licenses",
+      "what": "ghostty-next dependency license tree with its MPL-2.0 source offers: the libghostty-vt in bin/cmux (collect-ghostty-licenses.py on the submodule ghostty-vt-sys's build.rs names; nightly-next)",
+      "notices": ["section:manual-ghostty", "ghostty-license-tree:Contents/Resources/ghostty-next-licenses"]
     }
   ]
 }

@@ -12,12 +12,13 @@ import os
 /// DEBUG and test builds record every violation (`violations`) and, when
 /// `isStrict` (tests, `CMUX_NEXT_STRICT_CHILD_WINDOWS=1`), stop at it.
 @MainActor
-public enum ChildWindowPolicy {
+public struct ChildWindowPolicy {
+    public init() {}
     /// Panel classes allowed until their presenter moves onto the host (by class name).
     /// `NSPanel`: the restart notice uses a plain panel; `_NSPopoverWindow`: AppKit popovers.
     public static var legacyPanels: Set<String> = [
         "DividerMousePanel", "PalettePanel", "SuggestionWindow", "PageInfoPanel",
-        "TabGroupEditorPanel", "HoverCardPanel", "AppearanceStudioPanel", "NSPanel", "FeedPanel",
+        "TabGroupEditorPanel", "HoverCardPanel", "NSPanel", "FeedPanel",
         "BrowserPopupPanel", "NotificationsPanel", "_NSPopoverWindow",
     ]
 

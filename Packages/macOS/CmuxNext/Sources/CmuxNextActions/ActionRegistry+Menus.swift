@@ -39,6 +39,16 @@ extension ActionRegistry {
     }
 }
 
+extension ActionRegistry {
+    /// The action, target and arguments a generated menu item runs (nil
+    /// for items the registry did not make). Callers that retitle a row
+    /// (Search Google for "…") and tests read it.
+    public static func menuRun(of item: NSMenuItem) -> (id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue])? {
+        guard let payload = item.representedObject as? ActionMenuPayload else { return nil }
+        return (payload.id, payload.target, payload.arguments)
+    }
+}
+
 /// What a menu item runs: an action and, for context menus, its target
 /// (and, for a choices submenu, the chosen argument).
 final class ActionMenuPayload: NSObject {
