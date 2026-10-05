@@ -41,6 +41,26 @@ struct BrowserReplCookieMatchTests {
         #expect(try cookie(path: "/", domain: "localhost", secure: true).browserReplMatches(try #require(URL(string: "http://localhost:3000/"))))
     }
 
+    /// RFC 6265 section 5.3: a cookie without a Domain attribute (WebKit
+    /// stores its domain without a leading dot) goes only to the host that
+    /// set it, never to that host's subdomains. One with a Domain attribute
+    /// (leading dot) goes to the domain and its subdomains, but never to an
+    /// IP address other than its own (section 5.1.3).
+    @Test("A host-only cookie goes only to its exact host; a Domain cookie to subdomains too")
+    func hostOnlyScope() throws {
+        let hostOnly = try cookie(path: "/", domain: "example.com")
+        #expect(hostOnly.browserReplMatches(try #require(URL(string: "https://example.com/x"))))
+        #expect(hostOnly.browserReplMatches(try #require(URL(string: "https://EXAMPLE.com/x"))))
+        #expect(!hostOnly.browserReplMatches(try #require(URL(string: "https://app.example.com/x"))))
+        #expect(!hostOnly.browserReplMatches(try #require(URL(string: "https://a.b.example.com/x"))))
+        let domain = try cookie(path: "/", domain: ".example.com")
+        #expect(domain.browserReplMatches(try #require(URL(string: "https://example.com/x"))))
+        #expect(domain.browserReplMatches(try #require(URL(string: "https://a.b.example.com/x"))))
+        #expect(!domain.browserReplMatches(try #require(URL(string: "https://badexample.com/x"))))
+        let ipSuffix = try cookie(path: "/", domain: ".0.0.1")
+        #expect(!ipSuffix.browserReplMatches(try #require(URL(string: "http://127.0.0.1/"))))
+    }
+
     /// Only a loopback address is a potentially trustworthy http origin: a
     /// name that starts with `127.` is any host its domain's owner points it
     /// at, and a spelling the system resolver reads as another address

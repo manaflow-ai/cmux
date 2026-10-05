@@ -154,6 +154,26 @@ struct BrowserReplDomainPolicyTests {
         #expect(try policy(blockIPs: true).cookieBlockReason(domain: "[::1]") != nil)
     }
 
+    /// A cookie without a Domain attribute (no leading dot) goes only to its
+    /// own host, so it is in reach only when an allowed pattern names that
+    /// host: a parent site's host-only cookie is out of reach of a session
+    /// allowed only a subdomain.
+    @Test("A host-only cookie is in reach only when its exact host is allowed")
+    func hostOnlyCookieReach() throws {
+        let sub = try policy(allowed: ["https://app.example.com"])
+        #expect(sub.cookieBlockReason(domain: "example.com") != nil, "example.com's host-only cookie never goes to app.example.com")
+        #expect(sub.cookieBlockReason(domain: ".example.com") == nil, "a Domain cookie on example.com goes to app.example.com")
+        #expect(sub.cookieBlockReason(domain: "app.example.com") == nil)
+        #expect(sub.cookieBlockReason(domain: ".app.example.com") == nil)
+        let wildcard = try policy(allowed: ["*.example.com"])
+        #expect(wildcard.cookieBlockReason(domain: "example.com") == nil)
+        #expect(wildcard.cookieBlockReason(domain: "deep.app.example.com") == nil)
+        let root = try policy(allowed: ["example.com"])
+        #expect(root.cookieBlockReason(domain: "example.com") == nil)
+        #expect(root.cookieBlockReason(domain: "www.example.com") == nil, "a root domain pattern also covers www")
+        #expect(root.cookieBlockReason(domain: "api.example.com") != nil)
+    }
+
     @Test("IP hosts in any form a URL parser reads as one")
     func ipHosts() {
         for host in ["127.0.0.1", "127.1", "2130706433", "0x7f.0.0.1", "[::1]"] {
