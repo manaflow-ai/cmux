@@ -60,3 +60,27 @@ fn the_byte_cap_skips_images_and_reports_them() {
     let (_, none) = host.encode_kitty_replay(0).unwrap();
     assert_eq!((none.images, none.skipped_images, none.placements), (0, 2, 0), "{none:?}");
 }
+
+/// A 64x64 8-bit RGB PNG (one color), base64.
+const PNG_64_RGB_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAT0lEQVR42u3PQQkAAAgEsItjJhMbywi+hcEKLFP9WgQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQELgs6CKEtxmKJKgAAAABJRU5ErkJggg==";
+
+/// The dogfood shape: 400 short lines, then one PNG transmission with no
+/// image id and no `q` (`f=100,a=T,c=8,r=4`).
+#[test]
+fn a_png_transmission_without_an_id_is_stored_and_replays() {
+    let mut host = Terminal::new(80, 24, 10_000, Callbacks::default()).unwrap();
+    for line in 0..400 {
+        host.vt_write(format!("line {line}\r\n").as_bytes());
+    }
+    host.vt_write(format!("\x1b_Gf=100,a=T,c=8,r=4;{PNG_64_RGB_BASE64}\x1b\\").as_bytes());
+    let stored = host.kitty_graphics_snapshot().unwrap();
+    assert_eq!(stored.images.len(), 1, "the PNG is decoded and stored: {stored:?}");
+    assert_eq!((stored.images[0].width, stored.images[0].height), (64, 64));
+    assert_eq!(stored.placements.len(), 1);
+    assert!(host.kitty_image_generation().unwrap() > 0);
+    let (stream, stats) = host.encode_kitty_replay(32 << 20).unwrap();
+    assert_eq!((stats.images, stats.placements, stats.skipped_images), (1, 1, 0), "{stats:?}");
+    let mut viewer = Terminal::new(80, 24, 10_000, Callbacks::default()).unwrap();
+    viewer.apply_kitty_replay(&stream).unwrap();
+    assert_eq!(viewer.kitty_graphics_snapshot().unwrap().images.len(), 1);
+}
