@@ -440,4 +440,6 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
 #[cfg(test)]
 mod input_tests;
 #[cfg(test)]
+mod session_tests;
+#[cfg(test)]
 mod tests;
