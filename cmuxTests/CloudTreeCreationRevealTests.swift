@@ -56,7 +56,7 @@ struct CloudTreeCreationRevealTests {
         let machine = try #require(machineCandidate)
         let machineRow = outline.row(forItem: machine)
         outline.selectRowIndexes(IndexSet(integer: machineRow), byExtendingSelection: false)
-        fixture.coordinator.update(inputs: makeInputs(second))
+        fixture.coordinator.update(inputs: makeInputs(unprojected))
         #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == machine.id)
     }
 
