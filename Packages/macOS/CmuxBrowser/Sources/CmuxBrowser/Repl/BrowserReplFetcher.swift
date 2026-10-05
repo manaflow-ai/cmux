@@ -223,7 +223,15 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
                 "bodyBase64": data.base64EncodedString(),
                 "redirected": http.url != url,
             ]
-            return (.success(JSONSerialization.browserReplString(result) ?? "null"), data.count)
+            // The body reaches the session as Base64 in this result, a
+            // third larger than the bytes that arrived, and the result is
+            // what waits for the session's thread, so it is what is held.
+            let json = JSONSerialization.browserReplString(result) ?? "null"
+            if let refusal = bodyBudget.resize(from: data.count, to: json.utf8.count) {
+                bodyBudget.release(data.count)
+                return (.failure(refusal.driverError("fetch")), 0)
+            }
+            return (.success(json), json.utf8.count)
         } catch let error as BrowserReplDriverError {
             return (.failure(error), 0)
         } catch {
@@ -448,6 +456,13 @@ public final class BrowserReplFetchBudget: @unchecked Sendable {
     func reserve(_ count: Int) -> BrowserReplResourceLimitError? {
         // A chunk is never past one body's limit (the fetch checks that).
         ledger.reserve(count, of: .fetchBodyBytes, each: .max)
+    }
+
+    /// Replaces `old` held bytes with `new` (a body as the result that
+    /// carries it), or returns why not, keeping `old`. One body's limit is
+    /// on the bytes that arrived, which the fetch checked.
+    func resize(from old: Int, to new: Int) -> BrowserReplResourceLimitError? {
+        ledger.resize(.fetchBodyBytes, from: old, to: new, each: .max)
     }
 
     /// Gives back `count` bytes.
