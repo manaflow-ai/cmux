@@ -46,6 +46,22 @@ CLA_ACTION_REVIEWED_MAIN_PINS = [
     317432cd2145726daadec61cd3a6d84674197374ac92bf66ba09c8f6761853cc
   ].freeze
 ].freeze
+# Reviewed runner-only successors of a main pin, as [action reference, from
+# cla.yml SHA-256, to cla.yml SHA-256]. The single-job workflow is checked by
+# its exact bytes, so moving it off the GitHub-hosted-only runner is pinned
+# here before that policy pull request opens. The successor keeps the action
+# and every step, and changes only CLAAssistant.runs-on to
+# CLA_TRUSTED_RUNNER_EXPRESSION plus a leading CLA_EPHEMERAL_RUNNER_GUARD_*
+# step. A policy pull request may move main from the pin to exactly these
+# bytes, still with a trusted exact-head review; once landed they are a
+# reviewed base like any main pin.
+CLA_ACTION_RUNNER_SUCCESSOR_PINS = [
+  %w[
+    manaflow-ai/cla-github-action@3bdedfb05157fd9c1c879dfea58455e32a770f96
+    317432cd2145726daadec61cd3a6d84674197374ac92bf66ba09c8f6761853cc
+    6fe115ade482839321514214a81e339b49643382cfb89f7a9c115575431087e2
+  ].freeze
+].freeze
 CLA_ACTION_CURRENT_BASE_REF = CLA_ACTION_REVIEWED_MAIN_PINS.last.fetch(0)
 CLA_ACTION_FINAL = "manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af".freeze
 CLA_ACTION_BASE_REFS = (
@@ -53,10 +69,22 @@ CLA_ACTION_BASE_REFS = (
 ).uniq.freeze
 CLA_ACTION = CLA_ACTION_FINAL
 # CLA policy jobs handle repository trust decisions and must stay on an
-# ephemeral GitHub-hosted runner. A repository variable could redirect this
-# privileged work to an untrusted self-hosted machine, so the label is an
-# immutable contract.
+# ephemeral VM that runs one job and is destroyed: GitHub-hosted ubuntu-24.04
+# or a Blacksmith Ubuntu 24.04 VM. A repository variable must never redirect
+# this privileged work to a persistent self-hosted machine, so runs-on is an
+# exact-string allowlist, never a pattern. CLA_TRUSTED_RUNNER_EXPRESSION is
+# the CI_TRUSTED_RUNNER selector main already uses for trusted tokens
+# (backend-migrations.yml): its variable can only choose among the listed
+# ephemeral labels, any other value falls back to Blacksmith, and a fork
+# running its own copy gets GitHub-hosted. Either provider can then carry the
+# CLA checks while the other is down.
 CLA_RUNNER = "ubuntu-24.04".freeze
+CLA_BLACKSMITH_RUNNERS = %w[blacksmith-2vcpu-ubuntu-2404 blacksmith-4vcpu-ubuntu-2404].freeze
+CLA_TRUSTED_RUNNER_EXPRESSION = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}".freeze
+CLA_RUNNERS = ([CLA_RUNNER] + CLA_BLACKSMITH_RUNNERS + [CLA_TRUSTED_RUNNER_EXPRESSION]).freeze
+# The original runner identity guard admits only GitHub-hosted runners. It
+# stays valid so workflows main carries keep passing until they move to the
+# ephemeral guard below.
 CLA_HOSTED_RUNNER_GUARD_NAME = "Require GitHub-hosted runner".freeze
 CLA_HOSTED_RUNNER_GUARD_IF = "runner.environment != 'github-hosted'".freeze
 CLA_HOSTED_RUNNER_STEP_IF = "runner.environment == 'github-hosted'".freeze
@@ -65,6 +93,52 @@ CLA_HOSTED_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
   echo "::error::CLA policy requires a GitHub-hosted runner"
   exit 1
 SH
+# Blacksmith runners register as self-hosted (runner.environment is
+# 'self-hosted'), so the ephemeral guard identifies them by runner.name. Each
+# Blacksmith scale set names its single-job VMs '<scale set>-Runner-<10 hex>',
+# and the scale set name is exactly the runs-on label (for example
+# blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d in runner group
+# 'Blacksmith scale sets - blacksmith-4vcpu-ubuntu-2404'). The guard admits
+# that prefix for the two allowlisted Blacksmith labels only, and also
+# refuses any name containing 'glaeda': owned machines are registered by
+# glaeda as '<host>-glaeda[-N]' (cmuxs-mac-mini-5-glaeda-1), so a misrouted
+# job is refused by two independent signals.
+#
+# runner.name is chosen when a runner registers, which needs organization
+# admin rights, and is evaluated by the runner process itself. It therefore
+# cannot stop a hostile administrator or a compromised runner; it catches a
+# job that lands on an owned machine by mistake. The real control is the
+# exact runs-on allowlist above, which routes only to GitHub-hosted runners
+# or Blacksmith's read-only scale-set labels. If Blacksmith renamed its VMs,
+# this guard would fail closed, and CI_TRUSTED_RUNNER=ubuntu-24.04 restores
+# the GitHub-hosted route.
+CLA_EPHEMERAL_RUNNER_PREFIXES = CLA_BLACKSMITH_RUNNERS.map { |label| "#{label}-Runner-" }.freeze
+CLA_OWNED_RUNNER_NAME_MARKER = "glaeda".freeze
+CLA_EPHEMERAL_RUNNER_GUARD_NAME = "Require GitHub-hosted or Blacksmith runner".freeze
+CLA_EPHEMERAL_RUNNER_GUARD_IF = (
+  "(#{(
+    ["runner.environment != 'github-hosted'"] +
+    CLA_EPHEMERAL_RUNNER_PREFIXES.map { |prefix| "!startsWith(runner.name, '#{prefix}')" }
+  ).join(' && ')}) || contains(runner.name, '#{CLA_OWNED_RUNNER_NAME_MARKER}')"
+).freeze
+CLA_EPHEMERAL_RUNNER_STEP_IF = (
+  "((#{(
+    ["runner.environment == 'github-hosted'"] +
+    CLA_EPHEMERAL_RUNNER_PREFIXES.map { |prefix| "startsWith(runner.name, '#{prefix}')" }
+  ).join(' || ')}) && !contains(runner.name, '#{CLA_OWNED_RUNNER_NAME_MARKER}'))"
+).freeze
+CLA_EPHEMERAL_RUNNER_GUARD_RUN = <<~'SH'.strip.freeze
+  set -euo pipefail
+  echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
+  exit 1
+SH
+# Each accepted runner identity guard is one exact [name, if, run] triple.
+CLA_RUNNER_GUARD_STEPS = [
+  [CLA_HOSTED_RUNNER_GUARD_NAME, CLA_HOSTED_RUNNER_GUARD_IF, CLA_HOSTED_RUNNER_GUARD_RUN].freeze,
+  [CLA_EPHEMERAL_RUNNER_GUARD_NAME, CLA_EPHEMERAL_RUNNER_GUARD_IF, CLA_EPHEMERAL_RUNNER_GUARD_RUN].freeze
+].freeze
+# A later privileged step must carry one of these as a top-level AND term.
+CLA_RUNNER_STEP_IFS = [CLA_HOSTED_RUNNER_STEP_IF, CLA_EPHEMERAL_RUNNER_STEP_IF].freeze
 CLA_DOCUMENT_PATH = "CLA.md".freeze
 CLA_DOCUMENT_VERSION = "v2.2".freeze
 CLA_SIGNATURES_PATH = "signatures/version2/cla.json".freeze
@@ -75,11 +149,11 @@ CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.js
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b7807167856da4381ea124b5"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "9ffdce443e15c05f7771cd548686f913e2f3b78a59491da4d5004805c53f0a41"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "06ee4057cd81a198aa0e3d5612bd639dd6f4cddd136764a080470904d7599d53"
+EXPECTED_GUARD_SCRIPT_DIGEST = "1f9a618037d31658843a1b934aa01da3eca55e303c5d527dc4675471fa812106"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -130,7 +204,8 @@ TEST_MERGE_RETRY_SECONDS = 5
 # PR author is deliberately excluded, even when they are an administrator, so
 # the validator cannot turn self-approval into a policy-change bypass. IDs are
 # used instead of names, and the review must target the exact PR head.
-TRUSTED_REVIEWER_IDS = %w[38676809 67667005].freeze
+# 38676809 austinywang, 67667005 azooz2003-bit, 13091533 teamleaderleo.
+TRUSTED_REVIEWER_IDS = %w[38676809 67667005 13091533].freeze
 TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDING].freeze
 TRUSTED_REVIEW_DECISION_STATES = %w[APPROVED CHANGES_REQUESTED DISMISSED].freeze
 MAX_REVIEW_PAGES = 3
@@ -877,10 +952,24 @@ end
 
 def reviewed_cla_base?(base_ref:, base_workflow_digest:, base_script_digest:, base_script_path:)
   expected = REVIEWED_CLA_BASES[base_ref]
-  expected &&
+  return true if expected &&
     expected[:workflow_digest] == base_workflow_digest &&
     expected[:helper_digest] == base_script_digest &&
     expected[:helper_path] == base_script_path
+
+  # A landed runner successor is a reviewed single-job base with no helper.
+  base_script_digest.nil? && base_script_path.nil? &&
+    CLA_ACTION_RUNNER_SUCCESSOR_PINS.any? do |reference, _from_digest, to_digest|
+      reference == base_ref && to_digest == base_workflow_digest
+    end
+end
+
+def cla_runner_successor?(base_ref:, candidate_ref:, base_workflow_digest:, candidate_workflow_digest:, base_script_digest:, base_script_path:)
+  base_script_digest.nil? && base_script_path.nil? &&
+    CLA_ACTION_RUNNER_SUCCESSOR_PINS.any? do |reference, from_digest, to_digest|
+      base_ref == reference && candidate_ref == reference &&
+        base_workflow_digest == from_digest && candidate_workflow_digest == to_digest
+    end
 end
 
 def legacy_action_base?(base_ref:, base_workflow_digest:, base_script_digest:, base_script_path:)
@@ -922,7 +1011,7 @@ def cla_action_reference(raw, name)
   references.first
 end
 
-def assert_cla_action_transition!(base_ref:, candidate_ref:, base_workflow_digest:, base_script_digest:, base_script_path:, policy_changed:)
+def assert_cla_action_transition!(base_ref:, candidate_ref:, base_workflow_digest:, base_script_digest:, base_script_path:, policy_changed:, candidate_workflow_digest: nil)
   fail!("base CLA action reference is not a reviewed immutable revision") unless
     CLA_ACTION_BASE_REFS.include?(base_ref)
   fail!("candidate CLA action reference is not a reviewed immutable revision") unless
@@ -938,7 +1027,16 @@ def assert_cla_action_transition!(base_ref:, candidate_ref:, base_workflow_diges
   end
 
   if policy_changed
-    fail!("CLA action policy changes must migrate directly to the final revision") unless candidate_ref == CLA_ACTION_FINAL
+    runner_successor = cla_runner_successor?(
+      base_ref: base_ref,
+      candidate_ref: candidate_ref,
+      base_workflow_digest: base_workflow_digest,
+      candidate_workflow_digest: candidate_workflow_digest,
+      base_script_digest: base_script_digest,
+      base_script_path: base_script_path
+    )
+    fail!("CLA action policy changes must migrate directly to the final revision") unless
+      candidate_ref == CLA_ACTION_FINAL || runner_successor
   else
     fail!("CLA action changed without a policy change") unless candidate_ref == base_ref
   end
@@ -950,6 +1048,7 @@ def run_action_transition_regression_matrix!
   b4d3 = CLA_ACTION_LEGACY_REFS.fetch(1)
   current = CLA_ACTION_CURRENT_BASE_REF
   previous, previous_digest = CLA_ACTION_REVIEWED_MAIN_PINS.fetch(-2)
+  successor_ref, successor_from, successor_to = CLA_ACTION_RUNNER_SUCCESSOR_PINS.fetch(0)
   final = CLA_ACTION_FINAL
   cases = [
     ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
@@ -973,10 +1072,19 @@ def run_action_transition_regression_matrix!
     ["fc608 paired with b4d3 bytes", fc608, final, true, LEGACY_B4D3_CLA_WORKFLOW_DIGEST, LEGACY_B4D3_CLA_REFRESH_DIGEST, LEGACY_B4D3_CLA_HELPER_PATH, false],
     ["b4d3 paired with fc608 bytes", b4d3, final, true, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, false],
     ["legacy changed helper", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, "1" * 64, LEGACY_CLA_HELPER_PATH, false],
-    ["legacy same ref policy change", fc608, fc608, true, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, false]
+    ["legacy same ref policy change", fc608, fc608, true, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, false],
+    ["current main to runner successor", successor_ref, successor_ref, true, successor_from, nil, nil, true, successor_to],
+    ["runner successor no-op", successor_ref, successor_ref, false, successor_to, nil, nil, true],
+    ["runner successor to final", successor_ref, final, true, successor_to, nil, nil, true],
+    ["runner successor reverted", successor_ref, successor_ref, true, successor_to, nil, nil, false, successor_from],
+    ["unpinned runner-only edit", successor_ref, successor_ref, true, successor_from, nil, nil, false, "0" * 64],
+    ["runner successor without candidate bytes", successor_ref, successor_ref, true, successor_from, nil, nil, false],
+    ["runner successor from unreviewed bytes", successor_ref, successor_ref, true, "0" * 64, nil, nil, false, successor_to],
+    ["runner successor with helper", successor_ref, successor_ref, true, successor_from, "1" * 64, LEGACY_CLA_HELPER_PATH, false, successor_to],
+    ["runner successor bytes under previous action", previous, previous, false, successor_to, nil, nil, false]
   ]
 
-  failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected), errors|
+  failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected, candidate_digest), errors|
     actual = begin
       assert_cla_action_transition!(
         base_ref: base_ref,
@@ -984,7 +1092,8 @@ def run_action_transition_regression_matrix!
         base_workflow_digest: workflow_digest,
         base_script_digest: script_digest,
         base_script_path: helper_path,
-        policy_changed: policy_changed
+        policy_changed: policy_changed,
+        candidate_workflow_digest: candidate_digest
       )
       true
     rescue PolicyError
@@ -1197,25 +1306,73 @@ def assert_string(value, name)
 end
 
 def assert_cla_runner(value, name)
-  fail!("#{name} must use the reviewed CLA runner") unless value == CLA_RUNNER
+  # Exact strings only: no pattern, prefix, or parsed expression can admit a
+  # different variable, label, or event-derived value.
+  fail!("#{name} must use the reviewed CLA runner") unless
+    value.is_a?(String) && CLA_RUNNERS.include?(value)
 end
 
 def assert_hosted_runner_guard_step(step, name)
   assert_step_keys(step, "#{name} runner guard", %w[name if run])
-  fail!("#{name} runner guard has an unexpected name") unless step["name"] == CLA_HOSTED_RUNNER_GUARD_NAME
-  fail!("#{name} runner guard has an unsafe condition") unless step["if"] == CLA_HOSTED_RUNNER_GUARD_IF
+  # Name, condition, and shell must all come from the same reviewed guard.
+  guard = CLA_RUNNER_GUARD_STEPS.find { |guard_name, _if, _run| step["name"] == guard_name }
+  fail!("#{name} runner guard has an unexpected name") unless guard
+  fail!("#{name} runner guard has an unsafe condition") unless step["if"] == guard[1]
   fail!("#{name} runner guard has an unsafe shell") unless
-    normalize_run_text(step["run"]) == normalize_run_text(CLA_HOSTED_RUNNER_GUARD_RUN)
+    normalize_run_text(step["run"]) == normalize_run_text(guard[2])
+end
+
+# Splits an expression on the && operators outside parentheses and string
+# literals. Returns nil when the text is unbalanced, so a caller fails closed.
+def top_level_and_terms(condition)
+  terms = []
+  depth = 0
+  quoted = false
+  start = 0
+  index = 0
+  while index < condition.length
+    char = condition[index]
+    if quoted
+      if char == "'"
+        if condition[index + 1] == "'"
+          index += 2
+          next
+        end
+        quoted = false
+      end
+    elsif char == "'"
+      quoted = true
+    elsif char == "("
+      depth += 1
+    elsif char == ")"
+      depth -= 1
+      return nil if depth.negative?
+    elsif depth.zero? && condition[index, 2] == "&&"
+      terms << condition[start...index].strip
+      index += 2
+      start = index
+      next
+    end
+    index += 1
+  end
+  return nil if quoted || !depth.zero?
+
+  terms << condition[start..].strip
+  terms
 end
 
 def assert_hosted_runner_step(step, name)
   condition = step.is_a?(Hash) ? step["if"].to_s.gsub(/\s+/, " ").strip : ""
-  # The hosted identity must be an AND term. A substring check would accept
-  # `runner.environment == 'github-hosted' || true`, which would execute a
-  # privileged action on a self-hosted runner.
-  terms = condition.split(/\s*&&\s*/)
-  fail!("#{name} is not restricted to a GitHub-hosted runner") unless
-    !condition.include?("||") && terms.any? { |term| term == CLA_HOSTED_RUNNER_STEP_IF }
+  # The runner identity must be a top-level AND term. A substring check would
+  # accept `runner.environment == 'github-hosted' || true`, and a naive split
+  # would accept `!(x && runner.environment == 'github-hosted')`; either would
+  # execute a privileged action on a self-hosted runner. The ephemeral term
+  # carries its own || inside one parenthesized group; no other term may.
+  terms = top_level_and_terms(condition)
+  fail!("#{name} is not restricted to a GitHub-hosted or Blacksmith runner") unless
+    terms &&
+    terms.any? { |term| CLA_RUNNER_STEP_IFS.include?(term) } &&
+    terms.none? { |term| term != CLA_EPHEMERAL_RUNNER_STEP_IF && term.include?("||") }
 end
 
 def assert_hosted_runner_job_steps(job_value, name)
@@ -1339,7 +1496,8 @@ def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_
     joined_path = path.map(&:to_s).join(".")
     fail!("#{name} has an expression in an unreviewed field") unless
       ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) } ||
-      (reviewed_guard_name && joined_path == "jobs.validate.name" && value == GUARD_VALIDATE_NAME)
+      (reviewed_guard_name && joined_path == "jobs.validate.name" && value == GUARD_VALIDATE_NAME) ||
+      (path.length == 3 && path[0] == "jobs" && path[2] == "runs-on" && value == CLA_TRUSTED_RUNNER_EXPRESSION)
     if value.match?(GITHUB_CONTEXT_EXPRESSION) && value.match?(GITHUB_TOKEN_EXPRESSION_PATTERN)
       fail!("#{name} may not reference the GitHub token or serialized context")
     end
@@ -1535,6 +1693,60 @@ def run_guard_contract_regression_matrix!
     expect_failure.call("guard condition/name pair #{condition.inspect}, #{name.inspect}") do
       validate_guard_workflow(guard_document.call(condition, name), authorize: false)
     end
+  end
+
+  # The live guard layout: ready_for_review trigger plus a runner identity
+  # step. Either reviewed identity step and any allowlisted runner pass.
+  hosted_guard_document = lambda do |runner, identity|
+    document = YAML.safe_load(guard_document.call(nil))
+    document["on"]["pull_request_target"] = Marshal.load(Marshal.dump(GUARD_HOSTED_TRIGGER))
+    document["jobs"]["validate"]["runs-on"] = runner
+    document["jobs"]["validate"]["steps"].insert(1, identity)
+    YAML.dump(document)
+  end
+  hosted_identity = {
+    "name" => CLA_HOSTED_RUNNER_GUARD_NAME, "if" => CLA_HOSTED_RUNNER_GUARD_IF, "run" => "#{CLA_HOSTED_RUNNER_GUARD_RUN}\n"
+  }
+  ephemeral_identity = {
+    "name" => CLA_EPHEMERAL_RUNNER_GUARD_NAME, "if" => CLA_EPHEMERAL_RUNNER_GUARD_IF, "run" => "#{CLA_EPHEMERAL_RUNNER_GUARD_RUN}\n"
+  }
+  CLA_RUNNERS.product([hosted_identity, ephemeral_identity]).each do |runner, identity|
+    validate_guard_workflow(hosted_guard_document.call(runner, identity), authorize: false)
+    checks += 1
+  end
+  [
+    "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+    CLA_TRUSTED_RUNNER_EXPRESSION.gsub("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER"),
+    CLA_TRUSTED_RUNNER_EXPRESSION.sub('"ubuntu-24.04",', '"ubuntu-24.04","self-hosted",'),
+    "${{ github.event.pull_request.head.ref }}",
+    "self-hosted",
+    "ubuntu-latest",
+    "blacksmith-8vcpu-ubuntu-2404",
+    ["self-hosted", "linux"]
+  ].each do |runner|
+    expect_failure.call("guard runner #{runner.inspect}") do
+      validate_guard_workflow(hosted_guard_document.call(runner, ephemeral_identity), authorize: false)
+    end
+  end
+  expect_failure.call("guard identity with weakened Blacksmith prefix") do
+    weakened = ephemeral_identity.merge(
+      "if" => "runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-')"
+    )
+    validate_guard_workflow(hosted_guard_document.call(CLA_TRUSTED_RUNNER_EXPRESSION, weakened), authorize: false)
+  end
+  # The selector is admitted as an expression only as a job runs-on value.
+  assert_safe_expression_fields({ "jobs" => { "a" => { "runs-on" => CLA_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
+  checks += 1
+  expect_failure.call("selector outside runs-on") do
+    assert_safe_expression_fields({ "jobs" => { "a" => { "name" => CLA_TRUSTED_RUNNER_EXPRESSION } } }, "regression")
+  end
+  expect_failure.call("selector in a nested runs-on key") do
+    assert_safe_expression_fields(
+      { "jobs" => { "a" => { "steps" => [{ "runs-on" => CLA_TRUSTED_RUNNER_EXPRESSION }] } } }, "regression"
+    )
+  end
+  expect_failure.call("other runs-on expression") do
+    assert_safe_expression_fields({ "jobs" => { "a" => { "runs-on" => "${{ vars.LINUX_RUNNER }}" } } }, "regression")
   end
 
   puts "PASS: guard workflow contract regression matrix (#{checks} cases)"
@@ -1825,7 +2037,7 @@ def run_environment_regression_matrix!
 end
 
 def run_runner_regression_matrix!
-  expected_runner = "ubuntu-24.04"
+  checks = 0
   cla_jobs = %w[
     CLACommentGate
     CLAAssistant
@@ -1834,42 +2046,130 @@ def run_runner_regression_matrix!
     RerunFailedCLA
     LockMergedPullRequest
   ]
-  cla_jobs.each do |job_name|
-    assert_cla_runner(expected_runner, "#{job_name}.runs-on")
+  accepted_runners = [
+    "ubuntu-24.04",
+    "blacksmith-2vcpu-ubuntu-2404",
+    "blacksmith-4vcpu-ubuntu-2404",
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+  ]
+  fail!("CLA runner allowlist regression failed") unless accepted_runners == CLA_RUNNERS
+  cla_jobs.product(accepted_runners).each do |job_name, runner|
+    assert_cla_runner(runner, "#{job_name}.runs-on")
+    checks += 1
   end
-
+  # The selector is an exact string. Every variant below either names another
+  # variable, widens the label list, drops the fork branch, or changes bytes.
+  selector = CLA_TRUSTED_RUNNER_EXPRESSION
   rejected_runners = {
     "configured repository variable" => "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
     "alternate repository variable" => "${{ vars.OTHER_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+    "bare trusted runner variable" => "${{ vars.CI_TRUSTED_RUNNER }}",
     "event-controlled runner" => "${{ github.event.repository.default_branch }}",
+    "event-controlled selector" => selector.sub("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER", "github.event.pull_request.title) && github.event.pull_request.title"),
+    "selector renamed to LINUX_RUNNER" => selector.gsub("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER"),
+    "selector reading another variable" => selector.sub("&& vars.CI_TRUSTED_RUNNER ||", "&& vars.LINUX_RUNNER ||"),
+    "selector widened to an owned label" => selector.sub('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",'),
+    "selector widened to self-hosted" => selector.sub('"ubuntu-24.04",', '"ubuntu-24.04","self-hosted",'),
+    "selector without fork branch" => selector.sub("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", ""),
+    "selector falling back to a variable" => selector.sub("|| 'blacksmith-4vcpu-ubuntu-2404' }}", "|| vars.LINUX_RUNNER }}"),
+    "selector with trailing comment" => "#{selector} # ephemeral-required",
+    "selector with trailing space" => "#{selector} ",
+    "selector with changed spacing" => selector.sub("${{ ", "${{  "),
     "self-hosted runner" => "self-hosted",
-    "floating GitHub runner" => "ubuntu-latest"
+    "floating GitHub runner" => "ubuntu-latest",
+    "other GitHub runner" => "ubuntu-22.04",
+    "larger Blacksmith runner" => "blacksmith-8vcpu-ubuntu-2404",
+    "older Blacksmith image" => "blacksmith-4vcpu-ubuntu-2204",
+    "Blacksmith macOS runner" => "blacksmith-6vcpu-macos-15",
+    "uppercase Blacksmith label" => "Blacksmith-4vcpu-ubuntu-2404",
+    "owned runner label" => "glaeda-std-xcode-26.6",
+    "label list" => ["self-hosted", "blacksmith-4vcpu-ubuntu-2404"],
+    "runner group" => { "group" => "Blacksmith scale sets - blacksmith-4vcpu-ubuntu-2404" },
+    "missing runner" => nil
   }
   rejected_runners.each do |name, runner|
     expect_policy_error(name) { assert_cla_runner(runner, "CLACommentGate.runs-on") }
+    checks += 1
   end
-  guard_step = {
+
+  # Both reviewed guard triples are accepted, so workflows main carries stay
+  # valid while they move from the hosted guard to the ephemeral one.
+  hosted_guard = {
     "name" => CLA_HOSTED_RUNNER_GUARD_NAME,
     "if" => CLA_HOSTED_RUNNER_GUARD_IF,
     "run" => CLA_HOSTED_RUNNER_GUARD_RUN
   }
-  assert_hosted_runner_guard_step(guard_step, "regression CLA job")
-  expect_policy_error("runner guard condition") do
-    assert_hosted_runner_guard_step(guard_step.merge("if" => "runner.environment == 'github-hosted'"), "regression CLA job")
+  ephemeral_guard = {
+    "name" => "Require GitHub-hosted or Blacksmith runner",
+    "if" => "(runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-')) || contains(runner.name, 'glaeda')",
+    "run" => "set -euo pipefail\necho \"::error::CLA policy requires a GitHub-hosted or Blacksmith runner\"\nexit 1\n"
+  }
+  fail!("ephemeral runner guard regression failed") unless
+    ephemeral_guard["if"] == CLA_EPHEMERAL_RUNNER_GUARD_IF &&
+    normalize_run_text(ephemeral_guard["run"]) == CLA_EPHEMERAL_RUNNER_GUARD_RUN
+  assert_hosted_runner_guard_step(hosted_guard, "regression CLA job")
+  assert_hosted_runner_guard_step(ephemeral_guard, "regression CLA job")
+  checks += 3
+  rejected_guards = {
+    "runner guard condition" => hosted_guard.merge("if" => "runner.environment == 'github-hosted'"),
+    "runner guard shell" => hosted_guard.merge("run" => "exit 0"),
+    "ephemeral guard shell" => ephemeral_guard.merge("run" => "exit 0"),
+    "hosted name with ephemeral condition" => hosted_guard.merge("if" => CLA_EPHEMERAL_RUNNER_GUARD_IF),
+    "ephemeral name with hosted condition" => ephemeral_guard.merge("if" => CLA_HOSTED_RUNNER_GUARD_IF),
+    "hosted name with ephemeral shell" => hosted_guard.merge("run" => CLA_EPHEMERAL_RUNNER_GUARD_RUN),
+    "any Blacksmith-prefixed name" => ephemeral_guard.merge(
+      "if" => "runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-')"
+    ),
+    "Blacksmith substring" => ephemeral_guard.merge(
+      "if" => "runner.environment != 'github-hosted' && !contains(runner.name, 'blacksmith')"
+    ),
+    "larger Blacksmith scale set" => ephemeral_guard.merge(
+      "if" => CLA_EPHEMERAL_RUNNER_GUARD_IF.sub("blacksmith-2vcpu", "blacksmith-8vcpu")
+    ),
+    "owned-name refusal dropped" => ephemeral_guard.merge(
+      "if" => CLA_EPHEMERAL_RUNNER_GUARD_IF.sub(" || contains(runner.name, 'glaeda')", "")
+    ),
+    "self-hosted always admitted" => ephemeral_guard.merge("if" => "false"),
+    "extra guard key" => ephemeral_guard.merge("continue-on-error" => true)
+  }
+  rejected_guards.each do |name, step|
+    expect_policy_error(name) { assert_hosted_runner_guard_step(step, "regression CLA job") }
+    checks += 1
   end
-  expect_policy_error("runner guard shell") do
-    assert_hosted_runner_guard_step(guard_step.merge("run" => "exit 0"), "regression CLA job")
+
+  ephemeral_term = "((runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-')) && !contains(runner.name, 'glaeda'))"
+  fail!("ephemeral runner step condition regression failed") unless ephemeral_term == CLA_EPHEMERAL_RUNNER_STEP_IF
+  [
+    CLA_HOSTED_RUNNER_STEP_IF,
+    "github.event_name == 'issue_comment' && runner.environment == 'github-hosted'",
+    ephemeral_term,
+    "#{ephemeral_term} && github.event_name == 'issue_comment'",
+    "github.event_name == 'issue_comment' &&\n  #{ephemeral_term}",
+    "steps.cla.outputs.result == ')' && #{ephemeral_term}"
+  ].each do |condition|
+    assert_hosted_runner_step({ "if" => condition }, "regression CLA action")
+    checks += 1
   end
-  expect_policy_error("missing hosted action condition") do
-    assert_hosted_runner_step({ "run" => "echo ok" }, "regression CLA action")
+  rejected_conditions = {
+    "missing hosted action condition" => nil,
+    "runner condition bypass" => "runner.environment == 'github-hosted' || always()",
+    "ephemeral condition bypass" => "#{ephemeral_term} || always()",
+    "negated hosted group" => "!(github.event_name == 'push' && runner.environment == 'github-hosted' && true)",
+    "negated ephemeral group" => "!(true && #{ephemeral_term})",
+    "negated ephemeral term" => "!#{ephemeral_term}",
+    "ephemeral term inside or group" => "(#{ephemeral_term} || true) && true",
+    "unbalanced ephemeral term" => "#{ephemeral_term}) && (true",
+    "quoted parenthesis hides an or" => "x == '(' && #{ephemeral_term} || true",
+    "bare Blacksmith prefix" => "(runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-'))",
+    "Blacksmith term without hosted" => "(startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-'))",
+    "ephemeral term without owned-name refusal" => "(runner.environment == 'github-hosted' || startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') || startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-'))"
+  }
+  rejected_conditions.each do |name, condition|
+    step = condition.nil? ? { "run" => "echo ok" } : { "if" => condition }
+    expect_policy_error(name) { assert_hosted_runner_step(step, "regression CLA action") }
+    checks += 1
   end
-  expect_policy_error("runner condition bypass") do
-    assert_hosted_runner_step(
-      { "if" => "runner.environment == 'github-hosted' || always()" },
-      "regression CLA action"
-    )
-  end
-  puts "PASS: CLA runner contract regression matrix (#{cla_jobs.length + rejected_runners.length + 4} cases)"
+  puts "PASS: CLA runner contract regression matrix (#{checks} cases)"
 end
 
 def run_comment_binding_regression_matrix!
@@ -2120,6 +2420,14 @@ def run_trusted_review_regression_matrix!
   collect_latest_trusted_review!(latest, seen, review.call(10, "APPROVED", "2026-01-05T00:00:00Z", head, 67667005))
   fail!("Aziz trusted review regression failed") unless latest.fetch("67667005")[1]["state"] == "APPROVED"
 
+  latest = {}
+  seen = {}
+  collect_latest_trusted_review!(latest, seen, review.call(14, "APPROVED", "2026-01-05T00:00:00Z", head, 13091533))
+  fail!("Leo trusted review regression failed") unless latest.fetch("13091533")[1]["state"] == "APPROVED"
+  leo_review = latest.fetch("13091533")[1]
+  fail!("Leo self-approval regression failed") if trusted_review_approves_head?(leo_review, head, 13091533)
+  fail!("Leo independent approval regression failed") unless trusted_review_approves_head?(leo_review, head, 38676809)
+
   self_review = review.call(13, "APPROVED", "2026-01-05T00:00:01Z", head, 38676809)
   fail!("trusted reviewer self-approval regression failed") if
     trusted_review_approves_head?(self_review, head, 38676809)
@@ -2154,7 +2462,7 @@ def run_trusted_review_regression_matrix!
     duplicate_failed = true
   end
   fail!("duplicate review regression failed") unless duplicate_failed
-  puts "PASS: trusted review state regression matrix (11 cases)"
+  puts "PASS: trusted review state regression matrix (14 cases)"
 end
 
 def validate_workflow(raw)
@@ -2492,7 +2800,8 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   assert_positive_integer(guard_job["timeout-minutes"], "guard workflow validate timeout")
   fail!("guard workflow validate timeout is not the reviewed value") unless
     guard_job["timeout-minutes"] == GUARD_TIMEOUT_MINUTES
-  fail!("guard workflow must use an ephemeral GitHub-hosted runner") unless guard_job["runs-on"] == "ubuntu-24.04"
+  fail!("guard workflow must use an ephemeral GitHub-hosted or Blacksmith runner") unless
+    guard_job["runs-on"].is_a?(String) && CLA_RUNNERS.include?(guard_job["runs-on"])
   fail!("guard workflow must use read-only permissions") unless
     guard_job["permissions"] == { "contents" => "read", "pull-requests" => "read" }
   guard_steps = guard_job["steps"]
@@ -2612,6 +2921,15 @@ def validate_guard_script(raw, pr_author_id: nil)
     "CLA_HOSTED_RUNNER_GUARD_RUN",
     "CLA_HOSTED_RUNNER_GUARD_IF",
     "CLA_HOSTED_RUNNER_STEP_IF",
+    "CLA_RUNNERS",
+    "CLA_TRUSTED_RUNNER_EXPRESSION",
+    "CLA_RUNNER_GUARD_STEPS",
+    "CLA_EPHEMERAL_RUNNER_GUARD_IF",
+    "CLA_EPHEMERAL_RUNNER_STEP_IF",
+    "CLA_RUNNER_STEP_IFS",
+    "def top_level_and_terms",
+    "CLA_ACTION_RUNNER_SUCCESSOR_PINS",
+    "def cla_runner_successor?",
     "assert_comment_binding_contract",
     "CLA_COMMENT_BINDING_OUTPUTS",
     "CLA_COMMENT_BINDING_INPUTS",
@@ -2781,13 +3099,25 @@ begin
     base_script != head_script
   base_workflow_digest = Digest::SHA256.hexdigest(base_workflow)
   base_script_digest = base_script && Digest::SHA256.hexdigest(base_script)
+  head_workflow_digest = Digest::SHA256.hexdigest(head_workflow)
   assert_cla_action_transition!(
     base_ref: base_action_ref,
     candidate_ref: head_action_ref,
     base_workflow_digest: base_workflow_digest,
     base_script_digest: base_script_digest,
     base_script_path: base_script_path,
-    policy_changed: policy_changed
+    policy_changed: policy_changed,
+    candidate_workflow_digest: head_workflow_digest
+  )
+  # The pinned runner successor is reviewed by its exact bytes, like the main
+  # pin it replaces, so the v3 structural checks below do not apply to it.
+  runner_successor = policy_changed && head_script.nil? && cla_runner_successor?(
+    base_ref: base_action_ref,
+    candidate_ref: head_action_ref,
+    base_workflow_digest: base_workflow_digest,
+    candidate_workflow_digest: head_workflow_digest,
+    base_script_digest: base_script_digest,
+    base_script_path: base_script_path
   )
   document_changed = Digest::SHA256.hexdigest(base_cla) != Digest::SHA256.hexdigest(head_cla)
   if policy_changed
@@ -2837,7 +3167,10 @@ begin
     # immutable transition states and are handled by the action contract above.
     validate_workflow(head_workflow)
   end
-  if base_workflow != head_workflow
+  if base_workflow != head_workflow && runner_successor
+    parse_workflow(base_workflow)
+    parse_workflow(head_workflow)
+  elsif base_workflow != head_workflow
     fail!("CLA helper is missing from the changed workflow revision") if head_script.nil?
     parse_workflow(base_workflow)
     validate_workflow(head_workflow)
