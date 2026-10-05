@@ -454,14 +454,13 @@ const event = (name: string, ev: string, data: Obj, note?: string) => {
 event("machine.upsert.newer", "cloud.machine.upsert", { machine: { ...M1, status: "pausing", revision: "55" } })
 event("machine.upsert.stale", "cloud.machine.upsert", { machine: { ...M1, status: "running", revision: "6" } }, "Older than the projection's revision 7 (or 55): dropped.")
 event("machine.upsert.bound", "cloud.machine.upsert", { machine: { ...M4, status: "running", host: host(4), revision: "46" } }, "Provisioning done: the host is bound.")
-event("machine.upsert.no_report", "cloud.machine.upsert", { machine: { ...M1, status: "paused", pause_reason: "no_report", revision: "57" } }, "The cost backstop paused it: no report from its VM for 24 h after its last start or bind. The app shows why; a start clears pause_reason.")
 event("machine.upsert.new", "cloud.machine.upsert", { machine: machine(8, "made elsewhere", "provisioning", 45, { bound: false }) })
 event("machine.removed", "cloud.machine.removed", { machine: vm(3), revision: "56" })
 event("machine.removed.stale", "cloud.machine.removed", { machine: vm(1), revision: "3" }, "Older than the record: dropped (the machine stays).")
 event("snapshot.upsert", "cloud.snapshot.upsert", { snapshot: { ...S3, status: "ready", revision: "2" } })
 event("snapshot.removed", "cloud.snapshot.removed", { snapshot: snap(1), revision: "4" })
 event("plan.changed", "cloud.plan.changed", { plan: PLAN })
-vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1 })
+vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1, seq })
 
 const doc = {
   $comment:
