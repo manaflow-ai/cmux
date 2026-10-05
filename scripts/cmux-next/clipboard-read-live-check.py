@@ -5,7 +5,8 @@
 
 Launches the tagged app (no activation, automation socket) with an isolated
 config whose Ghostty config sets `clipboard-read = ask`, puts a marker on the
-host pasteboard (pbcopy), and runs a small reader in a terminal: it prints
+host pasteboard (pbcopy), opens a fresh terminal workspace (selected in the
+window, so the dialog sits on that tab), and runs a small reader there: it prints
 the OSC 52 read `ESC ] 52 ; c ; ? BEL`, reads the reply from the tty and
 writes it, decoded, to a JSON file.
 
@@ -13,6 +14,9 @@ Round 1 (Deny): the clipboard-read dialog (identifier
 cmux.dialog.terminalClipboardRead) must be listed by `debug.dialog`, the
 socket must refuse to press its buttons, window snapshots are saved, and the
 socket DISMISSES it (a refusal): the reply must be an empty clipboard.
+The dialog lives in an overlay panel: `<round>-dialog.png` shows it;
+`<round>-window.png` is the main window under it (an AppKit fallback
+snapshot may not show the terminal's Metal content).
 
 Round 2 (Allow): only the user answers a clipboard read, so Allow is pressed
 through Computer Use (`cua-driver`, an accessibility press on the Allow button
@@ -25,7 +29,7 @@ Quits the app it started (its PID only). Writes clipboard-read-live.json and
 PNGs to --out. Fleet GUI host only (cmux-lawrence-2), never a laptop in use.
 Exit 1 on a failed check; an UNVERIFIED Allow alone is not a failure.
 """
-import argparse, glob, json, os, plistlib, re, secrets, shlex, signal, subprocess, sys, tempfile, time
+import argparse, glob, json, os, plistlib, re, secrets, shlex, signal, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -89,16 +93,30 @@ print("clipboard-read reader:", result["status"], repr(result.get("decoded")))
 
 
 def cli(*args, timeout=30):
-    return subprocess.run([CLI, "--socket", SOCKET, *args], capture_output=True, text=True, timeout=timeout,
-                          env={**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"})
+    """The bundled CLI against the tagged app (as scripts/cmux-debug-cli.sh sets it up)."""
+    return subprocess.run([CLI, *args], capture_output=True, text=True, timeout=timeout,
+                          env={**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_TAG": opts.tag, "CMUX_QUIET": "1",
+                               "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{opts.tag}", "CMUX_BUNDLED_CLI_PATH": CLI})
 
 
 def rpc(method, params=None):
-    r = cli("rpc", method, json.dumps(params or {}))
+    """One request on the app's JSON-lines debug socket."""
     try:
-        return json.loads(r.stdout)
-    except ValueError:
-        return {"error": (r.stdout + r.stderr).strip()}
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(60)
+        conn.connect(SOCKET)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 22)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
 
 
 def wait(predicate, seconds, step=0.25):
@@ -117,16 +135,28 @@ def check(label, ok, detail=""):
         failures.append(label)
 
 
-def terminal_surface():
-    """A selected terminal surface ref in the first workspace."""
-    for line in cli("list-workspaces").stdout.splitlines():
-        m = re.search(r"(workspace:\d+)", line)
-        if not m:
-            continue
-        for row in cli("tree", "--workspace", m.group(1)).stdout.splitlines():
-            s = re.search(r"surface (surface:\d+) \[terminal\]", row)
-            if s:
-                return s.group(1)
+def open_terminal():
+    """A fresh focused workspace (a fresh tag opens on Home, a conversation
+    pane) and its terminal id."""
+    made = cli("workspace", "create", "--name", "clipboard-read")
+    report["workspace_create"] = f"exit {made.returncode}: " + (made.stdout + made.stderr)[-800:]
+    workspace = re.search(r"value\.workspace_id\s+(\S+)", made.stdout)
+    terminal = re.search(r"value\.terminal_id\s+(term_\S+)", made.stdout)
+    if workspace:
+        focused = cli("workspace", workspace.group(1), "focus")
+        report["workspace_focus"] = f"exit {focused.returncode}: " + (focused.stdout + focused.stderr)[-300:]
+    # The mux focus does not move the Mac window off Home; select the new
+    # (last) workspace in the window too, so the dialog sits on its tab.
+    report["select_last"] = rpc("action.run", {"id": "workspace.selectLast"})
+    report["terminal_visible"] = bool(wait(terminal_visible, 15, 0.5))
+    return terminal.group(1) if terminal else None
+
+
+def terminal_visible():
+    for window in rpc("debug.surfaces").get("windows") or []:
+        for pane in window.get("panes") or []:
+            if pane.get("kind") == "terminal" and pane.get("presence") == "visible":
+                return pane
     return None
 
 
@@ -142,7 +172,7 @@ def start_read(surface, name, timeout):
     if os.path.exists(reply):
         os.unlink(reply)
     command = f"/usr/bin/python3 {shlex.quote(READER_PATH)} {shlex.quote(reply)} {timeout:g}\n"
-    sent = cli("send", "--surface", surface, command)
+    sent = cli("terminal", surface, "write", "--text", command)
     check(f"{name}: reader sent", sent.returncode == 0, (sent.stdout + sent.stderr).strip()[:200])
     return reply
 
@@ -236,12 +266,15 @@ report["pid"] = app.pid
 print(f"launched pid {app.pid} (log {OUT}/app.log)", flush=True)
 try:
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("windows"), 120, 0.5):
-        sys.exit("tagged app did not come up")
-    surface = wait(terminal_surface, 30, 0.5)
+        report["startup"] = {"socket": os.path.exists(SOCKET), "alive": app.poll() is None,
+                             "surfaces": rpc("debug.surfaces"), "focus": rpc("debug.focus")}
+        failures.append("tagged app did not come up")
+        raise SystemExit(json.dumps(report["startup"])[:1500])
+    surface = open_terminal()
     if not surface:
-        sys.exit("no terminal surface")
+        sys.exit("no terminal: " + report.get("workspace_create", ""))
     report["surface"] = surface
-    time.sleep(2)  # let the shell print its prompt before the reader runs
+    time.sleep(3)  # let the shell print its prompt before the reader runs
 
     # Round 1: Deny (a socket dismissal refuses the read).
     reply_path = start_read(surface, "deny", 60)
@@ -261,7 +294,7 @@ try:
     report["deny_reply"] = reply
     check("deny: reply is an empty clipboard", bool(reply) and reply.get("status") == "reply" and reply.get("decoded") == "",
           json.dumps(reply)[:300])
-    report["deny_screen"] = cli("read-screen", "--surface", surface).stdout[-1500:]
+    report["deny_screen"] = cli("terminal", surface, "screen", "read").stdout[-1500:]
 
     # Round 2: Allow (Computer Use only).
     time.sleep(1)
@@ -283,7 +316,7 @@ try:
             print(f"UNVERIFIED allow: {reason}", flush=True)
             rpc("debug.dialog", {"id": dialog["id"], "dismiss": True})
             report["allow_reply_after_dismiss"] = read_reply(reply_path, 20)
-    report["allow_screen"] = cli("read-screen", "--surface", surface).stdout[-1500:]
+    report["allow_screen"] = cli("terminal", surface, "screen", "read").stdout[-1500:]
     focus = rpc("debug.focus")
     report["focus"] = focus
 finally:
@@ -295,9 +328,19 @@ finally:
             app.kill()
             app.wait()
     report["app_exit"] = app.returncode
-report["failures"] = failures
-with open(os.path.join(OUT, "clipboard-read-live.json"), "w") as f:
-    json.dump(report, f, indent=1)
+    # Helpers the app started from its own bundle (this tag's daemon) would
+    # outlive the job: end them by their exact PIDs.
+    rows = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout.splitlines()
+    leftovers = [int(r.split(None, 1)[0]) for r in rows if APP + "/" in r and int(r.split(None, 1)[0]) != os.getpid()]
+    report["helpers_ended"] = leftovers
+    for pid in leftovers:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    report["failures"] = failures
+    with open(os.path.join(OUT, "clipboard-read-live.json"), "w") as f:
+        json.dump(report, f, indent=1)
 print("allow:", report.get("allow"))
 print("PASS" if not failures else "FAIL", f"(evidence {OUT}/clipboard-read-live.json)")
 sys.exit(1 if failures else 0)
