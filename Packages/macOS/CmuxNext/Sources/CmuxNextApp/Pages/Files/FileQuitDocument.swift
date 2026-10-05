@@ -18,10 +18,16 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     private(set) var baseHash: String?
     private var flushers: [UUID: () async -> Bool] = [:]
     private var work: [Task<Void, Never>] = []
+    private let clock: any Clock<Duration>
+    /// How long the quit waits for one page's flush. A crashed page never answers; after this the
+    /// host writes the last reported text itself. Under the hook's 3 s `quitFlushDeadline`.
+    static let pageFlushTimeout: Duration = .seconds(2)
 
     /// `id` defaults to `QuitParticipantID.file(path:)` (host "local"); tests pass a malformed one.
-    init(url: URL, id: String? = nil, drafts: RecoveryDraftStore, writable: @escaping () -> Bool) {
+    init(url: URL, id: String? = nil, drafts: RecoveryDraftStore, writable: @escaping () -> Bool,
+         clock: any Clock<Duration> = ContinuousClock()) {
         self.url = url
+        self.clock = clock
         quitParticipantID = id ?? QuitParticipantID.file(path: url.path)
         self.drafts = drafts
         self.writable = writable
@@ -77,7 +83,7 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     func flushForQuit() async throws {
         // Each page saves through the host first (a save marks the document clean).
         for flush in Array(flushers.values) where hasUnsavedChanges {
-            _ = await flush()
+            await bounded(flush)
         }
         guard hasUnsavedChanges, let text = latestText else { return }
         let name = url.lastPathComponent
@@ -91,6 +97,26 @@ final class FileQuitDocument: QuitUnsavedParticipant {
             throw QuitFlushError.conflict(name)
         } catch .failed(let reason) {
             throw QuitFlushError.failed(reason)
+        }
+    }
+
+    /// Runs `flush` until it answers or `pageFlushTimeout` passes, whichever is first. The flush
+    /// task is not awaited after the timeout: a dead page's call ends when its page closes.
+    private func bounded(_ flush: @escaping () async -> Bool) async {
+        let clock = clock
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            let once = FlushAnswer(done)
+            // task-owner: the quit's wait for one page; ends at the page's answer or the timeout
+            let deadline = Task { @MainActor in
+                do { try await clock.sleep(for: Self.pageFlushTimeout) } catch { return } // wakeup-allow: bounded quit flush
+                once.finish()
+            }
+            // task-owner: one page's flush call; a dead page's call ends when the page closes
+            Task { @MainActor in
+                _ = await flush()
+                deadline.cancel()
+                once.finish()
+            }
         }
     }
 
@@ -108,6 +134,16 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     @concurrent private static func write(_ text: String, to url: URL, baseHash: String?,
                                           inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
         try FileDocument.save(text, to: url, baseHash: baseHash, inWorkspace: inWorkspace)
+    }
+}
+
+/// Resumes a bounded flush once: at the page's answer or at the timeout, whichever is first.
+private final class FlushAnswer {
+    private var continuation: CheckedContinuation<Void, Never>?
+    init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+    func finish() {
+        continuation?.resume()
+        continuation = nil
     }
 }
 
@@ -158,31 +194,5 @@ final class FileQuitDocuments {
         guard documents[path]?.holders.isEmpty == true, let entry = documents.removeValue(forKey: path) else { return }
         if entry.document.hasUnsavedChanges { entry.document.closedWithoutSaving() }
         entry.registration.cancel()
-    }
-}
-
-/// Recovered drafts that belong to the file pages: local files only (a draft never writes a remote
-/// file into a local one).
-nonisolated enum FilePageRecovery {
-    static func document(of draft: RecoveryDraft) -> URL? {
-        guard let parts = QuitParticipantID.parse(draft.id), parts.host == QuitParticipantID.localHost,
-              draft.host == QuitParticipantID.localHost, draft.filePath == parts.path else { return nil }
-        return URL(fileURLWithPath: parts.path)
-    }
-
-    /// What a recovered draft opens as: its file, its text, and whether the file differs from the
-    /// draft's base (or the draft has no base, or the file is gone). The restore handler gets no
-    /// "changed on disk" flag (R96 v2); this reads the file and never writes it.
-    struct Restore: Equatable {
-        let url: URL
-        let text: String
-        let conflict: Bool
-    }
-
-    @concurrent static func restore(_ draft: RecoveryDraft) async -> Restore? {
-        guard let url = document(of: draft) else { return nil }
-        let current = (try? Data(contentsOf: url)).map(FileDocument.hash) // concurrency-allow: @concurrent, off the main actor
-        let conflict = current == nil || draft.base?.contentHash == nil || current != draft.base?.contentHash
-        return Restore(url: url, text: String(decoding: draft.contents, as: UTF8.self), conflict: conflict)
     }
 }
