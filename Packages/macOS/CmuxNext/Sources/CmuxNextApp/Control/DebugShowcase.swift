@@ -83,9 +83,8 @@ enum DebugShowcase {
                 }
                 services.showcase.workspaces[name] = nil
                 do {
-                    let key = WorkspaceKey.generate()
-                    services.windows.claimNew(workspaceID: key.rawValue, window: windowID)
-                    let id = try await connection.createWorkspace(name: name, key: key).key.rawValue
+                    let id = try await connection.createWorkspace(name: name).key.rawValue
+                    services.windows.claimNew(workspaceID: id, window: windowID)
                     services.showcase.workspaces[name] = id
                     if let controller = services.windows.controller(for: windowID) {
                         services.windows.claim(workspaceID: id, in: controller.state, select: false)
