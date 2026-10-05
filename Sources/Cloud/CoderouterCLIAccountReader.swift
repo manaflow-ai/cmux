@@ -57,7 +57,7 @@ enum CoderouterCLIAccountReader {
             .replacingOccurrences(of: "'s team", with: "")
             .replacingOccurrences(of: " team", with: "")
         result = result.unicodeScalars.map { scalar in
-            scalar.isLetter || scalar.isNumber ? Character(scalar) : " "
+            CharacterSet.alphanumerics.contains(scalar) ? Character(scalar) : " "
         }.reduce(into: "") { $0.append($1) }
         return result.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
