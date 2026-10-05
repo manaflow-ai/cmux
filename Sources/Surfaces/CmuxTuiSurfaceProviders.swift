@@ -586,6 +586,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                refreshedPorts != publishedPorts, let cloudState = self.cloudState {
                 let current = self.catalog.cloudStateObservations[self.machine] ?? observation
                 self.publish(cloudState, ports: refreshedPorts, reconcileTitles: false, observation: current)
+                // The graph snapshot intentionally publishes before the guest
+                // port scan. A restored browser whose port was absent from the
+                // first publication must be reprojected when that inventory
+                // becomes authoritative, otherwise it remains on the stale
+                // unavailable card forever.
+                self.reprojectRestoredPanes(generation: lifecycle)
             }
         }
         Task { [weak self] in
