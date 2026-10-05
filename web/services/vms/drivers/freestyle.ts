@@ -183,6 +183,7 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+const FORK_BOOTSTRAP_TIMEOUT_MS = 90_000;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
@@ -1015,6 +1016,31 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
   };
 }
 
+/**
+ * Reset only the copied cmux remote identity and restart the baked supervisor.
+ * The command is idempotent, preserves the forked disk/workspaces, and waits
+ * on the daemon's own status signal rather than returning a merely running VM.
+ */
+export function freestyleForkBootstrapCommand(): string {
+  return [
+    "set -eu",
+    "systemctl stop cmux-tui-daemon >/dev/null 2>&1 || true",
+    "for cmux_home in /home/cmux /root; do",
+    "  test -d \"$cmux_home/.local/state/cmux/remote\" || continue",
+    "  find \"$cmux_home/.local/state/cmux/remote/sessions\" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true",
+    "  rm -rf \"$cmux_home/.local/state/cmux/remote/connections\"",
+    "done",
+    "rm -f /etc/cmux/daemon-instance-id",
+    "systemctl start cmux-tui-daemon",
+    "for cmux_try in $(seq 1 120); do",
+    "  if systemctl is-active --quiet cmux-tui-daemon && (grep -qi ':0539 ' /proc/net/tcp6 2>/dev/null || grep -qi ':0539 ' /proc/net/tcp 2>/dev/null); then exit 0; fi",
+    "  sleep 0.5",
+    "done",
+    "echo \"cmux-tui daemon did not become ready\" >&2",
+    "exit 1",
+  ].join("\n");
+}
+
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
@@ -1106,6 +1132,20 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.provider.machine_id_received_at_ms": Date.now(),
           });
           try {
+            // A snapshot resumes the source guest's memory image. Reinitialize
+            // its copied remote identity before the row is exposed to attach;
+            // otherwise the source supervisor can remain parked or keep the
+            // source Noise state and port 1337 stays unavailable to the clone.
+            if (options.forked) {
+              const bootstrap = await this.execResult(vm, freestyleForkBootstrapCommand(), FORK_BOOTSTRAP_TIMEOUT_MS);
+              if (!bootstrap || bootstrap.exitCode !== 0) {
+                throw new ProviderError(
+                  "freestyle",
+                  `fork guest bootstrap failed for ${vmId}: ${(bootstrap?.stderr || bootstrap?.stdout || "guest command unavailable").trim().slice(0, 500)}`,
+                );
+              }
+              setSpanAttributes(span, { "cmux.vm.fork.bootstrap": true });
+            }
             // Validate the provider-assigned VPC address without issuing the
             // guest-side announcement exec. The baked supervisor announces on
             // clone boot; attach performs the strict announcement before
