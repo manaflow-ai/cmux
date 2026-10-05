@@ -2195,8 +2195,9 @@ jobs:
 
       # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it).
       # Tags the build commit cmux-next-src-<11 characters> and attaches
-      # cmux-next-source-<build>.tar.gz to the nightly-next release; the
-      # dmg-prefix prune never removes it.
+      # cmux-next-source-<build>.tar.gz to the nightly-next release. The prune
+      # step removes it only together with the app assets of <build>, whose
+      # source offer names it (prune_nightly_release_assets.py), never by age.
       - name: Publish the cmux-next source archive
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
         env:
