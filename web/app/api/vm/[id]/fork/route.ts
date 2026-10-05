@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { vmCapabilitiesFor } from "../../../../../services/vms/drivers";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import {
@@ -7,7 +8,9 @@ import {
   withAuthedVmApiRoute,
   resolveVmProvisioningAccountScope,
   reverifyVmRequestForTeam,
+  runAfterResponse,
 } from "../../../../../services/vms/routeHelpers";
+import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { captureVmProvisionOutcome } from "../../../../../services/vms/observability";
@@ -36,6 +39,9 @@ export async function POST(
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "fork", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
+      // Same as POST /api/vm: open the provider pool after authentication
+      // without waiting, so the source probe does not pay a cold handshake.
+      void preconnectFreestyle();
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
         try {
@@ -87,6 +93,7 @@ export async function POST(
           stackUserId: user.id,
         }),
         timing,
+        deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
         onError: vmCreateLikeErrorResponders({

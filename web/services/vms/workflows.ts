@@ -1817,6 +1817,18 @@ function reopenBaseIfProviderDeleted(
 }
 
 /**
+ * Hands bookkeeping the response does not depend on to `defer` (failures are
+ * dropped there, as the response already went out), else runs it inline.
+ */
+function afterResponseOrNow<E>(
+  work: Effect.Effect<void, E>,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void, E> {
+  if (!defer) return work;
+  return Effect.sync(() => defer(work.pipe(Effect.catchAll(() => Effect.void))));
+}
+
+/**
  * A pending snapshot request older than this belongs to an attempt that died
  * without finishing (the route budget is 600 s), so a retry may take it over.
  */
@@ -1831,6 +1843,12 @@ export function snapshotVm(input: {
   /** Idempotency-Key of the request: a retry with the same key returns the first snapshot. */
   readonly idempotencyKey?: string;
   readonly timing?: VmTimingSink;
+  /**
+   * Runs the post-snapshot stats read and `vm.snapshot.created` ledger row
+   * after the response. A fork's copy does not depend on either, so they stay
+   * off its critical path; a plain checkpoint still records them inline.
+   */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1872,6 +1890,7 @@ export function snapshotVm(input: {
     // Read after the provider confirms the snapshot. Grow-only resizes that
     // finish during snapshot creation are then included in the captured claim;
     // a later resize can only make this conservative.
+    const recordCreated = Effect.gen(function* () {
     const snapshotStats = providers.getStats
       ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
         Effect.timeoutFail({
@@ -1907,6 +1926,8 @@ export function snapshotVm(input: {
         diskMb: snapshotReservation.diskMb,
       },
     });
+    });
+    yield* afterResponseOrNow(recordCreated, input.deferAfterResponse);
     return snapshot;
   });
 }
@@ -2351,6 +2372,8 @@ export function forkVm(input: {
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
+  /** Ledger and guest follow-ups that may finish after the response (see createVm). */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -2581,6 +2604,7 @@ export function forkVm(input: {
       providerVmId: input.providerVmId,
       name: input.name,
       timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
     // Snapshotting establishes the copy point for providers without a native
     // fork. Read the source shape after that point so a concurrent grow cannot
@@ -2605,8 +2629,9 @@ export function forkVm(input: {
       agentUpdates: vmAgentUpdatesFromRow(source),
       teamDirectory: input.teamDirectory,
       timing: input.timing,
+      deferAfterResponse: input.deferAfterResponse,
     });
-    yield* repo.recordUsageEvent({
+    const forkedEvent = repo.recordUsageEvent({
       userId: source.userId,
       billingTeamId: source.billingTeamId,
       billingPlanId: source.billingPlanId,
@@ -2620,6 +2645,7 @@ export function forkVm(input: {
         idempotencyKeySet: !!input.idempotencyKey,
       },
     }).pipe(Effect.catchAll(() => Effect.void));
+    yield* afterResponseOrNow(forkedEvent, input.deferAfterResponse);
     return { snapshot, fork };
   });
 }
