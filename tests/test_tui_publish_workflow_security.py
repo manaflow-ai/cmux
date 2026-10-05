@@ -242,15 +242,10 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "for attempt in 1 2 3" in daemon
     assert "cargo test --workspace --locked cmux_next_" in daemon
 
-    requeue = workflow_job(artifacts, "requeue-failed-publish")
-    assert "github.run_attempt < 3" in requeue
-    assert "actions: write" in requeue
-    assert "/actions/runs/$RUN_ID/rerun" in requeue
-    assert "needs.cmux-next-daemon-tests.result == 'failure'" in requeue
-    assert "needs.build.result == 'failure'" in requeue
-    assert "needs.tree-preflight.result == 'failure'" in requeue
-    assert "needs.tree-owner-wait.result == 'failure'" in requeue
-    assert "needs.publish-pr-tree.result == 'failure'" in requeue
+    # A run cannot rerun itself while it is in progress (403 "This workflow
+    # is already running"); cmux-tui-artifacts-retry.yml retries completed
+    # failed runs (policy: tests/test_cmux_tui_artifacts_retry.py).
+    assert "/rerun" not in (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
     pr_publisher = workflow_job(artifacts, "publish-pr-tree")
     assert "github.event_name == 'pull_request_target'" in pr_publisher
     assert "github.event.pull_request.head.repo.full_name == github.repository" in pr_publisher
