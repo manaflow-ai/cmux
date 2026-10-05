@@ -10,31 +10,39 @@ import Testing
 @Suite struct CEFAutomaticDownloadsTests {
     typealias Harness = CEFDownloadsTests.Harness
 
-    @Test func aRefusedDownloadIsCancelledSilently() throws {
+    /// A remembered Block refuses the download: cancelled and listed
+    /// blocked with the site whose setting blocked it (no silent drop).
+    @Test func aRefusedDownloadIsListedBlockedWithItsSite() throws {
         let h = try Harness()
         defer { h.remove() }
         var asked: [Int32] = []
         h.downloads.admit = { browser, decide in
             asked.append(browser)
-            decide(.refused)
+            decide(.refused, "https://e.com")
         }
         h.event(34, browser: 5, id: 1, s1: "https://e.com/a.zip", s2: "a.zip")
         #expect(asked == [5])
         #expect(h.fake.answers.map { $0.id } == [1])
         #expect(h.fake.answers.map { $0.path } == [""])
-        #expect(h.delivered.isEmpty)
+        let item = try #require(h.delivered.first?.item)
+        guard case .blocked(let reason) = item.status else {
+            Issue.record("status \(item.status) is not blocked")
+            return
+        }
+        #expect(!reason.isEmpty)
+        #expect(item.blockedSite == "https://e.com")
         #expect(h.names.isEmpty)
     }
 
     @Test func anAdmittedDownloadStartsWhenTheAnswerComes() throws {
         let h = try Harness()
         defer { h.remove() }
-        var pending: ((AutomaticDownloadGate.Outcome) -> Void)?
+        var pending: ((AutomaticDownloadGate.Outcome, String?) -> Void)?
         h.downloads.admit = { _, decide in pending = decide }
         h.event(34, browser: 5, id: 2, s1: "https://e.com/b.zip", s2: "b.zip")
         #expect(h.fake.answers.isEmpty)
         #expect(h.delivered.isEmpty)
-        pending?(.allowed)
+        pending?(.allowed, nil)
         #expect(h.fake.answers.map { $0.id } == [2])
         #expect(h.fake.answers.first?.path.isEmpty == false)
         #expect(h.delivered.map { $0.item.filename } == ["b.zip"])
@@ -46,7 +54,7 @@ import Testing
         var asked = 0
         h.downloads.admit = { _, decide in
             asked += 1
-            decide(.refused)
+            decide(.refused, nil)
         }
         let link = try #require(URL(string: "https://e.com/c.zip"))
         #expect(h.downloads.download(link.absoluteString, browser: 5))
@@ -63,11 +71,11 @@ import Testing
     @Test func aDownloadThatEndsWhileAskingIsDropped() throws {
         let h = try Harness()
         defer { h.remove() }
-        var pending: ((AutomaticDownloadGate.Outcome) -> Void)?
+        var pending: ((AutomaticDownloadGate.Outcome, String?) -> Void)?
         h.downloads.admit = { _, decide in pending = decide }
         h.event(34, browser: 5, id: 6, s1: "https://e.com/d.zip", s2: "d.zip")
         h.event(36, browser: 5, id: 6, a: 2)
-        pending?(.allowed)
+        pending?(.allowed, nil)
         #expect(h.fake.answers.isEmpty)
         #expect(h.delivered.isEmpty)
         #expect(h.names.isEmpty)
@@ -78,7 +86,7 @@ import Testing
     @Test func anUnansweredDownloadIsListedBlocked() throws {
         let h = try Harness()
         defer { h.remove() }
-        h.downloads.admit = { _, decide in decide(.unanswered) }
+        h.downloads.admit = { _, decide in decide(.unanswered, nil) }
         h.event(34, browser: 5, id: 8, s1: "https://e.com/e.zip", s2: "../e.zip")
         #expect(h.fake.answers.map { $0.id } == [8])
         #expect(h.fake.answers.map { $0.path } == [""])
@@ -95,11 +103,11 @@ import Testing
     }
 
     /// The person answered Block: the held download is cancelled and listed
-    /// blocked too (a later one, refused by the remembered Block, is not).
+    /// blocked with its site.
     @Test func aDeclinedDownloadIsListedBlocked() throws {
         let h = try Harness()
         defer { h.remove() }
-        h.downloads.admit = { _, decide in decide(.declined) }
+        h.downloads.admit = { _, decide in decide(.declined, "https://e.com") }
         h.event(34, browser: 5, id: 9, s1: "https://e.com/f.zip", s2: "f.zip")
         #expect(h.fake.answers.map { $0.path } == [""])
         let item = try #require(h.delivered.first?.item)
@@ -108,8 +116,6 @@ import Testing
             return
         }
         #expect(!reason.isEmpty)
-        h.downloads.admit = { _, decide in decide(.refused) }
-        h.event(34, browser: 5, id: 10, s1: "https://e.com/g.zip", s2: "g.zip")
-        #expect(h.delivered.count == 1)
+        #expect(item.blockedSite == "https://e.com")
     }
 }

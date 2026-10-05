@@ -92,7 +92,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
-            downloads.add(item, tab: key) { [weak services] text in services?.cache.existingBrowser(key)?.chrome.showNotice(text) }
+            downloads.add(item, tab: key) { [weak services] notice in services?.cache.existingBrowser(key)?.chrome.showNotice(notice.text) }
         case .rerouteStore(let url):
             services.cache.reroute(key, to: url)
         case .openPopup(let child, let request):

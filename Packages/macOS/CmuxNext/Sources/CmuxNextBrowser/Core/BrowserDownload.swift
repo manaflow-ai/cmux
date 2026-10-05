@@ -28,6 +28,9 @@ public final class BrowserDownload: Identifiable {
     public internal(set) var bytesPerSecond: Int64?
     public internal(set) var isPaused = false
     public internal(set) var status: Status = .inProgress
+    /// The site (origin) whose automatic-downloads setting blocked this
+    /// download; its Site settings change the choice. Nil otherwise.
+    public internal(set) var blockedSite: String?
 
     /// Where the file is written and lands (`BrowserDownloadPlacement`).
     @ObservationIgnored
