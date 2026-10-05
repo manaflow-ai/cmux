@@ -198,16 +198,19 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "pull_request_target" in triggers
     pr_trigger = triggers["pull_request_target"]
     assert pr_trigger.get("branches") == ["feat-cmux-next"]
-    # The merge ref can change the effective cmux-tui tree through a Swift- or
-    # workflow-only PR, so GitHub's paths filter cannot safely decide whether
-    # this trusted preflight must run. The Linux key check is the cheap filter.
-    assert "paths" not in pr_trigger
+    paths = pr_trigger.get("paths")
+    assert paths == [
+        "cmux-tui/**",
+        "ghostty",
+        "ghostty-next",
+        "scripts/cmux-next/build-layout-reducer-ffi.sh",
+    ]
     push_trigger = triggers["push"]
     assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
     assert "paths" not in push_trigger
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
-    assert "git mktree --missing" in preflight
+    assert "cmux_tui_tree_key.py" in preflight
     assert "cmux-tui-aarch64-apple-darwin" in preflight
     assert "cmux-tui-app-host-aarch64-apple-darwin" in preflight
     assert "cmux-tui-cloud-server-aarch64-apple-darwin" in preflight
@@ -245,7 +248,7 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'git fetch --no-tags origin "$BASE_COMMIT"' in pr_publisher
     assert "git show \"$BASE_COMMIT:scripts/ci/upload-r2-object.py\"" in pr_publisher
     assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
-    assert "git mktree --missing" in pr_publisher
+    assert "cmux_tui_tree_key.py" in pr_publisher
     assert "cmux-tui/tree/$KEY" in pr_publisher
     assert "missing opaque build companion" in pr_publisher
     tree_publisher = workflow_job(artifacts, "publish-tree")
@@ -254,6 +257,20 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "trusted helper" in tree_publisher
     assert "cmux-tui-app-host-aarch64-apple-darwin" in tree_publisher
     assert "cmux-tui-cloud-server-aarch64-apple-darwin" in tree_publisher
+
+
+def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
+    input_file = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+    key_paths = []
+    for line in input_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        kind, path = line.split(maxsplit=1)
+        key_paths.append("cmux-tui/**" if kind == "tree" and path == "cmux-tui" else path)
+    triggers = workflow_triggers(workflow("cmux-tui-artifacts.yml"))
+    assert triggers["pull_request_target"]["paths"] == key_paths
+    assert "cmux_tui_tree_key.py" in workflow("cmux-tui-artifacts.yml")
 
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:

@@ -1,0 +1,9 @@
+# Files whose contents determine the cmux-next cmux-tui tree key.
+#
+# The first column is the git object type at the revision.  Keep this list in
+# sync with the pull_request_target paths filter; the workflow test checks that
+# the two views do not drift.
+tree cmux-tui
+gitlink ghostty
+gitlink ghostty-next
+blob scripts/cmux-next/build-layout-reducer-ffi.sh

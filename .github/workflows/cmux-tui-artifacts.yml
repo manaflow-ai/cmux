@@ -54,12 +54,16 @@ on:
   # checks. This is pull_request_target so the workflow definition and publish
   # steps come from the trusted base branch; the build job receives no R2
   # credentials and only hands the publisher an opaque binary artifact.
-  # Do not use a paths filter here. A PR can change the effective cmux-tui tree
-  # through its merge ref while touching only Swift or workflow files. The
-  # Linux tree-preflight is the cheap filter: it skips macOS work when the
-  # computed tree key is already published.
+  # Keep this filter identical to cmux-tui-tree-inputs.txt. The merge ref can
+  # still differ from the PR head, so tree-preflight remains the cheap check
+  # that skips macOS work when the complete key is already published.
   pull_request_target:
     branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/**"
+      - "ghostty"
+      - "ghostty-next"
+      - "scripts/cmux-next/build-layout-reducer-ffi.sh"
   workflow_dispatch:
     inputs:
       macos_runner:
@@ -75,10 +79,11 @@ concurrency:
   # Main remains serialized because each main run also updates latest/. Branch
   # dogfood runs publish commit-addressed objects only, so different commits
   # can build in parallel instead of waiting behind an obsolete branch run.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number || github.sha }}
-  # Raw immutable objects are write-once. Queue a rerun of the same commit
-  # instead of cancelling a half-written publication.
-  cancel-in-progress: false
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.ref == 'refs/heads/feat-cmux-next' && 'feat-cmux-next-push' || github.event.pull_request.number || github.sha }}
+  # A queued feat-cmux-next push is superseded by the newest branch head. Keep
+  # main, PR and pin publications non-cancelling because their objects are
+  # write-once and may be the only recovery path for a key.
+  cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
 permissions: {}
 
@@ -149,13 +154,7 @@ jobs:
             echo "Fork pull request: no trusted cmux-tui build is run."
           fi
 
-          tui_tree="$(git rev-parse --verify "$SOURCE_COMMIT:cmux-tui")"
-          ghostty_commit="$(git rev-parse --verify "$SOURCE_COMMIT:ghostty")"
-          entries="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty' "$tui_tree" "$ghostty_commit")"
-          if ghostty_next_commit="$(git rev-parse --verify "$SOURCE_COMMIT:ghostty-next" 2>/dev/null)"; then
-            entries+="$(printf '\n160000 commit %s\tghostty-next' "$ghostty_next_commit")"
-          fi
-          key="$(printf '%s\n' "$entries" | git mktree --missing)"
+          key="$(python3 scripts/ci/cmux_tui_tree_key.py "$SOURCE_COMMIT")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
@@ -1059,15 +1058,14 @@ jobs:
           git fetch --no-tags origin "$BASE_COMMIT"
           git fetch --no-tags origin "$SOURCE_COMMIT"
           [[ "$(git cat-file -t "$SOURCE_COMMIT")" == commit ]]
-          tui_tree="$(git rev-parse "$SOURCE_COMMIT:cmux-tui")"
-          ghostty_commit="$(git rev-parse "$SOURCE_COMMIT:ghostty")"
-          ghostty_next_commit="$(git rev-parse "$SOURCE_COMMIT:ghostty-next")"
-          computed_key="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty\n160000 commit %s\tghostty-next\n' \
-            "$tui_tree" "$ghostty_commit" "$ghostty_next_commit" | git mktree --missing)"
+          computed_key="$(python3 scripts/ci/cmux_tui_tree_key.py "$SOURCE_COMMIT")"
           [[ "$computed_key" == "$KEY" ]] || {
             echo "PR tree key $KEY does not match trusted merge-tree calculation $computed_key; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2
             exit 1
           }
+          tui_tree="$(git rev-parse "$SOURCE_COMMIT:cmux-tui")"
+          ghostty_commit="$(git rev-parse "$SOURCE_COMMIT:ghostty")"
+          ghostty_next_commit="$(git rev-parse --verify "$SOURCE_COMMIT:ghostty-next" 2>/dev/null || true)"
           mkdir -p assets/tree tree
           uploader="$RUNNER_TEMP/upload-r2-object.py"
           helper="$RUNNER_TEMP/publish-cmux-tui-tree.py"

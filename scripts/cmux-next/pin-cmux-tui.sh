@@ -117,21 +117,12 @@ download() {
   curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1"
 }
 
-# The tree key of <rev> (default HEAD): the git tree hash of {cmux-tui tree,
-# ghostty gitlink, ghostty-next gitlink when present}, the binary's source
-# inputs (libghostty-vt builds from ghostty-next; the shell-integration
-# scripts come from ghostty). Revisions without ghostty-next keep their key.
+# The tree key of <rev> (default HEAD) is derived from
+# cmux-tui-tree-inputs.txt. That one list is also the trusted workflow's PR
+# path filter, so changes such as the layout-reducer FFI build script cannot
+# silently reuse a stale publication.
 tree_key() {
-  local rev="${1:-HEAD}" tui ghostty next entries
-  tui="$(git -C "$repo_root" rev-parse --verify -q "$rev:cmux-tui")" || {
-    echo "error: $rev has no cmux-tui tree" >&2; return 1; }
-  ghostty="$(git -C "$repo_root" rev-parse --verify -q "$rev:ghostty")" || {
-    echo "error: $rev has no ghostty gitlink" >&2; return 1; }
-  entries="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty' "$tui" "$ghostty")"
-  if next="$(git -C "$repo_root" rev-parse --verify -q "$rev:ghostty-next")"; then
-    entries+="$(printf '\n160000 commit %s\tghostty-next' "$next")"
-  fi
-  printf '%s\n' "$entries" | git -C "$repo_root" mktree --missing
+  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" "${1:-HEAD}"
 }
 
 mode_from_args() {
