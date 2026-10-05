@@ -229,6 +229,47 @@ public struct BrowserReplDocumentAuthority: Sendable {
     }
 }
 
+/// How `tabs.list` shows a tab to a session (``BrowserReplDocumentAuthority/listing(of:)``).
+public enum BrowserReplTabListing: Sendable, Equatable {
+    /// The session may use the tab: listed with its data store.
+    case usable
+    /// Another running session created the tab: listed with that session's
+    /// instance id, without its data store, and not usable.
+    case ownedByAnotherSession(String)
+    /// Not listed.
+    case hidden
+}
+
+/// A tab whose data store `tabs.open({ dataStore })` may name: the tab as
+/// the authority judges it and the id of the store it uses.
+public struct BrowserReplDataStoreCandidate<Store> {
+    public var tab: BrowserReplTabFacts
+    public var storeID: String
+    public var store: Store
+
+    public init(tab: BrowserReplTabFacts, storeID: String, store: Store) {
+        self.tab = tab
+        self.storeID = storeID
+        self.store = store
+    }
+}
+
+extension BrowserReplDocumentAuthority {
+    /// How `tabs.list` shows `tab` to the session.
+    public func listing(of tab: BrowserReplTabFacts) -> BrowserReplTabListing {
+        if let owner = tab.creatorSessionID, owner != sessionID { return .ownedByAnotherSession(owner) }
+        return .usable
+    }
+
+    /// The store of the first candidate the session may take a store from
+    /// whose store is `id`, or nil.
+    public func dataStore<Store>(_ id: String, among candidates: [BrowserReplDataStoreCandidate<Store>]) -> Store? {
+        candidates.first { candidate in
+            candidate.storeID == id && (candidate.tab.creatorSessionID == nil || candidate.tab.creatorSessionID == sessionID)
+        }?.store
+    }
+}
+
 extension BrowserReplPolicyBoard {
     /// The authority for `sessionID` as the board knows it: its published
     /// policy and file roots. Its workspace is not on the board.

@@ -167,6 +167,45 @@ struct BrowserReplDocumentAuthorityTests {
         #expect(authority.verdict(BrowserReplAccess(in: created, capability: .close)) == .allowed)
     }
 
+    @Test("tabs.list shows a session only its own workspace's tabs and names a data store only of a tab it may use")
+    func listingFollowsTheWorkspace() {
+        let own = UUID()
+        let elsewhere = UUID()
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", workspaceID: own)
+        #expect(authority.listing(of: BrowserReplTabFacts(id: UUID(), workspaceID: own)) == .usable)
+        #expect(authority.listing(of: BrowserReplTabFacts(id: UUID(), creatorSessionID: "s", workspaceID: elsewhere)) == .usable)
+        // A user's tab of another workspace, its private profile store with it, is not listed.
+        #expect(authority.listing(of: BrowserReplTabFacts(id: UUID(), workspaceID: elsewhere)) == .hidden)
+        #expect(authority.listing(of: BrowserReplTabFacts(id: UUID(), workspaceID: nil)) == .hidden)
+        // Another session's tab: named in the session's workspace, hidden in another.
+        let theirs = BrowserReplTabFacts(id: UUID(), creatorSessionID: "other", attachedSessionIDs: ["other"], workspaceID: own)
+        #expect(authority.listing(of: theirs) == .ownedByAnotherSession("other"))
+        var theirsElsewhere = theirs
+        theirsElsewhere.workspaceID = elsewhere
+        #expect(authority.listing(of: theirsElsewhere) == .hidden)
+    }
+
+    @Test("tabs.open({ dataStore }) takes a store only from a tab the session may use")
+    func dataStoreFollowsTheTabCapability() {
+        let own = UUID()
+        let elsewhere = UUID()
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", workspaceID: own)
+        let profile = BrowserReplDataStoreCandidate(tab: BrowserReplTabFacts(id: UUID(), workspaceID: elsewhere), storeID: "private", store: "other workspace's profile")
+        #expect(authority.dataStore("private", among: [profile]) == nil, "another workspace's private store was taken")
+        let theirs = BrowserReplDataStoreCandidate(
+            tab: BrowserReplTabFacts(id: UUID(), creatorSessionID: "other", attachedSessionIDs: ["other"], workspaceID: own),
+            storeID: "proxy", store: "other session's store"
+        )
+        #expect(authority.dataStore("proxy", among: [theirs]) == nil)
+        let userHere = BrowserReplDataStoreCandidate(tab: BrowserReplTabFacts(id: UUID(), workspaceID: own), storeID: "private", store: "this workspace's store")
+        #expect(authority.dataStore("private", among: [profile, userHere]) == "this workspace's store")
+        let mineElsewhere = BrowserReplDataStoreCandidate(
+            tab: BrowserReplTabFacts(id: UUID(), creatorSessionID: "s", attachedSessionIDs: ["s"], workspaceID: elsewhere),
+            storeID: "mine", store: "own popup's store"
+        )
+        #expect(authority.dataStore("mine", among: [mineElsewhere]) == "own popup's store")
+    }
+
     @Test("The policy board's authority carries the session's policy and directories")
     func boardAuthority() throws {
         let board = BrowserReplPolicyBoard()
