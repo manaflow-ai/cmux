@@ -2749,15 +2749,18 @@ class NewRowRequest:
 class NewScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-screen/request'
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     color: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
     index: Union[int, None, MissingType] = field(default=MISSING)
     pinned: Union[bool, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     screen_name: Union[str, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

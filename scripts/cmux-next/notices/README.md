@@ -21,6 +21,12 @@ stale). Do not edit it by hand.
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 
-Planned: Ghostty's Zig packages (replaces part of the hand-written Ghostty
-section), release-time regeneration in nightly-next, and the exact `cargo tree`
+Ghostty's Zig packages: `cmux-tui/build-support/notices/ghostty/`
+(collect-ghostty-licenses.py, verify-ghostty-license-bundle.py, pinned-licenses/),
+shared with cmux-browser. A Zig package without a license file needs pinned
+texts there, or the collection fails.
+
+Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
+(replaces part of the hand-written Ghostty section; needs the Zig package cache
+of the build), release-time regeneration in nightly-next, and the exact `cargo tree`
 closure where cargo runs.

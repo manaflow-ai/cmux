@@ -71,4 +71,20 @@ import Testing
         #expect(rows.first.flatMap(ShellArgsTests.shellArgs) == ["--posix"])
         await connection.close()
     }
+
+    /// `new-screen` carries the argv-based integration and the placement
+    /// spawn fields, which the daemon applies with `screen-terminal-env-v1`.
+    @Test func newScreenCarriesTheIntegrationArguments() async throws {
+        let log = PlacementTests.Log()
+        let server = try ShellArgsTests.server(log, shellArgs: true)
+        defer { server.stop() }
+        let connection = try await ShellArgsTests.connect(server, env: ShellArgsTests.bashEnv)
+        _ = try await connection.newScreen(in: nil, spec: ScreenSpec(name: "s"),
+                                           options: SpawnOptions(workspace: PlacementTests.key))
+        let screens = log.all.filter { $0["cmd"]?.stringValue == "new-screen" }
+        #expect(screens.count == 1)
+        #expect(screens.first.flatMap(ShellArgsTests.shellArgs) == ["--posix"])
+        #expect(screens.first?["terminal_id"]?.stringValue?.count == 32)
+        await connection.close()
+    }
 }

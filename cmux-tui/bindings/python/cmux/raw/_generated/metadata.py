@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe'
+IR_SHA256 = 'c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c'
 
 
 @dataclass(frozen=True)
@@ -1602,12 +1602,15 @@ COMMANDS = {
             'color': CommandFieldMetadata(None, None),
             'cols': CommandFieldMetadata(None, None),
             'cwd': CommandFieldMetadata(None, None),
+            'env': CommandFieldMetadata(12, 'screen-terminal-env-v1'),
             'group': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
             'pinned': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'screen_name': CommandFieldMetadata(None, None),
+            'shell_args': CommandFieldMetadata(12, 'screen-terminal-env-v1'),
+            'terminal_id': CommandFieldMetadata(12, 'screen-terminal-env-v1'),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),

@@ -86,6 +86,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::rows::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
         .or_else(|| super::conversations::error_code(error))
+        .or_else(|| super::new_screen::error_code(error))
         .or_else(|| crate::state::home_error_code(error))
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))
 }
