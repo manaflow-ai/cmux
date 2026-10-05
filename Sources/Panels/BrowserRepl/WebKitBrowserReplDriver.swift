@@ -883,7 +883,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 arguments: [:],
                 in: webView,
                 frame: mainFrame,
-                contentWorld: BrowserReplAgentWorld.world
+                contentWorld: BrowserReplDriverWorld.world
             )
             return value as? String
         } ?? nil
