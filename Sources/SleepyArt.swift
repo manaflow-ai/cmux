@@ -1,4 +1,5 @@
 import CmuxSettingsUI
+import CmuxSettings
 import Foundation
 
 // MARK: - Pixel art assets

@@ -17,6 +17,7 @@ import CmuxSettings
 /// one screensaver's settings into a separate domain package would fragment that
 /// layer inconsistently.
 @Observable
+@MainActor
 public final class SleepyModeSettingsStore {
     /// Mascot/scene color theme.
     public var theme: SleepyTheme { didSet { persist(theme.rawValue, SleepyModeDefaultsKeys.theme) } }
