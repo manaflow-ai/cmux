@@ -208,6 +208,25 @@ struct BrowserReplKeyResendTests {
         }
     }
 
+    /// WebKit's resend of one tab's key can reach the app while another
+    /// web view (another tab, another session) delivers its own automated
+    /// key. Only that exact key's own delivery exempts it; any other
+    /// delivery in flight must not let the resend through to the user's
+    /// key window, where it would type into the terminal or run a menu
+    /// shortcut.
+    @Test func anotherWebViewsDeliveryDoesNotLetAResendThrough() throws {
+        let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let other = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let stroke = try #require(BrowserReplKeyStroke.resolve(key: "q", code: "KeyQ", text: "q", modifiers: []))
+        _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: true)
+        let delivered = try #require(webView.keyDowns.first)
+        other.withBrowserWebKitKeyDownDispatch {
+            #expect(delivered.isResentBrowserAutomationKeyEvent,
+                    "another web view's delivery hid this key's resend")
+            #expect(delivered.dropResentBrowserAutomationKeyEvent())
+        }
+    }
+
     @Test func theUsersKeysAndShortcutSimulationAreNotAutomation() throws {
         let simulated = try #require(SyntheticKeyEventFactory.keyEvent(specification: qKey, keyDown: true, timestamp: 0, characters: "q"))
         #expect(!simulated.isBrowserAutomationKeyEvent)
