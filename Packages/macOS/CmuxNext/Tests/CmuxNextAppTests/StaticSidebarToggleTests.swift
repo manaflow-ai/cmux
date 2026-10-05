@@ -63,17 +63,15 @@ import Testing
     /// strip starts after the toggle" for the resting state). While the
     /// corner is hovered the toggle shows and the strip starts after it.
     /// The sidebar state reaches the window root through an observation, so
-    /// the test waits for it instead of for a fixed number of turns. The
-    /// sidebar starts hidden through the restore path (a relaunch with the
-    /// sidebar hidden), which sets its width without animating: this test
-    /// is about the resting hidden state, and a host with no screen
-    /// (aws-m4pro fleet Macs, NSScreen.screens empty) never advances the
-    /// width animation, so the pane stayed at x 210 there.
+    /// the test waits for it instead of for a fixed number of turns. The hide
+    /// is the animated one a click makes; in a window with no screen (the
+    /// aws-m4pro fleet Macs) Motion applies it at once
+    /// (`Motion.canAnimate(in:)`), so it settles on every host.
     @Test func withTheSidebarHiddenTheStripStartsAfterTheToggle() async throws {
         let harness = try await ViewChangePermissionTests.harness()
         defer { harness.stop() }
         let root = harness.window.root
-        harness.window.sidebar.container.restore(width: nil, presentation: .hidden)
+        harness.window.sidebar.model.presentation = .hidden
         try await ViewChangePermissionTests.waitUntil { root.sidebarHidden }
         try #require(root.sidebarHidden, "the sidebar state reached the window root")
         await settle(harness)
