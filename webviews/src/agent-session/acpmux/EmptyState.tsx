@@ -17,10 +17,9 @@ export function projectName(cwd: string | undefined): string | undefined {
   return label === "~" ? undefined : label;
 }
 
-/// A new chat: the attached session's own summary says it has no turns yet and
-/// nothing is on screen or queued. Requiring that summary keeps the hero away while
-/// no daemon is reachable and between a session's reset and its attach. A daemon
-/// that doesn't count turns still has older history to page in for an old session.
+/// A new chat has no turns, rows or queued work. The host can identify an unsent
+/// chat before a summary exists; attached chats use their own session's summary.
+/// A daemon that doesn't count turns still exposes older history for an old session.
 export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean {
   const summary = snapshot.summary;
   // The host knows a direct chat is new before an agent can produce a summary.

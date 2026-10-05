@@ -14,7 +14,7 @@ public nonisolated enum NewTabDefaultKind: String, Sendable, Hashable, CaseItera
 }
 
 /// `tabs.newTabKind` in cmux.json: "agent" (default, a direct chat), "same-kind", "terminal",
-/// "browser", "agent" or "auto".
+/// "browser", "page" or "auto".
 nonisolated extension NewTabDefaultKind {
     public static let configPath = ["tabs", "newTabKind"]
     public static let fallback: NewTabDefaultKind = .agent
