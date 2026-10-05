@@ -251,6 +251,32 @@ mod tests {
     }
 
     #[test]
+    fn a_hello_without_service_or_caps_is_a_desktop_hello() {
+        let json = br#"{"t":"hello","user":"u","install":"i","class":"user","interactive":true,"udp_port":null,"max_datagram":1152}"#;
+        let Control::Hello { service, caps, .. } = serde_json::from_slice(json).expect("hello") else {
+            panic!("not a hello");
+        };
+        assert_eq!(service, "desktop");
+        assert!(caps.is_empty());
+    }
+
+    #[test]
+    fn welcome_echoes_the_service_and_the_accepted_caps() {
+        let welcome = Control::Welcome {
+            encoder: "x264".into(),
+            width: 1,
+            height: 1,
+            max_datagram: 1152,
+            carrier: "stream".into(),
+            service: "desktop".into(),
+            caps: vec!["stream.open".into()],
+        };
+        let json = serde_json::to_value(&welcome).expect("json");
+        assert_eq!(json["service"], "desktop");
+        assert_eq!(json["caps"][0], "stream.open");
+    }
+
+    #[test]
     fn host_and_proto_framing_share_constants() {
         assert_eq!(FRAME_CONTROL, STREAM_CONTROL);
         assert_eq!(FRAME_DATAGRAM, STREAM_DATAGRAM);
