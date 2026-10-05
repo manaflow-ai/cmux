@@ -27,6 +27,9 @@ public final class BrowserDownload: Identifiable {
     public internal(set) var isPaused = false
     public internal(set) var status: Status = .inProgress
 
+    /// Where the file is written and lands (`BrowserDownloadPlacement`).
+    @ObservationIgnored
+    var placement: BrowserDownloadPlacement?
     @ObservationIgnored
     var cancelHandler: (() -> Void)?
     /// Pause and resume, when the engine can (Chromium).

@@ -55,6 +55,7 @@ final class CEFDownloads {
     var exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
     /// Removes the file a save panel already agreed to replace.
     var removeReplaced: (URL) -> Void = { try? FileManager.default.removeItem(at: $0) }
+    var reservations: BrowserDownloadReservations = .shared
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
@@ -113,6 +114,7 @@ final class CEFDownloads {
         if let pick { removeReplaced(pick) }
         let destination = BrowserDownloadPolicy.destination(chosen: pick, suggestedFilename: suggestedName,
                                                             directory: directory(), exists: exists)
+            ?? directory().appending(path: "download")
         let item = BrowserDownload(sourceURL: URL(string: url), filename: destination.lastPathComponent)
         item.destination = destination
         item.update(received: 0, total: total)

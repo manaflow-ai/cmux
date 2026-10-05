@@ -153,6 +153,8 @@ nonisolated struct CEFCreatedBy: Equatable, Sendable {
     var userGesture = false
     /// Popup window features (screen DIPs), when the page gave a size.
     var features: CGRect?
+    /// The popup's target URL (OnBeforePopup), when the shim matched one.
+    var url: String?
 
     static let none = CEFCreatedBy(opener: 0, disposition: .unknown, features: nil)
 
@@ -163,7 +165,7 @@ nonisolated struct CEFCreatedBy: Equatable, Sendable {
         self.features = features
     }
 
-    init(packed: Int64, features: String) {
+    init(packed: Int64, features: String, url: String = "") {
         opener = Int32(truncatingIfNeeded: packed >> 32)
         disposition = CEFDisposition(raw: Int(packed & 0xffff))
         userGesture = (packed >> 16) & 1 != 0
