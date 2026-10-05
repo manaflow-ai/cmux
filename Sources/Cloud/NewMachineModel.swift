@@ -76,6 +76,37 @@ struct MachineSizeOption: Equatable, Sendable {
 @MainActor
 @Observable
 final class NewMachineModel {
+    enum BaseImage: Hashable {
+        case defaultImage
+        case machine(VMSummary)
+
+        var label: String {
+            switch self {
+            case .defaultImage:
+                return String(localized: "machines.new.baseImage.default", defaultValue: "Default image")
+            case .machine(let machine):
+                return machine.displayName ?? machine.slug ?? machine.id
+            }
+        }
+
+        static func == (lhs: BaseImage, rhs: BaseImage) -> Bool {
+            switch (lhs, rhs) {
+            case (.defaultImage, .defaultImage): return true
+            case (.machine(let left), .machine(let right)): return left.id == right.id
+            default: return false
+            }
+        }
+
+        func hash(into hasher: inout Hasher) {
+            switch self {
+            case .defaultImage:
+                hasher.combine(0)
+            case .machine(let machine):
+                hasher.combine(1)
+                hasher.combine(machine.id)
+            }
+        }
+    }
     /// Which create flow the sheet fronts.
     enum Mode: Equatable {
         /// `cmux vm new`: a fresh Freestyle machine with an ephemeral home.
@@ -163,6 +194,8 @@ final class NewMachineModel {
 
     let mode: Mode
     private(set) var plan: MachinePlanSnapshot?
+    private(set) var sourceMachines: [VMSummary]
+    var baseImage: BaseImage
     /// Sizes the plan may start, in ascending order: the server's
     /// `memoryOptionsMb` minus anything it (or the mirror) locks.
     private(set) var availableMemoryOptionsMb: [Int]
@@ -294,6 +327,8 @@ final class NewMachineModel {
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
             memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
             vcpusByMemoryMb: limits.vcpusByMemoryMb,
+            sourceMachines: sourceMachines,
+            baseImage: baseImage,
             selectionWindowID: selectionWindowID,
             defaults: defaults,
             submit: submit
@@ -335,6 +370,8 @@ final class NewMachineModel {
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
         vcpusByMemoryMb: [String: Int]? = nil,
+        sourceMachines: [VMSummary] = [],
+        baseImage: BaseImage = .defaultImage,
         selectionWindowID: UUID? = nil,
         defaults: UserDefaults = .standard,
         planIsLoading: Bool = false,
@@ -345,6 +382,8 @@ final class NewMachineModel {
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.vcpusByMemoryMb = vcpusByMemoryMb
         self.mode = mode
+        self.sourceMachines = sourceMachines.filter { !$0.id.isEmpty && $0.status != "destroyed" }
+        self.baseImage = baseImage
         self.plan = plan
         self.planIsLoading = planIsLoading
         self.planLoadError = nil
@@ -414,6 +453,26 @@ final class NewMachineModel {
 
     /// Base is sized by the backend; only `vm new` takes `--size`.
     var supportsSize: Bool { mode == .newMachine && (planIsLoading || !availableMemoryOptionsMb.isEmpty) }
+    var supportsBaseImage: Bool { mode == .newMachine }
+    var isFork: Bool {
+        if case .machine = baseImage { return true }
+        return false
+    }
+
+    func applySourceMachines(_ machines: [VMSummary]) {
+        sourceMachines = machines.filter { !$0.id.isEmpty && $0.status != "destroyed" }
+        if case .machine(let selected) = baseImage,
+           !sourceMachines.contains(where: { $0.id == selected.id }) {
+            baseImage = .defaultImage
+        }
+    }
+
+    func selectBaseImage(_ image: BaseImage) {
+        baseImage = image
+        if case .machine(let machine) = image, let updates = machine.agentUpdates {
+            keepsAgentsUpdated = updates == .latest
+        }
+    }
     /// Sizes the plan may start, ascending.
     var memoryOptions: [Int] { availableMemoryOptionsMb }
     /// Sizes the plan cannot start, ascending; the sheet lists them disabled.
@@ -541,12 +600,20 @@ final class NewMachineModel {
         var arguments: [String]
         switch mode {
         case .newMachine:
-            arguments = ["vm", "new", Self.machineKind.cliFlag]
+            if case .machine(let machine) = baseImage {
+                arguments = ["vm", "fork", machine.id]
+            } else {
+                arguments = ["vm", "new", Self.machineKind.cliFlag]
+            }
+            if isFork {
+                arguments += ["--focus", "false"]
+            } else {
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             if let policy = requestedNetworkPolicy { arguments += ["--network-policy", policy.jsonString] }
             // Off sends nothing, so a server without the setting sees the old request.
             if keepsAgentsUpdated { arguments += ["--agent-updates", CloudAgentUpdates.latest.rawValue] }
             arguments += ["--focus", "false"]
+            }
         case .base(let workspaceID):
             arguments = [
                 "vm", "base", "open",
@@ -563,7 +630,15 @@ final class NewMachineModel {
 
     /// The request the coordinator tracks for this sheet's choices.
     var createRequest: MachineCreateRequest {
-        MachineCreateRequest(
+        if case .newMachine = mode, case .machine(let machine) = baseImage {
+            return .fork(
+                sourceMachineID: machine.id,
+                sourceName: baseImage.label,
+                kind: Self.machineKind,
+                selectionWindowID: selectionWindowID
+            )
+        }
+        return MachineCreateRequest(
             mode: mode,
             kind: Self.machineKind,
             name: nil,

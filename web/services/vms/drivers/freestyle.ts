@@ -59,6 +59,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
+import { devboxForkDaemonReadyCommand } from "../images/remoteState";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "../operationTimeouts";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
@@ -185,6 +186,7 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+const FORK_DAEMON_LISTEN_TIMEOUT_SECONDS = 30;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
@@ -961,6 +963,28 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
   };
 }
 
+/** Span attributes for the machine shape a create asked for, else the one the provider reported. */
+function freestyleCreateResourceAttributes(
+  imageSize: CreateOptions["imageSize"],
+  data: { resources?: { cpu?: number; memory?: number; storage?: number } | null },
+): Record<string, string | number | boolean> {
+  if (imageSize) {
+    return {
+      "cmux.vm.image_size": imageSize.name,
+      "cmux.vm.resources.cpu": imageSize.cpu,
+      "cmux.vm.resources.memory_mb": imageSize.memoryMb,
+      "cmux.vm.resources.storage_mb": imageSize.storageMb,
+      "cmux.vm.resize.requested": false,
+    };
+  }
+  return {
+    "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
+    "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
+    "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
+    "cmux.vm.resize.requested": false,
+  };
+}
+
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
@@ -969,6 +993,8 @@ export class FreestyleProvider implements VMProvider {
 
   /** ``create`` honors requested memory through the grow-only size ladder. */
   /// Freestyle exposes live resource statistics and grow-only resizing.
+  // `fork` stays derived (no native fork): forkVm takes the snapshot path, and
+  // clients offer Fork from snapshot + restore (VMCapabilities.canFork).
   readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
@@ -1050,6 +1076,7 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.provider.machine_id_received_at_ms": Date.now(),
           });
           try {
+            if (options.forked) await this.awaitForkDaemon(vm, vmId);
             // Validate the provider-assigned VPC address without issuing the
             // guest-side announcement exec. The baked supervisor announces on
             // clone boot; attach performs the strict announcement before
@@ -1061,22 +1088,7 @@ export class FreestyleProvider implements VMProvider {
             // allocate that immutable image and attach its account network.
             // Per-machine prompt identity is refreshed asynchronously by the
             // boot contract; no guest exec or filesystem upload belongs here.
-            if (options.imageSize) {
-              setSpanAttributes(span, {
-                "cmux.vm.image_size": options.imageSize.name,
-                "cmux.vm.resources.cpu": options.imageSize.cpu,
-                "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
-                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
-                "cmux.vm.resize.requested": false,
-              });
-            } else {
-              setSpanAttributes(span, {
-                "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
-                "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
-                "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
-                "cmux.vm.resize.requested": false,
-              });
-            }
+            setSpanAttributes(span, freestyleCreateResourceAttributes(options.imageSize, data));
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1659,6 +1671,27 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /**
+   * A fork or restore resumes a live guest's memory image. Its boot
+   * supervisor rebinds the daemon to this machine but leaves the copied
+   * session stranded (remoteState.ts), so the daemon never listens. Wait for
+   * the rebind, repair that one state, and wait for this machine's listener
+   * so the machine is never reported ready while attach would be refused.
+   */
+  private async awaitForkDaemon(vm: Vm, vmId: string): Promise<void> {
+    const ready = await this.execResult(
+      vm,
+      devboxForkDaemonReadyCommand(FORK_DAEMON_LISTEN_TIMEOUT_SECONDS),
+      (FORK_DAEMON_LISTEN_TIMEOUT_SECONDS * 1000) + EXEC_OVERHEAD_TIMEOUT_MS,
+    );
+    if (!ready || ready.exitCode !== 0) {
+      throw new ProviderError(
+        "freestyle",
+        `forked machine ${vmId} did not start its daemon: ${(ready?.stderr || ready?.stdout || "guest command unavailable").trim().slice(0, 500)}`,
+      );
+    }
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {
