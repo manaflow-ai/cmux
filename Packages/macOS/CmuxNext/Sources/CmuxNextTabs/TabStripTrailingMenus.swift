@@ -55,7 +55,9 @@ final class TabStripTrailingMenus {
         guard let sleep = strip?.groups.sleep else { return }
         holdTask = Task { [weak self] in
             do { try await sleep(.milliseconds(450)) } catch { return }
-            guard let self, !Task.isCancelled, let strip = self.strip, strip.pendingTrailingPress == index else { return }
+            // pressedIndex is nil while the press is dragged off the button: no menu then.
+            guard let self, !Task.isCancelled, let strip = self.strip, strip.pendingTrailingPress == index,
+                  strip.buttonGroup.pressedIndex == index else { return }
             strip.pendingTrailingPress = nil
             strip.buttonGroup.pressedIndex = nil
             self.show(at: index)
