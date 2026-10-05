@@ -4,7 +4,10 @@ import Testing
 
 /// R92: Ghostty config keys the embedder implements reach cmux the way they
 /// reach Ghostty.app (plans/cmux-next/ghostty-config-inventory.md).
-@Suite struct GhosttyConfigFidelityTests {
+@MainActor @Suite(.serialized) struct GhosttyConfigFidelityTests {
+    /// libghostty needs `ghostty_init` (the shared runtime) before configs.
+    init() { _ = GhosttyRuntime.shared }
+
     /// `bell-features`: Ghostty's default (`attention,title`) plays no
     /// system sound; cmux used to beep on every BEL.
     @Test func bellFollowsBellFeatures() {
