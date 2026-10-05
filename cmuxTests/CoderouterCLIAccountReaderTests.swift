@@ -27,6 +27,43 @@ struct CoderouterCLIAccountReaderTests {
         #expect(accounts.map(\.label) == ["austin+10@manaflow.com", "austin+3@manaflow.com"])
         #expect(accounts.map(\.provider) == ["codex", "codex"])
     }
+
+    @Test("Refresh leaves the terminal's CodeRouter organization alone when it already matches")
+    func matchingOrganizationIsNotSwitched() async throws {
+        let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
+
+        _ = try await CoderouterCLIAccountReader.accounts(
+            for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
+        )
+
+        #expect(await cli.commands.allSatisfy { $0.prefix(2) != ["org", "switch"] })
+    }
+
+    @Test("Selected team switches the CLI away from another organization")
+    func otherOrganizationIsSwitched() async throws {
+        let cli = FakeCoderouterCLI(activeOrganizationID: Self.cmuxOrganizationID)
+
+        let accounts = try await CoderouterCLIAccountReader.accounts(
+            for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
+        )
+
+        #expect(accounts.map(\.label) == ["austin+10@manaflow.com", "austin+3@manaflow.com"])
+        #expect(await cli.commands.contains(["org", "switch", Self.austinOrganizationID]))
+    }
+
+    @Test("Accounts from another organization never reach the sidebar")
+    func concurrentSwitchIsRejected() async throws {
+        let cli = FakeCoderouterCLI(
+            activeOrganizationID: Self.cmuxOrganizationID,
+            switchOverride: Self.cmuxOrganizationID
+        )
+
+        await #expect(throws: NSError.self) {
+            try await CoderouterCLIAccountReader.accounts(
+                for: Self.cmuxTeamID, name: "Austin Wang's Team", run: { try await cli.run($0) }
+            )
+        }
+    }
 }
 
 /// Replays the byte-exact output of coderouter 0.3.11, including the trailing

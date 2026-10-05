@@ -21,13 +21,23 @@ enum CoderouterCLIAccountReader {
             throw accountError("The selected cmux team is not mapped to a CodeRouter organization.")
         }
 
-        // `accounts` reads the CLI's active organization. Always select and verify it
-        // immediately before reading so a stale CLI org can never leak into the sidebar.
-        _ = try await run(["org", "switch", organizationID])
-        guard try await currentOrganizationID(run: run) == organizationID else {
-            logger.error("CodeRouter organization verification failed for org ID: \(organizationID, privacy: .public)")
+        // `accounts` reads the CLI's active organization, which the user's terminal
+        // shares. Its payload names that organization as `teamId`, so trust only the
+        // payload and switch only when the selected team's organization is not active.
+        var payload = try await readAccounts(run: run)
+        if payload.organizationID != organizationID {
+            _ = try await run(["org", "switch", organizationID])
+            payload = try await readAccounts(run: run)
+        }
+        guard payload.organizationID == organizationID else {
+            logger.error("CodeRouter accounts were for org ID \(payload.organizationID ?? "<nil>", privacy: .public), expected \(organizationID, privacy: .public)")
             throw accountError("CodeRouter organization did not switch to the selected team.")
         }
+        logger.info("Loaded \(payload.accounts.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
+        return payload.accounts
+    }
+
+    private static func readAccounts(run: Run) async throws -> (organizationID: String?, accounts: [CloudTreeNode.CoderouterAccount]) {
         let output = try await run(["accounts", "--json"])
         let object = try JSONSerialization.jsonObject(with: output) as? [String: Any]
         let accounts = object?["accounts"] as? [[String: Any]] ?? []
@@ -43,8 +53,7 @@ enum CoderouterCLIAccountReader {
                 state: account["state"] as? String
             )
         }
-        logger.info("Loaded \(result.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
-        return result
+        return (object?["teamId"] as? String, result)
     }
 
     private static func matchingOrganizationID(for cmuxTeamID: String?, name cmuxTeamName: String, run: Run) async throws -> String? {
@@ -61,15 +70,6 @@ enum CoderouterCLIAccountReader {
             }
         }
         return nil
-    }
-
-    private static func currentOrganizationID(run: Run) async throws -> String? {
-        let output = try await run(["org", "current"])
-        guard let token = String(decoding: output, as: UTF8.self)
-            .split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "(" || $0 == ")" })
-            .last,
-              UUID(uuidString: String(token)) != nil else { return nil }
-        return String(token)
     }
 
     private static func normalized(_ value: String) -> String {
