@@ -184,6 +184,28 @@ class ReportTests(unittest.TestCase):
         self.assertIn("macos / packages", body)
         self.assertNotIn("app-host (2)", body)
 
+    def test_failure_body_lists_concrete_failures_and_the_data_prs_read(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import classify_failures
+
+        failures = [
+            {**classify_failures.failure("compile", "Sources/AppDelegate.swift", 20553,
+                                         message="cannot find type 'UpdateRelaunchBlockers' in scope"),
+             "job": "macos / macOS compile admission"},
+            {**classify_failures.failure("test", "CloudTreeOneMachineManyWorkspacesTests.swift", 212, "keeps rows",
+                                         "Expectation failed"), "job": "macos / app-host unit tests (2/7)"},
+        ]
+        body = MODULE.failure_body(run(html_url="https://run/1"), [], "", failures)
+        self.assertIn("Failures in the job logs:", body)
+        self.assertIn("- compile error in `Sources/AppDelegate.swift:20553` "
+                      "`cannot find type 'UpdateRelaunchBlockers' in scope` (macos / macOS compile admission)", body)
+        self.assertIn("- `CloudTreeOneMachineManyWorkspacesTests.swift:212` `keeps rows`", body)
+        data = classify_failures.parse_main_failures([body])
+        self.assertEqual(data["keys"], sorted(classify_failures.failure_key(f) for f in failures))
+        # A red run whose logs named nothing still records that, so a PR does not match a stale list.
+        self.assertEqual(classify_failures.parse_main_failures([MODULE.failure_body(run(), [], "", [])])["keys"], [])
+        self.assertNotIn("cmux-main-failures", MODULE.failure_body(run(), []))
+
     def test_failure_body_carries_the_attribution_section(self):
         body = MODULE.failure_body(run(), [], "### New since `abc`\n\nrow\n")
         self.assertIn("### New since `abc`", body)

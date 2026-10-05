@@ -1075,7 +1075,11 @@ def render_issue(report: Mapping, steps_state: Mapping[str, Mapping], fix_prs: M
 def render_pr_comment(report: Mapping) -> str:
     out = [PR_MARKER]
     if report["state"] == "green":
-        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ({report.get('run_url')}).")
+        # Only the fast guards: on #17074 and #17233 this line was the only bot comment while the PR's own
+        # app-host tests were red, and it read as an all-green CI.
+        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ({report.get('run_url')}). "
+                   "This covers only the fast guards, not CI: CI's result is the `ci-status` check, and "
+                   "the CI failure attribution comment names any failing test.")
         return "\n".join(out) + "\n"
     steps = report.get("steps") or []
     out.append(f"**`{FAST_WORKFLOW}` failed** on `{short(report.get('sha'))}` ({report.get('run_url')}). "

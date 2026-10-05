@@ -23,7 +23,11 @@ does not count. Any API error fails open and dispatches.
 `report` syncs the single tracking issue with a completed dispatch run on main:
 a red run opens the issue or comments on it once, and a green run closes it.
 A red report carries the "New since" section main_regression_attribution.py
-writes: which tests newly fail and the pull requests suspected of it.
+writes: which tests newly fail and the pull requests suspected of it. It also
+lists the concrete failures in the failed jobs' logs (classify_failures.py's
+extract_failures: the test and file:line, the compile error) and ends with a
+hidden data marker of them, which classify_failures.py reads to tell a pull
+request "this also fails on main, not yours".
 """
 
 from __future__ import annotations
@@ -35,6 +39,10 @@ import subprocess
 import sys
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# classify_failures.py and its helpers sit next to this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_WORKFLOW_FILE = "ci.yml"
@@ -44,6 +52,9 @@ FAILED_JOB_CONCLUSIONS = frozenset({"failure", "timed_out"})
 ISSUE_LABEL = "main-full-suite-failure"
 ISSUE_TITLE = "Main full-suite CI is red"
 MAX_LISTED_JOBS = 40
+# Failed jobs whose logs are read for concrete failures, and how many are listed.
+MAX_LOGGED_JOBS = 12
+MAX_LISTED_FAILURES = 20
 # Well past a full-suite run plus a long runner queue.
 STALE_IN_FLIGHT = timedelta(hours=6)
 
@@ -137,7 +148,10 @@ def issue_plan(conclusion: str, has_open_issue: bool, already_reported: bool) ->
     return "none"
 
 
-def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]], extra: str = "") -> str:
+def failure_body(
+    run: Mapping[str, object], jobs: list[Mapping[str, object]], extra: str = "",
+    failures: list[Mapping[str, object]] | None = None,
+) -> str:
     lines = [
         f"Full-suite CI on `main` failed at {run.get('head_sha')}: {run.get('html_url')}",
         "",
@@ -150,6 +164,18 @@ def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]], ex
             lines.append(f"- ...and {len(jobs) - MAX_LISTED_JOBS} more")
     else:
         lines.append("No individual job reported failure; see the run summary.")
+    if failures is not None:
+        import classify_failures
+
+        if failures:
+            lines += ["", "Failures in the job logs:"]
+            for item in failures[:MAX_LISTED_FAILURES]:
+                test = f" {classify_failures.code(item['test'], 100)}" if item.get("test") else ""
+                lines.append(f"- {classify_failures.describe(item, False)}{test} ({item.get('job')})")
+            if len(failures) > MAX_LISTED_FAILURES:
+                lines.append(f"- ...and {len(failures) - MAX_LISTED_FAILURES} more")
+        # Pull requests read this to tell their own failures from main's (classify_failures.main_red).
+        lines += ["", classify_failures.main_failures_marker(run, failures)]
     if extra.strip():
         lines += ["", extra.strip()]
     lines += [
@@ -158,6 +184,25 @@ def failure_body(run: Mapping[str, object], jobs: list[Mapping[str, object]], ex
         "a regression outside that subset shows up. This issue closes itself on the next green run.",
     ]
     return "\n".join(lines)
+
+
+def concrete_failures(repo: str, jobs: list[Mapping[str, object]]) -> list[dict]:
+    """The concrete failures in the failed jobs' logs, gate jobs left out, deduplicated."""
+    import classify_failures
+    from app_host_failure_census import _gh_api_escape_flag
+
+    found: list[dict] = []
+    for job in [j for j in jobs if j.get("name") not in classify_failures.GATE_JOBS][:MAX_LOGGED_JOBS]:
+        try:
+            log = subprocess.run(
+                ["gh", "api", *_gh_api_escape_flag(), f"repos/{repo}/actions/jobs/{job['id']}/logs"],
+                check=True, capture_output=True, text=True, errors="replace",
+            ).stdout
+        except (subprocess.CalledProcessError, KeyError) as error:
+            print(f"::warning::no log for {job.get('name')}: {error}", file=sys.stderr)
+            continue
+        found += [{**item, "job": job.get("name")} for item in classify_failures.extract_failures(log)]
+    return classify_failures.dedupe(found)
 
 
 def gh_json_lines(args: list[str]) -> list[dict]:
@@ -271,9 +316,14 @@ def command_report(args: argparse.Namespace) -> int:
         jobs = failing_jobs(gh_json_lines([
             f"repos/{args.repo}/actions/runs/{run['id']}/jobs", "--paginate",
             "-X", "GET", "-f", "filter=latest", "-f", "per_page=100",
-            "--jq", ".jobs[] | {name, conclusion, html_url} | tojson",
+            "--jq", ".jobs[] | {id, name, conclusion, html_url} | tojson",
         ]))
-        body = failure_body(run, jobs, read_extra_section(args.extra_section))
+        try:
+            failures: list[dict] | None = concrete_failures(args.repo, jobs)
+        except Exception as error:  # noqa: BLE001  (a report-only extra must not stop the issue sync)
+            print(f"::warning::could not read the failed jobs' failures: {error}", file=sys.stderr)
+            failures = None
+        body = failure_body(run, jobs, read_extra_section(args.extra_section), failures)
         if plan == "open":
             ensure_label(args.repo)
             subprocess.run([
