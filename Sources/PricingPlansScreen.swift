@@ -180,7 +180,7 @@ enum ProUpgradePresenter {
 
     @MainActor
     static func appPricingURLForCurrentAppearance(source: ProUpgradeSource, plan: CheckoutPlan? = nil) -> URL {
-        var url = CheckoutAttribution.applying(to: decoratedAppWebURL(AuthEnvironment.appPricingURL), source: source)
+        let url = CheckoutAttribution.applying(to: decoratedAppWebURL(AuthEnvironment.appPricingURL), source: source)
         guard let plan else { return url }
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         var queryItems = components?.queryItems ?? []
