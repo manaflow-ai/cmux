@@ -19,7 +19,7 @@ struct CloudTreeRowHoverButtons: View {
         case .coderouterSection:
             MachinesChromeIconButton(
                 symbolName: "questionmark.circle",
-                accessibilityLabel: String(localized: "coderouter.guide.open", defaultValue: "What Is CodeRouter?"),
+                accessibilityLabel: String(localized: "coderouter.guide.open", defaultValue: "What Is coderouter?"),
                 isBusy: false
             ) {
                 nodeActions.showRowGuide(nodeID)

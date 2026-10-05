@@ -18,7 +18,7 @@ enum CoderouterCLIAccountReader {
               !cmuxTeamName.isEmpty,
               let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run) else {
             logger.error("No CodeRouter organization matched cmux team ID \(cmuxTeamID ?? "<nil>", privacy: .public), name \(String(describing: cmuxTeamName), privacy: .public)")
-            throw accountError("The selected cmux team is not mapped to a CodeRouter organization.")
+            throw accountError("The selected cmux team is not mapped to a coderouter organization.")
         }
 
         // `accounts` reads the CLI's active organization, which the user's terminal
@@ -31,7 +31,7 @@ enum CoderouterCLIAccountReader {
         }
         guard payload.organizationID == organizationID else {
             logger.error("CodeRouter accounts were for org ID \(payload.organizationID ?? "<nil>", privacy: .public), expected \(organizationID, privacy: .public)")
-            throw accountError("CodeRouter organization did not switch to the selected team.")
+            throw accountError("coderouter organization did not switch to the selected team.")
         }
         logger.info("Loaded \(payload.accounts.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
         return payload.accounts
@@ -46,7 +46,7 @@ enum CoderouterCLIAccountReader {
         run: Run = runCLI
     ) async throws {
         guard UUID(uuidString: accountID) != nil else {
-            throw accountError("That CodeRouter account ID is not valid.")
+            throw accountError("That coderouter account ID is not valid.")
         }
         _ = try await accounts(for: cmuxTeamID, name: cmuxTeamName, run: run)
         _ = try await run(["remove", accountID, "--yes"])
@@ -142,7 +142,7 @@ enum CoderouterCLIAccountReader {
 
     @Sendable private static func runCLI(_ arguments: [String]) async throws -> Data {
         guard let executable = resolvedExecutable() else {
-            throw accountError("CodeRouter is not installed. Run cmux cr in a terminal to install it.")
+            throw accountError("coderouter is not installed. Run cmux cr in a terminal to install it.")
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)

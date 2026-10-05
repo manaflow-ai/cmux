@@ -12,7 +12,7 @@ struct CoderouterGuideView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(String(localized: "coderouter.guide.title", defaultValue: "CodeRouter"))
+            Text(String(localized: "coderouter.guide.title", defaultValue: "coderouter"))
                 .cmuxFont(size: 13, weight: .semibold)
             paragraph(Self.summary)
             heading(String(localized: "coderouter.guide.sidebar.title", defaultValue: "In this sidebar"))
@@ -23,7 +23,7 @@ struct CoderouterGuideView: View {
             heading(String(localized: "coderouter.guide.cli.title", defaultValue: "From a terminal"))
             command("cr add codex", String(localized: "coderouter.guide.cli.add", defaultValue: "Add an account. Also claude or opencode."))
             command("cr", String(localized: "coderouter.guide.cli.list", defaultValue: "List every account and its usage."))
-            command("cr codex", String(localized: "coderouter.guide.cli.run", defaultValue: "Run Codex through CodeRouter on this Mac."))
+            command("cr codex", String(localized: "coderouter.guide.cli.run", defaultValue: "Run Codex through coderouter on this Mac."))
             paragraph(String(
                 localized: "coderouter.guide.team",
                 defaultValue: "Accounts belong to the team selected at the top of this panel."

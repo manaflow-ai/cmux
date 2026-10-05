@@ -526,7 +526,7 @@ struct MachinesPanelView: View {
         guard let teamID = accountFlow?.confirmedTeamID else { return }
         let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
         guard CloudTreeNodeActions.confirmDestructive(
-            title: String(format: String(localized: "coderouter.removeAccount.title", defaultValue: "Remove \u{201C}%@\u{201D} from CodeRouter?"), account.title),
+            title: String(format: String(localized: "coderouter.removeAccount.title", defaultValue: "Remove \u{201C}%@\u{201D} from coderouter?"), account.title),
             message: String(localized: "coderouter.removeAccount.message", defaultValue: "The team stops routing agents through this account. You can add it again later."),
             verb: String(localized: "coderouter.removeAccount.verb", defaultValue: "Remove")
         ) else { return }

@@ -625588,55 +625588,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هل تريد إزالة “%@” من CodeRouter؟"
+            "value": "هل تريد إزالة “%@” من coderouter؟"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "„%@“ aus CodeRouter entfernen?"
+            "value": "„%@“ aus coderouter entfernen?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove “%@” from CodeRouter?"
+            "value": "Remove “%@” from coderouter?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Eliminar “%@” de CodeRouter?"
+            "value": "¿Eliminar “%@” de coderouter?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Supprimer « %@ » de CodeRouter ?"
+            "value": "Supprimer « %@ » de coderouter ?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter から「%@」を削除しますか？"
+            "value": "coderouter から「%@」を削除しますか？"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter에서 “%@”을(를) 제거할까요?"
+            "value": "coderouter에서 “%@”을(를) 제거할까요?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "要从 CodeRouter 移除“%@”吗？"
+            "value": "要从 coderouter 移除“%@”吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "要從 CodeRouter 移除「%@」嗎？"
+            "value": "要從 coderouter 移除「%@」嗎？"
           }
         }
       }
@@ -625765,55 +625765,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter"
+            "value": "coderouter"
           }
         }
       }
@@ -625824,55 +625824,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما هو CodeRouter؟"
+            "value": "ما هو coderouter؟"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Was ist CodeRouter?"
+            "value": "Was ist coderouter?"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What Is CodeRouter?"
+            "value": "What Is coderouter?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Qué es CodeRouter?"
+            "value": "¿Qué es coderouter?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Qu’est-ce que CodeRouter ?"
+            "value": "Qu’est-ce que coderouter ?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter とは？"
+            "value": "coderouter とは？"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter란?"
+            "value": "coderouter란?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "什么是 CodeRouter？"
+            "value": "什么是 coderouter？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "什麼是 CodeRouter？"
+            "value": "什麼是 coderouter？"
           }
         }
       }
@@ -626296,55 +626296,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "شغّل Codex عبر CodeRouter على هذا الـ Mac."
+            "value": "شغّل Codex عبر coderouter على هذا الـ Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex auf diesem Mac über CodeRouter ausführen."
+            "value": "Codex auf diesem Mac über coderouter ausführen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Run Codex through CodeRouter on this Mac."
+            "value": "Run Codex through coderouter on this Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ejecuta Codex a través de CodeRouter en este Mac."
+            "value": "Ejecuta Codex a través de coderouter en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lance Codex via CodeRouter sur ce Mac."
+            "value": "Lance Codex via coderouter sur ce Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac で CodeRouter 経由で Codex を実行します。"
+            "value": "この Mac で coderouter 経由で Codex を実行します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac에서 CodeRouter를 통해 Codex를 실행합니다."
+            "value": "이 Mac에서 coderouter를 통해 Codex를 실행합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在此 Mac 上通过 CodeRouter 运行 Codex。"
+            "value": "在此 Mac 上通过 coderouter 运行 Codex。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在此 Mac 上透過 CodeRouter 執行 Codex。"
+            "value": "在此 Mac 上透過 coderouter 執行 Codex。"
           }
         }
       }
