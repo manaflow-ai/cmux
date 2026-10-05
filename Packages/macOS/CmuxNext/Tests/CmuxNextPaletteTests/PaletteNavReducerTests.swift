@@ -213,6 +213,23 @@ import Testing
         #expect(effects == [.run(levelID: level.id, rowID: "b")])
     }
 
+    /// The live case (query "settings", rows shown for it, Settings… highlighted): a refresh of the
+    /// same query (the App's data changed) made the rows "stale", Return waited, and the refreshed
+    /// rows ran another row at the old index. Rows of the current query text are what the user
+    /// sees: Return runs the highlighted one at once.
+    @Test func returnDuringARefreshOfTheSameQueryRunsTheHighlightedRow() {
+        var d = driver()
+        d.send(.open(scope: nil, query: ""), answer: false)
+        let level = d.top
+        d.send(.setQuery("settings"), answer: false)
+        d.send(.results(levelID: level.id, generation: d.top.generation, rows: F.rows(["openSettings", "toggle"]),
+                        replace: true, isFinal: true))
+        #expect(d.top.selection == "openSettings")
+        d.send(.refresh, answer: false)
+        #expect(!d.top.rowsAreCurrent)
+        #expect(d.send(.activate(nil)) == [.run(levelID: level.id, rowID: "openSettings")])
+    }
+
     @Test func streamingAppendsKeepTheSelection() {
         var d = driver()
         d.send(.open(scope: nil, query: ""), answer: false)
