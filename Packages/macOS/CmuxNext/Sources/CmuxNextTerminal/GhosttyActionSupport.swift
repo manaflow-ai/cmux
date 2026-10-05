@@ -8,5 +8,16 @@ import Foundation
 public nonisolated struct GhosttyActionSupport: Sendable {
     public init() {}
 
-    public static let unsupported: [String: GhosttyUnsupported] = [:]
+    public static let unsupported: [String: GhosttyUnsupported] = [
+        // No equivalent in cmux (coordinator decisions C1, H1).
+        "inspector": GhosttyUnsupported(.notApplicable),
+        "redo": GhosttyUnsupported(.notApplicable),
+        "toggle_background_opacity": GhosttyUnsupported(.notApplicable),
+        "float_window": GhosttyUnsupported(.notApplicable),
+        "reset_window_size": GhosttyUnsupported(.notApplicable),
+        // cmux's window.titlebar setting owns the window frame (R92 decision 1).
+        "toggle_window_decorations": GhosttyUnsupported(.superseded, replacement: "window.titlebar"),
+        // The quick terminal is its own slice (I1).
+        "toggle_quick_terminal": GhosttyUnsupported(.later),
+    ]
 }
