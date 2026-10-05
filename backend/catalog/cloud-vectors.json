@@ -1208,6 +1208,50 @@
       ]
     },
     {
+      "name": "machine.resize.grow_only",
+      "op": "cloud.machine.resize",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "machine": "vm_m0000000000000000001",
+        "size": {
+          "cpu": 1
+        }
+      },
+      "idempotency_key": "key-resize-2",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.machine.resize",
+            "error": {
+              "code": "cloud.size.grow_only",
+              "message": "a machine can only grow (vCPU, memory and disk)",
+              "retryable": false,
+              "details": {
+                "size": {
+                  "cpu": 2,
+                  "memory_mb": 4096,
+                  "disk_mb": 16384
+                }
+              }
+            },
+            "transaction": "",
+            "idempotency_key": "key-resize-2",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
+          }
+        }
+      ]
+    },
+    {
       "name": "machine.resize.size_locked",
       "op": "cloud.machine.resize",
       "class": "mutation",

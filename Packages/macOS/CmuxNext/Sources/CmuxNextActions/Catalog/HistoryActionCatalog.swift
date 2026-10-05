@@ -11,14 +11,14 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "focusHistoryBack", title: t("action.history.back", "Go Back"),
                 keywords: ["history", "previous", "location", "jump", "back", "where"],
-                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command]),
+                defaultShortcut: Shortcut("-", modifiers: [.control]),
                 category: .window, symbol: "chevron.backward", surfaces: [.palette, .keyboard, .menu],
                 cliName: "history back", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "focusHistoryForward", title: t("action.history.forward", "Go Forward"),
                 keywords: ["history", "next", "location", "jump", "forward"],
-                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .command]),
+                defaultShortcut: Shortcut("-", modifiers: [.control, .shift]),
                 category: .window, symbol: "chevron.forward", surfaces: [.palette, .keyboard, .menu],
                 cliName: "history forward", mainMenu: .window
             ),

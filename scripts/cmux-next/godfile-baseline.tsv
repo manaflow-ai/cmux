@@ -91,7 +91,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/machine_provider_runtime.rs	6508	182
 rust-file	cmux-tui/crates/cmux-tui/src/machine_provider_transport.rs	1289	75
 rust-file	cmux-tui/crates/cmux-tui/src/machine_runtime.rs	1105	54
 rust-file	cmux-tui/crates/cmux-tui/src/machine.rs	1364	63
-rust-file	cmux-tui/crates/cmux-tui/src/main.rs	3198	120
+rust-file	cmux-tui/crates/cmux-tui/src/main.rs	3177	119
 rust-file	cmux-tui/crates/cmux-tui/src/plugin_manager.rs	2140	106
 rust-file	cmux-tui/crates/cmux-tui/src/pty_input.rs	2852	107
 rust-file	cmux-tui/crates/cmux-tui/src/remote_browser_proxy.rs	1008	23

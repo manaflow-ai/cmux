@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        let next = general + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
             + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + NotificationSettingsSchema.descriptors
             + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors

@@ -367,6 +367,11 @@ impl VmHost for Gate {
     /// Every VM call: the gate's checks, the engine, then masking. A
     /// script's value stays JSON text and is masked as text (a9 raw_value).
     fn driver_call_reply(&self, method: &str, params: Value) -> Result<Reply, DriverError> {
+        // Fetch cancels come from the VM's cell timeouts and the session's
+        // end through the gate, never from agent code.
+        if method == "net.fetch.cancel" {
+            return Err(DriverError::unsupported_method(method));
+        }
         if !self.filter_enforced.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(DriverError::new(
                 ErrorCode::Forbidden,
@@ -438,6 +443,10 @@ impl VmHost for Gate {
     /// Main's native ABI (port plan D1): `secrets(op, args)` and
     /// `policy(op, args)`, reached as `native("secrets" | "policy",
     /// {op, args})`. Values never appear in an answer.
+    fn cancel_fetches(&self, cell: u64) {
+        self.cancel_cell_fetches(cell);
+    }
+
     fn native(&self, name: &str, call: Value) -> Result<Value, String> {
         let op = call["op"].as_str().unwrap_or("");
         let args = &call["args"];

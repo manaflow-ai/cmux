@@ -191,7 +191,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         return titlebarBadgeFrame.map { band.union($0) } ?? band
     }
 
+    var onHintGeometryChange: (() -> Void)?
+
     override func layout() {
+        defer { onHintGeometryChange?() }
         super.layout()
         // A reorder that added no view passed no add hook: the agent cursor goes back on top.
         if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() }
