@@ -9,7 +9,7 @@ extension AgentTabStore {
     func openFirstPage(in workspace: WorkspaceModel, on daemon: DaemonService, services: AppServices) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: localHost, hostName: localHostName)
-        let request = NewConversationTabRequest(agentSession: record, workspace: workspace.handle, origin: Self.createOrigin)
+        let request = NewConversationTabRequest(agentSession: record, workspace: workspace.handle, origin: Self.createOrigin, mutationID: UUID().uuidString)
         let response = try await connection.request(request)
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         var page = NewTabPage.page(services, selected: nil)

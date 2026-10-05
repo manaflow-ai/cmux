@@ -211,6 +211,8 @@ type Props = {
   now?: number;
 };
 
+const EMPTY_PROJECTS: Project[] = [];
+
 /// A new tab before it is anything: one field, a Terminal | Browser | Agent switch that
 /// Tab cycles, each option with its own shortcut, and the recent sessions below. Enter
 /// makes the tab that kind: a terminal running the command, a page, or a chat.
@@ -225,7 +227,7 @@ export function NewTabPage({
   location,
   defaultKind: initialDefault,
   onSetDefaultKind,
-  projects = [],
+  projects = EMPTY_PROJECTS,
   onSubmit,
   loadProjects,
   onBrowseProject,

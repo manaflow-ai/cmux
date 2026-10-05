@@ -1757,6 +1757,9 @@ function AcpmuxPane() {
       if (text) await callNative("chat.send", { text });
     })().catch(() => undefined);
   };
+  const loadNewTabProjects = useCallback(() =>
+    callNative<{ projects?: string[] }>("project.list").then((result) =>
+      (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd }))), []);
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
@@ -1904,8 +1907,7 @@ function AcpmuxPane() {
               lastAgent={newTab.lastAgent}
               cwd={newTab.cwd}
               projects={newTabProjects}
-              loadProjects={() => callNative<{ projects?: string[] }>("project.list").then((result) =>
-                (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd })))}
+              loadProjects={loadNewTabProjects}
               onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
               onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
               home={newTab.home}
@@ -1928,14 +1930,7 @@ function AcpmuxPane() {
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
-              loadProjects={() =>
-                callNative<{ projects?: string[] }>("project.list").then((result) =>
-                  (result?.projects ?? []).map((path) => ({
-                    cwd: path,
-                    label: projectName(path) ?? path.split("/").filter(Boolean).pop() ?? path,
-                  })),
-                )
-              }
+              loadProjects={loadNewTabProjects}
               chips={ComposerChips}
               onSubmit={openFromNewTab}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}

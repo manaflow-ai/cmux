@@ -8,6 +8,9 @@ jobs:
   prepare:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
+    concurrency:
+      group: newtab-preparation
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -36,6 +39,7 @@ jobs:
         continue-on-error: true
         run: cd webviews && bun run check:fix
       - name: Focused New Tab and project tests
+        timeout-minutes: 3
         continue-on-error: true
         run: cd webviews && bun test src/agent-session/acpmux/newtab src/agent-session/acpmux/NewTabPage.test.tsx src/agent-session/acpmux/omnibar.test.ts src/agent-session/acpmux/ProjectChooser.test.tsx src/agent-session/acpmux/newTabIntent.test.ts
       - name: Regenerate committed web resources
