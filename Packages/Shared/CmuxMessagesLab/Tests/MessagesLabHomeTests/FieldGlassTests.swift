@@ -85,4 +85,28 @@ import Testing
         #expect(c.host.fieldChrome.appearance?.name == .darkAqua)
         #expect(c.host.fieldChrome.plus.contentTintColor == .white)
     }
+
+    /// The caret's insertion indicator shows no effects view. AppKit's
+    /// NSTextInsertionIndicator (a subview of the compose NSTextView) puts a
+    /// glass effects bubble (input source, dictation, caps lock) just left of
+    /// the caret; with the caret 7 pt into the field, that bubble sat between
+    /// the "+" glass (x 10.5...41.5) and the field (x 56) and covered the "+"
+    /// (hmdog, 2026-10-05).
+    @Test func theCaretShowsNoEffectsBubbleOverThePlusButton() throws {
+        let (window, _, c) = host(width: 808, height: 655, items: [])
+        defer { window.close() }
+        let tv = try #require(c.demo).compose.textView.view
+        // An indicator AppKit adds later (it rebuilds them) is covered too.
+        let late = NSTextInsertionIndicator(frame: .zero)
+        #expect(late.automaticModeOptions.contains(.showEffectsView), "AppKit's default shows the effects view")
+        tv.addSubview(late)
+        window.makeFirstResponder(tv)
+        tv.layoutSubtreeIfNeeded()
+        func indicators(_ v: NSView) -> [NSTextInsertionIndicator] {
+            v.subviews.flatMap { ($0 as? NSTextInsertionIndicator).map { [$0] } ?? indicators($0) }
+        }
+        let all = indicators(tv)
+        #expect(all.contains(late))
+        for i in all { #expect(!i.automaticModeOptions.contains(.showEffectsView), "\(i.frame): no effects bubble beside the caret") }
+    }
 }
