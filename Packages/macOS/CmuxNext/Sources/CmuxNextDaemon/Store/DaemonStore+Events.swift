@@ -28,6 +28,7 @@ extension DaemonStore {
         let followup = applyState(event)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
+            ProvisionalTab.echoed(event, transaction: transaction, in: self)
             settleIntentOnEcho(transaction, needsResync: followup == .resync, sequence: sequence)
         }
         return followup

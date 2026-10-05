@@ -8,6 +8,6 @@
   "lock_sha256": "b800ba2b3b8c5baf9b1587f02cd8a80559ed5d890dccc61269b21a140fffc532",
   "baked_at": "2026-10-05T08:37:14Z",
   "smoke": "PASSED 2026-10-05T08:42:17Z (2 clones, agent bind probe, resize probe; plans/cmux-next/cloud-automation.md 19)",
-  "not_in_this_snapshot": ["cmux-cua 0.8.2", "libxkbcommon0"],
+  "not_in_this_snapshot": ["libxkbcommon0", "per-clone machine-id", "daemon identify in bind"],
   "backend_var": "CLOUD_FREESTYLE_SNAPSHOT for ENVIRONMENT=development (backend lead sets it; prefix cmuxnp-dev-vmimg- is enforced)"
 }

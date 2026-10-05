@@ -82,6 +82,46 @@ describe("BridgePageClient", () => {
     expect(await client.call("x", {}).catch((e) => e.code)).toBe("cmux.protocol.invalid_result");
   });
 
+  // op.cancel (app-op-routing.md "Op cancel"): an aborted call rejects at once with
+  // cmux.op.cancelled and tells the host to cancel the op ({t:"cancel", id}). A cancelled mutation
+  // is indeterminate, so the error is retryable and names the opid a retry must reuse.
+  test("an aborted call sends cancel for its id and rejects at once with cmux.op.cancelled", async () => {
+    let release: (value: unknown) => void = () => undefined;
+    const { client, posted } = host((m) =>
+      m.t === "call" ? new Promise((resolve) => (release = resolve)) : null,
+    );
+    const controller = new AbortController();
+    const pending = client.call("cmux.cloud.files.push", { path: "/a" }, { opid: "op-1", signal: controller.signal });
+    controller.abort();
+    const error = await pending.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(isPageError(error) && error.code).toBe("cmux.op.cancelled");
+    expect(isPageError(error) && error.retryable).toBe(true);
+    expect(isPageError(error) && (error.details as { opid?: string } | undefined)?.opid).toBe("op-1");
+    expect(posted).toEqual([
+      { t: "call", id: 1, op: "cmux.cloud.files.push", params: { path: "/a" }, opid: "op-1" },
+      { t: "cancel", id: 1 },
+    ]);
+    // The host's late answer for the cancelled id is ignored.
+    release({ t: "ok", id: 1, value: { done: true } });
+    await Promise.resolve();
+    // A retry reuses the opid (the caller passes it again); it is a new call id.
+    const retry = host((m) => ({ t: "ok", id: m.id, value: {} }));
+    await retry.client.call("cmux.cloud.files.push", { path: "/a" }, { opid: "op-1" });
+    expect(retry.posted[0].opid).toBe("op-1");
+  });
+
+  test("a signal aborted before the call posts nothing", async () => {
+    const { client, posted } = host(() => ({ t: "ok", id: 1, value: {} }));
+    const controller = new AbortController();
+    controller.abort();
+    const error = await client.call("cmux.cloud.files.push", {}, { signal: controller.signal }).catch((e: unknown) => e);
+    expect(isPageError(error) && error.code).toBe("cmux.op.cancelled");
+    expect(posted).toEqual([]);
+  });
+
   test("events reach the subscriber in order; duplicates and old seqs are dropped", async () => {
     const { client, target, posted } = host((m) =>
       m.t === "sub" ? { t: "ok", id: m.id, value: { sub: 7 } } : { t: "ok", id: m.id },

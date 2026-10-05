@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47. */
+/* cmux-tui mux protocol 12, IR 0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47" as const;
+export const SDK_IR_SHA256 = "0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1338,6 +1338,10 @@ export const COMMAND_METADATA = {
       "agent_session": {
         "since": null,
         "capability": "agent-session-tabs-v1"
+      },
+      "transaction": {
+        "since": null,
+        "capability": "conversation-tab-transaction-v1"
       }
     },
     "stream": null,
@@ -15184,6 +15188,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "transaction": {
+          "capability": "conversation-tab-transaction-v1",
+          "default": null,
+          "description": "Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "workspace": {
           "default": null,
           "nullable": true,
@@ -15234,6 +15249,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "tab_resource_id": {
           "nullable": true,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transaction": {
+          "description": "The request's transaction, when it sent one.",
+          "nullable": false,
+          "presence": "optional",
           "type": {
             "kind": "scalar",
             "name": "string"

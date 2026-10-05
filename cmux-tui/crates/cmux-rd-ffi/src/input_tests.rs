@@ -289,3 +289,48 @@ fn small_buffer_keeps_the_packet() {
     assert_eq!(sent[0].len(), len);
     assert_eq!(decode(&sent[0]).events, vec![InputEvent::Key { usage: 4, down: true }]);
 }
+
+#[test]
+fn older_lost_events_repeat_while_new_input_keeps_flowing() {
+    let h = input(CMUX_RD_CARRIER_DATAGRAM);
+    let mut host = InputApplier::new(200_000);
+    for x in 0..40 {
+        push(&h, &CmuxRdInputEvent { x, ..blank(CMUX_RD_INPUT_POINTER) });
+    }
+    // The first burst is lost.
+    assert!(!packets(&h, 0).is_empty());
+    let mut now = 0;
+    let mut applied = Vec::new();
+    // New motion every 8 ms keeps a never-sent event in the queue.
+    while now < 150_000 {
+        now += 8_000;
+        push(&h, &CmuxRdInputEvent { x: 1_000, ..blank(CMUX_RD_INPUT_POINTER) });
+        for d in packets(&h, now) {
+            applied.extend(host.accept(&decode(&d), now));
+            ack(&h, &ack_datagram(host.applied()));
+        }
+    }
+    // The lost events were repeated before the host's gap timeout.
+    assert!(!host.take_skipped_gap());
+    assert_eq!(applied.first(), Some(&InputEvent::Pointer { x: 0, y: 0 }));
+}
+
+#[test]
+fn packet_writes_out_len_on_every_path() {
+    let mut len = 99;
+    let mut buf = [0u8; 8];
+    // SAFETY: NULL handle is refused before any access; buffer and length are writable.
+    let rc = unsafe {
+        cmux_rd_input_packet(std::ptr::null_mut(), 0, buf.as_mut_ptr(), buf.len(), &mut len)
+    };
+    assert_eq!(rc, CMUX_RD_ERR_NULL);
+    assert_eq!(len, 0);
+    // The receiver's feedback call follows the same rule.
+    len = 99;
+    // SAFETY: as above.
+    let rc = unsafe {
+        cmux_rd_receiver_feedback(std::ptr::null_mut(), 0, buf.as_mut_ptr(), buf.len(), &mut len)
+    };
+    assert_eq!(rc, CMUX_RD_ERR_NULL);
+    assert_eq!(len, 0);
+}

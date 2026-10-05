@@ -524,6 +524,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
+        conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
@@ -1500,7 +1501,6 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
-    /// `conversation-tabs-v1`, `agent-session-tabs-v1` (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).

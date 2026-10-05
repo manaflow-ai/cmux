@@ -60,6 +60,13 @@ impl InputSender {
         self.queue.iter().any(|o| o.sends == 0)
     }
 
+    /// True when the oldest unacknowledged event went out at least once: the
+    /// viewer's resend timer then repeats the oldest window
+    /// ([`Self::repeat_packet`]).
+    pub fn oldest_was_sent(&self) -> bool {
+        self.queue.front().is_some_and(|o| o.sends > 0)
+    }
+
     /// Drops events the host applied (`applied` = newest applied sequence).
     pub fn ack(&mut self, applied: u32) {
         while self.base <= applied && !self.queue.is_empty() {
@@ -75,11 +82,10 @@ impl InputSender {
     /// first never-sent event, it starts at that event instead, so new input
     /// is never held behind repeats. Events that used all sends are dropped
     /// from the front (the host skips the gap after its timeout).
+    /// Pair it with [`Self::repeat_packet`] on a timer, so events behind
+    /// the jump still repeat while new input keeps flowing.
     pub fn packet(&mut self) -> Option<InputPacket> {
-        while self.queue.front().is_some_and(|o| o.sends >= MAX_SENDS && !is_release(&o.event)) {
-            self.queue.pop_front();
-            self.base = self.base.wrapping_add(1);
-        }
+        self.drop_exhausted();
         if self.queue.is_empty() {
             return None;
         }
@@ -87,6 +93,28 @@ impl InputSender {
             Some(unsent) if self.window_len(0) <= unsent => unsent,
             _ => 0,
         };
+        Some(self.window(start))
+    }
+
+    /// The window that starts at the oldest unacknowledged event, whether or
+    /// not newer events wait: the repeat the viewer's resend timer sends.
+    pub fn repeat_packet(&mut self) -> Option<InputPacket> {
+        self.drop_exhausted();
+        if self.queue.is_empty() {
+            return None;
+        }
+        Some(self.window(0))
+    }
+
+    fn drop_exhausted(&mut self) {
+        while self.queue.front().is_some_and(|o| o.sends >= MAX_SENDS && !is_release(&o.event)) {
+            self.queue.pop_front();
+            self.base = self.base.wrapping_add(1);
+        }
+    }
+
+    /// Takes the window at queue position `start` and counts one send for each event.
+    fn window(&mut self, start: usize) -> InputPacket {
         let len = self.window_len(start);
         let first_seq = self.base.wrapping_add(start as u32);
         let events = self
@@ -95,11 +123,12 @@ impl InputSender {
             .skip(start)
             .take(len)
             .map(|out| {
-                out.sends += 1;
+                // A release repeats until acknowledged, so the count saturates.
+                out.sends = out.sends.saturating_add(1);
                 out.event.clone()
             })
             .collect();
-        Some(InputPacket { first_seq, events })
+        InputPacket { first_seq, events }
     }
 
     /// How many events from queue position `start` fit one packet (at least one).
@@ -173,6 +202,23 @@ impl InputApplier {
             }
         }
         self.drain(now_us)
+    }
+
+    /// Discards a packet the session may not inject (no control): every
+    /// sequence number through the packet's last counts as applied, so the
+    /// host's next `InputAck` stops the viewer's repeats, and a late repeat
+    /// is never injected after control is granted.
+    pub fn refuse(&mut self, packet: &InputPacket) {
+        let Some(n) = u32::try_from(packet.events.len()).ok().filter(|n| *n > 0) else {
+            return;
+        };
+        let last = packet.first_seq.wrapping_add(n - 1);
+        if last >= self.next {
+            self.next = last.wrapping_add(1);
+        }
+        // Held events arrived without control too; none of them may apply.
+        self.held.clear();
+        self.gap_since_us = None;
     }
 
     /// Advances time; after the gap timeout, skips a missing event.

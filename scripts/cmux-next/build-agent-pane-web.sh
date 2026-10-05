@@ -21,6 +21,13 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
+# The pane's strings (acpmux/Localizable.xcstrings -> generated/strings.json) must be current. The
+# bundle does not inline them: they ship as locales/<code>.js beside index.html, and the <head>
+# loader runs English plus the app's language synchronously, before the module (no frame of
+# English, no fetch before first paint).
+node scripts/pages/gen-strings.mjs --check agentPane
+LOADER="$(node scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.json" "$WORK/locales" __cmuxPaneStrings)"
+
 # `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
 # common languages, not every grammar and the WebAssembly engine. The React Compiler
 # runs on first-party sources, as in the Vite dev server; skipped components are listed.
@@ -33,16 +40,18 @@ cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/a
   "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/newtab/screen.css" >> "$WORK/styles.css"
 
-# Inline script and style, loopback WebSocket only. No remote loads, no eval. Frames show
+# Inline script and style plus the same-origin locale scripts, loopback WebSocket only. No remote loads, no eval. Frames show
 # only loopback web pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts).
-CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src ws://127.0.0.1:* ws://localhost:*; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+CSP="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src ws://127.0.0.1:* ws://localhost:*; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'
   printf '<meta charset="utf-8" />\n'
   printf '<meta http-equiv="Content-Security-Policy" content="%s" />\n' "$CSP"
   printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
-  printf '<title>cmux Agent</title>\n<style>\n'
+  printf '<title>cmux Agent</title>\n'
+  printf '%s\n' "$LOADER"
+  printf '<style>\n'
   cat "$WORK/styles.css"
   printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module">\n'
   perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$WORK/app.js"
@@ -50,7 +59,7 @@ CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; 
 } | perl -pe 's/[ \t]+$//' > "$WORK/index.html"
 
 if [ "$MODE" = "--check" ]; then
-  if ! cmp -s "$WORK/index.html" "$OUT/index.html"; then
+  if ! cmp -s "$WORK/index.html" "$OUT/index.html" || ! diff -rq "$WORK/locales" "$OUT/locales" >/dev/null 2>&1; then
     echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh (after merging feat-cmux-next: scripts/cmux-next/regenerate-web-bundles.sh)" >&2
     exit 1
   fi
@@ -60,4 +69,6 @@ fi
 
 mkdir -p "$OUT"
 cp "$WORK/index.html" "$OUT/index.html"
+rm -rf "$OUT/locales"
+cp -R "$WORK/locales" "$OUT/locales"
 echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes)"

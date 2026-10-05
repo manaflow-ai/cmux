@@ -50,6 +50,9 @@ public struct NewConversationTabRequest: DaemonRequest {
     public var workspace: WorkspaceHandle?
     public var origin: String?
     public var mutationID: String?
+    /// Echoed on the event that adds the tab (`conversation-tab-transaction-v1`), so a create
+    /// intent settles on whichever arrives first, that event or the reply.
+    public var transaction: ClientTransactionID?
 
     public init(conversation: String, owner: String = "local", pane: PaneID? = nil, workspace: WorkspaceHandle? = nil,
                 origin: String? = nil, mutationID: String? = nil) {
@@ -62,15 +65,17 @@ public struct NewConversationTabRequest: DaemonRequest {
     }
 
     /// An agent chat tab in `pane` on `agentSession` (`agent-session-tabs-v1`).
-    public init(agentSession: AgentSessionRef, pane: PaneID, origin: String? = nil, mutationID: String? = nil) {
+    public init(agentSession: AgentSessionRef, pane: PaneID, origin: String? = nil, mutationID: String? = nil,
+                transaction: ClientTransactionID? = nil) {
         self.agentSession = agentSession
         self.pane = pane
         self.origin = origin
         self.mutationID = mutationID
+        self.transaction = transaction
     }
 
     enum CodingKeys: String, CodingKey {
-        case conversation, owner, pane, workspace, origin
+        case conversation, owner, pane, workspace, origin, transaction
         case agentSession = "agent_session"
         case mutationID = "mutation_id"
     }

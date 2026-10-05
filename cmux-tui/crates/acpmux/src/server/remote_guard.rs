@@ -38,6 +38,30 @@ use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::path::Path;
 
+/// The rules a control request from `origin` runs under. A proven peer
+/// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
+pub(super) fn control_of(origin: super::Origin, params: &Value) -> crate::hub::Control {
+    use crate::hub::Control;
+    match origin {
+        super::Origin::Local | super::Origin::LocalApp => Control::Local,
+        super::Origin::Web => Control::Web,
+        super::Origin::Peer
+            if params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("web") =>
+        {
+            Control::Web
+        }
+        super::Origin::Peer => Control::Peer,
+    }
+}
+
+/// A request forwarded to a peer, which serves this daemon as Peer: one
+/// this daemon holds to the Web's rules says so, and the peer applies them.
+pub(super) fn mark_forwarded(origin: super::Origin, params: &Value, forwarded: &mut Value) {
+    if control_of(origin, params) == crate::hub::Control::Web {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
+    }
+}
+
 fn refused(what: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "{what} is accepted only over the local unix socket, never from a WebSocket connection"
@@ -52,7 +76,7 @@ pub(super) async fn check(
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
-    let web = origin == super::Origin::Web;
+    let web = origin.web_class();
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
@@ -128,7 +152,7 @@ pub(super) async fn check(
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
-        web_starts_asking(hub, m, params).await?;
+        web_starts_asking(hub, control_of(origin, params), m, params).await?;
     }
     Ok(())
 }
@@ -159,11 +183,15 @@ pub(super) fn after(
     key: Option<&str>,
     reply: &mut Result<Value, RpcError>,
 ) {
+    // A set from the unix socket or the local app to an asking mode clears
+    // the sticky flag; any write that leaves the table set it already
+    // (`Hub::write_mode_state`).
     if matches!(m, method::SESSION_SET_MODE | method::SESSION_SET_CONFIG_OPTION)
+        && !origin.web_class()
         && reply.is_ok()
         && let Some(s) = key.and_then(|k| hub.resolve(k).ok())
     {
-        hub.note_mode(&s, origin != super::Origin::Web);
+        hub.restore_web_control(&s);
     }
     if origin != super::Origin::Local
         && let Ok(v) = reply
@@ -194,6 +222,9 @@ pub(super) async fn settle_web_session_mode(
         let _ = hub.kill(s, true).await;
         return Err(refuse());
     }
+    // The daemon's own move to the asking default clears the flag its
+    // starting mode set.
+    hub.restore_web_control(s);
     Ok(())
 }
 
@@ -290,6 +321,7 @@ fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
 ///   harness, which a fork copies.
 async fn web_starts_asking(
     hub: &std::sync::Arc<crate::hub::Hub>,
+    control: crate::hub::Control,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
@@ -316,23 +348,40 @@ async fn web_starts_asking(
             "{m} from a remote WebSocket connection is refused: it carries a mode field"
         )));
     }
-    // Web CONTROL of a session (not reads) ends when its mode leaves the
-    // asking table (`hub/web_control.rs`).
+    // Web CONTROL of a session (not reads) needs its current mode in the
+    // asking table and no drift since (`hub/web_control.rs`); the hub checks
+    // again at dispatch.
     let controls = matches!(
         m,
         method::SESSION_PROMPT
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
     );
+    if m == method::MUX_HANDOFF_START {
+        // The handoff prompts its target: the same rule as a prompt there.
+        let target = params
+            .get("handoffId")
+            .and_then(Value::as_str)
+            .and_then(|id| hub.handoff_target_id(id))
+            .and_then(|id| hub.resolve(&id).ok());
+        if let Some(t) = target {
+            hub.web_control_check(&t, control)?;
+        }
+        return Ok(());
+    }
     if !(copies || sets_mode || controls) {
         return Ok(());
     }
-    // A prompt or answer for a session not held here (a peer's) goes to that
-    // peer, whose own guard checks this Web connection's control there.
-    if controls && !sets_mode {
-        return match super::session_key(params).and_then(|key| hub.resolve(key)) {
-            Ok(s) => hub.web_control_check(&s),
-            Err(_) => Ok(()),
+    if controls {
+        let key = super::session_key(params)?;
+        return match hub.resolve(key) {
+            Ok(s) => hub.web_control_check(&s, control),
+            // A configured peer's session: forwarded with `via: web`, so
+            // that peer applies the Web's rules on its own fresh state.
+            Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
+            // A local not-found or ambiguous key is refused, never assumed
+            // to be a peer's.
+            Err(e) => Err(e),
         };
     }
     // The handler's own resolution; a source it cannot resolve (unknown, or
@@ -344,7 +393,7 @@ async fn web_starts_asking(
         ))
     })?;
     if sets_mode {
-        hub.web_control_check(&s)?;
+        hub.web_control_check(&s, control)?;
     }
     let meta = s.meta();
     if sets_mode {

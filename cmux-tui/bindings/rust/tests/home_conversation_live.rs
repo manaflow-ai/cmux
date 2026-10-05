@@ -205,6 +205,7 @@ fn home_and_conversation_results_live_daemon() {
             owner: Optional::Value("local".into()),
             pane: Optional::Missing,
             rows: Optional::Missing,
+            transaction: Optional::Missing,
             workspace: Optional::Value(raw_home),
         })
         .unwrap();

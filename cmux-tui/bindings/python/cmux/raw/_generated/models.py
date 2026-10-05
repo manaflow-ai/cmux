@@ -2678,6 +2678,7 @@ class NewConversationTabRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2688,6 +2689,7 @@ class NewConversationTabResult:
     conversation: ConversationTabRecord
     replayed: bool
     tab_resource_id: Union[str, None]
+    transaction: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
