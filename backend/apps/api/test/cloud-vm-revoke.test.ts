@@ -1,6 +1,8 @@
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
+import { env } from "cloudflare:workers"
+import { registerVmInstall } from "../src/cloud-vm.ts"
 import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /**
@@ -71,5 +73,31 @@ describe("VM install revocation on every terminal state", { timeout: 60_000 }, (
       return i.vmRevokes.pending()
     })
     expect(again).toEqual([])
+  })
+
+  it("crash window: an install registered for a bind that never committed is revoked by the alarm after a grace; a bound one is kept", async () => {
+    const a = await signedInWithInstall("cloud-bind-2", "mac")
+    const created = await post("/v1/ops", a.session, { op: "cloud.machine.create", params: { size: SIZE }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const machine = created.body.value.machine.id as string
+    const stub = cloudStub(a.team)
+    const key = await vmKey()
+    // The object recorded the registration and UserDO made the install, then the object died before the bind commit.
+    const orphan = await inDo(stub, async (i) => {
+      const reg = { creator: a.user, team: a.team, machine, epoch: 1, jwk: key.jwk }
+      i.vmRevokes.beginRegister(reg, Date.now() + i.skewMs)
+      const r = await registerVmInstall(env as never, reg)
+      return r.ok ? r.id : ""
+    })
+    const isRevoked = async (id: string) => (await read(a.session, "install.list", {})).body.value.installs.find((x: any) => x.id === id).revoked_at !== null
+    await fireAlarm(stub)
+    expect(await isRevoked(orphan)).toBe(false)
+    await stub.fakeControl({ advance_ms: 11 * 60_000 } as never)
+    await fireAlarm(stub)
+    expect(await isRevoked(orphan)).toBe(true)
+    // A completed bind leaves nothing for the pass to revoke.
+    const s = await bound("cloud-bind-1")
+    await s.stub.fakeControl({ advance_ms: 11 * 60_000 } as never)
+    await fireAlarm(s.stub)
+    expect(await s.revoked()).toBe(false)
   })
 })
