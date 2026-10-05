@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// `server ensure --terminal-reap-grace-seconds` exists only in cmux-tui
-/// builds that list it in `--help`. The launcher passes it only to such a
+/// builds that list it in root or scoped startup help. The launcher passes it only to such a
 /// build, so an older or release client still starts its owner instead of
 /// failing with `usage.invalid`.
 @Suite struct LauncherReapGraceCapabilityTests {
