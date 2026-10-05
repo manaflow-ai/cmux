@@ -84,6 +84,9 @@ enum DebugShowcase {
                 do {
                     let id = try await services.windows.createWorkspace(spawn, into: windowID)
                     services.showcase.workspaces[name] = id
+                    if let controller = services.windows.controller(for: windowID) {
+                        services.windows.claim(workspaceID: id, in: controller.state, select: false)
+                    }
                     services.windows.reconcileMembership()
                 } catch {
                     services.daemon.logger.error("showcase workspace \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")

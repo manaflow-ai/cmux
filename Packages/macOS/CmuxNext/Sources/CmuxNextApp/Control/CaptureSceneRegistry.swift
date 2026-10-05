@@ -42,9 +42,11 @@ final class CaptureSceneRegistry {
                 "scene": .string(name),
             ])
         }
-        guard services.windows.active?.window != nil || services.windows.controllers.first?.window != nil else {
+        guard let targetWindow = services.windows.active ?? services.windows.controllers.first,
+              targetWindow.window != nil else {
             return .object(["error": .string("no app window is ready"), "scene": .string(name)])
         }
+        let targetWindowID = targetWindow.state.id
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
         // then make the named capture visibly different while preserving real app ownership.
@@ -59,8 +61,8 @@ final class CaptureSceneRegistry {
                 // Workspace creation and agent-tab insertion are asynchronous production paths.
                 // A display frame alone is not evidence that the fixture is visible.
                 self.services.showcase.workspaces.count >= 3
-                    && self.services.windows.registry.members(of: self.services.windows.active?.state.id ?? "").count >= 3
-                    && self.services.windows.active?.sidebar.model.sections.flatMap(\.workspaces).contains { $0.rowState != .placeholder } == true
+                    && self.services.windows.registry.members(of: targetWindowID).count >= 3
+                    && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { $0.rowState != .placeholder } == true
                     && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
                     return view.webView.window != nil && !view.webView.isLoading
@@ -77,7 +79,7 @@ final class CaptureSceneRegistry {
                 "scene": .string(definition.name),
                 "frames": frameStats,
                 "workspaces": .number(Double(services.showcase.workspaces.count)),
-                "window_workspaces": .number(Double(services.windows.registry.members(of: services.windows.active?.state.id ?? "").count)),
+                "window_workspaces": .number(Double(services.windows.registry.members(of: targetWindowID).count)),
                 "agent_tabs": .number(Double(services.showcase.agentTabs.count)),
             ])
         }
@@ -101,7 +103,7 @@ final class CaptureSceneRegistry {
 
         let sceneAction = await applySceneAction(definition.name)
         var snapshotParams = params
-        snapshotParams["kind"] = .string("main")
+        snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         guard case .object(var result) = snapshot else { return snapshot }
         guard (result["webviews_composited"]?.intValue ?? 0) > 0 else {
@@ -115,7 +117,7 @@ final class CaptureSceneRegistry {
         result["settled_ms"] = settled.map(JSONValue.number) ?? .null
         result["frames"] = frameStats
         result["workspaces"] = .number(Double(services.showcase.workspaces.count))
-        result["window_workspaces"] = .number(Double(services.windows.registry.members(of: services.windows.active?.state.id ?? "").count))
+        result["window_workspaces"] = .number(Double(services.windows.registry.members(of: targetWindowID).count))
         result["agent_tabs"] = .number(Double(services.showcase.agentTabs.count))
         result["turn"] = turn
         result["readiness"] = readiness
