@@ -14,6 +14,8 @@ Checks, each through the app's own sockets:
   restore  an edit, its draft, an app crash (debug.crash.app), a change on disk, a relaunch: the
            notice's Open opens the draft as unsaved changes with the conflict toast, and the file
            keeps the other writer's bytes.
+  picker   the diff-open action from the socket without focus (an agent or the CLI): it refuses
+           with the needsFocus text and no picker appears over the window.
 Synthetic events: debug.key (and debug.mouse) post NSEvents that DO set the page's
 lastUserEventUptime, so the gesture steps prove the host's gesture path only loosely (a
 synthetic event stands in for the person's). Steps that use debug.key: the keys step (Cmd-K,
@@ -236,6 +238,18 @@ try:
         wait(lambda: "Docs home" in text_of("cmux.markdown"), 5)
     else:
         expect("a link click follows other.md (needed for Cmd-[ and Cmd-])", False, "UNVERIFIED: the click did not follow")
+
+    # The cmux pickers open only when the run may change the view (React UIs lead review).
+    for action in ("palette.openDirectoryDiffViewer", "openDiffViewer"):
+        reply = rpc("action.run", {"action": action, "origin": "cli"})
+        text = json.dumps(reply)
+        print(f"{action} without focus: {text[:240]}", flush=True)
+        expect(f"{action} without focus refuses with the needsFocus text",
+               "The picker opens only when focus is requested." in text, text[:300])
+        time.sleep(0.8)  # test harness: a picker would be on screen by now
+        focus = rpc("debug.focus") or {}
+        expect(f"{action} without focus shows no picker", (focus.get("context") or {}).get("palette_open") is False,
+               json.dumps(focus.get("context")))
 
     tab = tab_of("cmux.markdown", README)
     link = {"key": tab["key"], "href": "../outside/secret.txt", "target": SECRET} if tab else None
