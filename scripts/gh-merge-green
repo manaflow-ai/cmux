@@ -271,7 +271,7 @@ if [ "$base" = feat-cmux-next ]; then
     "cmux-next Release compile (Xcode 26)" \
     "cmux app scheme compile (Debug)" \
     "cmux-next swift test"; do
-    if grep -Fq -- "$next_check"$'\t' <<<"$runs"; then
+    if awk -F '\t' -v expected="$next_check" '$1 == expected { found = 1 } END { exit !found }' <<<"$runs"; then
       must+=("$next_check")
     fi
   done
