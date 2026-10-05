@@ -84,27 +84,50 @@ struct CloudDisplayMembershipProjectionTests {
          CmuxTuiSnapshotParser.resources(from: state).first { $0.kind == .terminal }].compactMap { $0 }
     }
 
-    @Test("A closed display view stays fenced until a fetched graph drops its token")
-    func closedDisplayViewIsNotRebuiltFromAStaleGraph() throws {
+    @Test("Closing a display pane removes the display from its workspace for every client")
+    func closedDisplayIsNotRebuiltFromAnyClientsToken() async throws {
         let catalog = SurfaceCatalog()
+        let provider = CloudDisplayMembershipTestProvider(machine: machine)
+        catalog.register(provider)
         let coordinator = CloudPlacementCoordinator()
-        let withToken = try state(revision: 1)
-        let token = try #require(withToken.displayMemberships.first)
-        let placement = SurfaceResourcePlacement(
-            resource: SurfaceResourceID(machine: machine, kind: .display, key: displayID),
-            remoteWorkspaceID: workspaceID,
-            cloudDisplayMembershipViewID: token.viewID
-        )
-        #expect(!coordinator.isPendingClose(placement, on: machine))
-        coordinator.closedDisplayViews[machine, default: [:]][token.viewID] = token
-        // The graph that still holds the token (the close's removal has not
-        // landed) must not rebuild the pane.
-        coordinator.settleClosedDisplayViews(withToken, catalog: catalog)
+        let display = SurfaceResourceID(machine: machine, kind: .display, key: displayID)
+        // Another client's view of the same display in the same workspace.
+        let otherClients = SurfaceResourcePlacement(resource: display, remoteWorkspaceID: workspaceID,
+                                                    cloudDisplayMembershipViewID: "panel-b")
+        let pane = SurfaceProjection(resource: display, workspaceID: UUID(), panelID: UUID(),
+                                     remoteWorkspaceID: workspaceID, remoteTabID: nil)
+        #expect(!coordinator.isPendingClose(otherClients, on: machine))
+        // Closed before this pane's own token reached the local graph.
+        coordinator.projectionDidEnd(pane, reason: .paneClosed, catalog: catalog)
+        #expect(coordinator.isPendingClose(otherClients, on: machine))
+        #expect(await provider.removed.result == "\(displayID)@\(workspaceID)")
+        // A graph fetched before the removal landed still holds the other
+        // client's token; it must not rebuild the pane.
+        let stale = try state(revision: 1, memberships: [["display_id": displayID, "client_id": "mac-b", "view_id": "panel-b"]])
+        coordinator.settleClosedDisplays(stale, catalog: catalog)
+        #expect(coordinator.isPendingClose(otherClients, on: machine))
+        coordinator.settleClosedDisplays(try state(revision: 2, memberships: []), catalog: catalog)
+        #expect(!coordinator.isPendingClose(otherClients, on: machine))
+        #expect(coordinator.closedDisplays.isEmpty)
+    }
+
+    @Test("Opening the display here again lifts its removal")
+    func reopenedDisplayLiftsTheFence() {
+        let catalog = SurfaceCatalog()
+        catalog.register(CloudDisplayMembershipTestProvider(machine: machine))
+        let coordinator = CloudPlacementCoordinator()
+        let display = SurfaceResourceID(machine: machine, kind: .display, key: displayID)
+        let placement = SurfaceResourcePlacement(resource: display, remoteWorkspaceID: workspaceID,
+                                                 cloudDisplayMembershipViewID: "panel-b")
+        coordinator.projectionDidEnd(SurfaceProjection(resource: display, workspaceID: UUID(), panelID: UUID(),
+                                                       remoteWorkspaceID: workspaceID, remoteTabID: nil),
+                                     reason: .paneClosed, catalog: catalog)
         #expect(coordinator.isPendingClose(placement, on: machine))
-        let withoutToken = try state(revision: 2, memberships: [])
-        coordinator.settleClosedDisplayViews(withoutToken, catalog: catalog)
+        coordinator.syncCloudDisplayMembership(
+            projection: SurfaceProjection(resource: display, workspaceID: UUID(), panelID: UUID(),
+                                          remoteWorkspaceID: workspaceID, remoteTabID: nil),
+            catalog: catalog)
         #expect(!coordinator.isPendingClose(placement, on: machine))
-        #expect(coordinator.closedDisplayViews[machine] == nil)
     }
 
     @Test("A workspace display with its own local pane is one sidebar row")
@@ -233,5 +256,39 @@ struct CloudDisplayMembershipProjectionTests {
         #expect(first.displayMemberships.first?.displayID == reconnected.displayMemberships.first?.displayID)
         #expect(first.displayMemberships.first?.workspaceID == reconnected.displayMemberships.first?.workspaceID)
         #expect(first.displayMemberships.first?.viewID != reconnected.displayMemberships.first?.viewID)
+    }
+}
+
+/// Records membership writes; nothing else about the provider is exercised.
+@MainActor
+private final class CloudDisplayMembershipTestProvider: SurfaceProvider, CloudDisplayMembershipSyncing {
+    let machine: SurfaceMachineID
+    let info: SurfaceMachineInfo
+    let removed = CloudLinkFirstValue<String>()
+
+    init(machine: SurfaceMachineID) {
+        self.machine = machine
+        info = SurfaceMachineInfo(id: machine, name: machine.rawValue, status: "running", image: nil, hasDesktop: true,
+                                  memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+                                  cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
+    }
+
+    func refresh() async {}
+    func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+        throw SurfaceCatalogError.unsupported("materialize")
+    }
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination,
+                     focus: Bool) async throws -> SurfaceProjection {
+        throw SurfaceCatalogError.unsupported("materialize")
+    }
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
+        throw SurfaceCatalogError.unsupported("createTerminal")
+    }
+    func projectionDidEnd(_ projection: SurfaceProjection) {}
+
+    func cloudDisplayMembershipWorkspace(displayID: String, panelID: UUID) async throws -> String? { nil }
+    func syncCloudDisplayMembership(displayID: String, workspaceID: String, panelID: UUID, attached: Bool) async throws {}
+    func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws {
+        removed.resolve("\(displayID)@\(workspaceID)")
     }
 }
