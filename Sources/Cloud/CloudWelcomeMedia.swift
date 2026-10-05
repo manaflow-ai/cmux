@@ -307,10 +307,9 @@ struct CloudWelcomeMediaCarousel: View {
             Image(systemName: slide.symbol)
                 .cmuxFont(size: 34, weight: .light)
                 .foregroundStyle(Color.accentColor)
-            Text(verbatim: "\(slide.id).mp4")
-                .cmuxFont(size: 11)
-                .monospaced()
-                .foregroundStyle(.tertiary)
+            Text(slide.title)
+                .cmuxFont(size: 12, weight: .medium)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(

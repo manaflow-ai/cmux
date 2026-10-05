@@ -37,12 +37,10 @@ struct CloudWelcomeView: View {
     var sliderAutoplays = true
     var sliderShowsFeatureList = false
     var sliderListUsesDots = false
-    var showsNewBadge = true
 
     static let windowWidth: CGFloat = 580
     /// The list layouts put the features beside the clip, so they need more room.
     static let listWindowWidth: CGFloat = 680
-    private static let panelCornerRadius: CGFloat = 16
 
     var body: some View {
         VStack(spacing: 0) {
@@ -125,35 +123,16 @@ struct CloudWelcomeView: View {
         }
         .padding(EdgeInsets(top: 22, leading: 24, bottom: 16, trailing: 24))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Self.panelCornerRadius, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Self.panelCornerRadius, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
-        )
     }
 
-    /// "Introducing" over "cmux cloud" and a "new" badge. The name is the
-    /// product, not a sentence, so it is the same in every language.
+    /// The product name sits below the short introductory eyebrow.
     private var title: some View {
         VStack(spacing: 2) {
             Text(String(localized: "cloud.welcome.title.eyebrow", defaultValue: "Introducing"))
                 .cmuxFont(size: 13, weight: .medium)
                 .foregroundStyle(.secondary)
-            HStack(alignment: .center, spacing: 10) {
-                Text(verbatim: "cmux cloud")
-                    .cmuxFont(size: 30, weight: .bold)
-                if showsNewBadge {
-                Text(String(localized: "cloud.welcome.newBadge", defaultValue: "New").lowercased(with: .current))
-                    .cmuxFont(size: 12, weight: .medium)
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 8)
-                    .frame(height: 20)
-                    .background(Capsule(style: .continuous).fill(Color.accentColor.opacity(0.18)))
-                }
-            }
+            Text(verbatim: "cmux cloud")
+                .cmuxFont(size: 30, weight: .bold)
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)

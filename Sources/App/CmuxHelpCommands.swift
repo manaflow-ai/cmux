@@ -54,9 +54,6 @@ extension cmuxApp {
                     sliderListUsesDots: true
                 )
             }
-            Button(String(localized: "debug.menu.toggleCloudWelcomeBadge", defaultValue: "Toggle Cloud Welcome “New” Badge")) {
-                AppDelegate.shared?.cloudWelcomeWindowController.toggleNewBadge()
-            }
             Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
                 ProWelcomeChecklistPresenter.present()
             }
