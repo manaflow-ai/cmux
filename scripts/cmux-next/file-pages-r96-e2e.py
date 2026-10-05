@@ -124,9 +124,10 @@ def palette_open():
 def open_file(path, kind):
     """`cmux file open` over the socket (the CLI entry point); when its tab gets no page, Open File...
     from the palette (the cmux picker in file mode, a typed path, Return)."""
-    # Origin cli with focus, as `cmux file open --focus` sends it (without focus the tab opens in
-    # the background and its page is made when the tab shows: ActionInvocation.allowsViewChange).
-    reply = rpc("action.run", {"action": "file open", "args": {"path": path, "where": "tab", "focus": True}, "origin": "cli"})
+    # Origin cli with focus requested on the run (file.open itself has no focus argument; without
+    # it the tab opens in the background and its page is made when the tab shows:
+    # ActionInvocation.allowsViewChange).
+    reply = rpc("action.run", {"action": "file open", "args": {"path": path, "where": "tab"}, "focus": True, "origin": "cli"})
     tab = wait(lambda: (lambda t: t if t and t.get("has_page") else None)(tab_of(kind, path)), 15)
     print(f"file open {os.path.basename(path)} over the socket: ran={reply.get('ran')} page={bool(tab)} tab={tab_of(kind, path)}", flush=True)
     if tab:
