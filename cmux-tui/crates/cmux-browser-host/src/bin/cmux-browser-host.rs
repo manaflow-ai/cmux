@@ -8,6 +8,10 @@
 //! `eval` starts the host on demand when no host answers on the socket.
 //! MCP clients use `cmux mcp serve` (one MCP entry point, cmux.json
 //! mcp.enabled); this binary has no MCP server.
+//!
+//! The macOS app ships it as `Contents/Resources/bin/cmux-browser-host`,
+//! beside `bin/cmux`: the daemon runs the sibling of its own executable
+//! (scripts/cmux-next/bundle-cmux-tui.sh, check-bundled-browser-host.sh).
 
 #[cfg(unix)]
 fn main() {
