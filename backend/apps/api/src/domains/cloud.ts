@@ -6,7 +6,7 @@ import { grantClasses } from "../home-admit.ts"
 import { personalTeamIdFor } from "./user.ts"
 import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
 import { applyVmStatus } from "./cloud-vm-status.ts"
-import { powerIntent, powerResult } from "./cloud-power.ts"
+import { powerIntent, powerResult, resizeIntent } from "./cloud-power.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
 
 /**
@@ -79,7 +79,10 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
 
 export interface LedgerRow {
   readonly key: string
-  readonly op: "create" | "delete" | "pause" | "start"
+  readonly op: "create" | "delete" | "pause" | "start" | "resize"
+  /** resize only: the target size, and the size to restore after a final failure. */
+  readonly size?: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
+  readonly size_before?: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
   readonly machine: string
   readonly provider_name: string
   readonly state: "pending" | "done" | "failed" | "cancelled" | "abandoned"
@@ -154,7 +157,7 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
     if (isAgent(principal) && op === "cloud.machine.create") return { code: "auth.forbidden", message: "an agent cannot create machines" }
     if (isAgent(principal) && op === "cloud.machine.delete") return { code: "auth.forbidden", message: "an agent cannot delete machines" }
     // CLOUDDO-MONEY-OPS: pause and start change what the team pays; a person decides (no agent, no install grant).
-    if ((op === "cloud.machine.pause" || op === "cloud.machine.start") && (isAgent(principal) || principal.kind !== "session")) return { code: "auth.forbidden", message: "pausing or starting a machine needs a signed-in person" }
+    if ((op === "cloud.machine.pause" || op === "cloud.machine.start" || op === "cloud.machine.resize") && (isAgent(principal) || principal.kind !== "session")) return { code: "auth.forbidden", message: "pausing, starting or resizing a machine needs a signed-in person" }
     // Money and destructive ops need a signed-in person, never an install's grant (even one that lists
     // money/destructive). Later: an install with a fresh single-use origin.confirmation (decision ORIGIN).
     if (principal.kind !== "session" && op === "cloud.machine.create") return { code: "auth.forbidden", message: "creating a machine needs a signed-in person" }
@@ -180,6 +183,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
       case "cloud.machine.pause":
       case "cloud.machine.start":
         return powerIntent(config, state, op, params, ctx)
+      case "cloud.machine.resize":
+        return resizeIntent(config, state, params, ctx)
       case "cloud.machine.idle_pause":
         return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true) : reject("auth.forbidden", "internal op")
       case "cloud.machine.vm_status":
@@ -315,7 +320,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   const rev = state.rev + 1
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
-  if ((l.op === "pause" || l.op === "start") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return powerResult(state, stored, machine, r, ctx)
+  if ((l.op === "pause" || l.op === "start" || l.op === "resize") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return powerResult(state, stored, machine, r, ctx)
   if (!r.ok) {
     const attempts = l.attempts + 1
     const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "provider call failed" }
