@@ -71,6 +71,36 @@ extension CloudTreeNodeBuilder {
         remoteWorkspaces(info: snapshot.machines.first { $0.id == machine }, resources: snapshot.resources(on: machine))
     }
 
+    /// The name the machine's daemon will give its next unnamed workspace,
+    /// mirroring cmux-tui's `default_workspace_name`: one past the highest
+    /// `workspace-N`, never below the workspace count. `pendingCreations`
+    /// counts this client's other unnamed creates whose receipts have not
+    /// arrived. Nil when the machine has not reported its workspaces yet.
+    /// The daemon's receipt stays authoritative; this only spares the pane a
+    /// generic placeholder title that is renamed a moment later.
+    static func predictedDefaultWorkspaceName(
+        on machine: SurfaceMachineID,
+        snapshot: SurfaceCatalogSnapshot,
+        pendingCreations: Int = 0
+    ) -> String? {
+        let info = snapshot.machines.first { $0.id == machine }
+        guard info?.remoteWorkspaces != nil else { return nil }
+        return predictedDefaultWorkspaceName(
+            existingNames: remoteWorkspaces(info: info, resources: snapshot.resources(on: machine)).map(\.name),
+            pendingCreations: pendingCreations
+        )
+    }
+
+    static func predictedDefaultWorkspaceName(existingNames: [String], pendingCreations: Int = 0) -> String {
+        let highest = existingNames.compactMap { name -> Int? in
+            guard name.hasPrefix("workspace-") else { return nil }
+            let suffix = name.dropFirst("workspace-".count)
+            guard !suffix.isEmpty, suffix.allSatisfy(\.isASCII), suffix.allSatisfy(\.isNumber) else { return nil }
+            return Int(suffix)
+        }.max() ?? 0
+        return "workspace-\(max(highest, existingNames.count) + 1 + max(pendingCreations, 0))"
+    }
+
     /// Every workspace's members in ONE pass over the catalog: a resource is
     /// appended to each workspace that views it, so the per-kind lists keep
     /// catalog order. The workspace rows (children and drag group) and the
