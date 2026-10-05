@@ -42,6 +42,25 @@ pub(crate) const NON_ASKING_MODES: &[(&str, &[&str])] = &[
     ("opencode", &["build"]),
 ];
 
+/// Fields a Web request may not carry: they could set a mode or a sandbox
+/// that acpmux does not check.
+pub(crate) const MODE_FIELDS: &[&str] = &[
+    "modeId",
+    "mode",
+    "permissionMode",
+    "permission_mode",
+    "approvalPolicy",
+    "approval_policy",
+    "sandbox",
+    "sandboxMode",
+    "sandbox_mode",
+];
+
+/// Config options a Web connection may set to any value: they choose a model
+/// or how hard it thinks, never what runs without asking.
+pub(crate) const FREE_CONFIG_IDS: &[&str] =
+    &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
+
 fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
 }
@@ -90,6 +109,31 @@ impl WebModeTable {
             None => true,
             Some(mode) => self.modes(&family_of(m)).contains(&mode),
         }
+    }
+
+    /// Every family's asking modes, the asking default first.
+    pub fn families(&self) -> &BTreeMap<String, Vec<String>> {
+        &self.by_family
+    }
+
+    /// Whether setting a session of `family` to `value` keeps it asking, as
+    /// the remote guard decides a Web set: `config_id` None is
+    /// `session/set_mode`; a free config id asks for any value; the `mode`
+    /// option and set_mode ask only with a listed mode; any other id never.
+    pub fn config_value_asks(
+        &self,
+        family: &str,
+        config_id: Option<&str>,
+        value: Option<&str>,
+    ) -> bool {
+        if config_id.is_some_and(|i| FREE_CONFIG_IDS.contains(&i)) {
+            return true;
+        }
+        let mode = match config_id {
+            None | Some("mode") => value,
+            Some(_) => None,
+        };
+        mode.is_some_and(|v| self.modes(family).iter().any(|a| a == v))
     }
 
     /// One line for the log: `claude=[default,plan] codex=[read-only] ...`.

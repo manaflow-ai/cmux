@@ -1,5 +1,5 @@
 {
-  "comment": "Owned by the license review. Notices that cmux-tui npm packages and PyPI wheels ship beside the Rust crate notices (package_notices.py). libghostty_vt names the ghostty-next commit of vt-link-graph.json; a bump needs new texts here. musl is linked into the Linux musl binaries. windows_gnu is the static runtime of the x86_64-pc-windows-gnu binaries for the one reviewed toolchain (gcc_build, gcc_version, mingw_w64_version, crt); package_notices.py check-windows-toolchain and check-windows-binary fail another.",
+  "comment": "Owned by the license review. Notices that cmux-tui npm packages and PyPI wheels ship beside the Rust crate notices (package_notices.py). libghostty_vt names the ghostty-next commit of vt-link-graph.json; a bump needs new texts here. musl is linked into the Linux musl binaries. windows_gnu is the static runtime of the x86_64-pc-windows-gnu binaries for the one reviewed toolchain (gcc_build, gcc_version, mingw_w64_version, crt); package_notices.py check-windows-toolchain and check-windows-binary fail another. darwin is the review of the Darwin binaries (no musl-derived code in their real link); package_notices.py check-darwin-binary fails a binary that gains some.",
   "musl": {
     "version": "1.2.5",
     "file": "texts/musl-1.2.5/COPYRIGHT",
@@ -8,7 +8,7 @@
   },
   "libghostty_vt": {
     "source": "ghostty-next",
-    "commit": "bbb7320b451edb0ca0eee898c6bc4a8a15a5705d",
+    "commit": "94fe869496857eb5d70fcf870554deb1480a7aa3",
     "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37287309363",
     "owners": {
       "ghostty-next": {
@@ -17,7 +17,7 @@
           {
             "file": "texts/ghostty-next/LICENSE",
             "sha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1",
-            "source": "https://github.com/manaflow-ai/ghostty-next/blob/bbb7320b451edb0ca0eee898c6bc4a8a15a5705d/LICENSE"
+            "source": "https://github.com/manaflow-ai/ghostty-next/blob/94fe869496857eb5d70fcf870554deb1480a7aa3/LICENSE"
           }
         ]
       },
@@ -115,6 +115,39 @@
         "Rust crates: the x86_64-pc-windows-gnu closure adds winapi-x86_64-pc-windows-gnu 0.4.0 (MinGW import libraries, MIT/Apache-2.0), which ships no license file; reviewed.json now stores winapi-rs's root LICENSE-MIT and LICENSE-APACHE at its publishing commit 9497609ef44c."
       ],
       "limits": "The runner image pins MinGW 15.* by toolset, not one build. check-windows-toolchain (build-windows job, before linking) fails another GCC build, mingw-w64 version or msvcrt, and check-windows-binary (package job) fails a binary that names another GCC build, so a new toolchain needs a new review. The review covers x86_64-pc-windows-gnu only (no aarch64 Windows target is built)."
+    }
+  },
+  "darwin": {
+    "zig": "0.16.0",
+    "compiler_rt_modules": [
+      "floattidf",
+      "floatuntidf",
+      "powiXf2",
+      "ssp",
+      "udivmod"
+    ],
+    "musl_entry_symbols": [
+      "_ghostty_color_palette_generate"
+    ],
+    "musl_ported_symbol_patterns": [
+      "^_math\\.(acos|acosh|asin|asinh|atan|atan2|atanh|cbrt|cosh|expm1|expo2|gamma|ilogb|log|log1p|sinh|tanh)\\.",
+      "^_math\\.complex\\.",
+      "^_Io\\.Threaded\\.(writeResolutionQuery|lookupDns)"
+    ],
+    "review": {
+      "date": "2026-10-05",
+      "decision": "NO MUSL TEXT: the Darwin packages link no musl-derived code",
+      "reviewer": "license lead v7 (worker session 5c, cmuxterm-hq-69); engineering review, not attorney review",
+      "artifact": "GitHub Actions run 37295065948 (cmux-tui.yml full, 5ef800440ec): artifacts cmux-tui-aarch64-apple-darwin (cmux-tui de85303c47fb77b1..., cmux-tui-hook bffea504ce770ee2...), cmux-tui-x86_64-apple-darwin (cmux-tui 59a60fe0a8e9e386..., cmux-tui-hook a6fdb4c3a9af1551...), npm-packages and pypi-wheels (the darwin npm packages, cmux-relay-darwin-* included, and the macosx wheels carry these same files; chatmux-relay has no Zig code)",
+      "evidence": [
+        "Zig 0.16.0 sources that say they are ported from musl: compiler_rt cos, exp, exp2, fma, floor_ceil, fmod, log, log10, log2, rem_pio2*, round, sin, sqrt, tan, trig, trunc; std/math acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, cosh, expm1, expo2, gamma, ilogb, log, log1p, sinh, tanh, complex/*; std/Io/Threaded.zig writeResolutionQuery (DNS).",
+        "The binaries keep their symbol tables. compiler_rt modules present: floatuntidf (arm64) or floattidf (x86_64), powiXf2 (ported from LLVM compiler-rt), ssp, udivmod. None is a musl port. No std.math symbol.",
+        "Math functions are imported from libSystem: _cosf, _fmod, _log, _log2, _pow (arm64) and also _ceil, _fma, _round (x86_64). compiler_rt's musl-ported math is not in the link.",
+        "Inlined code: libghostty-vt reaches a musl-ported std.math function only through std.math.cbrt in terminal.color.LAB.fromRgb, called by generate256Color, which libghostty-vt reaches only from the exported ghostty_color_palette_generate (src/terminal/c/color.zig; Termio is not in libghostty-vt). cmux-tui does not link that export (92 other ghostty_ exports are linked). A scan for musl cbrtf's constants (movz/movk 0x19f2 with 0x2a51 or 0x2651) finds 0 in every Darwin package binary and 6 in the GhosttyNextKit member and the app binary that have the code.",
+        "Zig Io in the binaries uses Io.failingNetLookup; no Io.Threaded DNS symbol.",
+        "Rust std's compiler_builtins carries libm (musl-derived); rustc's COPYRIGHT-library.html, which the notices include, covers it."
+      ],
+      "limit": "check-darwin-binary sees symbols, not inlined code: it catches the known entry (ghostty_color_palette_generate), musl-ported Zig functions that keep a symbol, and every compiler_rt module outside the reviewed list. A new musl-ported call that is inlined into another libghostty-vt function needs a new review; a new Zig version always does (data_problems)."
     }
   }
 }

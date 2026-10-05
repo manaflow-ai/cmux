@@ -248,6 +248,10 @@ impl Hub {
         if !matches!(choice.as_str(), "allow_once" | "allow_chat" | "deny") {
             return Err(RpcError::invalid_params("unknown decision"));
         }
+        // A Web answer allows once or denies: it never grants the chat.
+        if control == Control::Web && choice == "allow_chat" {
+            return Err(super::web_control::lasting_grant_refused("allow_chat"));
+        }
         let revision = params["revision"]
             .as_u64()
             .ok_or_else(|| RpcError::invalid_params("revision is required"))?;
