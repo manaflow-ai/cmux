@@ -60,6 +60,7 @@ jobs:
           python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+          python3 cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py
 
       - name: THIRD_PARTY_LICENSES.md and REVIEW.md are current
         run: ./scripts/cmux-next/generate-third-party-notices.sh --check
