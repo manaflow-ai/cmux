@@ -79,7 +79,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b78071
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "dca860da170557f352e1d8b23404b483f5d73136a6169cc568107615eefa02e2"
+EXPECTED_GUARD_SCRIPT_DIGEST = "2acc8b4f15cdc946648f2e2310534068558354db5f15f0e5b79ee88931616b05"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -362,11 +362,13 @@ CLA_STATUS_RUN = <<~'SH'.strip.freeze
     . as $ledger |
     ($ledger.signedContributors | type == "array") and
     ([ $author ] + [ $commits[].[]? | .author.id ] | all(.[]; type == "number")) and
-    ([ $author ] + [ $commits[].[]? | .author.id ] | unique) as $ids |
-    all($ids[]; . as $id | any($ledger.signedContributors[]?; .id == $id or ($id == 54008264 or $id == 38676809 or $id == 67667005)))
+    (([ $author ] + [ $commits[].[]? | .author.id ] | unique) as $ids |
+      all($ids[]; . as $id |
+        ($id == 54008264 or $id == 38676809 or $id == 67667005 or
+         any($ledger.signedContributors[]?; .id == $id))))
   ' "$ledger" >/dev/null
 SH
-CLA_STATUS_RUN_HASH = "810e3ecca0a49d77c03d9a4659b8dea41f9edf5559831b99a9dd3f9e32be8e48"
+CLA_STATUS_RUN_HASH = "4fbc739e6ee8833352c22fd8bab38712f5ccd8f63533e06ebe324bde01b20309"
 
 # The guard validates a deliberately closed workflow vocabulary. A policy
 # change may alter messages and implementation details inside the listed
