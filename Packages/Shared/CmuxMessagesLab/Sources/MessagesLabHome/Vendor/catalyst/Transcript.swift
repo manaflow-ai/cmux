@@ -285,6 +285,16 @@ final class MotionLedger {
 
     func live(_ key: String) -> [Entry] { entries[key] ?? [] }
 
+    /// Remove a row's holds (the sent row hidden under its flying bubble);
+    /// returns their ids (their animations are keyed "hold.<id>").
+    func removeHolds(_ key: String) -> [Int] {
+        guard let list = entries[key] else { return [] }
+        let holds = list.filter { $0.hold != nil }.map(\.id)
+        let keep = list.filter { $0.hold == nil }
+        entries[key] = keep.isEmpty ? nil : keep
+        return holds
+    }
+
     func prune(before t: CFTimeInterval) {
         for (k, list) in entries {
             let keep = list.filter { $0.end > t }
@@ -320,6 +330,14 @@ final class RowCell: UICollectionViewCell {
     /// Rows drawn on the main thread because their bitmap was not ready
     /// (bench evidence).
     static var syncRenders = 0
+    /// Test hook (--land-check): every bitmap that is not cached goes off
+    /// main, as when the main-thread budget is spent under load.
+    static var testForceOffMain = false
+    /// > 0 inside an engine transaction or a landing (the window view): rows
+    /// configured there draw on main whatever the budget (the sent row, the
+    /// row whose tail changes, receipts, the reply). The budget applies only
+    /// to rows that scroll into view.
+    static var transitionDepth = 0
     /// Rows past the budget that waited for an off-main bitmap.
     static var overBudget = 0
     /// Main-thread drawing per run-loop turn (one frame's work): enough for
@@ -329,6 +347,7 @@ final class RowCell: UICollectionViewCell {
     static var mainDrawSpent: CFTimeInterval = 0
     private static var turnObserver: CFRunLoopObserver?
     static func mainDrawBudgetLeft() -> Bool {
+        if testForceOffMain { return false }
         if turnObserver == nil {
             let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, _ in
                 RowCell.mainDrawSpent = 0
@@ -491,7 +510,7 @@ final class RowCell: UICollectionViewCell {
             Reclaimer.release(bitmap.contents)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
-        } else if RowCell.synchronousBitmaps || (!(repaint && showingThisRow) && RowCell.mainDrawBudgetLeft()) {
+        } else if RowCell.synchronousBitmaps || (!(repaint && showingThisRow) && (RowCell.transitionDepth > 0 || RowCell.mainDrawBudgetLeft())) {
             let t0 = CACurrentMediaTime()
             let img = RowBitmaps.render(spec)
             RowCell.mainDrawSpent += CACurrentMediaTime() - t0
@@ -522,6 +541,23 @@ final class RowCell: UICollectionViewCell {
         }
         receiptOld.contents = nil
         CATransaction.commit()
+    }
+
+    /// The row's own bitmap on screen now (drawn on this thread if it is not
+    /// cached), frame and contents together; the caller's transaction.
+    func showNow() {
+        guard let spec else { return }
+        let img: CGImage
+        if let cached = RowBitmaps.shared.image(for: spec) { img = cached } else {
+            img = RowBitmaps.render(spec)
+            RowBitmaps.shared.insert([(spec, img)])
+            RowCell.syncRenders += 1
+        }
+        guard bitmap.contents == nil || (bitmap.contents as AnyObject) !== (img as AnyObject) else { return }
+        let span = RowDraw.drawSpan(spec)
+        Reclaimer.release(bitmap.contents)
+        bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
+        bitmap.contents = img
     }
 
     private func setTyping(_ on: Bool, _ spec: RowSpec) {

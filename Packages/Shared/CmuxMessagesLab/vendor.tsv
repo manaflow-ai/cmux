@@ -1,4 +1,4 @@
-# MessagesLab commit 91bec14 (appkit-native variant). upstream path<TAB>vendored path (relative to this package). Patches/<vendored file name>.patch holds each blocker edit.
+# MessagesLab commit 3709184 (appkit-native variant). upstream path<TAB>vendored path (relative to this package). Patches/<vendored file name>.patch holds each blocker edit.
 catalyst/Sources/Model.swift	Sources/MessagesLabHome/Vendor/catalyst/Model.swift
 catalyst/Sources/Engine.swift	Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
 catalyst/Sources/Layout.swift	Sources/MessagesLabHome/Vendor/catalyst/Layout.swift

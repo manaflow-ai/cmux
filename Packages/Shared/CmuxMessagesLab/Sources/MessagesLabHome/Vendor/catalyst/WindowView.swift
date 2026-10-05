@@ -339,6 +339,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
     func commit(_ action: Action, at t: Double, old: AppState, new state: AppState) {
         if case .setScroll = action { return }
+        // Rows configured in this transaction draw now (RowCell.transitionDepth).
+        RowCell.transitionDepth += 1
+        defer { RowCell.transitionDepth -= 1 }
         let created0 = RowCell.created, destroyed0 = RowCell.destroyed
         let allocs0 = MallocCounter.mainAllocations
         defer {
@@ -726,7 +729,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         while exit < 1.5, mb.bottom(at: exit) > Springs.fieldTop.value(exit, from: topWas, to: topNow) { exit += 1.0 / 240 }
         compose.tintOverBubble(begin: begin, exit: begin + exit)
         #endif
-        ledger.add(key, .content, "opacity", from: 0, to: 0, Springs.ghostOut, begin: begin, hold: 0, until: mb.landTime)
+        // The row stays hidden under its flying bubble until the landing
+        // (settle): one transaction then shows the row and removes the bubble.
+        // No time-based end: a late main thread keeps the bubble on screen
+        // instead of showing a row whose bitmap is not there yet.
+        ledger.add(key, .content, "opacity", from: 0, to: 0, Springs.ghostOut, begin: begin, hold: 0, until: mb.landTime + 600)
         // Remove the overlay when it lands (event-driven, engine time).
         requestWake(clock() + (mb.landTime - Animate.now(layer)))
     }
@@ -742,7 +749,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             r.overscanBottom = 0
         }
         receiptChanges = receiptChanges.filter { k, _ in ledger.live(k).contains { $0.target == .receiptOld } }
-        for (k, m) in morphs where m.landTime <= now { m.remove(); morphs[k] = nil }
+        landMorphs(now)
         if model.dropGhosts(before: t - 1.0) {
             let anchor = visibleAnchor()
             CATransaction.begin()
@@ -755,6 +762,29 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             CATransaction.commit()
         }
         if !ledger.isEmpty || model.hasGhosts || !morphs.isEmpty { requestWake(t + 0.5) }
+    }
+
+    /// The landing: one owner change for the sent bubble, atomic. In one
+    /// transaction (actions off) the row gets its bitmap (drawn now if it
+    /// is not ready), its hold is removed, and the flying bubble is removed:
+    /// no frame shows neither (or both at different looks), whatever the
+    /// load, the display rate or AppKit's own display cycle.
+    private func landMorphs(_ now: CFTimeInterval) {
+        let landed = morphs.filter { $0.value.landTime <= now }
+        guard !landed.isEmpty else { return }
+        RowCell.transitionDepth += 1
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for (k, m) in landed {
+            let holds = ledger.removeHolds(k)
+            for case let cell as RowCell in collection.visibleCells where cell.spec?.key == k {
+                cell.showNow()
+                for id in holds { cell.contentView.layer.removeAnimation(forKey: "hold.\(id)") }
+            }
+            m.remove()
+            morphs[k] = nil
+        }
+        CATransaction.commit()
+        RowCell.transitionDepth -= 1
     }
 
     /// True while anything still animates or waits to be cleaned up.

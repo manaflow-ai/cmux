@@ -392,6 +392,23 @@
           }
         }
       }
+    },
+    "menu.saveLastSeconds": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Last 10 Seconds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直前の10秒を保存"
+          }
+        }
+      }
     }
   }
 }
