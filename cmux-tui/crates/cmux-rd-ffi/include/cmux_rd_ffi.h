@@ -153,10 +153,13 @@ void cmux_rd_input_free(CmuxRdInput *input);
 int32_t cmux_rd_input_push(CmuxRdInput *input, const CmuxRdInputEvent *event, uint32_t *out_seq);
 /* Applies an InputAck datagram as cmux_rd_receiver_pop_message hands it out
    (kind CMUX_RD_MESSAGE_DATAGRAM, header included). CMUX_RD_ERR_INVALID for
-   any other datagram. */
+   any other datagram, with no state change: offer every datagram message
+   here and ignore that code. */
 int32_t cmux_rd_input_ack(CmuxRdInput *input, const uint8_t *datagram, size_t len);
 /* Writes the next due Input datagram (stream-framed on the stream carrier).
-   Returns 1 when written, 0 when none is due. Call again until it returns 0. */
+   Returns 1 when written, 0 when none is due. Call again until it returns 0.
+   Every resend_us the window from the oldest unacknowledged event goes out
+   again. *out_len is written on every path (0 when nothing was written). */
 int32_t cmux_rd_input_packet(CmuxRdInput *input, uint64_t now_us, uint8_t *out, size_t cap, size_t *out_len);
 /* The time at which cmux_rd_input_packet must run next (0 = now; UINT64_MAX
    when nothing is queued, for NULL, or for an unusable handle). */

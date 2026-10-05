@@ -85,10 +85,7 @@ proptest! {
 #[test]
 fn applier_skips_a_gap_after_the_timeout() {
     let mut a = InputApplier::new(200_000);
-    let later = cmux_rd_proto::InputPacket {
-        first_seq: 3,
-        events: vec![InputEvent::Pointer { x: 1, y: 1 }],
-    };
+    let later = InputPacket { first_seq: 3, events: vec![InputEvent::Pointer { x: 1, y: 1 }] };
     assert!(a.accept(&later, 0).is_empty());
     assert!(a.tick(199_999).is_empty());
     assert_eq!(a.tick(200_000), vec![InputEvent::Pointer { x: 1, y: 1 }]);
@@ -219,10 +216,8 @@ fn send_times_survive_sequence_wrap() {
 #[test]
 fn a_skipped_gap_is_reported_once_so_the_host_releases_keys() {
     let mut a = InputApplier::new(10);
-    let later = cmux_rd_proto::InputPacket {
-        first_seq: 2,
-        events: vec![InputEvent::Key { usage: 4, down: true }],
-    };
+    let later =
+        InputPacket { first_seq: 2, events: vec![InputEvent::Key { usage: 4, down: true }] };
     a.accept(&later, 0);
     a.tick(10);
     assert!(a.take_skipped_gap());
