@@ -83,7 +83,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             case .success(.string(let text)): self.arrived(text)
             case .success(.data(let data)): self.arrived(String(decoding: data, as: UTF8.self))
             case .success: break
-            case .failure: return self.finish(code: 1006, reason: "", error: nil)
+            case .failure: return self.daemonClosed(code: 1006, reason: "")
             }
             self.receive(task)
         }
@@ -164,7 +164,8 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
     /// Queues a frame the host made (a refusal) as if the daemon had sent it.
-    /// The relay's own answer to a refused request, straight to the page.
+    /// The relay's own answer to a refused request, straight to the page queue. It can reach the page
+    /// before earlier daemon frames that still wait in `raw` for the inbound pass.
     func inject(_ text: String) { enqueue([text]) }
 
     /// Up to `maximumFrames` frames and `maximumBytes` bytes (at least one frame), and the close
@@ -215,7 +216,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     state.outstanding -= 1
                     state.outstandingBytes -= bytes
                 }
-                if error != nil { self.finish(code: 1006, reason: "", error: nil) }
+                if error != nil { self.daemonClosed(code: 1006, reason: "") }
             }
             return nil
         }
@@ -241,7 +242,13 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         if wake { signal() }
     }
 
-    /// The socket ended on its own (the daemon closed it, or IO failed).
+    /// The socket ended on its own (the daemon closed it, or IO failed). The close goes through the
+    /// inbound queue, after every frame that arrived before it, so the page gets the daemon's last
+    /// frames first. (A host close with an error, ``close(code:reason:error:)``, still drops them.)
+    private func daemonClosed(code: Int, reason: String) {
+        inbound.async { [self] in finish(code: code, reason: reason, error: nil) }
+    }
+
     private func finish(code: Int, reason: String, error: AgentPaneTransportError?) {
         let (opening, session, wake) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool) in
             let opening = state.opening
@@ -272,10 +279,10 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                     didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        finish(code: closeCode.rawValue, reason: reason.map { String(decoding: $0, as: UTF8.self) } ?? "", error: nil)
+        daemonClosed(code: closeCode.rawValue, reason: reason.map { String(decoding: $0, as: UTF8.self) } ?? "")
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
-        finish(code: 1006, reason: "", error: nil)
+        daemonClosed(code: 1006, reason: "")
     }
 }
