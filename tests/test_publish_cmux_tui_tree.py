@@ -30,12 +30,13 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     source = tmp_path / "source.json"
     source.write_text(json.dumps({"key": "b" * 40, "commit": commit, "binaries": {publisher.COMPANION_NAMES[0]: binaries[publisher.COMPANION_NAMES[0]]}}))
     uploader = tmp_path / "uploader.py"
-    uploader.write_text("""#!/usr/bin/env python3
-import json, pathlib, sys
-args = sys.argv[1:]
-def value(name): return args[args.index(name) + 1]
-pathlib.Path(__file__).with_name("uploads.jsonl").open("a").write(json.dumps({"key": value("--key"), "file": value("--file")}) + "\n")
-""")
+    uploader.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, pathlib, sys\n"
+        "args = sys.argv[1:]\n"
+        "def value(name): return args[args.index(name) + 1]\n"
+        'pathlib.Path(__file__).with_name("uploads.jsonl").open("a").write(json.dumps({"key": value("--key"), "file": value("--file")}) + "\\n")\n'
+    )
     uploader.chmod(0o755)
     return assets, manifest, source, uploader
 
@@ -43,7 +44,6 @@ pathlib.Path(__file__).with_name("uploads.jsonl").open("a").write(json.dumps({"k
 def _run_publish(tmp_path: Path):
     assets, manifest, source, uploader = _fixture(tmp_path)
     record = tmp_path / "uploads.jsonl"
-    uploader.write_text(uploader.read_text().replace("uploads.jsonl", str(record)))
     result = publisher.publish_tree(
         key="b" * 40,
         source_commit="a" * 40,
