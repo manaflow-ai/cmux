@@ -10,6 +10,8 @@ use std::io;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 const AGENT_SOURCE: &str = "globalThis.__cmuxPageAgent = { resolveHandle: (id) => null };";
+/// A page value in the page's key order, nested objects and arrays included.
+const KEY_ORDER: &str = r#"{"title":"cmux","url":"https://example.com/cmux","snippet":"s","nested":{"z":1,"a":[{"y":2,"b":0.1}]}}"#;
 const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 #[derive(Default)]
@@ -53,9 +55,11 @@ impl CdpWire for WireHandle {
         for event in events {
             conn.receive(&event.to_string());
         }
-        // A held request gets no reply now.
-        if !reply.is_null() {
-            conn.receive(&reply.to_string());
+        // A held request gets no reply now; a text reply is sent verbatim.
+        match reply {
+            Value::Null => {}
+            Value::String(text) => conn.receive(&text),
+            reply => conn.receive(&reply.to_string()),
         }
         Ok(())
     }
@@ -241,6 +245,13 @@ impl FakeWire {
             "Runtime.callFunctionOn" => {
                 let declaration = params["functionDeclaration"].as_str().unwrap_or("");
                 let first = &params["arguments"][0]["value"];
+                if declaration.contains("key-order") {
+                    // Chromium's text, in the page's key order.
+                    let text = format!(
+                        r#"{{"id":{id},"result":{{"result":{{"type":"object","value":{KEY_ORDER}}}}}}}"#
+                    );
+                    return (Value::String(text), events);
+                }
                 if declaration.contains("__cmuxFetch") && declaration.contains("AbortController") {
                     if browser.hold_fetch {
                         browser.held = Some((id, session));
@@ -1330,4 +1341,25 @@ fn the_fetch_shell_closes_when_its_setup_fails() {
         sent.iter().any(|(m, p)| m == "Target.closeTarget" && p["targetId"] == "T1"),
         "the shell leaked: {sent:?}"
     );
+}
+
+/// a9 raw_value: frame.evaluate hands the page's value on as the JSON text
+/// Chromium sent, in the page's key order (scenario 32's search results).
+#[test]
+fn script_values_keep_the_page_key_order() {
+    use cmux_browser_host::driver::Reply;
+    let h = Harness::new();
+    let target = h.open(None);
+    let reply = h
+        .driver
+        .call_reply_announced(
+            "frame.evaluate",
+            &json!({"targetId": target, "source": "() => 'key-order'"}),
+            &mut || {},
+        )
+        .expect("frame.evaluate");
+    match reply {
+        Reply::Json(raw) => assert_eq!(raw.get(), KEY_ORDER),
+        Reply::Value(value) => panic!("the value was parsed (keys sorted): {value}"),
+    }
 }

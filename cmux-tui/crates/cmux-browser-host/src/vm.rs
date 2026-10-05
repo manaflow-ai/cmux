@@ -20,6 +20,15 @@ use std::time::{Duration, Instant};
 pub trait VmHost: Send + Sync {
     /// One driver protocol call, policy-checked. Blocks; runs on a worker thread.
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError>;
+    /// [`VmHost::driver_call`] with the result as JSON text where the engine
+    /// kept it (a page script's value, in the page's key order).
+    fn driver_call_reply(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<crate::driver::Reply, DriverError> {
+        self.driver_call(method, params).map(crate::driver::Reply::Value)
+    }
     /// A synchronous host function (`secretSet`, `secretList`, `secretDelete`,
     /// `policyNarrow`, `policyGet`). Errors become JS exceptions.
     fn native(&self, name: &str, args: Value) -> Result<Value, String>;
