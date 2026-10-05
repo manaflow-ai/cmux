@@ -96,8 +96,9 @@ import Testing
 
         #expect(await server.wait { $0.first?.frames.count == 3 })
         let sent = server.peers.first?.frames ?? []
-        #expect(sent.contains { $0.contains(#""id":8"#) } && sent.contains { $0.contains(#""id":9"#) })
-        #expect(!sent.contains { $0.contains(#""id":7"#) || $0.contains(#""id":10"#) })
+        // By content: the daemon sees relay-owned ids, never the page's.
+        #expect(sent.contains { $0.contains(#""optionId":"no""#) } && sent.contains { $0.contains(#""revision":1"#) })
+        #expect(!sent.contains { $0.contains(#""optionId":"yes""#) || $0.contains(#""revision":2"#) })
     }
     /// Flag 2: a harness switch never refuses the user's prompt. The pick reserves its gesture at
     /// the pick (transport.gesture gives a ticket the queued set_mode carries); the prompt uses the
