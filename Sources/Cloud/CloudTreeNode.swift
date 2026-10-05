@@ -13,6 +13,26 @@ import Foundation
 /// expansion and selection survive a rebuild. Rows below the outline receive
 /// only the node's values plus a closure bundle (snapshot-boundary rule).
 final class CloudTreeNode: NSObject {
+    struct CoderouterAccount: Equatable {
+        let id: String
+        let provider: CoderouterProvider
+        let label: String?
+        let state: String?
+        /// Percent of the current rate-limit window still available; nil when
+        /// the provider reports no window.
+        var remainingPercent: Int? = nil
+        /// The masked key CodeRouter reports for key and token accounts ("sk-ant-oat01-...JF1g").
+        var identifier: String? = nil
+
+        /// The label, else the type plus the key suffix `cr` prints ("Claude …JF1g").
+        var title: String {
+            if let label, !label.isEmpty { return label }
+            guard let identifier, let suffix = identifier.split(separator: ".").last, !suffix.isEmpty, suffix.count < identifier.count else {
+                return provider.title
+            }
+            return "\(provider.title) \u{2026}\(suffix)"
+        }
+    }
     // Box the payload once: machine/catalog snapshots otherwise enlarge every
     // case and every row-content copy by hundreds of bytes.
     indirect enum Kind: Equatable {
@@ -66,6 +86,12 @@ final class CloudTreeNode: NSObject {
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
         case devicesSection(CloudTreeDevicesSection)
+        /// The team's CodeRouter section: its account count and refresh icon.
+        case coderouterSection(count: Int, refresh: CloudTreeSectionRefresh)
+        /// One account type (Codex, Claude, OpenCode); its children are that
+        /// type's New Account row and accounts.
+        case coderouterProviderGroup(CoderouterProvider, count: Int)
+        case coderouterAccount(CoderouterAccount)
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its
         /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
         /// header stands alone; `usage` is the plan's count (nil until it loads), `refresh` its refresh icon.
@@ -87,6 +113,7 @@ final class CloudTreeNode: NSObject {
             switch self {
             case .cloudMachinesSection: "cloud"
             case .devicesSection: "desktopcomputer"
+            case .coderouterSection: "chevron.left.forwardslash.chevron.right"
             default: nil
             }
         }
@@ -143,6 +170,9 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         case .device: return "device"
         case .devicesSection: return "devicesSection"
+        case .coderouterSection: return "coderouterSection"
+        case .coderouterProviderGroup: return "coderouterProviderGroup"
+        case .coderouterAccount: return "coderouterAccount"
         case .cloudMachinesSection: return "cloudMachinesSection"
         case .createAction: return "createAction"
         case .devicesEmpty: return "devicesEmpty"
@@ -197,6 +227,7 @@ final class CloudTreeNode: NSObject {
         case .browser(let row): return row.resource.machine
         case .device(let row): return row.machine
         case .devicesSection, .devicesEmpty: return .cloud("devices-section")
+        case .coderouterSection, .coderouterProviderGroup, .coderouterAccount: return .cloud("coderouter-section")
         case .cloudMachinesSection: return .cloud("cloud-machines-section")
         case .createAction(let action): return action.machine
         case .machineDetailTabs(let tabs): return tabs.machine
@@ -233,6 +264,9 @@ final class CloudTreeNode: NSObject {
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
+        case .coderouterSection: return String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter")
+        case .coderouterProviderGroup(let provider, _): return provider.title
+        case .coderouterAccount(let account): return account.title
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
         case .createAction(let action): return action.title
         case .machineDetailTabs, .machineEndSpacer: return ""
@@ -299,7 +333,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection, .createAction,
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup, .coderouterAccount, .createAction,
              .machineDetailTabs, .machineEndSpacer:
             return nil
         }

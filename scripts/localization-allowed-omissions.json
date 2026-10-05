@@ -4756,5 +4756,13 @@
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
+  },
+  "cloudTree.group.coderouter": {
+    "class": "brand",
+    "source": "Coderouter"
+  },
+  "coderouter.guide.title": {
+    "class": "brand",
+    "source": "coderouter"
   }
 }
