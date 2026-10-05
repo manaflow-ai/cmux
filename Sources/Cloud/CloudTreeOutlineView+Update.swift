@@ -1,6 +1,11 @@
 import CmuxSurfaceCatalogModel
 import Foundation
 
+struct CloudTreeFocusedWorkspaceSelection: Equatable {
+    let workspaceID: UUID
+    let nodeID: String?
+}
+
 extension CloudTreeOutlineView {
     /// A terminal rename needs a stable daemon tab placement. A terminal row
     /// with only a legacy workspace hint is not enough, because the same
@@ -54,12 +59,39 @@ extension CloudTreeOutlineView.Coordinator {
     /// The representable and native tests enter through the same update boundary.
     func update(inputs: CloudTreeBuildInputs, now: Date = .now) {
         guard let nodes = nodeCache.nodes(ifChanged: inputs, now: now) else { return }
-        if let focusedWorkspaceID = inputs.localWorkspaces.first(where: \.isSelected)?.id,
-           let selectedCloudWorkspaceNodeID = Self.selectedCloudWorkspaceNodeID(
-               in: nodes, focusedWorkspaceID: focusedWorkspaceID
-           ) {
-            selectedNodeID = selectedCloudWorkspaceNodeID
+        let focusedWorkspaceID = inputs.localWorkspaces.first(where: \.isSelected)?.id
+        let resolvedNodeID = Self.selectedCloudWorkspaceNodeID(
+            in: nodes, focusedWorkspaceID: focusedWorkspaceID
+        )
+        let focusedSelection = focusedWorkspaceID.map {
+            CloudTreeFocusedWorkspaceSelection(workspaceID: $0, nodeID: resolvedNodeID)
+        }
+        let focusedSelectionChanged = focusedSelection != lastFocusedCloudWorkspace
+        if focusedSelectionChanged {
+            lastFocusedCloudWorkspace = focusedSelection
+            if let resolvedNodeID {
+                selectedNodeID = resolvedNodeID
+            }
         }
         apply(nodes: CloudTreeCreateActionBuilder.add(to: nodes))
+        guard focusedSelectionChanged, let resolvedNodeID else { return }
+        selectFocusedCloudWorkspaceRow(resolvedNodeID)
     }
+
+    private func selectFocusedCloudWorkspaceRow(_ nodeID: String) {
+        guard let outlineView,
+              let node = CloudTreeNode.path(to: nodeID, in: nodes)?.last else { return }
+        let path = CloudTreeNode.path(to: nodeID, in: nodes) ?? []
+        for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
+            expansionStore.setExpanded(true, node: ancestor)
+            outlineView.expandItem(ancestor)
+        }
+        let row = outlineView.row(forItem: node)
+        guard row >= 0, outlineView.selectedRow != row else { return }
+        withProgrammaticUpdate {
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        scrollRowFullyIntoView(row, in: outlineView)
+    }
+
 }

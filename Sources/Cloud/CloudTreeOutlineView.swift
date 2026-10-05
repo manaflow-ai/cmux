@@ -99,6 +99,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         /// The selected row's stable node id, restored across in-place reloads.
         var selectedNodeID: String?
+        /// The last focused local Cloud workspace/remote row pair reconciled
+        /// into the native outline selection. A stable pair lets user clicks
+        /// on other rows survive unrelated catalog refreshes.
+        var lastFocusedCloudWorkspace: CloudTreeFocusedWorkspaceSelection?
         /// Workspaces the catalog has admitted for deletion but not confirmed.
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         var pendingMachineDeletions: Set<String> = []
