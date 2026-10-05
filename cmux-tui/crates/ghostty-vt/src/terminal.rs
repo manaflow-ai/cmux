@@ -35,6 +35,9 @@ use palette_override::*;
 mod mouse_mode_change;
 use mouse_mode_change::*;
 
+mod color_parse;
+pub use color_parse::{parse_color, parse_palette_entry};
+
 mod clipboard_read;
 pub use clipboard_read::{
     ClipboardLocation, ClipboardReadFn, ClipboardReadRequest, MAX_CLIPBOARD_READ_BYTES,
@@ -258,32 +261,6 @@ impl Default for TerminalColorOverrides {
             palette: [None; 256],
         }
     }
-}
-
-/// Parse a color with Ghostty's config semantics.
-///
-/// This accepts Ghostty's hex, X11 name, `rgb:`, and `rgbi:` forms.
-pub fn parse_color(value: &str) -> Option<Rgb> {
-    let mut color = sys::GhosttyColorRgb::default();
-    check(unsafe { sys::ghostty_color_parse(value.as_ptr().cast(), value.len(), &mut color) })
-        .ok()?;
-    Some(color.into())
-}
-
-/// Parse one Ghostty `palette = N=COLOR` value.
-pub fn parse_palette_entry(value: &str) -> Option<(u8, Rgb)> {
-    let mut index = 0;
-    let mut color = sys::GhosttyColorRgb::default();
-    check(unsafe {
-        sys::ghostty_color_parse_palette_entry(
-            value.as_ptr().cast(),
-            value.len(),
-            &mut index,
-            &mut color,
-        )
-    })
-    .ok()?;
-    Some((index, color.into()))
 }
 
 /// Which screen buffer is active.

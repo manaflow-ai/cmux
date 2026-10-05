@@ -162,6 +162,22 @@ impl Drop for HostFrames {
     }
 }
 
+/// Responses to a request this connection sent, matched by request id; the
+/// surface's reader consumes them before live staging.
+pub(super) fn is_targeted_host_response(kind: MessageKind) -> bool {
+    matches!(
+        kind,
+        MessageKind::Capability
+            | MessageKind::ResizeAck
+            | MessageKind::CellPixelSizeAck
+            | MessageKind::KittyGraphicsLimitsAck
+            | MessageKind::ClearHistoryAck
+            | MessageKind::TerminateAck
+            | MessageKind::DetachAck
+            | MessageKind::InputAck
+    )
+}
+
 fn resolves_early(frame: &Frame, protocol_version: u16, early: EarlyResponses) -> bool {
     early.resolves(frame.kind)
         && frame.request_id != 0

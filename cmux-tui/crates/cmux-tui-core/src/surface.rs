@@ -471,21 +471,6 @@ struct HostedFrameStager {
 }
 
 #[cfg(unix)]
-fn is_targeted_host_response(kind: MessageKind) -> bool {
-    matches!(
-        kind,
-        MessageKind::Capability
-            | MessageKind::ResizeAck
-            | MessageKind::CellPixelSizeAck
-            | MessageKind::KittyGraphicsLimitsAck
-            | MessageKind::ClearHistoryAck
-            | MessageKind::TerminateAck
-            | MessageKind::DetachAck
-            | MessageKind::InputAck
-    )
-}
-
-#[cfg(unix)]
 impl HostedFrameStager {
     #[cfg(test)]
     fn new(sequence_boundary: u64, smart_renderer: bool) -> Self {
@@ -2773,7 +2758,7 @@ impl Surface {
                         };
                         // Targeted responses must be consumed before live staging:
                         // HostedFrameStager intentionally rejects every nonzero request id.
-                        if is_targeted_host_response(frame.kind) && frame.request_id != 0
+                        if host_frames::is_targeted_host_response(frame.kind) && frame.request_id != 0
                         {
                             if frame.version != protocol_version
                                 || frame.flags != 0
