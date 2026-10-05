@@ -210,10 +210,13 @@ import base64, json, re, sys
 raw = sys.stdin.read()
 body = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
 try:
-    text = base64.b64decode(json.loads(body[1])["content"]).decode()
+    data = json.loads(body[1])
+    text = base64.b64decode(data["content"]).decode() if data.get("encoding") == "base64" else ""
 except Exception:
     sys.exit(0)
-sys.exit(0 if re.search(r"(?m)^  ci-status:\s*$", text) else 1)
+if not text.strip():
+    sys.exit(0)
+sys.exit(0 if re.search(r"(?m)^\s+[\x22\x27]?ci-status[\x22\x27]?\s*:", text) else 1)
 ' <<<"$workflow_response"
 }
 

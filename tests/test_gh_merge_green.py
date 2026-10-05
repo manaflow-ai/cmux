@@ -414,7 +414,8 @@ class InstalledHelperRegression(unittest.TestCase):
 class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
-    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None):
+    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
+                 raw_content=None, app_workflow_body=None):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -422,7 +423,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
             payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
                        "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
-                       "workflow_body": workflow_body}
+                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -441,8 +442,13 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     code = 200 if present else x['probe_status']
                     print('HTTP/2.0 ' + str(code))
                     print()
-                    body = x['workflow_body']
-                    print(json.dumps({'content': __import__('base64').b64encode(body.encode()).decode()}) if body is not None else '{}')
+                    body = x['app_workflow_body'] if any('ci-macos.yml' in arg for arg in a) else x['workflow_body']
+                    if x['raw_content'] is not None and not any('ci-macos.yml' in arg for arg in a):
+                        print(json.dumps(x['raw_content']))
+                    elif body is not None:
+                        print(json.dumps({'encoding': 'base64', 'content': __import__('base64').b64encode(body.encode()).decode()}))
+                    else:
+                        print('{}')
                     sys.exit(0 if code == 200 else 1)
                 elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
                     print(json.dumps([{'check_runs': x['checks']}]))
@@ -511,6 +517,23 @@ class WorkflowPresenceRegression(unittest.TestCase):
     def test_ci_workflow_with_a_ci_status_job_requires_it(self):
         aggregate = "jobs:\n  tests:\n    runs-on: x\n  # ci-status: in a comment does not count\n  ci-status:\n    needs: [tests]\n"
         result, merged, _ = self.run_case(workflow=True, workflow_body=aggregate)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn('ci-status', result.stderr)
+
+    def test_unreadable_workflow_body_still_requires_ci_status(self):
+        # The contents API returns empty content with encoding "none" for files over 1 MB.
+        for raw in ({'encoding': 'none', 'content': ''}, {'content': None}, {'encoding': 'base64', 'content': ''}):
+            with self.subTest(raw=raw):
+                result, merged, _ = self.run_case(workflow=True, raw_content=raw)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('ci-status', result.stderr)
+
+    def test_ci_status_job_in_the_app_workflow_requires_it(self):
+        tests_only = "jobs:\n  tests:\n    runs-on: x\n"
+        result, merged, _ = self.run_case(workflow=True, workflow_body=tests_only, app_workflow=True,
+                                          app_workflow_body="jobs:\n    'ci-status': # aggregate\n      needs: [tests]\n")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
         self.assertIn('ci-status', result.stderr)
