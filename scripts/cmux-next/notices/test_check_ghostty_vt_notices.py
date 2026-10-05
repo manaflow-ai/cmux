@@ -235,5 +235,58 @@ class CheckTest(unittest.TestCase):
             self.assertIn("pkg/newlib", result.stderr)
 
 
+class LinkGraphTest(unittest.TestCase):
+    """--link-graph: the packages that libghostty-vt.a's DWARF names
+    (vt_link_graph.py, made on a Testbox) must be declared and covered."""
+
+    def graph(self, work: Path, fixture: Fixture, packages: dict[str, list[str]], **extra: object) -> Path:
+        path = work / "vt-link-graph.json"
+        targets = {
+            target: {"packages": hashes, "package_files": {h: 1 for h in hashes}, "vendored": {"pkg/highway": 2},
+                     "zig_lib": {"std": 10}, "ghostty_files": 100, "generated_files": 3,
+                     "unattributed": list(extra.get("unattributed", [])), "names": {}, "source_paths": 120}
+            for target, hashes in packages.items()
+        }
+        path.write_text(json.dumps({
+            "schema": 1, "source": extra.get("source", "ghostty-next"), "commit": extra.get("commit", fixture.vt_commit),
+            "zig": "0.16.0", "flags": ["-Demit-lib-vt=true", "-Dstrip=false"], "dwarfdump": "fixture", "targets": targets,
+        }))
+        return path
+
+    def run_graph(self, *packages: str, **extra: object) -> subprocess.CompletedProcess[str]:
+        work = Path(self._tmp.name)
+        fixture = Fixture(work, "ghostty-next")
+        graph = self.graph(work, fixture, {"aarch64-macos": [UUCODE], "x86_64-linux-musl": list(packages)}, **extra)
+        return fixture.run("--license-manifest", fixture.manifest(work, [UUCODE, Z2D, SIMD]), "--link-graph", graph)
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_linked_packages_are_reported_against_the_declared_set(self) -> None:
+        result = self.run_graph(SIMD)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("linked 2 of 3 declared Zig packages", result.stdout)
+        self.assertIn(f"declared, not linked: z2d {Z2D}", result.stdout)
+
+    def test_a_graph_for_another_commit_fails(self) -> None:
+        result = self.run_graph(SIMD, commit="c" * 40)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("c" * 40, result.stderr)
+        self.assertIn("vt_link_graph.py", result.stderr)
+
+    def test_a_linked_package_that_is_not_declared_fails(self) -> None:
+        result = self.run_graph("other-1.0.0-XXXX")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("other-1.0.0-XXXX", result.stderr)
+
+    def test_an_unattributed_source_path_fails(self) -> None:
+        result = self.run_graph(SIMD, unattributed=["/opt/elsewhere/x.c"])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("/opt/elsewhere/x.c", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

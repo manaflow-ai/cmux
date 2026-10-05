@@ -66,6 +66,7 @@ jobs:
           python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+          python3 scripts/cmux-next/notices/test_vt_link_graph.py
           python3 cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py
 
       - name: Rust and Zig standard library notices match the toolchain pins

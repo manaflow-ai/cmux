@@ -20,6 +20,9 @@ on:
       - "cmux-tui/crates/ghostty-vt-sys/build.rs"
       - "scripts/cmux-next/notices/check_ghostty_vt_notices.py"
       - "scripts/cmux-next/notices/test_check_ghostty_vt_notices.py"
+      - "scripts/cmux-next/notices/vt_link_graph.py"
+      - "scripts/cmux-next/notices/test_vt_link_graph.py"
+      - "scripts/cmux-next/notices/vt-link-graph.json"
       - "scripts/cmux-next/check-ghostty-fetch-list.sh"
       - "scripts/build-ghostty-cli-helper.sh"
       - "scripts/install-zig-ci.sh"
@@ -70,6 +73,7 @@ jobs:
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+          python3 scripts/cmux-next/notices/test_vt_link_graph.py
 
       # No build fetches a package it does not use, so the archive below equals
       # the real fetch list (-Demit-themes=false: no iterm2_themes). Fresh
