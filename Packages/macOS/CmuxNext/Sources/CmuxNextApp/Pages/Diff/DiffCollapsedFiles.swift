@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The files a person collapsed from their header caret in the diff page (React UIs lead review
 /// of S4, P2-4): `<repo root>\u{0}<path>` keys, at most ``DiffPrefKey/maximumCollapsedFiles``,
@@ -56,8 +57,12 @@ final class DiffCollapsedFiles {
     }
 
     @concurrent private static func write(_ entries: [String], to url: URL) async {
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        try? data.write(to: url, options: .atomic)
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(entries).write(to: url, options: .atomic)
+        } catch {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "diff-collapsed")
+                .error("collapsed files not saved: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

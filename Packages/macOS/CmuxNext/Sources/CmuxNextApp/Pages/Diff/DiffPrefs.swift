@@ -76,9 +76,10 @@ final class SettingsDiffPrefs: DiffPrefsStoring {
         let path = DiffPrefKey.path(key)
         guard DiffPrefKey.displayKeys.contains(key), SettingsSchema.descriptor(for: path) != nil else { throw NotASetting(key: key) }
         guard let settings = settings() else { throw Unavailable() }
-        pending[key] = value
         let written: JSONValue? = value == .null ? .none : .some(value)
         try await settings.setSetting(at: path, to: written, by: .caller("page"))
+        // Only a write that succeeded shows before the file watcher reloads.
+        pending[key] = value
     }
 
     nonisolated struct Unavailable: Error, CustomStringConvertible {
