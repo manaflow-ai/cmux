@@ -17,6 +17,8 @@ export interface PaletteRankEntry {
   queryPrefix?: string | null;
   hidesWhenTyping?: boolean;
   sectionIndex?: number;
+  /** The row enters a palette scope (`PaletteItem.enters`). */
+  entersScope?: boolean;
 }
 
 export interface PaletteFrecencyEntry {
