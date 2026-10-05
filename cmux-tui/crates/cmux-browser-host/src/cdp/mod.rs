@@ -10,9 +10,11 @@ mod connection;
 mod cookies;
 mod driver;
 mod evaluate;
+mod fetch;
 mod input;
 pub mod keys;
 mod navigation;
+mod network;
 mod pdf;
 #[cfg(unix)]
 pub mod pipe;

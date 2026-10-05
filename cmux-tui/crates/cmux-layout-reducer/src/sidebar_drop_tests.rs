@@ -47,6 +47,7 @@ fn sections() -> Vec<Section> {
     ]
 }
 
+#[allow(clippy::too_many_arguments)] // one positional fixture per Row field, as the Swift tests built them
 fn row(
     key: RowKey,
     y: f64,

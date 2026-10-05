@@ -616,6 +616,7 @@
         }
       ],
       "consumers" : [
+        "cmux-browser",
         "cmux-next"
       ],
       "default" : "ask",
@@ -665,6 +666,7 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-browser",
         "cmux-next"
       ],
       "default" : 0.5,
@@ -4030,6 +4032,7 @@
         }
       ],
       "consumers" : [
+        "cmux-browser",
         "cmux-next"
       ],
       "default" : "fast",
@@ -4401,6 +4404,7 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-browser",
         "cmux-next"
       ],
       "default" : true,
@@ -4613,6 +4617,7 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-browser",
         "cmux-next"
       ],
       "default" : 1,
@@ -4699,6 +4704,7 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-browser",
         "cmux-next"
       ],
       "default" : null,
@@ -4808,6 +4814,7 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-browser",
         "cmux-next"
       ],
       "default" : null,
@@ -5462,6 +5469,7 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
+        "cmux-browser",
         "cmux-next"
       ],
       "default" : null,
@@ -10002,7 +10010,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "533e6d1c1c0fd7f033d4be3ee0cc5df38fc38b2a545abdfa727aa275e14afa98",
+  "schema_hash" : "51def105617a96774adc3e9a4fd976da1911f6c1d2429ed239d5abf296cd3637",
   "sections" : [
     {
       "id" : "general",

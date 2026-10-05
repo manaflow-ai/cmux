@@ -40,7 +40,8 @@ enum TabMoves {
     /// Tab page with the dragged tab's engine and profile. Nil when the
     /// kind cannot respawn: remote-terminal references, daemon-rendered
     /// browser tabs, incognito tabs (their URL must stay out of the daemon),
-    /// and app-local tabs (agent chats), which are not daemon tabs.
+    /// conversation tabs (Home and agent chats, whose source is one
+    /// conversation or session), and app-local tabs, which are not daemon tabs.
     @MainActor
     static func respawn(for tab: TabModel, in pane: PaneModel, services: AppServices) -> SplitRespawn? {
         switch tab.kind {

@@ -54,6 +54,9 @@ pub struct Caller {
     pub on_behalf_of: Option<String>,
     /// `user | cli | mcp | script | remote`.
     pub origin: String,
+    /// Where the caller is, set by the transport that carried the request
+    /// (never from the request).
+    pub locality: crate::locality::CallerLocality,
 }
 
 /// Opens engines on demand.
@@ -243,7 +246,9 @@ impl Host {
             capabilities.push("secret.insert".into());
         }
         let gate = Arc::new(
-            Gate::new(driver, Grants { raw_cdp })
+            // A remote caller (CALLER-LOCALITY, from the transport) is
+            // refused loopback and private ranges.
+            Gate::new(driver, Grants { raw_cdp, remote: caller.locality.refuses_private_ranges() })
                 .with_tab_secrets(self.tab_secrets.clone())
                 // The session name is the lease session (LeaseCaller.session).
                 .with_input_events(&name, sink),
@@ -510,7 +515,11 @@ mod tests {
 
     impl Driver for NoDriver {
         fn call(&self, method: &str, _: &Value) -> Result<Value, DriverError> {
-            Err(DriverError::unsupported_method(method))
+            match method {
+                // A tab to call on (the runtime's lazy page opens one).
+                "tabs.open" => Ok(json!({"targetId": "T1"})),
+                _ => Err(DriverError::unsupported_method(method)),
+            }
         }
 
         fn capabilities(&self) -> Vec<&'static str> {
@@ -560,7 +569,48 @@ mod tests {
     }
 
     fn mcp() -> Caller {
-        Caller { actor: "uid:501".into(), on_behalf_of: None, origin: "mcp".into() }
+        Caller {
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: "mcp".into(),
+            locality: Default::default(),
+        }
+    }
+
+    /// CALLER-LOCALITY: a remote caller (from the transport) is refused
+    /// loopback and private ranges for fetch and navigation alike; a
+    /// "remote" or "local" field in the request changes nothing.
+    #[test]
+    fn locality_comes_from_the_transport_not_the_request() {
+        let (host, _engines, _ended, root) = idle_host("locality", DEFAULT_IDLE_TIMEOUT);
+        let remote = Caller {
+            locality: crate::locality::CallerLocality::Remote {
+                principal: crate::locality::RemotePrincipal {
+                    user: "u".into(),
+                    install: "phone".into(),
+                    class: crate::locality::PrincipalClass::Agent,
+                    interactive: true,
+                },
+            },
+            ..mcp()
+        };
+        let run = |caller: &Caller, session: &str, code: &str| {
+            let params = json!({"session": session, "code": code, "engine": "headless",
+                "remote": true, "locality": "remote", "origin": "remote"});
+            let out = host.dispatch(caller, "browser.repl.eval", &params).unwrap();
+            out["error"].as_str().unwrap_or("").to_owned()
+        };
+        for code in [
+            "await fetch('http://127.0.0.1:9/x')",
+            "await page.goto('http://192.168.1.1/')",
+            "await tabs.open('http://localhost:3000/')",
+        ] {
+            let local = run(&mcp(), "near", code);
+            assert!(!local.contains("private or loopback"), "local {code}: {local}");
+            let far = run(&remote, "far", code);
+            assert!(far.contains("private or loopback"), "remote {code}: {far}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Classic main ends a named session after 30 minutes without a call
@@ -632,7 +682,12 @@ mod tests {
         let root = std::env::temp_dir().join(format!("host-drop-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let host = Host::new(engines.clone(), root.display().to_string());
-        let caller = Caller { actor: "uid:501".into(), on_behalf_of: None, origin: "mcp".into() };
+        let caller = Caller {
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: "mcp".into(),
+            locality: Default::default(),
+        };
         for name in ["closed", "open"] {
             host.dispatch(
                 &caller,
@@ -666,6 +721,7 @@ mod tests {
             actor: "uid:501".into(),
             on_behalf_of: None,
             origin: origin.into(),
+            locality: Default::default(),
         };
         host.dispatch(
             &caller("mcp"),

@@ -64,7 +64,8 @@ extension WorkspaceContentController {
 
 extension FocusTopology.Kind {
     static func of(_ tab: TabModel) -> FocusTopology.Kind {
-        of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
+        // An agent chat tab is a conversation tab on an acpmux session; its content is the agent page.
+        tab.agentSession != nil ? .agent : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
     }
 
     static func of(_ kind: TabKind, isFrontendOwned: Bool) -> FocusTopology.Kind {
@@ -84,7 +85,6 @@ extension PaneController {
         let tabs = stripModel.orderedTabs.map { item -> FocusTopology.Tab in
             let id = item.id.rawValue
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
-            if id.hasPrefix(LocalAgentTab.prefix) { return FocusTopology.Tab(id: id, kind: .agent) }
             if id.hasPrefix(LocalPageTab.prefix) { return FocusTopology.Tab(id: id, kind: .page) }
             guard let tab = pane.tabs.first(where: { $0.id == id }) else { return FocusTopology.Tab(id: id, kind: .other) }
             return FocusTopology.Tab(id: id, surface: String(tab.surface.rawValue), kind: .of(tab))

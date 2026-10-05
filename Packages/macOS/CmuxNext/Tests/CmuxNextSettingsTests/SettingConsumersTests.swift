@@ -19,7 +19,10 @@ import Testing
             #expect(!CFManagedPreferenceReader.publishedKeys.contains(row.id), "\(row.id) is published for MDM")
             #expect(SettingsSchema.agentSettableKeys.contains(row.id), "cmux-browser writes \(row.id) as script")
         }
-        for key in ["appearance.theme", "appearance.backgroundBlur", "focusRing.color", "layout.minimumPaneWidth",
+        // cmux-browser #567 reads these from cmux.json too.
+        for key in ["appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed", "focusRing.enabled", "focusRing.width",
+                    "focusRing.color", "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
+                    "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
                     "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.titlebarHeight"] {
             let row = try #require(SettingsSchema.all.first { $0.id == key })
             #expect(row.consumers == [.cmuxNext, .cmuxBrowser], "\(key)")
@@ -33,7 +36,7 @@ import Testing
         let document = try #require(try JSONSerialization.jsonObject(with: Data(export.utf8)) as? [String: Any])
         let rows = try #require(document["rows"] as? [[String: Any]])
         func row(_ key: String) throws -> [String: Any] { try #require(rows.first { $0["key"] as? String == key }) }
-        #expect(try row("ui.animationSpeed")["consumers"] as? [String] == ["cmux-next"])
+        #expect(try row("tabs.newTabKind")["consumers"] as? [String] == ["cmux-next"])
         #expect(try row("appearance.theme")["consumers"] as? [String] == ["cmux-browser", "cmux-next"])
         let presets = try row("layout.columnWidthPresets")
         #expect(presets["kind"] as? String == "number_list")
