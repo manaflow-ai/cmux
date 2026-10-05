@@ -521,12 +521,25 @@ fn page_world_handles_move_through_backend_nodes() {
     assert_eq!(sent[0].1["executionContextId"], 20, "handles resolve in the agent world");
     assert_eq!(sent[0].1["returnByValue"], false);
     assert_eq!(sent[1].1["objectId"], "obj-h7");
+    let group = sent[0].1["objectGroup"].clone();
     assert_eq!(
         sent[2].1,
-        json!({"backendNodeId": 42, "executionContextId": 10, "objectGroup": "cmux-handles"})
+        json!({"backendNodeId": 42, "executionContextId": 10, "objectGroup": group})
     );
     assert_eq!(sent[3].1["executionContextId"], 10);
     assert_eq!(sent[3].1["arguments"], json!([{"objectId": "page-42"}]));
+    assert_eq!(sent[4].1["objectGroup"], group, "the call releases its own group");
+    // Frames in one process share a session: a call that released a shared
+    // group killed a concurrent call's objects (parity 31 lost a frame), so
+    // every call has a group of its own.
+    let mark = h.mark();
+    h.call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "(el) => el.id", "handles": ["h7"]}),
+    );
+    let again = h.sent_since(mark);
+    assert_ne!(again[0].1["objectGroup"], group, "each call has its own object group");
+    assert_eq!(again[4].1["objectGroup"], again[0].1["objectGroup"]);
 }
 
 #[test]
@@ -1117,4 +1130,28 @@ fn frames_that_show_browser_pages_are_refused_and_released() {
         json!(session),
         "a child session is detached through its parent"
     );
+}
+
+/// New headless takes its window chrome out of --window-size (1280x661),
+/// so every headless tab gets the protocol's 1280x800 viewport before it
+/// runs, and a viewport reset returns to it (parity 14).
+#[test]
+fn headless_tabs_get_the_hidden_tab_viewport() {
+    let h = Harness::new();
+    let mark = h.mark();
+    let target = h.open(None);
+    let sent = h.sent_since(mark);
+    let pos = |name: &str| sent.iter().position(|(m, _)| m == name);
+    let metrics = pos("Emulation.setDeviceMetricsOverride").expect("a viewport override");
+    assert!(metrics < pos("Runtime.runIfWaitingForDebugger").unwrap());
+    assert_eq!(sent[metrics].1["width"], 1280);
+    assert_eq!(sent[metrics].1["height"], 800);
+    let mark = h.mark();
+    h.call("tab.setViewport", json!({"targetId": target, "reset": true}));
+    let sent = h.sent_since(mark);
+    assert!(
+        sent.iter().any(|(m, p)| m == "Emulation.setDeviceMetricsOverride" && p["height"] == 800),
+        "a reset returns to the hidden-tab size: {sent:?}"
+    );
+    assert!(!sent.iter().any(|(m, _)| m == "Emulation.clearDeviceMetricsOverride"));
 }

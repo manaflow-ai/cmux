@@ -867,6 +867,8 @@ name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

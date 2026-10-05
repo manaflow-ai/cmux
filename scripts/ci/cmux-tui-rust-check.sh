@@ -26,6 +26,13 @@ fi
 umask 022
 root="$(pwd -P)"
 export CARGO_TARGET_DIR="$root/.build/cmux-tui-rust-target"
+# The step's checkout has empty submodules; ghostty-vt-sys builds
+# libghostty-vt from ghostty-next (2026-10-05, step ee99e05f: "missing
+# build.zig"). Initialize the pinned commits shallowly before any cargo.
+if ! git -C "$root" submodule update --init --depth 1 ghostty ghostty-next; then
+  echo "error: git submodule update --init ghostty ghostty-next failed; no cargo command ran" >&2
+  exit 3
+fi
 cd "$root/cmux-tui"
 # The step's own RUSTUP_HOME auto-installed the pinned toolchain WITHOUT the
 # components rust-toolchain.toml lists (rustup 1.29.1, 2026-10-05: `cargo fmt`
@@ -37,6 +44,13 @@ if ! rustup component add clippy rustfmt; then
 fi
 echo "rust toolchain: $(rustup show active-toolchain)"
 rustup component list --installed
+# Run the pinned toolchain's own cargo, whose bin dir also holds cargo-fmt and
+# cargo-clippy. The cargo on the step's PATH is not always the rustup proxy;
+# then `cargo fmt` looks for cargo-fmt on PATH only (2026-10-05: step fafed265
+# on cmux7 had rustfmt installed and still failed with "no such command").
+toolchain_cargo="$(rustup which cargo)" || { echo "error: rustup which cargo failed" >&2; exit 3; }
+export PATH="$(dirname "$toolchain_cargo"):$PATH"
+echo "cargo: $toolchain_cargo"
 if [[ "$mode" == fmt || "$mode" == all ]]; then
   cargo fmt --all --check
 fi

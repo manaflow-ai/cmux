@@ -7,11 +7,13 @@
 mod browser_pages;
 mod capture;
 mod connection;
+mod cookies;
 mod driver;
 mod evaluate;
 mod input;
 pub mod keys;
 mod navigation;
+mod pdf;
 #[cfg(unix)]
 pub mod pipe;
 mod requests;
