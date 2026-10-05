@@ -69,6 +69,83 @@ struct NewMachineSheetLayoutTests {
         #expect(invalidated)
     }
 
+    /// Cmd+Y on a nightly account: the sheet opens on its host window with a
+    /// cold plan and many base machines, the Cloud cache refreshes the plan,
+    /// pool, and machine list while it is up, and then the person picks a
+    /// Base machine, which adds the inherited-settings row. Sizing the window
+    /// from inside AppKit's layout pass aborted the app here; freezing it at
+    /// its first size clips whatever arrives later. The window must end at
+    /// the content's ideal size.
+    @Test("an open sheet takes the size of content that arrives after it opens")
+    func presentedSheetTracksContentThatArrivesLater() throws {
+        _ = NSApplication.shared
+        let host = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        host.identifier = NSUserInterfaceItemIdentifier("cmux.main.newMachineSheetLayoutTests")
+        host.isReleasedWhenClosed = false
+        host.orderFront(nil)
+        defer { host.close() }
+
+        let machines = Self.nightlyMachines(renamedAt: 0)
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: nil,
+            sourceMachines: machines,
+            defaults: UserDefaults(suiteName: "NewMachineSheetLayoutTests-\(UUID().uuidString)")!,
+            planIsLoading: true,
+            submit: { _ in true }
+        )
+        NewMachineSheetPresenter.shared.present(model: model, preferredWindow: host, loadPlanFromCache: false)
+        defer { model.cancel() }
+        let sheet = try #require(host.attachedSheet, "the sheet was not attached to its host window")
+
+        for tick in 0..<12 {
+            let pool = CloudVMResourcePool(poolVcpus: 40, poolMemoryMb: 81920, usedVcpus: 32 + tick % 3, usedMemoryMb: 65536)
+            model.applyPlan(activeCount: machines.count + tick % 2, limits: VMPlanLimits(
+                maxActiveVms: 20,
+                planId: "pro",
+                freeAccessWindowDays: 0,
+                memoryOptionsMb: [4096, 8192, 16384],
+                lockedMemoryOptionsMb: [32768, 65536],
+                memoryUpgradePlanId: "max",
+                resourcePool: pool
+            ))
+            model.applySourceMachines(Self.nightlyMachines(renamedAt: tick))
+            Self.runMainLoopTurns()
+        }
+        model.selectBaseImage(.machine(model.sourceMachines[3]))
+        Self.runMainLoopTurns()
+
+        let ideal = NSHostingView(rootView: NewMachineSheet(model: model)).fittingSize
+        let content = sheet.contentRect(forFrameRect: sheet.frame).size
+        #expect(abs(content.height - ceil(ideal.height)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
+        #expect(abs(content.width - ceil(ideal.width)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
+    }
+
+    /// Eight machines whose names a refresh may change, like a busy account.
+    private static func nightlyMachines(renamedAt tick: Int) -> [VMSummary] {
+        (0..<8).map { index in
+            VMSummary(
+                id: "vm-\(index)",
+                provider: "freestyle",
+                status: "running",
+                image: "cmux-devbox",
+                createdAt: 0,
+                displayName: index == tick % 8 ? "cmux-devbox-\(index)-renamed-\(tick)" : "cmux-devbox-\(index)"
+            )
+        }
+    }
+
+    private static func runMainLoopTurns() {
+        for _ in 0..<5 {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+    }
+
     private func assertControlsInsideSheet(model: NewMachineModel, layout: NewMachineSheetLayout, label: String) {
         _ = NSApplication.shared
         let host = NSHostingView(rootView: NewMachineSheet(model: model, layout: layout))
