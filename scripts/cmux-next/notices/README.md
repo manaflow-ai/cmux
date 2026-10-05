@@ -80,3 +80,25 @@ nightly-next builds and verifies it on every build, ships the Ghostty license
 tree in `Contents/Resources/ghostty-licenses/`, and publishes the archive and
 the tag only while `vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE` is 1.
 `cmux-next-source-archive.yml` is the dry run (artifact only).
+
+## Changing the GhosttyNextKit pin
+
+A pin change (`Packages/Shared/CmuxGhosttyKit/Package.swift`) needs four
+regenerated files, or `ios_notices.py check-repo` fails: `ios/link-set.json`,
+`ghosttykit-macos-link-set.json`, the `app_link` in `ios/link-set.json` (the real
+link of a cmux-ci iOS build) and `ios/cmux/Settings.bundle/Acknowledgements.plist`.
+One command makes all four:
+
+1. Commit the pin and the `ghostty-next` gitlink (same Ghostty revision).
+2. Push it as a side branch: `SAFE_PUSH_NEW_BRANCH_BASE=feat-cmux-next safe-push.sh ghosttykit-pin/<name>`.
+   That push runs `cmux-next-source-archive.yml`, which uploads the license tree
+   (and, when they differ, the generated link sets) even when its checks fail.
+3. On a Mac, when that run has finished: `python3 scripts/cmux-next/notices/ghosttykit_repin.py`.
+   It checks the pin and the gitlink, downloads and checks the pinned zip, takes
+   the run's license tree, writes both link sets, submits a cmux-ci iOS build of
+   HEAD (or reuses `--ios-job ID`), writes `app_link`, generates the pane and runs
+   `check-repo`. Each step stops with what to do next.
+4. Commit the files it names, then land the side branch through safe-push.
+
+A pane entry is omitted only with positive evidence from that build (see
+`ios_notices.py app-link`); everything else stays listed.
