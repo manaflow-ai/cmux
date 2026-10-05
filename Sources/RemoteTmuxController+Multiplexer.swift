@@ -580,12 +580,6 @@ extension RemoteTmuxController {
         multiplexedViewsByHost[host.connectionHash] = nil
         multiplexIntentsByHost[host.connectionHash] = nil
         viewEpochSessionIdByHost[host.connectionHash] = nil
-        // Fail any `new-remote-workspace` awaiting a session on this host that never
-        // surfaced, so its caller returns instead of waiting out the full deadline.
-        let hostKeyPrefix = host.connectionHash + "\u{1}"
-        for key in newWorkspaceWaiters.keys where key.hasPrefix(hostKeyPrefix) {
-            resolveNewWorkspaceWaiters(key: key, workspaceId: nil)
-        }
         if !multiplexerHostStillInUse(host) {
             transportRegistry.remove(connectionHash: host.connectionHash)
             closeSharedSSHMasterIfAny(host: host)

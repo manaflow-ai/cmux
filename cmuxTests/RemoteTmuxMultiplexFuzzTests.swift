@@ -548,7 +548,7 @@ private final class MultiplexFuzzHarness {
         case 19: reconnectSharedStream(on: host)
         case 20: deliverPaneSeed(on: host)
         case 21: try endViewWhileAwaitingCredentials(on: host)
-        default: try claimNewWorkspace(on: host)
+        default: walkAcrossSessions(on: host)
         }
         // Apply EVERY live host, not just the mutated one: id publication is
         // step-indexed, and a revealed id only reaches a channel through an
@@ -898,22 +898,6 @@ private final class MultiplexFuzzHarness {
         #expect(
             manager.selectedTab?.id == target.id,
             "walking to a live mirror selects its workspace \(ctx)")
-    }
-
-    private func claimNewWorkspace(on host: FuzzHostModel) throws {
-        guard let name = pick(host.liveNames) else { return }
-        let mirror = try #require(
-            controller.sessionMirror(host: host.host, sessionName: name),
-            "live session \(name) must have a mirror \(ctx)")
-        let workspace = try #require(mirror.mirroredWorkspace, "mirror workspace \(ctx)")
-        manager.selectWorkspace(workspace)
-        let tabsBefore = manager.tabs.count
-        #expect(
-            controller.handleNewWorkspaceRequested(in: manager),
-            "new-workspace on a mirror must be claimed \(ctx)")
-        #expect(
-            manager.tabs.count == tabsBefore,
-            "a claimed new-workspace must not create a local workspace \(ctx)")
     }
 
     // MARK: - Apply + invariants

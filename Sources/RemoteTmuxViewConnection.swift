@@ -293,26 +293,8 @@ final class RemoteTmuxViewConnection {
         for token in tokens { resolveFirstWorkspaceWaiter(token, published: published) }
     }
 
-    /// Creates a detached real session over the live stream and returns its
-    /// (auto-assigned) name — so the caller can select exactly that session's
-    /// workspace when it surfaces — or nil when the stream is down or the
-    /// command failed. Bounded: a slow remote command must not suspend the
-    /// caller forever, but this non-reconcile path does not flap the stream.
-    func createWorkspaceReturningName(named desiredName: String? = nil) async -> String? {
-        guard let conn = connection, conn.connectionState == .connected else { return nil }
-        let lines = await conn.queryWithTimeout(
-            Self.newSessionCommand(
-                cols: initialCols, rows: initialRows, captureName: true, named: desiredName),
-            timeout: 10,
-            reconnectOnTimeout: false
-        )
-        guard let name = lines?.first?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !name.isEmpty else { return nil }
-        return name
-    }
-
-    /// The detached `new-session` command shared by every create path (bootstrap,
-    /// GUI New Workspace, CLI `new-remote-workspace`), so their flags can't drift.
+    /// The detached `new-session` command shared by every create path, so their
+    /// flags can't drift.
     /// `captureName` adds `-P -F '#{session_name}'` when the caller must read the
     /// auto-assigned name back; `named` requests an explicit session name (dropped
     /// if it carries characters tmux forbids in a session name). Created at the

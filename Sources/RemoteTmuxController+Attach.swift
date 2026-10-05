@@ -4,9 +4,8 @@ import Foundation
 @MainActor
 extension RemoteTmuxController {
     /// How long a fresh mirror gets to publish its first topology before the attach gives up on it
-    /// (seconds). Shared by both readiness barriers: ``mirrorsWithPublishedTopology(host:workspaceIds:in:timeoutSeconds:)``,
-    /// which the caller waits on, and ``dropMirrorIfTopologyNeverPublishes(host:sessionName:in:timeoutSeconds:)``,
-    /// which arrives late for the paths that have already returned.
+    /// (seconds). Used by the readiness barrier the caller waits on,
+    /// ``mirrorsWithPublishedTopology(host:workspaceIds:in:timeoutSeconds:)``.
     ///
     /// The wait has to be generous in the product: a real host answers in well under a second, but
     /// a slow link plus a session-heavy host legitimately takes longer, and dropping a mirror that
@@ -291,68 +290,6 @@ extension RemoteTmuxController {
             }
         }
         return MirrorReadiness(readyWorkspaceIds: ready, awaitingCredentials: awaitingCredentials)
-    }
-
-    /// Drops a just-created mirror if its stream never publishes a topology.
-    ///
-    /// `attachHost` can wait for readiness before it answers, because the caller is waiting for a
-    /// result anyway. The paths that mirror a session the user just created cannot — they have
-    /// already returned by the time the stream would prove itself — so the same guarantee has to
-    /// arrive late here rather than not at all. Without it those paths reproduce the bug the barrier
-    /// exists for: a workspace named after a session, wired to nothing.
-    ///
-    /// Late is visible, so it reports rather than just closing: a tab that appears and silently
-    /// vanishes is worse than one that appears and explains itself.
-    func dropMirrorIfTopologyNeverPublishes(
-        host: RemoteTmuxHost,
-        sessionName: String,
-        in manager: TabManager,
-        timeoutSeconds: Double = RemoteTmuxController.mirrorTopologyBarrierSeconds
-    ) {
-        let key = Self.connectionKey(host: host, sessionName: sessionName)
-        guard let mirror = sessionMirrors[key],
-              let connection = mirror.connection as? RemoteTmuxControlConnection,
-              connection.started,
-              connection.initialTopologyState == .pending
-        else { return }
-        Task { @MainActor [weak self] in
-            let ready = await withTaskGroup(of: Bool.self) { group -> Bool in
-                group.addTask { await connection.waitUntilInitialTopology() }
-                group.addTask {
-                    await RemoteTmuxRetryDelay.wait(milliseconds: Int(timeoutSeconds * 1_000))
-                    return false
-                }
-                let first = await group.next() ?? false
-                group.cancelAll()
-                return first
-            }
-            guard !ready, let self else { return }
-            // The key is (host, session name), and 15 seconds is long enough for the mirror under
-            // it to have been replaced — the user detaches and attaches the same session again,
-            // and the new mirror is a different connection that may be perfectly healthy. Only the
-            // connection this wait was started for may be dropped, so the mirror is matched by
-            // identity rather than by key.
-            guard let current = self.sessionMirrors[key],
-                  (current.connection as? RemoteTmuxControlConnection) === connection,
-                  let workspaceId = current.mirroredWorkspaceId,
-                  AppDelegate.shared?.windowId(for: manager) != nil
-            else { return }
-            #if DEBUG
-            cmuxDebugLog("remote-tmux: new mirror for \(sessionName) published no topology; dropping it")
-            #endif
-            self.detach(host: host, sessionName: sessionName)
-            if let workspace = manager.tabs.first(where: { $0.id == workspaceId }) {
-                manager.closeWorkspace(workspace, recordHistory: false)
-            }
-            // Same question, asked while this connection is still in scope.
-            let detail = connection.isAwaitingCredentials
-                ? RemoteTmuxError.authenticationRequired(host.destination).message
-                : String(
-                    localized: "remoteTmux.mirrorPublishedNoTopology",
-                    defaultValue: "the connection reached tmux but no window ever arrived"
-                )
-            self.reportNewSessionFailure(host, detail, manager)
-        }
     }
 
     func cleanUpTransportAfterFailedMirror(host: RemoteTmuxHost) {
