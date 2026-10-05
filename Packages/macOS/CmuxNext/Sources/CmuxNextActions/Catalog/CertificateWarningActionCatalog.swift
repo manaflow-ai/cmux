@@ -1,19 +1,23 @@
 // The certificate warning page's controls (a WebKit tab's interstitial:
 // Proceed and Go Back). Titles live in PageInfoActions.xcstrings. Ids match
 // CertificateWarningCommand in CmuxNextBrowser; both buttons run these.
-// No CLI verb, so no MCP tool: an agent never proceeds past a certificate
-// warning by name (`cmux action run` still reaches them).
+// No CLI verb, so no MCP tool. Proceed is person-only: the control socket
+// refuses it (`cmux action run`, MCP); Go Back runs from any origin.
 
 nonisolated enum CertificateWarningActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        [
-            ActionDescriptor(
-                id: "browser.certificateWarning.proceed",
-                title: t("action.certificateWarning.proceed", "Proceed Past Certificate Warning (Unsafe)"),
-                keywords: ["certificate", "warning", "interstitial", "proceed", "unsafe", "tls", "ssl", "visit", "continue"],
-                category: .browser, symbol: "exclamationmark.triangle", surfaces: [.palette, .keyboard],
-                requires: [.browserFocused], targets: [.pane], surfacePlan: plan
-            ),
+        var proceed = ActionDescriptor(
+            id: "browser.certificateWarning.proceed",
+            title: t("action.certificateWarning.proceed", "Proceed Past Certificate Warning (Unsafe)"),
+            keywords: ["certificate", "warning", "interstitial", "proceed", "unsafe", "tls", "ssl", "visit", "continue"],
+            category: .browser, symbol: "exclamationmark.triangle", surfaces: [.palette, .keyboard],
+            requires: [.browserFocused], targets: [.pane], surfacePlan: plan
+        )
+        // Only a person proceeds past a warning: the control socket refuses
+        // it whatever origin the caller claims (cmux action run, MCP).
+        proceed.isPersonOnly = true
+        return [
+            proceed,
             ActionDescriptor(
                 id: "browser.certificateWarning.goBack",
                 title: t("action.certificateWarning.goBack", "Go Back from Certificate Warning"),
