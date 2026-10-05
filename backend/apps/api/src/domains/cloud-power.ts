@@ -1,7 +1,7 @@
 import type { ReduceContext, ReduceResult, RowWrite, StoredRow } from "@cmux/ownership"
 import { CloudMachinePause, CloudMachineResize, CloudMachineStart, planRequiredDetails, type CloudDriverResultParams } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
-import { DEFAULT_SIZE, limitDetails, sizeLocked, teamPlan, type CloudConfig } from "./cloud-plan.ts"
+import { DEFAULT_SIZE, limitDetails, sizeLocked, teamPlan, type CloudConfig, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 import {
   countedRow,
   ledgerKey,
@@ -72,7 +72,7 @@ export const resizeIntent = (config: CloudConfig, state: CloudState, params: unk
   if (m.status !== "running" && m.status !== "paused") return reject("cloud.machine.not_running", "only a running or paused machine can be resized", { machine: m.id, state: m.status })
   const busy = Object.entries(state.pending).some(([, e]) => e.machine === m.id)
   if (busy) return reject("cloud.machine.busy", "another change of this machine is still running; retry when it lands", { machine: m.id })
-  const cur = { cpu: m.size.cpu ?? DEFAULT_SIZE.cpu, memory_mb: m.size.memory_mb ?? 4096, disk_mb: m.size.disk_mb ?? DEFAULT_SIZE.disk_mb }
+  const cur = { cpu: m.size.cpu ?? DEFAULT_SIZE.cpu, memory_mb: m.size.memory_mb ?? DEFAULT_MEMORY_MB, disk_mb: m.size.disk_mb ?? DEFAULT_SIZE.disk_mb }
   const target = { cpu: d.value.size.cpu ?? cur.cpu, memory_mb: d.value.size.memory_mb ?? cur.memory_mb, disk_mb: d.value.size.disk_mb ?? cur.disk_mb }
   if (target.cpu < cur.cpu || target.memory_mb < cur.memory_mb || target.disk_mb < cur.disk_mb) return reject("cloud.size.grow_only", "a machine can only grow (vCPU, memory and disk)", { size: cur })
   if (target.disk_mb > cur.disk_mb && m.status !== "running") return reject("cloud.machine.not_running", "the disk grows only on a running machine", { machine: m.id, state: m.status })
@@ -99,7 +99,8 @@ export const powerResult = (state: CloudState, stored: StoredRow<LedgerRow>, mac
   if (l.op === "resize") {
     // Success: the size is already the target. A final failure restores the old size (unless the machine is gone or deleting).
     if (r.ok || !machine || machine.row.status === "deleting" || !l.size_before) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes }
-    const restored: MachineRow = { ...machine.row, size: l.size_before, error: error ? { ...error, at: ctx.now } : null, revision: String(state.rev + 1) }
+    // The VM's real size after the failure (a partial resize), else the old size (review P3).
+    const restored: MachineRow = { ...machine.row, size: r.resources ?? l.size_before, error: error ? { ...error, at: ctx.now } : null, revision: String(state.rev + 1) }
     writes.push(upsertMachine(restored, machine.n))
     return { ok: true, state: next(state, { pending }, { machine: restored.id, removed: false }), value: { applied: true, final: true }, writes }
   }
