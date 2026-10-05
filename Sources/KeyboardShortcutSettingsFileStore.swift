@@ -706,6 +706,13 @@ final class CmuxSettingsFileStore {
                 logInvalid("workspaceColors.subtleSelection", sourcePath: sourcePath)
             }
         }
+        if section.keys.contains("brightenInDarkMode") {
+            if let value = jsonBool(section["brightenInDarkMode"]) {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.brightenInDarkMode.userDefaultsKey] = .bool(value)
+            } else {
+                logInvalid("workspaceColors.brightenInDarkMode", sourcePath: sourcePath)
+            }
+        }
         if section.keys.contains("notificationBadgeColor") {
             guard let value = parseNullableHex(
                 section["notificationBadgeColor"],
