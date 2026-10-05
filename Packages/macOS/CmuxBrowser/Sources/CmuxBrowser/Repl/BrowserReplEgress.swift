@@ -18,7 +18,8 @@ enum BrowserReplEgressData {
     /// delivered: the tab it names, and why.
     case withheldEvent(payloadJSON: String, reason: String)
     /// An `fs` operation's answer, as `{"ok": value}` or `{"error": …}`.
-    /// File contents (`readFile`) are masked as bytes.
+    /// File contents (`readFile`) are masked as bytes, every other value
+    /// and message as text.
     case fs(op: String, Result<Any, BrowserReplFileSystemError>)
     /// A `secrets` or `policy` operation's answer, as `{"ok": value}` or
     /// `{"error": …}`.
@@ -179,16 +180,24 @@ extension BrowserReplBoundary {
         return JSONSerialization.browserReplString(withheld) ?? "{}"
     }
 
+    /// Every answer is masked: file contents (`readFile`) as bytes, any
+    /// other value (names from `readdir`, paths from `resolve`) and error
+    /// messages as JSON. A name or path can hold a value too: a page's
+    /// download keeps the file name the page gave it.
     private static func maskingFS(
         op: String,
         _ result: Result<Any, BrowserReplFileSystemError>,
         with redaction: BrowserReplSecretStore.Redaction?
     ) -> String {
+        guard let redaction else {
+            switch result {
+            case .success(let value): return hostJSON(.success(value))
+            case .failure(let error): return hostJSON(.failure(code: error.code, message: error.message))
+            }
+        }
         switch result {
         case .success(let value):
-            // A file read back (a secrets file, a page's download), text or
-            // binary, is masked as bytes.
-            if op == "readFile", let base64 = value as? String, let redaction, let data = Data(base64Encoded: base64) {
+            if op == "readFile", let base64 = value as? String, let data = Data(base64Encoded: base64) {
                 do {
                     let masked = try redaction.redact(data)
                     return hostJSON(.success(masked == data ? base64 : masked.base64EncodedString()))
@@ -196,9 +205,13 @@ extension BrowserReplBoundary {
                     return hostJSON(.failure(code: "EINVAL", message: "readFile: \(BrowserReplSecretStore.limitMessage(data.count))"))
                 }
             }
-            return hostJSON(.success(value))
+            do {
+                return hostJSON(.success(try redaction.redactedValue(value)))
+            } catch {
+                return hostJSON(.failure(code: "EINVAL", message: "\(op): \(BrowserReplSecretStore.limitMessage(JSONSerialization.browserReplString(value)?.utf8.count ?? 0))"))
+            }
         case .failure(let error):
-            return hostJSON(.failure(code: error.code, message: error.message))
+            return hostJSON(.failure(code: error.code, message: redaction.redact(error.message)))
         }
     }
 
