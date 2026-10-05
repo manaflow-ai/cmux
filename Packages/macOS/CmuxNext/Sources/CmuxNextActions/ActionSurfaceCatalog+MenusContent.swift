@@ -83,6 +83,7 @@ nonisolated extension ActionSurfaceCatalog {
         "browser.pageInfo": [p(.browserPage, .inspect, 200, .submenu, folder: .tools), p(.browserPage, .inspect, 0, in: "browser.pageInfo")],
         "browser.pageInfo.connection": [p(.browserPage, .inspect, 1, in: "browser.pageInfo")],
         "browser.pageInfo.certificate": [p(.browserPage, .inspect, 2, in: "browser.pageInfo")],
+        "browser.pageInfo.reenableCertificateWarnings": [p(.browserPage, .inspect, 3, in: "browser.pageInfo")],
         "browser.pageInfo.cookies": [p(.browserPage, .inspect, 200, in: "browser.pageInfo")],
         "browser.pageInfo.manageSiteData": [p(.browserPage, .inspect, 201, in: "browser.pageInfo")],
         "browser.pageInfo.deleteSiteData": [p(.browserPage, .inspect, 202, in: "browser.pageInfo")],

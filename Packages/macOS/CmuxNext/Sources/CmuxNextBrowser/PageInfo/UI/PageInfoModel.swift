@@ -15,6 +15,9 @@ public final class PageInfoModel {
     /// Parsed chain, leaf first; nil while loading.
     public internal(set) var certificates: [PageInfoCertificate]?
     public internal(set) var certificateFailure: String?
+    /// The user proceeded past this site's certificate warning: the security
+    /// page offers "Turn on warnings".
+    public internal(set) var certificateWarningsOff = false
     /// A change needs a reload to apply (the reload infobar).
     public internal(set) var needsReload = false
 

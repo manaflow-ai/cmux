@@ -14,6 +14,8 @@ public struct MockPageInfoData {
     /// Every change Page Info pushed to the engine, in order.
     public private(set) var appliedChanges: [(SitePermissionKind, SitePermissionSetting, String)] = []
     public private(set) var deletedDomains: [String] = []
+    /// The page was loaded past a certificate warning the user turned off.
+    public var certificateWarningsOff = false
 
     public init() {}
 
@@ -47,5 +49,16 @@ extension MockBrowserTab: PageInfoProviding {
 
     public func pageInfoDidChange(_ kind: SitePermissionKind, to setting: SitePermissionSetting, origin: String) async {
         pageInfoFake.recordChange(kind, setting, origin)
+    }
+}
+
+extension MockBrowserTab: BrowserCertificateWarningRevoking {
+    public var certificateWarningsTurnedOff: Bool { pageInfoFake.certificateWarningsOff }
+
+    public func turnOnCertificateWarnings() async -> Bool {
+        guard pageInfoFake.certificateWarningsOff else { return false }
+        pageInfoFake.certificateWarningsOff = false
+        reload()
+        return true
     }
 }

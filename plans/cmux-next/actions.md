@@ -41,7 +41,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `screen`: 62
 - `tab`: 80
 - `terminal`: 36
-- `browser`: 145
+- `browser`: 146
 - `sidebar`: 56
 - `notifications`: 19
 - `agents`: 33
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 7
 - `settings`: 68
 
-## Counts (826 actions)
+## Counts (827 actions)
 
-Palette 794, CLI verbs 458, right-click 445, MCP tools 403.
+Palette 795, CLI verbs 459, right-click 446, MCP tools 404.
 
 ## Menus
 
@@ -64,7 +64,7 @@ Palette 794, CLI verbs 458, right-click 445, MCP tools 403.
 - **workspaceGroup**: workspaceGroup.newWorkspace | workspaceGroup.rename workspaceGroup.setColor > (workspaceGroup.color.grey workspaceGroup.color.blue workspaceGroup.color.red workspaceGroup.color.yellow workspaceGroup.color.green workspaceGroup.color.pink workspaceGroup.color.purple workspaceGroup.color.cyan workspaceGroup.color.orange) workspaceGroup.togglePin [options] > (workspaceGroup.markRead workspaceGroup.markUnread workspaceGroup.clearNotifications) | toggleFocusedWorkspaceGroupCollapsed [group] > (workspaceGroup.collapseAll workspaceGroup.expandAll) | [move] > (workspaceGroup.moveUp workspaceGroup.moveDown workspaceGroup.moveToNewWindow workspaceGroup.moveToWindow workspaceGroup.moveToSpace) | workspaceGroup.editConfig | [close] > (workspaceGroup.ungroup workspaceGroup.closeWorkspaces workspaceGroup.delete)
 - **sidebarBackground**: newTab newBrowserWorkspace openFolder newWorkspaceGroup [new] > (workspace.newAtTop workspace.newAtBottom workspace.newOnMachine space.new reopenClosedWorkspace reopenPreviousSession | newCloudWorkspace remote.connect | sidebar.home.add sidebar.item.add sidebar.section.add) | [group] > (workspaceGroup.collapseAll workspaceGroup.expandAll) | [move] > (workspace.sortByName workspace.sortByLastUsed workspace.sortByDirectory) | toggleSidebar appStore.show | sidebar.layout.reset
 - **terminalSelection**: terminalCopy terminalPaste terminal.selectAll useSelectionForFind terminal.sendText | [split] > (splitRight splitDown splitLeft splitUp) [agent] > (palette.forkAgentConversationRight palette.forkAgentConversationNewTab palette.forkAgentConversationLeft palette.forkAgentConversationTop palette.forkAgentConversationBottom palette.forkAgentConversationNewWorkspace) | [options] > (clearScreenKeepScrollback resetTerminal terminal.clear) | toggleSplitZoom | palette.terminalOpenDirectory
-- **browserPage**: browserBack browserForward browserReload browserHardReload browser.copyURL | browserTheme[choices] [options] > (toggleBrowserFocusMode toggleBrowserDesignMode) | bookmark.addPage | toggleBrowserDeveloperTools [tools] > (palette.browserOpenDefault browserScreenshotPage browserScreenshotSection | browser.pageInfo > (browser.pageInfo browser.pageInfo.connection browser.pageInfo.certificate | browser.pageInfo.setPermission browser.pageInfo.resetPermissions | browser.pageInfo.cookies browser.pageInfo.manageSiteData browser.pageInfo.deleteSiteData | browser.pageInfo.siteSettings browser.pageInfo.aboutThisPage) showBrowserJavaScriptConsole inspectBrowserElement | browser.extensions.menu browser.extensions.manage browser.extensions.webStore browser.extensions.loadUnpacked)
+- **browserPage**: browserBack browserForward browserReload browserHardReload browser.copyURL | browserTheme[choices] [options] > (toggleBrowserFocusMode toggleBrowserDesignMode) | bookmark.addPage | toggleBrowserDeveloperTools [tools] > (palette.browserOpenDefault browserScreenshotPage browserScreenshotSection | browser.pageInfo > (browser.pageInfo browser.pageInfo.connection browser.pageInfo.certificate browser.pageInfo.reenableCertificateWarnings | browser.pageInfo.setPermission browser.pageInfo.resetPermissions | browser.pageInfo.cookies browser.pageInfo.manageSiteData browser.pageInfo.deleteSiteData | browser.pageInfo.siteSettings browser.pageInfo.aboutThisPage) showBrowserJavaScriptConsole inspectBrowserElement | browser.extensions.menu browser.extensions.manage browser.extensions.webStore browser.extensions.loadUnpacked)
 - **browserLink**: browser.link.openInNewTab browser.link.openInNewWindow browser.link.openInNewSpace browser.link.openInNewWorkspace browser.link.openInSplit | browser.link.openInIncognitoWindow | browser.link.saveAs browser.link.copy browser.link.copyText
 - **browserImage**: browser.image.openInNewTab | browser.image.saveAs browser.image.copy browser.image.copyAddress
 - **browserSelection**: browser.selection.copy | browser.selection.search browser.selection.lookUp

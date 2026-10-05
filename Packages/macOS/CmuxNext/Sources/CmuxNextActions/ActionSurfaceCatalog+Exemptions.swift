@@ -69,6 +69,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.browserOpenDefault", "palette.browserClearHistory", 
         "browserScreenshotPage", "browserTheme", 
         "browser.pageInfo.deleteSiteData", "browser.pageInfo.setPermission", "browser.pageInfo.resetPermissions",
+        "browser.pageInfo.reenableCertificateWarnings",
         "browser.extensions.loadUnpacked", "browser.extension.run", "browser.extension.pin", "browser.extension.unpin",
         "browser.extension.enable", "browser.extension.disable", "browser.extension.move", "browser.extension.reload",
         "browser.extension.remove", "browser.extension.command", "browserProfile.new", "browserProfile.rename",

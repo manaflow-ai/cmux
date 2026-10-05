@@ -12895,6 +12895,32 @@
       "title_table" : "PageInfoActions"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "browser reenable-certificate-warnings",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.pageInfo.reenableCertificateWarnings",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Turn On Certificate Warnings Again",
+      "title_key" : "action.pageInfo.reenableCertificateWarnings",
+      "title_table" : "PageInfoActions"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "browser page-info-cookies",
       "context_menu" : "offered",
@@ -23634,14 +23660,27 @@
                   }
                 },
                 {
+                  "enabled_when" : "can_perform",
+                  "id" : "browser.pageInfo.reenableCertificateWarnings",
+                  "kind" : "action",
+                  "order" : 3,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+                      "browserFocused"
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 3
+                  "order" : 4
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "browser.pageInfo.setPermission",
                   "kind" : "action",
-                  "order" : 4,
+                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -23654,7 +23693,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "browser.pageInfo.resetPermissions",
                   "kind" : "action",
-                  "order" : 5,
+                  "order" : 6,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -23665,24 +23704,11 @@
                 },
                 {
                   "kind" : "separator",
-                  "order" : 6
+                  "order" : 7
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "browser.pageInfo.cookies",
-                  "kind" : "action",
-                  "order" : 7,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-                      "browserFocused"
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "browser.pageInfo.manageSiteData",
                   "kind" : "action",
                   "order" : 8,
                   "visible_when" : {
@@ -23695,7 +23721,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "browser.pageInfo.deleteSiteData",
+                  "id" : "browser.pageInfo.manageSiteData",
                   "kind" : "action",
                   "order" : 9,
                   "visible_when" : {
@@ -23707,14 +23733,27 @@
                   }
                 },
                 {
+                  "enabled_when" : "can_perform",
+                  "id" : "browser.pageInfo.deleteSiteData",
+                  "kind" : "action",
+                  "order" : 10,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+                      "browserFocused"
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 10
+                  "order" : 11
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "browser.pageInfo.siteSettings",
                   "kind" : "action",
-                  "order" : 11,
+                  "order" : 12,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -23727,7 +23766,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "browser.pageInfo.aboutThisPage",
                   "kind" : "action",
-                  "order" : 12,
+                  "order" : 13,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,

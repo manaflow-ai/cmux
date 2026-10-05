@@ -90,6 +90,7 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.titleChanged(webView.title))
         syncHistory()
         syncSecurity()
+        engine?.recheckCertificate(self)
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
