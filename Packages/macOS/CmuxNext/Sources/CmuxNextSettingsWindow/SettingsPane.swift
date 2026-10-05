@@ -24,7 +24,7 @@ extension DebugSettingsModel {
     }
 }
 
-/// The Settings tab title ("Settings", localized).
-public enum SettingsPaneTitle {
-    public static var text: String { SettingsWindowStrings.windowTitle }
+extension SettingsDeepLink {
+    /// The title of the Settings page tab every deep link opens ("Settings", localized).
+    public static var pageTitle: String { SettingsWindowStrings.windowTitle }
 }

@@ -27,11 +27,14 @@ public nonisolated enum DownloadDestination {
         return candidate
     }
 
+    /// The last path component, without control or format characters
+    /// (newlines, NUL, bidirectional overrides), `:` as `-`, without
+    /// leading dots; "download" when nothing is left.
     public static func sanitizedFilename(_ raw: String) -> String {
         let lastComponent = raw.split(separator: "/").last.map(String.init) ?? ""
         let cleaned = lastComponent
             .replacingOccurrences(of: ":", with: "-")
-            .filter { !$0.isNewline && $0 != "\0" }
+            .filter { !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }
             .trimmingCharacters(in: .whitespaces)
         let withoutLeadingDots = String(cleaned.drop { $0 == "." })
         return withoutLeadingDots.isEmpty ? "download" : withoutLeadingDots

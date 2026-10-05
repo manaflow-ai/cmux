@@ -181,7 +181,7 @@ what `connect_info` lists). Result `{token, expires_at, host, epoch, services}`:
 secret for one `hello` (the VM daemon checks it; a link with no valid token is closed after
 `hello`), single host, single install, these services, this `epoch`; `expires_at` at most 5
 minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound` (also for a
-machine in `deleting` or `failed`), `auth.forbidden`, `cloud.rate_limited` (per install), plus the
+machine in `deleting` or `failed`), `cloud.machine.paused {machine, state}` (paused, pausing or starting: no dial to a machine that cannot answer and no automatic start; the client asks "Start machine?" and calls `cloud.machine.start`), `auth.forbidden`, `cloud.rate_limited` (per install), plus the
 standard mutation and Worker gate codes.
 
 Cache rules for `cmux link`:
@@ -257,7 +257,7 @@ closing the link, because nothing calls `revoke_remote_install` yet; (4) the lin
 read `CMUX_LINK_TOKEN_VERIFIER` yet (`host_inbound` is not wired into `serve`); when it is, the link
 and the daemon must read the same config.
 
-Mapping to `link.dial` errors: `unknown_host` = `cloud.machine.not_found`; `not_authorized` =
+Mapping to `link.dial` errors: `host_paused` also = `cloud.machine.paused` from link_token; `unknown_host` = `cloud.machine.not_found`; `not_authorized` =
 `auth.forbidden` or a refused token; `host_paused` = handshake failure with `state: paused`;
 `unreachable` = no path answered; `bad_request` = malformed op line.
 

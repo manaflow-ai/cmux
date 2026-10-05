@@ -1,12 +1,5 @@
 public import Foundation
 
-/// A command of an engine's own page menu that a cmux row can hand back to
-/// while the menu is open (`BrowserContextMenuRequest.runEngineCommand`).
-public nonisolated enum BrowserEngineMenuCommand: Hashable, Sendable {
-    case saveLinkAs
-    case saveImageAs
-}
-
 /// Chromium's link, image and selection rows, replaced by the cmux rows
 /// (`BrowserHitMenu` in the App) so both engines show one menu.
 extension BrowserContextMenuItem {
@@ -35,8 +28,6 @@ extension BrowserContextMenuItem {
             50191, // IDC_CONTENT_CONTEXT_SEARCHWEBFOR
             50192, // IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB
         ]
-        static let saveLinkAs = 50103
-        static let saveImageAs = 50120
     }
 
     /// Pure: Chromium's top-level `items` without the rows the cmux link,
@@ -53,14 +44,6 @@ extension BrowserContextMenuItem {
         }
         if result.last?.kind == .separator { result.removeLast() }
         return result
-    }
-
-    /// The save commands Chromium's full model offers, for the hand-off.
-    public static func engineCommands(in items: [BrowserContextMenuItem]) -> [BrowserEngineMenuCommand: Int] {
-        var commands: [BrowserEngineMenuCommand: Int] = [:]
-        if items.contains(where: { $0.id == ChromiumCommand.saveLinkAs }) { commands[.saveLinkAs] = ChromiumCommand.saveLinkAs }
-        if items.contains(where: { $0.id == ChromiumCommand.saveImageAs }) { commands[.saveImageAs] = ChromiumCommand.saveImageAs }
-        return commands
     }
 }
 

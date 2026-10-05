@@ -23,7 +23,7 @@ enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsWindowLayout.tunables + NewTabTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all
     }
 }
 
@@ -84,7 +84,7 @@ final class DebugSettingsService: InternalPageProvider {
         guard isAvailable else { throw ActionFailure(message: RefusalStrings.debugSettingsUnavailable) }
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
-        if SettingsWindowLayout.presentation.value == .pane, let window = services.windows.active {
+        if SettingsPresentation.tunable.value == .pane, let window = services.windows.active {
             if let query { model.query = query }
             if let selection { model.selection = selection }
             DebugSettingsModel.followTheme(window.themeScope)

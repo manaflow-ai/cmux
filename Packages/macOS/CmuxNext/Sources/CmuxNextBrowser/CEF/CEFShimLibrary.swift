@@ -18,9 +18,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     ) -> Void
     typealias KeyFn = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?) -> Int32
     /// `cmux_shim_window_request_fn`: ctx, kind, disposition, source,
-    /// has_bounds, x, y, width, height, url, profile path -> anchor browser.
+    /// has_bounds, x, y, width, height, user gesture, url, profile path ->
+    /// anchor browser.
     typealias WindowRequestFn = @convention(c) (
-        UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32, Int32, Int32, Int32, Int32,
+        UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32, Int32, Int32, Int32, Int32, Int32,
         UnsafePointer<CChar>?, UnsafePointer<CChar>?
     ) -> Int32
     /// `cmux_shim_focus_request_fn`: ctx, browser, source -> 1 allow.
@@ -114,6 +115,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setFocusRequestHandler: @convention(c) (FocusRequestFn?) -> Void
     /// Browsers Chromium created outside cmux (fork API 8; -1 before).
     let foreignBrowserCount: @convention(c) () -> Int32
+    /// Downloads (`CEFDownloads`): start one with a tab's context, answer
+    /// DOWNLOAD_STARTED with a path ("" cancels), cancel/pause/resume.
+    let downloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    let downloadContinue: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    let downloadControl: @convention(c) (Int32, Int32) -> Int32
 
     // Page Info site state (ABI 3).
     let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
@@ -269,6 +275,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
         setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
+        downloadURL = try r("cmux_shim_download_url")
+        downloadContinue = try r("cmux_shim_download_continue")
+        downloadControl = try r("cmux_shim_download_control")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")
