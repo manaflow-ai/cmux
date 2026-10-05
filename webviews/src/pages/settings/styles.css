@@ -337,6 +337,27 @@ mark {
   text-align: right;
 }
 
+/* A number field as wide as the text it shows (its value, else its default label): the hidden
+   copy in the same grid cell sets the column width; at least the old 64 px. */
+.number-sizer {
+  display: inline-grid;
+  min-width: 64px;
+}
+
+.number-sizer::after {
+  content: attr(data-value);
+  grid-area: 1 / 1;
+  visibility: hidden;
+  white-space: pre;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+}
+
+.number-sizer > .number {
+  grid-area: 1 / 1;
+  width: 100%;
+}
+
 .number-field,
 .number-editor,
 .choice-or-number,
