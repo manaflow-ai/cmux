@@ -113,7 +113,9 @@ enum DebugWindowSnapshot {
         return try appKitBaseImage(for: window)
     }
 
-    private static func visibleWebViews(in window: NSWindow) -> [WKWebView] {
+    /// The web views of `window` that are on screen: the ones the snapshot
+    /// paints over the native base image.
+    static func visibleWebViews(in window: NSWindow) -> [WKWebView] {
         guard let root = window.contentView else { return [] }
         var result: [WKWebView] = []
         func visit(_ view: NSView) {
