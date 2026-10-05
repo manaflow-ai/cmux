@@ -1,6 +1,7 @@
+import AppKit
 public import Foundation
 public import WebKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The WebKit engine: one `WKWebView` per tab, one persistent
 /// `WKWebsiteDataStore` per profile.
@@ -18,8 +19,17 @@ public final class WebKitEngine: BrowserEngine {
     /// Hosts whose untrusted certificate the user chose to proceed past, per
     /// browser profile, until the app quits (never written to disk).
     var certificateExceptions: [BrowserProfileID: Set<String>] = [:]
-    /// Low Power Mode keeps new tabs near 60 fps (tests replace it).
-    var lowPowerMode: () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled }
+    /// Low Power Mode keeps every open and new tab near 60 fps.
+    public let lowPowerMode: LowPowerMode
+    private var lowPowerModeObservation: LowPowerModeObservation?
+    /// Open tabs, which follow a Low Power Mode change.
+    private let openTabs = NSHashTable<WebKitTab>.weakObjects()
+    /// The highest rate of a window's display (tests replace it).
+    var displayFramesPerSecond: (NSWindow) -> Int = { $0.screen?.maximumFramesPerSecond ?? 60 }
+    /// Steps of re-showing a live page after a rate change; nil snapshot
+    /// takes WebKit's (tests replace both).
+    var rateReshowSnapshot: (() async -> NSImage?)?
+    var rateReshowPause: (Duration) async -> Void = WebKitRenderRate.livePause
     /// Per-profile site permissions, shared with the Chromium engine.
     public var siteSettings: SiteSettingsRegistry = .shared
     /// Browser passkey authorization (one per app; tests inject a fake).
@@ -34,12 +44,14 @@ public final class WebKitEngine: BrowserEngine {
         profileStore: WebKitProfileStore = WebKitProfileStore(),
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
-        applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15"
+        applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
+        lowPowerMode: LowPowerMode = .system
     ) {
         self.profileStore = profileStore
         self.faviconLoader = faviconLoader
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
+        self.lowPowerMode = lowPowerMode
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -78,8 +90,9 @@ public final class WebKitEngine: BrowserEngine {
     /// Settings every tab needs, including page-opened ones.
     private func prepare(_ configuration: WKWebViewConfiguration) {
         // The display's full rate (120 Hz on ProMotion); near 60 fps in Low
-        // Power Mode. Read when each tab is made.
-        WebKitRenderRate.apply(fullRate: !lowPowerMode(), to: configuration.preferences)
+        // Power Mode. Open tabs follow a later change (applyRenderRate).
+        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode.isEnabled),
+                               to: configuration.preferences)
         // Native element fullscreen takes over the display; the pane shim
         // replaces it (PaneFullscreenScript).
         configuration.preferences.isElementFullscreenEnabled = false
