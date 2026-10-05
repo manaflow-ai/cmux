@@ -13,8 +13,6 @@ public nonisolated struct OmniboxMerge {
     /// selected) row; `capacity` the card's row limit.
     public static func merge(visible: [BrowserSuggestion], highlight: Int, incoming: [BrowserSuggestion], capacity: Int) -> [BrowserSuggestion] {
         var rows = visible
-        // Red: late rows are not merged yet.
-        if capacity >= 0 { return rows }
         var keys = Set(rows.map(key))
         let frozen = max(highlight, 0)
         let ranked = incoming.enumerated().sorted { lhs, rhs in

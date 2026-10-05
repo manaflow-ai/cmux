@@ -8,11 +8,6 @@ extension OmniboxConfiguration {
     /// falls back to Google.
     init(_ setting: BrowserOmnibarSetting) {
         let engine: BrowserSearchEngine
-        // Red: settings do not reach the engines yet.
-        if setting.maxRows >= 0 {
-            self.init()
-            return
-        }
         if setting.searchEngine == "custom" {
             let custom = BrowserSearchEngine.custom(search: setting.customSearch, suggest: setting.customSuggest)
             engine = custom.searchURL(for: "cmux") == nil ? .google : custom

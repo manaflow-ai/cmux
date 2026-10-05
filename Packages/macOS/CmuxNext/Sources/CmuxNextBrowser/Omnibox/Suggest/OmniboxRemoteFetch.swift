@@ -59,8 +59,7 @@ extension OmniboxSuggestionEngine {
     /// request to the engine's suggest endpoint, cancelled after
     /// `remote.timeout` or with the query; nil when anything fails.
     static func remoteRows(_ text: String, engine: BrowserSearchEngine, remote: OmniboxRemoteConfiguration) async -> [BrowserSuggestion]? {
-        // Red: no remote request yet.
-        guard remote.limit < 0, let fetcher = remote.fetcher, let url = engine.suggestURL(for: text) else { return nil }
+        guard let fetcher = remote.fetcher, let url = engine.suggestURL(for: text) else { return nil }
         let clock = remote.clock, timeout = remote.timeout, ephemeral = remote.isPrivate
         do {
             // wakeup-allow: one-shot debounce on the injected clock; a newer keystroke cancels it.

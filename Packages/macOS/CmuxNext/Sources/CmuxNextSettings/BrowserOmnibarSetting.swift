@@ -40,8 +40,6 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     /// so the parser and the Settings window agree on what is valid.
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BrowserOmnibarSetting {
         var setting = fallback
-        // Red: the keys are not read yet.
-        if setting == fallback { return setting }
         for descriptor in OmnibarSettingsSchema.descriptors {
             guard let value = root.value(at: descriptor.path) else { continue }
             guard descriptor.accepts(value) else {

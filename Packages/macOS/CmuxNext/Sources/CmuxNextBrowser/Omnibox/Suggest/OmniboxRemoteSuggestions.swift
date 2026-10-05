@@ -15,8 +15,6 @@ public nonisolated struct OmniboxRemoteSuggestions {
     /// `OmniboxText.maxInputLength`: private addresses stay private.
     public static func allows(_ text: String, resolver: OmniboxResolver) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Red: every input may leave.
-        if !trimmed.isEmpty || trimmed.isEmpty { return true }
         guard !trimmed.isEmpty, trimmed.utf16.count <= OmniboxText.maxInputLength else { return false }
         if case .url = resolver.destination(for: trimmed) { return false }
         let lowered = trimmed.lowercased()
