@@ -276,6 +276,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "install.ios_cloud_link_migrate",
+    {
+      name: "install.ios_cloud_link_migrate",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({}),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: UserDO adds the narrow cloud-link class to its old iPhone grants (read, mutate-own) once, on bind (CLOUD-LINK-FOLLOWUPS decision 2).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "install.register_server",
     {
       name: "install.register_server",

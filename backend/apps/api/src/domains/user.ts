@@ -50,6 +50,29 @@ const SERVER_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon"])
 
 export const grantFor = (state: UserState, p: Principal) => (p.grant ? state.grants[p.grant] : undefined)
 
+/** The old iPhone default (before cloud-link): a grant within it is an unchanged iPhone default. */
+const OLD_IOS_CLASSES: ReadonlyArray<string> = ["read", "mutate-own"]
+/**
+ * CLOUD-LINK-FOLLOWUPS (decision 2, 2026-10-05): grants of active ios installs, within the old iPhone
+ * default, that lack the narrow cloud-link class. install.ios_cloud_link_migrate adds it to these.
+ */
+export const iosGrantsToMigrate = (state: UserState): Array<string> =>
+  Object.values(state.installs)
+    .filter((i) => i.kind === "ios" && i.revoked_at === null)
+    .map((i) => state.grants[i.grant])
+    .filter((g): g is NonNullable<typeof g> => !!g && g.revoked_at === null && !g.op_classes.includes("cloud-link") && g.op_classes.every((c) => OLD_IOS_CLASSES.includes(c)))
+    .map((g) => g.id)
+
+/**
+ * Inbox calls come from this user only, through an active install whose grant covers the op
+ * (the catalog check other owners apply).
+ */
+export const inboxRefusalFor = (state: UserState, entity: string, principal: Principal, op: string): { code: string; message: string } | undefined => {
+  if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
+  if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+  return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+}
+
 /** True when the principal's install exists and is not revoked. */
 export const installActive = (state: UserState, p: Principal) => {
   if (p.kind === "session") return true
@@ -196,6 +219,14 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           value: i,
           outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: state.user.id } }]
         }
+      }
+      case "install.ios_cloud_link_migrate": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        const ids = iosGrantsToMigrate(state)
+        if (ids.length === 0) return { ok: true, state, value: { migrated: 0 }, changed: false }
+        const grants = { ...state.grants }
+        for (const id of ids) grants[id] = { ...grants[id]!, op_classes: [...grants[id]!.op_classes, "cloud-link"] }
+        return { ok: true, state: { ...state, grants }, value: { migrated: ids.length } }
       }
       case "install.rename": {
         const d = decodeParams<typeof InstallRename.params.Type>(InstallRename, params)
