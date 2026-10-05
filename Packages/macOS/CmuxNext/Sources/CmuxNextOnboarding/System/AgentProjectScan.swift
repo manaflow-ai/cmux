@@ -119,7 +119,7 @@ public nonisolated struct AgentProjectScan: Sendable {
 
     /// False for the home folder, temporary folders, an agent's own folders
     /// and folders that are gone; privacy-protected folders are kept unlooked-at.
-    fileprivate func keeps(folder: URL) -> Bool {
+    func keeps(folder: URL) -> Bool {
         let path = folder.standardizedFileURL.path
         let homePath = home.standardizedFileURL.path
         guard path != "/", path != homePath, path.hasPrefix("/") else { return false }
