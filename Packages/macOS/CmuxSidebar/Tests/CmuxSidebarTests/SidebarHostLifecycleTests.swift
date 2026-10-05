@@ -1,3 +1,4 @@
+import Foundation
 import ExtensionKit
 import Testing
 @_spi(CmuxHostTransport) @testable import CmuxSidebar
@@ -71,5 +72,27 @@ struct SidebarHostLifecycleTests {
         #expect(tracker.accepts(64, generation: 1, grantRevision: 1))
         tracker.reset(generation: 1, grantRevision: 2)
         #expect(!tracker.accepts(64, generation: 1, grantRevision: 2))
+    }
+    @Test func classicSelectionDoesNotReportRetainedExtensionAsConnected() throws {
+        let suite = "SidebarHostLifecycleTests." + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("test.extension", forKey: "cmuxExtensionSidebar.selectedExtensionBundleId")
+        let hostID = UUID()
+        defer { CMUXSidebarRecoveryDiagnostics.remove(hostID) }
+        CMUXSidebarRecoveryDiagnostics.record(
+            hostID: hostID, bundleID: "test.extension", identityID: "identity", generation: 1,
+            event: "first_snapshot", state: "connected", code: nil, defaults: defaults
+        )
+        let status = CMUXSidebarRecoveryDiagnostics.status(
+            providerID: "cmux.sidebar.workspaces", providerActive: false, defaults: defaults
+        )
+        #expect(status["provider_id"] as? String == "cmux.sidebar.workspaces")
+        #expect(status["provider_active"] as? Bool == false)
+        #expect(status["connected"] as? Bool == false)
+        #expect(status["selected_bundle_id"] as? String == "test.extension")
+        #expect(!CMUXSidebarRecoveryDiagnostics.reconnect(
+            bundleID: "test.extension", providerActive: false, defaults: defaults
+        ))
     }
 }

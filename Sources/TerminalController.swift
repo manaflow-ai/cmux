@@ -1839,12 +1839,21 @@ class TerminalController {
                 return v2Error(id: request.id, code: "permission_denied", message: "Sidebar recovery is local only")
             }
             return v2MainSync {
+                let persistedProvider = UserDefaults.standard.string(forKey: CmuxExtensionSidebarSelection.defaultsKey)
+                    ?? CmuxExtensionSidebarSelection.defaultProviderId
+                let providerID = CmuxExtensionSidebarSelection.effectiveProviderId(
+                    persistedProvider,
+                    extensionsEnabled: CmuxExtensionSidebarSelection.isEnabled,
+                    customSidebarsEnabled: CmuxExtensionSidebarSelection.customSidebarsEnabled,
+                    conversationSidebarEnabled: CmuxExtensionSidebarSelection.conversationSidebarEnabled
+                )
+                let providerActive = providerID == CmuxExtensionSidebarSelection.hostedExtensionsProviderId
                 if request.method == "extension.sidebar.reconnect" {
-                    guard CMUXSidebarRecoveryDiagnostics.reconnect(bundleID: request.params["bundle_id"] as? String) else {
+                    guard CMUXSidebarRecoveryDiagnostics.reconnect(bundleID: request.params["bundle_id"] as? String, providerActive: providerActive) else {
                         return self.v2Error(id: request.id, code: "not_active", message: "No matching selected sidebar provider is hosted")
                     }
                 }
-                return self.v2Ok(id: request.id, result: CMUXSidebarRecoveryDiagnostics.status())
+                return self.v2Ok(id: request.id, result: CMUXSidebarRecoveryDiagnostics.status(providerID: providerID, providerActive: providerActive))
             }
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])

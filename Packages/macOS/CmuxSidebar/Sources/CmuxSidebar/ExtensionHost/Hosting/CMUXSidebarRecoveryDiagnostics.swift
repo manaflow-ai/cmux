@@ -12,7 +12,7 @@ import os
 
     /// Records a lifecycle event without workspace data.
     public static func record(hostID: UUID, bundleID: String, identityID: String, generation: UInt64,
-                       event: String, state: String?, code: Int?) {
+                       event: String, state: String?, code: Int?, defaults: UserDefaults = .standard) {
         var entry: [String: Any] = [
             "timestamp_ms": Int64(Date().timeIntervalSince1970 * 1000),
             "pid": ProcessInfo.processInfo.processIdentifier,
@@ -27,7 +27,7 @@ import os
         host["state"] = state ?? host["state"] ?? "connecting"
         hosts[hostID] = host
         if let state { entry["state"] = state }
-        append(entry)
+        append(entry, defaults: defaults)
     }
 
     /// Records a transport error code, without its possibly sensitive description.
@@ -37,13 +37,13 @@ import os
                 "event": "xpc_proxy_error", "generation": generation, "error_code": code])
     }
 
-    private static func append(_ entry: [String: Any]) {
+    private static func append(_ entry: [String: Any], defaults: UserDefaults = .standard) {
         guard let data = try? JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]),
               let line = String(data: data, encoding: .utf8) else { return }
         logger.notice("\(line, privacy: .public)")
-        var history = UserDefaults.standard.stringArray(forKey: key) ?? []
+        var history = defaults.stringArray(forKey: key) ?? []
         history.append(line)
-        UserDefaults.standard.set(Array(history.suffix(100)), forKey: key)
+        defaults.set(Array(history.suffix(100)), forKey: key)
     }
 
     /// Removes a dismantled host from live status.
@@ -52,10 +52,11 @@ import os
     public static func report() -> String { (UserDefaults.standard.stringArray(forKey: key) ?? []).joined(separator: "\n") }
 
     /// Returns metadata for live hosts of the selected provider.
-    public static func status() -> [String: Any] {
-        let selected = UserDefaults.standard.string(forKey: "cmuxExtensionSidebar.selectedExtensionBundleId")
+    public static func status(providerID: String, providerActive: Bool, defaults: UserDefaults = .standard) -> [String: Any] {
+        let selected = defaults.string(forKey: "cmuxExtensionSidebar.selectedExtensionBundleId")
         let selectedHosts = hosts.values.filter { ($0["bundle_id"] as? String) == selected }
-        return ["selected_bundle_id": selected as Any? ?? NSNull(),
+        return ["provider_id": providerID, "provider_active": providerActive,
+                "selected_bundle_id": selected as Any? ?? NSNull(),
                 "hosts": Array(selectedHosts),
                 "connected": !selectedHosts.isEmpty && selectedHosts.allSatisfy { ($0["state"] as? String) == "connected" }]
     }
@@ -63,8 +64,8 @@ import os
     /// Requests recovery only for the currently selected, hosted provider.
     /// - Parameter bundleID: Optional selected bundle identifier to match.
     /// - Returns: Whether a live selected host accepted the request.
-    public static func reconnect(bundleID: String?) -> Bool {
-        guard let selected = UserDefaults.standard.string(forKey: "cmuxExtensionSidebar.selectedExtensionBundleId"),
+    public static func reconnect(bundleID: String?, providerActive: Bool, defaults: UserDefaults = .standard) -> Bool {
+        guard let selected = defaults.string(forKey: "cmuxExtensionSidebar.selectedExtensionBundleId"),
               bundleID == nil || bundleID == selected,
               hosts.values.contains(where: { ($0["bundle_id"] as? String) == selected }) else { return false }
         NotificationCenter.default.post(name: reconnectNotification, object: nil)
