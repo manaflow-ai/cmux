@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CMUXAgentLaunch
 import CmuxWorkspaces
 import Foundation

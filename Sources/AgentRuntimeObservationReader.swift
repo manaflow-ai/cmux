@@ -1,3 +1,4 @@
+import CmuxFoundation
 @_spi(CmuxHostTransport) import CmuxExtensionKit
 import CmuxAgentJournal
 import Foundation
