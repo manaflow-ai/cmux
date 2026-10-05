@@ -85,15 +85,14 @@ concurrency:
   # A nightly-next promotion request builds nothing here, so it gets its own
   # group and never replaces a pending main build (the job serializes itself).
   # A six-hour cache warmup must not wait behind a publishing nightly build or
-  # hold one behind a saturated runner pool. Only that schedule gets a separate
-  # group, and a newer tick may replace the older warmup. The daily 08:47 UTC
-  # publishing schedule, pushes, manual full runs, fast dogfood runs, and
-  # build-only measurements retain their existing serialization rules.
+  # hold one behind a saturated runner pool. Each lane has its own group, and
+  # a newer run may replace only a pending run. An in-flight nightly must always
+  # finish so a 42-minute macOS build is not discarded by the next push.
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
   group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
-  cancel-in-progress: ${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -1950,7 +1949,7 @@ jobs:
             --name-prefix "${CHANNEL_DMG_PREFIX}-" \
             --variant "$NIGHTLY_VARIANT" \
             --exclude-build "$NIGHTLY_BUILD" \
-            --count 2 \
+            --count 1 \
             --out previous-nightlies
 
       - name: Generate Sparkle appcasts (nightly)
@@ -1960,10 +1959,14 @@ jobs:
           CHANNEL: ${{ needs.decide.outputs.channel }}
           SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
-          # Deltas from the two previous builds of this track, named
+          # Keep the newest delta for each architecture-specific track. The
+          # feeds must remain per-architecture because Sparkle signs each DMG;
+          # older installs fall back to the full archive. One delta avoids a
+          # second expensive BinaryDelta pass while preserving update safety.
+          # The delta is named
           # cmux-nightly-macos-<variant>-<new>-<old>.delta so tracks never collide.
           SPARKLE_PREVIOUS_ARCHIVES_DIR: previous-nightlies
-          SPARKLE_MAXIMUM_DELTAS: "2"
+          SPARKLE_MAXIMUM_DELTAS: "1"
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
@@ -2010,6 +2013,11 @@ jobs:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release
+    permissions:
+      contents: write
+      pull-requests: read
+      attestations: write
+      id-token: write
     # rc/** branches share one release. Serialize its mutable aliases and feeds
     # by channel, even when workflow-level groups have different branch names.
     concurrency:
@@ -2075,6 +2083,34 @@ jobs:
           cp appcast.xml appcast-universal.xml
           ls -l
 
+      - name: Prepare nightly release notes and appcast summaries
+        if: needs.decide.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES_HEAD: ${{ needs.decide.outputs.head_sha }}
+          NOTES_BRANCH: ${{ github.ref_name }}
+          NOTES_APP_NAME: ${{ needs.decide.outputs.app_name }}
+          NOTES_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
+        run: |
+          set -euo pipefail
+          cat > nightly-downloads.md <<EOF
+          Automated ${CHANNEL} build for \`${NOTES_HEAD:0:7}\` from \`${NOTES_BRANCH}\`.
+          Published commit: \`${NOTES_HEAD}\`.
+          **${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
+          - [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`
+          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
+          - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
+          EOF
+          # Read the live completed publication under the channel writer lock,
+          # rather than the decide job's baseline from before the build started.
+          # nightly_release_notes.py preserves the cmux-published-sha: marker
+          # used for the next exact range and its repair/recovery path.
+          python3 scripts/ci/nightly_release_notes.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
+            --details nightly-downloads.md --out nightly-notes.md \
+            --appcasts nightly-out --build "$NIGHTLY_BUILD"
+
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2138,13 +2174,7 @@ jobs:
           prerelease: true
           make_latest: false
           draft: false
-          body: |
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.decide.outputs.short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ needs.decide.outputs.head_sha }}`.
-            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
-            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
-            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
-            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
+          body_path: nightly-notes.md
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true'
@@ -2184,14 +2214,7 @@ jobs:
           prerelease: true
           make_latest: false
           draft: false
-          body: |
-            <!-- cmux-published-sha: ${{ needs.decide.outputs.head_sha }} -->
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.decide.outputs.short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ needs.decide.outputs.head_sha }}`.
-            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
-            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
-            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
-            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
+          body_path: nightly-notes.published.md
 
       - name: Mint release tag app token
         id: release-tag-token

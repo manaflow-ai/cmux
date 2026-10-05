@@ -530,13 +530,22 @@ struct MachinesPanelView: View {
             message: String(localized: "coderouter.removeAccount.message", defaultValue: "The team stops routing agents through this account. You can add it again later."),
             verb: String(localized: "coderouter.removeAccount.verb", defaultValue: "Remove")
         ) else { return }
+        // Reflect the user's action immediately. Keep the removed row around so
+        // a failed request can restore the exact ordering returned by the last
+        // successful read.
+        let previousIndex = coderouter.accounts.firstIndex { $0.id == account.id } ?? coderouter.accounts.endIndex
+        coderouter.accounts.removeAll { $0.id == account.id }
         Task { @MainActor in
             do {
                 try await CoderouterCLIAccountReader.remove(accountID: account.id, for: teamID, name: teamName)
-                // Drop the row now; the refresh confirms it against CodeRouter.
-                coderouter.accounts.removeAll { $0.id == account.id }
             } catch {
                 Self.coderouterLogger.error("CodeRouter account removal failed: \(error.localizedDescription, privacy: .public)")
+                // Do not restore an old team's account after a team switch.
+                if accountFlow?.confirmedTeamID == teamID,
+                   !coderouter.accounts.contains(where: { $0.id == account.id }) {
+                    let index = min(previousIndex, coderouter.accounts.endIndex)
+                    coderouter.accounts.insert(account, at: index)
+                }
                 viewModel.noteTreeFailure(error.localizedDescription)
             }
             requestCoderouterRefresh()

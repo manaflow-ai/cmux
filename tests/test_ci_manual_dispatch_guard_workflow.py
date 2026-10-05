@@ -19,7 +19,7 @@ def trigger(document: dict) -> dict:
 def test_watcher_is_requested_ci_workflow_run() -> None:
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     event = trigger(document)
-    assert event["workflow_run"] == {"workflows": ["CI"], "types": ["requested"]}
+    assert event["workflow_run"] == {"workflows": ["CI"], "types": ["requested"], "branches": ["main"]}
     assert document["env"]["SOURCE_WORKFLOW_PATHS"] == ".github/workflows/ci.yml"
     assert document["permissions"] == {}
     watcher_env = document["jobs"]["guard"]["steps"][-1]["env"]
@@ -42,7 +42,8 @@ def test_only_manual_dispatches_get_a_writer() -> None:
     guard = document["jobs"]["guard"]
     assert guard["if"] == (
         "github.event.workflow_run.path == '.github/workflows/ci.yml' && "
-        "github.event.workflow_run.event == 'workflow_dispatch'"
+        "github.event.workflow_run.event == 'workflow_dispatch' && "
+        "github.event.workflow_run.head_branch == 'main'"
     )
     assert guard["permissions"] == {
         "actions": "write",
