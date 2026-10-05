@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5'
+IR_SHA256 = '700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab'
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,19 @@ COMMANDS = {
             'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
             'surface': CommandFieldMetadata(None, None),
             'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
+        },
+    ),
+    'bind-conversation-tab-session': CommandMetadata(
+        'bind-conversation-tab-session',
+        'control',
+        12,
+        'agent-session-tabs-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'expected_session': CommandFieldMetadata(None, None),
+            'session': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'browser-activate': CommandMetadata(
@@ -1487,6 +1500,7 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'agent_session': CommandFieldMetadata(None, 'agent-session-tabs-v1'),
             'cols': CommandFieldMetadata(None, None),
             'conversation': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),

@@ -495,20 +495,30 @@ fn install(
             .map_err(js)?,
         )
         .map_err(js)?;
-    // Native fetch (tab cookies, policy per redirect hop) is not built yet:
-    // answer `unsupported` through the result callback, as an async call does.
+    // Native fetch: the gate's `net.fetch` (policy and range checks, every
+    // redirect hop, masking), run by the engine in the tab's context.
+    let fetch_host = host.clone();
     let fetch_results = tx.clone();
     native
         .set(
             "fetch",
-            Function::new(ctx.clone(), move |call_id: f64, _request: String| {
-                let _ = fetch_results.send(Input::Result {
-                    call_id,
-                    outcome: Err(DriverError::new(
-                        crate::protocol::ErrorCode::Unsupported,
-                        "fetch: the browser host does not fetch yet; use page.evaluate(() => fetch(...))",
-                    )),
-                });
+            Function::new(ctx.clone(), move |call_id: f64, request: String| {
+                let host = fetch_host.clone();
+                let results = fetch_results.clone();
+                let sender = results.clone();
+                let request: Value = serde_json::from_str(&request).unwrap_or(json!({}));
+                let spawned = std::thread::Builder::new()
+                    .name("cmux-browser-host-fetch".into())
+                    .spawn(move || {
+                        let outcome = host.driver_call("net.fetch", request);
+                        let _ = sender.send(Input::Result { call_id, outcome });
+                    });
+                if spawned.is_err() {
+                    let _ = results.send(Input::Result {
+                        call_id,
+                        outcome: Err(DriverError::closed("could not start a fetch")),
+                    });
+                }
             })
             .map_err(js)?,
         )

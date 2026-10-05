@@ -23,6 +23,8 @@ export interface UserState extends PushTargetsState, ChiefsState {
   readonly home_settings?: homeUser.HomeSettings
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
+  /** One-time migrations already done on this user (CLOUD-LINK-FOLLOWUPS decision 2). */
+  readonly migrations?: { readonly ios_cloud_link?: true }
   /**
    * Revoked installs whose team SSH certificates still need a KRL entry in each team's TeamDO
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
@@ -49,6 +51,36 @@ const INSTALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute"] as co
 const SERVER_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon"])
 
 export const grantFor = (state: UserState, p: Principal) => (p.grant ? state.grants[p.grant] : undefined)
+
+/** The old iPhone default (before cloud-link): a grant within it is an unchanged iPhone default. */
+const OLD_IOS_CLASSES: ReadonlyArray<string> = ["read", "mutate-own"]
+/**
+ * When the cloud-link iPhone default landed on feat-cmux-next (2cef2ebaf0a). Only installs made
+ * before it are migrated; a later install's grant is what its client asked for (review P2).
+ */
+export const IOS_CLOUD_LINK_CUTOFF = Date.parse("2026-10-05T00:00:54Z")
+/**
+ * CLOUD-LINK-FOLLOWUPS (decision 2, 2026-10-05): grants of active ios installs, within the old iPhone
+ * default, that lack the narrow cloud-link class. install.ios_cloud_link_migrate adds it to these.
+ */
+export const iosGrantsToMigrate = (state: UserState): Array<string> =>
+  state.migrations?.ios_cloud_link
+    ? []
+    : Object.values(state.installs)
+    .filter((i) => i.kind === "ios" && i.revoked_at === null && i.created_at < IOS_CLOUD_LINK_CUTOFF)
+    .map((i) => state.grants[i.grant])
+    .filter((g): g is NonNullable<typeof g> => !!g && g.revoked_at === null && !g.op_classes.includes("cloud-link") && g.op_classes.every((c) => OLD_IOS_CLASSES.includes(c)))
+    .map((g) => g.id)
+
+/**
+ * Inbox calls come from this user only, through an active install whose grant covers the op
+ * (the catalog check other owners apply).
+ */
+export const inboxRefusalFor = (state: UserState, entity: string, principal: Principal, op: string): { code: string; message: string } | undefined => {
+  if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
+  if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+  return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+}
 
 /** True when the principal's install exists and is not revoked. */
 export const installActive = (state: UserState, p: Principal) => {
@@ -196,6 +228,15 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           value: i,
           outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: state.user.id } }]
         }
+      }
+      case "install.ios_cloud_link_migrate": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        const ids = iosGrantsToMigrate(state)
+        if (state.migrations?.ios_cloud_link) return { ok: true, state, value: { migrated: 0 }, changed: false }
+        const grants = { ...state.grants }
+        for (const id of ids) grants[id] = { ...grants[id]!, op_classes: [...grants[id]!.op_classes, "cloud-link"] }
+        // Done once per user: later iPhone installs keep the grant their client asked for.
+        return { ok: true, state: { ...state, grants, migrations: { ...state.migrations, ios_cloud_link: true } }, value: { migrated: ids.length } }
       }
       case "install.rename": {
         const d = decodeParams<typeof InstallRename.params.Type>(InstallRename, params)

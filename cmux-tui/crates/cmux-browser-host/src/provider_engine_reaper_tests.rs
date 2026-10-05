@@ -73,7 +73,12 @@ impl Fixture {
         let host = Host::new(engines.clone(), root.display().to_string()).with_idle_timeout(idle);
         let (tx, ended) = mpsc::channel();
         host.on_idle_end(tx);
-        let caller = Caller { actor: "uid:501".into(), on_behalf_of: None, origin: "mcp".into() };
+        let caller = Caller {
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: "mcp".into(),
+            locality: Default::default(),
+        };
         host.dispatch(&caller, "browser.repl.open", &json!({"session": "s", "engine": "webkit"}))
             .unwrap();
         Fixture { app, provider, engines, host, ended, root }
@@ -197,7 +202,12 @@ fn idle_end_sends_the_app_what_close_sends() {
         if close {
             f.host
                 .dispatch(
-                    &Caller { actor: "uid:501".into(), on_behalf_of: None, origin: "mcp".into() },
+                    &Caller {
+                        actor: "uid:501".into(),
+                        on_behalf_of: None,
+                        origin: "mcp".into(),
+                        locality: Default::default(),
+                    },
                     "browser.repl.close",
                     &json!({"session": "s"}),
                 )

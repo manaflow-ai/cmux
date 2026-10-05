@@ -7071,6 +7071,51 @@
    },
    "additional_properties": false
   },
+  "AgentSessionSource": {
+   "kind": "object",
+   "fields": {
+    "host": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "install: and the stable install id of the machine whose acpmux runs the session."
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "The acpmux session id; null for a new chat until bind-conversation-tab-session."
+    },
+    "harness": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "The agent kind the chat was started with."
+    },
+    "host_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Display name of the host machine: 1 to 255 bytes, no control characters."
+    }
+   },
+   "additional_properties": false
+  },
   "ConversationTabRecord": {
    "kind": "object",
    "fields": {
@@ -7079,16 +7124,28 @@
       "kind": "scalar",
       "name": "string"
      },
-     "presence": "required",
-     "nullable": false
+     "presence": "optional",
+     "nullable": false,
+     "description": "Conversation source: a conv_ id, with owner."
     },
     "owner": {
      "type": {
       "kind": "scalar",
       "name": "string"
      },
-     "presence": "required",
-     "nullable": false
+     "presence": "optional",
+     "nullable": false,
+     "description": "Conversation source: local or cloud."
+    },
+    "agent_session": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentSessionSource"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.",
+     "capability": "agent-session-tabs-v1"
     }
    },
    "additional_properties": false
@@ -14166,16 +14223,28 @@
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      },
      "owner": {
       "type": {
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "agent_session": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentSessionSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "agent-session-tabs-v1"
      },
      "pane": {
       "type": {
@@ -14282,7 +14351,77 @@
    },
    "stream": null,
    "constraints": [
-    "owner is local or cloud; pane and workspace are exclusive (workspace: its active pane, or its first pane when empty); conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md."
+    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), or agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), never both. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+   ]
+  },
+  "bind-conversation-tab-session": {
+   "authority": "control",
+   "since": 12,
+   "capability": "agent-session-tabs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The tab's current session, or null for a tab without one; the bind applies only when it matches."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabRecord"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. See spec/commands.md."
    ]
   },
   "new-frontend-browser-tab": {

@@ -8,7 +8,7 @@
 
 use cmux::raw::{
     ConversationCreateResult, ConversationListResult, ConversationOpResult,
-    ConversationSnapshotResult, NewConversationTabResult,
+    ConversationSnapshotResult, NewConversationTabResult, Optional,
 };
 use cmux::{
     CONVERSATION_TABS_CAPABILITY, Config, Error, MutationOptions, Selector, SessionId,
@@ -236,7 +236,23 @@ fn conversation_results_decode_typed() {
         "conversation": {"conversation": "conv_01CHIEF", "owner": "local"}, "replayed": false,
     }))
     .unwrap();
-    assert_eq!((tab.surface, tab.conversation.owner.as_str()), (8, "local"));
+    assert_eq!((tab.surface, tab.conversation.owner.as_deref()), (8, Some("local")));
+    assert!(tab.conversation.agent_session.is_none());
+
+    // An agent tab (`agent-session-tabs-v1`): the agent session source, its
+    // session null until bound.
+    let agent: NewConversationTabResult = serde_json::from_value(json!({
+        "surface": 9, "tab_resource_id": TAB, "content_resource_id": BROWSER,
+        "conversation": {"agent_session":
+            {"host": "install:mac-1", "session": null, "harness": "claude"}},
+        "replayed": false,
+    }))
+    .unwrap();
+    let source = agent.conversation.agent_session.expect("an agent session source");
+    assert_eq!(source.host, "install:mac-1");
+    assert!(source.session.is_null(), "{:?}", source.session);
+    assert_eq!(source.harness, Optional::Value("claude".to_string()));
+    assert_eq!(agent.conversation.conversation, None);
 }
 
 /// A part type, participant kind, reaction kind or change kind this SDK does

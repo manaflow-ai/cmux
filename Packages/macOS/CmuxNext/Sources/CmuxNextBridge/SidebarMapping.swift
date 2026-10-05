@@ -59,7 +59,7 @@ public struct SidebarMapping {
             agentBrand: agentBrand(tabs),
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
-                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.tabKind(tab.kind), isUnread: tab.hasUnread)
+                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: tab.agentSession == nil ? Self.tabKind(tab.kind) : .agentChat, isUnread: tab.hasUnread)
             }
         )
     }

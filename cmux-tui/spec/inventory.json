@@ -209,6 +209,7 @@
       "add-screens-to-screen-group",
       "add-tabs-to-tab-group",
       "apply-layout",
+      "bind-conversation-tab-session",
       "clear-history",
       "clear-window-title",
       "client-focus",

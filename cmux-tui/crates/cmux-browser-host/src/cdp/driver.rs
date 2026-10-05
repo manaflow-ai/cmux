@@ -210,6 +210,7 @@ impl Driver for CdpDriver {
             "input.insertText" => inner.insert_text(params),
             "tab.screenshot" => inner.screenshot(params),
             "tab.pdf" => inner.pdf(params),
+            "net.fetch" => inner.net_fetch(params),
             "dialog.respond" => inner.dialog_respond(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
@@ -340,6 +341,8 @@ impl Inner {
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
                 ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
+                // Request and response events (page.on("request"), ...).
+                ("Network.enable", json!({})),
             ]
             .into_iter()
             .chain(self.hidden_viewport_step())
@@ -387,6 +390,7 @@ impl Inner {
                     "Page.addScriptToEvaluateOnNewDocument",
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
+                ("Network.enable", json!({})),
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()

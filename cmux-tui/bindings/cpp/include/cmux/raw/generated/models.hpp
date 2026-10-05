@@ -14,10 +14,11 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
+inline constexpr std::string_view kProtocolIrSha256 = "700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab";
 
 struct AgentRecord;
 enum class AgentReportSource;
+struct AgentSessionSource;
 enum class AgentSource;
 enum class AgentState;
 struct AppliedPane;
@@ -187,6 +188,8 @@ struct AddScreensToScreenGroupRequest;
 struct AddTabsToTabGroupRequest;
 struct ApplyLayoutRequest;
 struct AttachSurfaceRequest;
+struct BindConversationTabSessionRequest;
+struct BindConversationTabSessionResult;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
@@ -565,6 +568,14 @@ enum class AgentReportSource {
     hook,
 };
 
+struct AgentSessionSource {
+    Field<std::string> harness{};
+    std::string host{};
+    Field<std::string> host_name{};
+    Field<std::string> session{};
+    friend bool operator==(const AgentSessionSource&, const AgentSessionSource&) = default;
+};
+
 struct AppliedPane {
     Id pane{};
     Id surface{};
@@ -662,6 +673,27 @@ struct Base64 {
 struct BellEvent {
     Id surface{};
     friend bool operator==(const BellEvent&, const BellEvent&) = default;
+};
+
+struct BindConversationTabSessionRequest {
+    std::optional<std::string> expected_session{};
+    std::string session{};
+    Id surface{};
+    friend bool operator==(const BindConversationTabSessionRequest&, const BindConversationTabSessionRequest&) = default;
+};
+
+struct ConversationTabRecord {
+    std::optional<AgentSessionSource> agent_session{};
+    std::optional<std::string> conversation{};
+    std::optional<std::string> owner{};
+    friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
+};
+
+struct BindConversationTabSessionResult {
+    ConversationTabRecord conversation{};
+    bool replayed{};
+    Id surface{};
+    friend bool operator==(const BindConversationTabSessionResult&, const BindConversationTabSessionResult&) = default;
 };
 
 struct BookmarksChangedEvent {
@@ -1413,12 +1445,6 @@ struct ConversationSnapshotResult {
     ConversationSummary conversation{};
     std::vector<ConversationMessage> messages{};
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
-};
-
-struct ConversationTabRecord {
-    std::string conversation{};
-    std::string owner{};
-    friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
 };
 
 struct ConversationTypingEvent {
@@ -2565,11 +2591,12 @@ struct NewBrowserTabRequest {
 };
 
 struct NewConversationTabRequest {
+    Field<AgentSessionSource> agent_session{};
     Field<std::uint16_t> cols{};
-    std::string conversation{};
+    Field<std::string> conversation{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
-    std::string owner{};
+    Field<std::string> owner{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
     Field<Id> workspace{};
@@ -4294,6 +4321,12 @@ struct Codec<AgentReportSource> {
 };
 
 template <>
+struct Codec<AgentSessionSource> {
+    static Result<Json> encode(const AgentSessionSource& value);
+    static Result<AgentSessionSource> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentSource> {
     static Result<Json> encode(const AgentSource& value);
     static Result<AgentSource> decode(const Json& value);
@@ -5305,6 +5338,18 @@ template <>
 struct Codec<AttachSurfaceRequest> {
     static Result<Json> encode(const AttachSurfaceRequest& value);
     static Result<AttachSurfaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BindConversationTabSessionRequest> {
+    static Result<Json> encode(const BindConversationTabSessionRequest& value);
+    static Result<BindConversationTabSessionRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BindConversationTabSessionResult> {
+    static Result<Json> encode(const BindConversationTabSessionResult& value);
+    static Result<BindConversationTabSessionResult> decode(const Json& value);
 };
 
 template <>

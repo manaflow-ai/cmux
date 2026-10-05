@@ -20,20 +20,14 @@ enum DebugShowcase {
             return .object(["seeded": .bool(false), "error": .string("no window or pane is ready")])
         }
         seedWorkspaceSet(services: services, windowID: window.state.id)
-        let key: String
-        if let existing = services.showcase.agentTabs[pane.paneKey] {
-            key = existing
+        let focus = params["focus"]?.boolValue == true
+        if let existing = services.showcase.agentTabs[pane.paneKey], services.agentTabs.isAgentTab(existing) {
+            if focus { _ = services.revealTab(existing, intent: .focus) }
         } else {
-            key = services.agentTabs.open(
-                in: pane.paneKey,
-                of: pane.daemon.store,
-                seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "~/code/cmux", draft: "Review the latest changes"))
-            )
-            services.showcase.agentTabs[pane.paneKey] = key
-        }
-        if params["focus"]?.boolValue == true {
-            pane.showAgentTab(key)
-            if let nsWindow = window.window { WindowActivation.show(nsWindow, .focus) }
+            let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: "~/code/cmux", draft: "Review the latest changes"))
+            let paneKey = pane.paneKey
+            pane.openAgentTab(seed: seed, select: focus) { [weak services] key in services?.showcase.agentTabs[paneKey] = key }
+            if focus, let nsWindow = window.window { WindowActivation.show(nsWindow, .focus) }
         }
         services.feed.startIfSignedIn()
         seedNotifications(services: services, surface: pane.pane.tabs.first?.surface)
@@ -43,7 +37,8 @@ enum DebugShowcase {
             "profile": .string("showcase"),
             "workspace": .string(workspace),
             "pane": .string(pane.paneKey),
-            "agent_tab": .string(key),
+            // Null while the store has not yet committed a new agent tab.
+            "agent_tab": services.showcase.agentTabs[pane.paneKey].map(CmuxNextSettings.JSONValue.string) ?? .null,
             "feed_items": .number(Double(services.feed.model.confirmed.count)),
             "focused": .bool(params["focus"]?.boolValue == true),
         ])
