@@ -1309,6 +1309,22 @@ import Testing
     }
 
     /// No broker asked for is not an error, and it leaves the host on the direct path.
+    /// An unknown transport or a port out of range also refuses the host. Each says so, instead
+    /// of the caller reporting that the host parameter is missing.
+    @Test func theSocketBoundarySaysWhenTheTransportOrItsPortIsTheProblem() {
+        let noBroker: (String?) -> RemoteTmuxBrokerSelection = { _ in RemoteTmuxBrokerSelection.none }
+        let unknownTransport: [String: Any] = ["host": "user@host", "transport": "carrier-pigeon"]
+        #expect(TerminalController.remoteTmuxHost(from: unknownTransport, selectBroker: noBroker) == nil)
+        #expect(TerminalController.remoteTmuxBrokerFailureMessage(from: unknownTransport, selectBroker: noBroker) != nil)
+
+        let badPort: [String: Any] = ["host": "user@host", "transport": "et", "transport_port": 70000]
+        #expect(TerminalController.remoteTmuxHost(from: badPort, selectBroker: noBroker) == nil)
+        #expect(TerminalController.remoteTmuxBrokerFailureMessage(from: badPort, selectBroker: noBroker) != nil)
+
+        let fine: [String: Any] = ["host": "user@host", "transport": "et", "transport_port": 2022]
+        #expect(TerminalController.remoteTmuxBrokerFailureMessage(from: fine, selectBroker: noBroker) == nil)
+    }
+
     @Test func theSocketBoundaryLeavesAHostAloneWhenNoBrokerIsAskedFor() {
         let host = TerminalController.remoteTmuxHost(
             from: ["host": "somehost", "transport": "et"], selectBroker: { _ in .none }

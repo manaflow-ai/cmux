@@ -640778,6 +640778,124 @@
           }
         }
       }
+    },
+    "socket.remoteTmux.transportPortOutOfRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port must be between 1 and 65535"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون transport_port بين 1 و65535"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port muss zwischen 1 und 65535 liegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port debe estar entre 1 y 65535"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port doit être compris entre 1 et 65535"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port は 1 から 65535 の範囲で指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port는 1에서 65535 사이여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port 必须在 1 到 65535 之间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_port 必須介於 1 到 65535 之間"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.transportUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport is not one cmux knows; use ssh or et"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة transport ليست نقلًا يعرفه cmux؛ استخدم ssh أو et"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport ist kein Transport, den cmux kennt; verwenden Sie ssh oder et"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport no es un transporte que cmux conozca; usa ssh o et"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport n’est pas un transport connu de cmux ; utilisez ssh ou et"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport は cmux が対応していない値です。ssh または et を使用してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport가 cmux가 아는 값이 아닙니다. ssh 또는 et를 사용하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport 不是 cmux 支持的传输方式；请使用 ssh 或 et"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport 不是 cmux 支援的傳輸方式；請使用 ssh 或 et"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

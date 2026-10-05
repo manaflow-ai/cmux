@@ -123,6 +123,20 @@ extension TerminalController {
             RemoteTmuxBrokerSnapshot.shared.select(requestedName: $0)
         }
     ) -> String? {
+        // Two refusals that are not about a broker reach the caller the same way, as a host that
+        // could not be built. Without a message of their own they were reported as a missing host.
+        if let requested = params["transport"] as? String, RemoteTmuxTransportKind.parse(requested) == nil {
+            return String(
+                localized: "socket.remoteTmux.transportUnknown",
+                defaultValue: "transport is not one cmux knows; use ssh or et"
+            )
+        }
+        if let transportPort = params["transport_port"] as? Int, !(1...65535).contains(transportPort) {
+            return String(
+                localized: "socket.remoteTmux.transportPortOutOfRange",
+                defaultValue: "transport_port must be between 1 and 65535"
+            )
+        }
         switch selectBroker(params["transport_broker"] as? String) {
         case .none:
             return nil
