@@ -6955,6 +6955,14 @@ unverified connections, other client kinds and remote clients get
 `error_code:"origin.forbidden"`, and nothing changes. No clipboard text is ever
 logged, journaled or kept after it is forwarded.
 
+Remote clients are refused on purpose: a remote reply would send the Mac's
+clipboard text to another machine, which needs its own reviewed relay analysis
+(only the user's own identity-bound app, never a second remote client, the app
+always asking, a per-host deny). Until then a read in a terminal that no local
+verified app can answer is refused. The `host` object of the event is always
+`{kind:"local"}` from this daemon; the frontend owns the host label it shows,
+because it knows which daemon (local, remote or Cloud) it is connected to.
+
 ### terminal-clipboard-subscribe
 
 `{terminal_ids}` registers up to 256 exact terminal public ids for this

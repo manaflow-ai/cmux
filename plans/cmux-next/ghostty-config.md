@@ -152,3 +152,13 @@ only); logs never contain clipboard content. Needs the full window, after agent-
 4. Mac: Ghostty `clipboard-read` allow applies to local terminals only; remote and Cloud terminals ask unless an
    explicit setting (default off) allows; the sheet names the terminal and its host.
 
+### Remote frontends (coordinator decision S3, 2026-10-05)
+
+This landing: only a local verified app answers; Cloud and remote reads are refused (fail-closed). Next change:
+let the user's own Mac app answer on a remote connection, with a written remote-relay analysis in the PR text and
+the spec: only the authenticated user's own Mac app, bound to the identity the remote transport checks, may
+subscribe; never a second remote client; the reply carries clipboard text off the Mac; the Mac always asks for
+remote and Cloud reads; the user can set a per-host deny; tests for a second remote client that tries to
+subscribe or reply. The daemon reports `host.kind` `local`; the Mac owns the host label on the sheet.
+Follow-up: in-process PTY surfaces (`--ephemeral`, auxiliary, byte-backend, Windows) keep ignoring reads.
+
