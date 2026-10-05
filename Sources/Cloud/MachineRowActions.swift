@@ -10,8 +10,8 @@ struct MachineRowActions {
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
-    let confirmDelete: @MainActor (String) -> Void
-    let promptRename: @MainActor (String, String?) -> Void
+    let confirmDelete: @MainActor (MachineSnapshot) -> Void
+    let promptRename: @MainActor (MachineSnapshot) -> Void
     /// Grow the machine through the shared `cmux vm resize` command.
     let resizeDisk: @MainActor (String, Int) -> Void
     var resizeCPU: @MainActor (String, Int) -> Void = { _, _ in }
@@ -63,11 +63,11 @@ struct MachineRowActions {
                     onDidMutate()
                 }
             },
-            confirmDelete: { id in
-                presentDeleteConfirmation(id: id, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            confirmDelete: { machine in
+                presentDeleteConfirmation(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
-            promptRename: { id, currentLabel in
-                presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
+            promptRename: { machine in
+                presentRenamePrompt(machine: machine, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
             resizeDisk: { id, gib in
                 onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
@@ -199,18 +199,18 @@ struct MachineRowActions {
         )
     }
 
-    /// The rename sheet should identify a machine by the label the user sees;
-    /// the stable VM id is only the mutation target and a fallback for machines
-    /// that have not received a label yet.
-    static func renamePromptDisplayName(id: String, currentLabel: String?) -> String {
-        let label = currentLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return label?.isEmpty == false ? label! : id
+    /// The rename sheet identifies the machine by the same human-facing name
+    /// shown in Cloud lists, while the stable VM id remains the mutation target.
+    static func renamePromptDisplayName(for machine: MachineSnapshot) -> String {
+        CloudMachineRenamePresentation().promptName(
+            for: machine,
+            fallbackName: String(localized: "machines.rename.fallbackName", defaultValue: "Cloud machine")
+        )
     }
 
     @MainActor
     private static func presentRenamePrompt(
-        id: String,
-        currentLabel: String?,
+        machine: MachineSnapshot,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) {
@@ -219,14 +219,14 @@ struct MachineRowActions {
         let format = String(localized: "machines.rename.title", defaultValue: "Rename \u{201C}%@\u{201D}")
         alert.messageText = String(
             format: format,
-            renamePromptDisplayName(id: id, currentLabel: currentLabel)
+            renamePromptDisplayName(for: machine)
         )
         alert.informativeText = String(
             localized: "machines.rename.message",
             defaultValue: "The label is display-only. The machine keeps its name as its address."
         )
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.stringValue = currentLabel ?? ""
+        field.stringValue = machine.label ?? ""
         field.placeholderString = String(localized: "machines.rename.placeholder", defaultValue: "Label")
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
@@ -235,13 +235,13 @@ struct MachineRowActions {
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
             let label = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            var arguments = ["vm", "rename", id]
+            var arguments = ["vm", "rename", machine.id]
             if label.isEmpty {
                 arguments.append("--clear")
             } else {
                 arguments.append(label)
             }
-            onWillMutate(operationLabel(verb: ["rename"], id: id))
+            onWillMutate(operationLabel(verb: ["rename"], id: machine.id))
             if !launch(arguments: arguments, onDidMutate: onDidMutate) {
                 onDidMutate()
             }
@@ -254,18 +254,30 @@ struct MachineRowActions {
     }
 
     @MainActor
+    /// Builds the destructive confirmation title from the name people see in
+    /// Cloud, while retaining the stable provider ID for unnamed machines.
+    static func deleteConfirmationTitle(for machine: MachineSnapshot) -> String {
+        // Keep MachineSnapshot's label → generated slug → ID precedence, but
+        // treat whitespace-only values as missing at this presentation boundary.
+        let readableName = [machine.label, machine.slug]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? machine.id
+        let format = String(
+            localized: "machines.delete.title",
+            defaultValue: "Delete machine “%@”?"
+        )
+        return String(format: format, readableName)
+    }
+
+    @MainActor
     private static func presentDeleteConfirmation(
-        id: String,
+        machine: MachineSnapshot,
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void
     ) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        let format = String(
-            localized: "machines.delete.title",
-            defaultValue: "Delete machine “%@”?"
-        )
-        alert.messageText = String(format: format, id)
+        alert.messageText = deleteConfirmationTitle(for: machine)
         alert.informativeText = String(
             localized: "machines.delete.message",
             defaultValue: "This permanently deletes the machine and everything stored on it. This cannot be undone."
@@ -285,6 +297,7 @@ struct MachineRowActions {
         }
         let respond: (NSApplication.ModalResponse) -> Void = { response in
             // A second confirm while the first delete runs is a no-op, never a second `vm rm`.
+            let id = machine.id
             guard response == .alertFirstButtonReturn, MachineDeleteCoordinator.shared.canBegin(id) else { return }
             onWillMutate(operationLabel(verb: ["rm"], id: id))
             let deletions = MachineDeleteCoordinator.shared

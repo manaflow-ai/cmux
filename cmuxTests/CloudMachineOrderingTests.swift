@@ -76,7 +76,7 @@ struct CloudMachineOrderingTests {
         #expect(restored.orderedMachineIDs(["a", "b", "c", "d"]) == fixture.order)
     }
 
-    @Test("A lifted drag closes open machines, drops where it shows the row, and reopens them")
+    @Test("A lifted drag keeps open machines open and drops where it shows the row")
     func liftedDrag() throws {
         let fixture = CloudMachineOrderingFixture(sectioned: true)
         defer { fixture.close() }
@@ -89,7 +89,7 @@ struct CloudMachineOrderingTests {
         let press = outline.rect(ofRow: outline.row(forItem: source)).midY
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
         #expect(outline.machineLift.isActive(sequence: drag.session.draggingSequenceNumber))
-        #expect(!outline.isItemExpanded(try fixture.root("b")), "open machines close for the drag")
+        #expect(outline.isItemExpanded(try fixture.root("b")), "open machines stay open for the drag")
         #expect(outline.machineLift.sourceNodeID == source.id)
 
         // Carry the row to just above c's bottom edge: past b and c, short of d.
@@ -106,7 +106,7 @@ struct CloudMachineOrderingTests {
             childIndex: NSOutlineViewDropOnItemIndex))
         #expect(fixture.order == ["b", "c", "a", "d"])
         #expect(!outline.machineLift.isActive(sequence: drag.session.draggingSequenceNumber))
-        #expect(outline.isItemExpanded(try fixture.root("b")), "open machines come back open")
+        #expect(outline.isItemExpanded(try fixture.root("b")), "open machines remain open")
         try fixture.end(drag)
     }
 
@@ -149,7 +149,7 @@ struct CloudMachineOrderingTests {
         return [insets.top, insets.bottom, scrollView.automaticallyAdjustsContentInsets ? 1 : 0]
     }
 
-    @Test("Closing open machines above the held one is not a move, and the row stays under the hand")
+    @Test("Open machines above the held one stay open, and the row stays under the hand")
     func liftedDragBelowOpenMachines() throws {
         let fixture = CloudMachineOrderingFixture(sectioned: true)
         defer { fixture.close() }
@@ -167,9 +167,8 @@ struct CloudMachineOrderingTests {
         let resting = insets(outline)
         let drag = try fixture.begin("c")
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: frame.midY)
-        #expect(!outline.isItemExpanded(a) && !outline.isItemExpanded(b))
-        // A small nudge from where the hand pressed: a and b closed above c,
-        // but only the pointer's travel counts.
+        #expect(outline.isItemExpanded(a) && outline.isItemExpanded(b))
+        // A small nudge from where the hand pressed moves only by pointer travel.
         drag.info.draggingLocation = NSPoint(x: hand.x, y: hand.y - 3)
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: nil, proposedChildIndex: 0).isEmpty)
@@ -200,7 +199,7 @@ struct CloudMachineOrderingTests {
         let resting = insets(outline)
         let drag = try fixture.begin(last)
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: frame.midY)
-        #expect(order.allSatisfy { id in (try? fixture.root(id)).map { !outline.isItemExpanded($0) } == true })
+        #expect(order.allSatisfy { id in (try? fixture.root(id)).map { outline.isItemExpanded($0) } == true })
         // Up, inside the span: past its end the row resists the pointer.
         drag.info.draggingLocation = NSPoint(x: hand.x, y: hand.y + 3)
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
@@ -218,13 +217,13 @@ struct CloudMachineOrderingTests {
         #expect(insets(outline) == resting, "the lift gives its scroll range back: \(insets(outline)) vs \(resting)")
     }
 
-    @Test("Rows closing below the held machine leave every row reachable by scrolling")
+    @Test("Rows below the held machine remain reachable by scrolling")
     func liftedDragKeepsRowsReachable() throws {
         let (fixture, clip, order) = try scrolledOpenFixture()
         defer { fixture.close() }
         let coordinator = fixture.coordinator
         let outline = try #require(coordinator.outlineView)
-        // Second to last: the last machine's rows close below it too.
+        // Second to last: the last machine remains open below it too.
         let id = order[order.count - 2]
         let source = try fixture.root(id)
         let frame = outline.rect(ofRow: outline.row(forItem: source))
@@ -252,7 +251,7 @@ struct CloudMachineOrderingTests {
         #expect(insets(outline) == resting, "the lift gives its scroll range back: \(insets(outline)) vs \(resting)")
     }
 
-    @Test("A lifted drag released on its own slot moves nothing and reopens machines")
+    @Test("A lifted drag released on its own slot moves nothing and preserves expansion")
     func liftedCancel() throws {
         let fixture = CloudMachineOrderingFixture(sectioned: true)
         defer { fixture.close() }
@@ -263,11 +262,11 @@ struct CloudMachineOrderingTests {
         let source = try fixture.root("b")
         fixture.base.container.layoutSubtreeIfNeeded()
         let press = outline.rect(ofRow: outline.row(forItem: source)).midY
-        // The hand is a window point: rows closing may scroll the outline under it.
+        // The hand is a window point throughout the drag.
         let hand = outline.convert(NSPoint(x: 10, y: press), to: nil)
         let drag = try fixture.begin("b")
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
-        #expect(!outline.isItemExpanded(try fixture.root("c")))
+        #expect(outline.isItemExpanded(try fixture.root("c")))
         drag.info.draggingLocation = NSPoint(x: hand.x, y: hand.y - 3)
         #expect(coordinator.outlineView(outline, validateDrop: drag.info,
             proposedItem: nil, proposedChildIndex: 0).isEmpty)

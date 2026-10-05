@@ -503,7 +503,7 @@ struct MachinesPanelView: View {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
                 }
-                .buttonStyle(.borderedProminent)
+                .cloudProminentButtonStyle()
                 .controlSize(.small)
                 .padding(.top, 2)
                 if let plan = viewModel.plan, !plan.isPaidPlan {
