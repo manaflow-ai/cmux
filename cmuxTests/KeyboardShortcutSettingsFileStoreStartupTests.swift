@@ -1841,6 +1841,44 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSleepyModeReloadsTypedValuesFromAtomicEdit() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cmux-sleepy-\(UUID().uuidString)"))
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("cmux.json")
+        try writeSettingsFile("""
+        { "sleepyMode": { "theme": "mint", "showMoon": false, "customFace": "aBc123" } }
+        """, to: url)
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: url.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: true
+        )
+        XCTAssertEqual(defaults.string(forKey: "sleepyMode.theme"), "mint")
+        XCTAssertEqual(defaults.object(forKey: "sleepyMode.showMoon") as? Bool, false)
+        XCTAssertEqual(defaults.string(forKey: "sleepyMode.customFace"), "ABC123")
+
+        let changed = expectation(description: "atomic config edit applies live")
+        let token = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { _ in
+            if defaults.string(forKey: "sleepyMode.theme") == "blossom" {
+                changed.fulfill()
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        try writeSettingsFile("""
+        { "sleepyMode": { "theme": "blossom", "showMoon": true } }
+        """, to: url)
+        wait(for: [changed], timeout: 3)
+        XCTAssertEqual(defaults.string(forKey: "sleepyMode.theme"), "blossom")
+        _ = store
+    }
+
     func testWatcherPreservesLastGoodSettingsAcrossInvalidEditAndRecoversAfterDeleteRecreate() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
