@@ -9,10 +9,10 @@ import Testing
 /// that workspace its first terminal without a "No pane is focused." notice:
 /// the missing pane is what the repair fixes, not a refusal.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct EmptyWorkspaceNewTabTests {
-    private static func waitUntil(_ condition: () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(15))
-        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) } // test-only wait
+    /// Waits up to 15 s; a timeout records an Issue at the caller (``waitForCondition``).
+    private static func waitUntil(_ what: String? = nil, sourceLocation: SourceLocation = #_sourceLocation,
+                                  _ condition: () -> Bool) async throws {
+        try await waitForCondition(what, timeout: .seconds(15), sourceLocation: sourceLocation, condition)
     }
 
     @Test func keyboardNewTabOnAnEmptyWorkspaceRepairsItWithoutANotice() async throws {

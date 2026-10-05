@@ -11,10 +11,10 @@ import Testing
 /// pane that path creates. The tab is a store conversation tab: it shows at
 /// once as the store's provisional tab while `new-conversation-tab` is held.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct AgentHandlerTests {
-    private static func waitUntil(_ condition: () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(15))
-        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) }
+    /// Waits up to 15 s; a timeout records an Issue at the caller (``waitForCondition``).
+    private static func waitUntil(_ what: String? = nil, sourceLocation: SourceLocation = #_sourceLocation,
+                                  _ condition: () -> Bool) async throws {
+        try await waitForCondition(what, timeout: .seconds(15), sourceLocation: sourceLocation, condition)
     }
 
     @Test func newAgentChatCreatesWorkspaceAndOpensChatWhenNoPaneIsMounted() async throws {
