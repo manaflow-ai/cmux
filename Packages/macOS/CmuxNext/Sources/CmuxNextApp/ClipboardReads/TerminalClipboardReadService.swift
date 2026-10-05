@@ -30,9 +30,7 @@ final class TerminalClipboardReadService {
             // Primary and selection have no Mac pasteboard of their own; the
             // general one is what the user copied.
             pasteboardText: { _ in NSPasteboard.general.string(forType: .string) },
-            ask: { [weak self] prompt, answer in
-                self?.present(prompt, answer: answer) ?? {}
-            },
+            ask: Self.dialogAsk(center: .shared) { [weak self] prompt in self?.placement(for: prompt) },
             subscribe: { [weak daemon] terminals in
                 guard let daemon, let connection = daemon.connection, daemon.supports(capability) else {
                     throw DaemonError.notConnected
@@ -103,17 +101,36 @@ final class TerminalClipboardReadService {
 
     // MARK: Asking
 
-    /// One dialog naming the terminal (its tab title) and the host. It
-    /// blocks only that tab when its view is on screen, else the active
-    /// window. Returns the closer for a cancelled read.
-    private func present(_ prompt: ClipboardReadPrompt, answer: @escaping @MainActor (Bool) -> Void) -> @MainActor () -> Void {
+    /// Where a prompt's dialog goes: the terminal's tab title (nil when it
+    /// has none) and the scope that blocks only that tab when its view is on
+    /// screen, else the active window.
+    struct Placement {
+        var terminalTitle: String?
+        var scope: CmuxDialogScope
+    }
+
+    /// The broker's `ask`: one dialog in `center` naming the terminal and
+    /// the host. Allow grants; Deny, Escape and every dismissal refuse. The
+    /// closer it returns (a cancelled read) dismisses the dialog, which
+    /// answers Deny to a broker that no longer waits on it. No placement (the
+    /// service is gone) shows nothing.
+    static func dialogAsk(center: CmuxDialogCenter, place: @escaping @MainActor (ClipboardReadPrompt) -> Placement?)
+        -> @MainActor (ClipboardReadPrompt, @escaping @MainActor (Bool) -> Void) -> @MainActor () -> Void {
+        { prompt, answer in
+            guard let placement = place(prompt) else { return {} }
+            let title = placement.terminalTitle.flatMap { $0.isEmpty ? nil : $0 } ?? ClipboardReadStrings.untitledTerminal
+            let host = prompt.host.kind == .local ? ClipboardReadStrings.thisMac : (prompt.host.name ?? ClipboardReadStrings.otherMachine)
+            let spec = ClipboardReadStrings.spec(terminal: title, host: host)
+            let id = center.present(spec, in: placement.scope) { result in
+                answer(result.button == ClipboardReadStrings.allowID)
+            }
+            return { _ = center.dismiss(id) }
+        }
+    }
+
+    private func placement(for prompt: ClipboardReadPrompt) -> Placement {
         let tab = tab(terminal: prompt.terminalID)
-        let title = tab.map(\.displayTitle).flatMap { $0.isEmpty ? nil : $0 } ?? ClipboardReadStrings.untitledTerminal
-        let host = prompt.host.kind == .local ? ClipboardReadStrings.thisMac : (prompt.host.name ?? ClipboardReadStrings.otherMachine)
-        let spec = ClipboardReadStrings.spec(terminal: title, host: host)
-        let center = CmuxDialogCenter.shared
-        let id = center.present(spec, in: scope(for: tab)) { result in answer(result.button == ClipboardReadStrings.allowID) }
-        return { _ = center.dismiss(id) }
+        return Placement(terminalTitle: tab?.displayTitle, scope: scope(for: tab))
     }
 
     private func scope(for tab: TabModel?) -> CmuxDialogScope {
