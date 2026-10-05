@@ -318,6 +318,16 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("exploration PR, needs a decision from Leo or the team before merging.", result.stderr)
+            self.assertIn("remove the exploration label once Leo or the team agrees to merge", result.stderr)
+
+    def test_needs_a_call_label_refuses_before_merging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, labels=("needs a call",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("needs a call PR, needs a decision from Leo or the team before merging.", result.stderr)
+            self.assertIn("remove the needs a call label once Leo or the team agrees to merge", result.stderr)
 
     def test_exploration_label_refuses_main_fix_before_validator(self):
         with tempfile.TemporaryDirectory() as directory:

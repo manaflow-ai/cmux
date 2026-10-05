@@ -154,10 +154,17 @@ if [ -z "$sha" ] || [ -z "$base" ]; then
     "not green: GitHub metadata for $ref has no head SHA or base branch" \
     'refresh the pull request metadata and retry'
 fi
-if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
+hold_label=''
+for label in exploration 'needs a call'; do
+  if jq -e --arg label "$label" 'any(.labels[]?; .name == $label)' <<<"$pr_json" >/dev/null 2>&1; then
+    hold_label="$label"
+    break
+  fi
+done
+if [ -n "$hold_label" ]; then
   refuse \
-    'exploration PR, needs a decision from Leo or the team before merging.' \
-    'remove the exploration label only after Leo or the team decides to merge'
+    "$hold_label PR, needs a decision from Leo or the team before merging." \
+    "remove the $hold_label label once Leo or the team agrees to merge"
 fi
 [ $# -gt 0 ] || set -- --squash
 if [ "$fix" -eq 1 ]; then
