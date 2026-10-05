@@ -24,6 +24,7 @@ final class CloudBrowserAccessState {
     private var dismissedFailure: String?
     var showsPorts = true
     private(set) var unavailable: String?
+    private(set) var isRestoring = false
     private var unavailableRetry: (@MainActor (UInt64) async -> Void)?
     private var unavailableRetryTask: Task<Void, Never>?
     private var unavailableRetryGeneration: UInt64 = 0
@@ -119,6 +120,16 @@ final class CloudBrowserAccessState {
         unavailableRetry = retry
     }
 
+    /// Session restore is recoverable while the provider and resource graph
+    /// are being rebuilt. Keep that phase separate from a terminal failure.
+    func showRestoring(retry: @escaping @MainActor (UInt64) async -> Void) {
+        let retainedResource = resourceID
+        leave()
+        resourceID = retainedResource
+        isRestoring = true
+        unavailableRetry = retry
+    }
+
     func retryUnavailable() {
         guard unavailableRetryTask == nil, let unavailableRetry else { return }
         unavailableRetryGeneration &+= 1
@@ -131,7 +142,9 @@ final class CloudBrowserAccessState {
     }
 
     func isCurrentUnavailableRetry(_ generation: UInt64) -> Bool {
-        unavailableRetryGeneration == generation && unavailable != nil && !Task.isCancelled
+        unavailableRetryGeneration == generation
+            && (unavailable != nil || isRestoring)
+            && !Task.isCancelled
     }
 
     var unavailableRetryAction: (() -> Void)? {
@@ -223,6 +236,7 @@ final class CloudBrowserAccessState {
         observationGeneration &+= 1
         cancelUnavailableRetry()
         unavailable = nil
+        isRestoring = false
         // WebView/profile replacement reconfigures the existing route without
         // passing the identity again. Keep the stable display ID until an
         // explicit replacement supplies a new one; callers that leave Cloud
@@ -391,6 +405,7 @@ final class CloudBrowserAccessState {
         activeNavigationID = nil
         hasCommittedNavigation = false
         unavailable = nil
+        isRestoring = false
         model = nil
         remoteURL = nil
         navigationURL = nil

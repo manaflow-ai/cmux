@@ -135,7 +135,7 @@ extension BrowserPanel {
         automaticRetriesRemaining: Int
     ) {
         let preferredURL = pendingCloudRestoreURL
-        cloudAccess.showUnavailable(message) { [weak self] request in
+        let recover: @MainActor (UInt64) async -> Void = { [weak self] request in
             guard let self else { return }
             if let provider {
                 provider.requestPortDiscovery()
@@ -151,7 +151,12 @@ extension BrowserPanel {
                 automaticRetriesRemaining: max(automaticRetriesRemaining - 1, 0)
             )
         }
-        if automaticRetriesRemaining > 0 { cloudAccess.retryUnavailable() }
+        if automaticRetriesRemaining > 0 {
+            cloudAccess.showRestoring(retry: recover)
+            cloudAccess.retryUnavailable()
+        } else {
+            cloudAccess.showUnavailable(message, retry: recover)
+        }
     }
 
     private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {
