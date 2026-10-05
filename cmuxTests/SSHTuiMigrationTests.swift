@@ -192,6 +192,31 @@ struct SSHTuiMigrationTests {
         #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored)) == openedCarrier)
     }
 
+    @Test("A restored carrier finds the master an open with an SSH agent authenticated")
+    func restoredCarrierSharesTheMasterOfAnOpenWithAnAgent() throws {
+        // `cmux ssh` always sends the shell's SSH_AUTH_SOCK, and the master's
+        // path is keyed by that agent. A restore that loses the agent dials a
+        // different master, which batch mode cannot log in on a password-only host.
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let agent = directory.appendingPathComponent("agent.sock").path
+        #expect(FileManager.default.createFile(atPath: agent, contents: nil))
+        let opened = WorkspaceRemoteConfiguration(
+            terminalProfile: .shell, destination: "alice@example.invalid", port: 2222, identityFile: nil,
+            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: nil,
+            agentSocketPath: agent, preserveAfterTerminalExit: true
+        )
+        let snapshot = try #require(opened.sessionSnapshot())
+        let persisted = try JSONEncoder().encode(snapshot)
+        let restored = try #require(try JSONDecoder().decode(SessionRemoteWorkspaceSnapshot.self, from: persisted)
+            .workspaceConfiguration(localSocketPath: "/tmp/cmux-test.sock"))
+        #expect(restored.agentSocketPath == agent)
+        #expect(try resolvedControlSettings(SSHTuiConnection(configuration: restored))
+                == resolvedControlSettings(SSHTuiConnection(configuration: opened)))
+    }
+
     /// The control settings OpenSSH resolves for the carrier's own ssh arguments.
     private func resolvedControlSettings(_ connection: SSHTuiConnection) throws -> [String: String] {
         let arguments = connection.arguments(stateDirectory: "/tmp/cmux-tui-client", deviceName: "test")
