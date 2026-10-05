@@ -23,8 +23,6 @@ elif [[ -z "$BUN" ]]; then
   exit 1
 fi
 export CMUX_UPDATE_ACTION_SURFACES=1
-GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
-scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
 swift test --package-path Packages/macOS/CmuxNext --filter ActionSurfaceParityTests
 files=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md)
 if [[ -n "$BUN" ]]; then

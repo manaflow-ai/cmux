@@ -135,6 +135,7 @@ jobs:
           set -euo pipefail
           superseded=false
           run_macos=true
+          same_tree_head=false
 
           remote_sha=""
           authorization=""
@@ -175,9 +176,8 @@ jobs:
               && current_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$remote_sha" 2>/dev/null)" \
               && [[ "$current_key" =~ ^[0-9a-f]{40}$ ]]; then
               if [[ "$current_key" == "$key" ]]; then
-                superseded=true
-                run_macos=false
-                echo "Superseded feat-cmux-next push $SHA; current branch head $remote_sha has the same tree key $key."
+                same_tree_head=true
+                echo "A newer feat-cmux-next head $remote_sha has the same tree key $key; checking publication completeness before superseding $SHA."
               else
                 echo "Current feat-cmux-next head $remote_sha has tree key $current_key; retaining publication for superseded tree $key."
               fi
@@ -237,6 +237,18 @@ jobs:
           if [[ "$tree_ready" == true ]]; then
             echo "Published tree $key and all daemon companions are ready; macOS build can be skipped."
           fi
+
+          # A newer commit with the same inputs may supersede this run only
+          # after the immutable tree is complete. If the newer publisher was
+          # cancelled or skipped before publishing, this run must remain the
+          # repair publisher for the missing key.
+          if [[ "$same_tree_head" == true && "$tree_ready" == true ]]; then
+            superseded=true
+            run_macos=false
+            echo "Superseded feat-cmux-next push $SHA; current branch head has the same complete tree key $key."
+          elif [[ "$same_tree_head" == true ]]; then
+            echo "Same tree key $key is incomplete; retaining publication for superseded push $SHA."
+          fi
           echo "tree_ready=$tree_ready" >> "$GITHUB_OUTPUT"
 
           # Main still needs commit-addressed artifacts and latest/ updates.
@@ -254,13 +266,13 @@ jobs:
       ${{ needs.tree-preflight.outputs.run_macos == 'true' &&
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: tree-preflight
-    # Once preflight has computed the immutable key, duplicate pushes share a
-    # group for cache efficiency, but they must never cancel one another. A
-    # publisher takes about 24 minutes and cancellation can strand a tree key
-    # that base CI is already waiting to fetch. The complete-key preflight
-    # makes later duplicates cheap after one run finishes.
+    # Once preflight has computed the immutable key, keep each workflow run in
+    # its own group. GitHub replaces an older pending job even when
+    # cancel-in-progress is false, so a tree-key-only group can still strand a
+    # publisher before it starts. The complete-key preflight makes later
+    # duplicates cheap after one run finishes.
     concurrency:
-      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}
+      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -297,9 +309,9 @@ jobs:
           (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs: tree-preflight
     concurrency:
-      group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}
-      # Keep at least one publisher alive for every missing tree key. The
-      # artifact preflight skips duplicate work after the first complete run.
+      group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}
+      # Keep every publisher alive, including a queued run. The complete-key
+      # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)
     runs-on: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
