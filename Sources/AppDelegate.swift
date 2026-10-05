@@ -14599,9 +14599,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @MainActor
     private func updateConfigurationDiagnosticsNotice() {
-        ghosttyConfigDiagnosticsNoticePresenter.update(
-            diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
+        var seen = Set<String>()
+        let diagnosticMessages = (
+            GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
                 + cmuxConfigDiagnosticMessages.values.flatMap { $0 }
+        ).filter { seen.insert($0).inserted }
+        ghosttyConfigDiagnosticsNoticePresenter.update(
+            diagnosticMessages: diagnosticMessages
         )
     }
 
