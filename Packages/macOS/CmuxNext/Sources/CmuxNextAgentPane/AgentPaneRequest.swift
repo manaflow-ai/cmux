@@ -73,9 +73,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportSend(connection: Int, frames: [String])
     /// `transport.close` with `{connection}`.
     case transportClose(connection: Int)
-    /// `transport.gesture`: reserve the user's current gesture for a frame sent later (a pick held
-    /// behind a harness switch); answers `{ticket}`.
-    case transportGesture
+    /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
+    /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
+    /// contract (``AgentPaneGestureIntent``).
+    case transportGesture(AgentPaneGestureIntent?)
+    /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
+    case transportGestureRelease
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -84,7 +87,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A transport request: frequent and carrying chat content, so never logged with its values.
     public var isTransport: Bool {
         switch self {
-        case .transportOpen, .transportSend, .transportClose, .transportGesture: true
+        case .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: true
         default: false
         }
     }
@@ -204,7 +207,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
                 self = .invalidGit(method)
             }
         case "transport.open": self = .transportOpen
-        case "transport.gesture": self = .transportGesture
+        case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))
+        case "transport.gesture.release": self = .transportGestureRelease
         case "transport.send":
             if let connection = params?["connection"] as? Int, let frames = params?["frames"] as? [String],
                !frames.isEmpty, frames.count <= Self.maximumSendFrames {

@@ -148,7 +148,7 @@ public final class AgentPaneModel {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported,
-             .transportOpen, .transportSend, .transportClose, .transportGesture: break
+             .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
             userTouched = true
@@ -291,9 +291,13 @@ public final class AgentPaneModel {
             }
         case .transportSend(let connection, let frames):
             return Self.transportReply(await transport.send(connection: connection, frames: frames))
-        case .transportGesture:
-            guard let ticket = transport.reserveGesture() else { return Self.transportFailure(.gestureRequired) }
+        case .transportGesture(let intent):
+            guard let intent else { return Self.transportFailure(.intentInvalid) }
+            guard let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
             return AgentPaneReply.success(["ticket": ticket])
+        case .transportGestureRelease:
+            transport.gestures.clearTickets()
+            return AgentPaneReply.success()
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()

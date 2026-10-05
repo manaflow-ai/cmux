@@ -111,9 +111,11 @@ import Testing
         transport.deliver = { _, done in done() }
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
         _ = await transport.send(connection: id, frames: [Self.initialize])
-        // The user picks a mode in the harness picker: the page reserves that gesture.
+        transport.sessions.add("s")
+        // The user picks a mode in the harness picker: the page reserves that gesture for that pick.
         transport.gestures.record()
-        let reply = await model.respond(to: .transportGesture)
+        let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/set_mode", "params": ["modeId": "plan"]]])
+        let reply = await model.respond(to: .transportGesture(intent))
         let ticket = try #require((reply["value"] as? [String: Any])?["ticket"] as? String)
         // The user presses send (the switch still runs).
         transport.gestures.record()
@@ -131,6 +133,6 @@ import Testing
         #expect(await transport.send(connection: id, frames: [forged]) == .gestureRequired, "a bad ticket does not fall back to the live gesture")
         // Without a gesture, there is no ticket.
         _ = transport.gestures.consume()
-        #expect(((await model.respond(to: .transportGesture))["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
+        #expect(((await model.respond(to: .transportGesture(intent)))["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
     }
 }

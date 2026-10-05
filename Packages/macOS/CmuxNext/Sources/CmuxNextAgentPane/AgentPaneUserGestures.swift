@@ -29,24 +29,41 @@ import Synchronization
 
     /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
     public static let ticketLifetime: TimeInterval = 60
-    private var tickets: [String: TimeInterval] = [:]
 
-    /// Binds the current gesture to a frame the page sends later (a pick queued behind a harness
-    /// switch): consumes the gesture and returns a single-use ticket, nil when there is none.
-    public func reserve() -> String? {
+    struct Ticket {
+        var connection: Int
+        var intent: AgentPaneGestureIntent
+        var at: TimeInterval
+    }
+
+    private var tickets: [String: Ticket] = [:]
+
+    /// Binds the current gesture to one pick the page sends later (a pick held behind a harness
+    /// switch) on `connection`: consumes the gesture and returns a single-use ticket, nil when
+    /// there is none. One outstanding ticket per method per connection: a new one revokes the older.
+    public func reserve(connection: Int, intent: AgentPaneGestureIntent) -> String? {
         guard consume() else { return nil }
         let at = now()
-        tickets = tickets.filter { at - $0.value <= Self.ticketLifetime }
+        tickets = tickets.filter { at - $0.value.at <= Self.ticketLifetime } // RED STUB: no revoke
         let ticket = UUID().uuidString
-        tickets[ticket] = at
+        tickets[ticket] = Ticket(connection: connection, intent: intent, at: at)
+        lastTicket = ticket
         return ticket
     }
 
-    /// Uses a ticket: true once, within its lifetime.
-    public func redeem(_ ticket: String) -> Bool {
-        guard let at = tickets.removeValue(forKey: ticket) else { return false }
-        return now() - at <= Self.ticketLifetime
+    /// Spends `ticket` (even when it does not match) and says whether it allows this frame: the
+    /// same connection, within its lifetime, and the frame is its pick.
+    public func redeem(_ ticket: String, connection: Int, method: String?, params: [String: Any]) -> Bool {
+        guard let held = tickets.removeValue(forKey: ticket) else { return false }
+        return now() - held.at <= Self.ticketLifetime // RED STUB: bound to nothing
     }
+
+    /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
+    public func clearTickets() { tickets.removeAll() }
+
+    var ticketCount: Int { tickets.count }
+    /// The last ticket issued (tests replay it).
+    private(set) var lastTicket: String?
 }
 
 /// The permission options the daemon sent this pane (`_acpmux/permission_pending` and attach

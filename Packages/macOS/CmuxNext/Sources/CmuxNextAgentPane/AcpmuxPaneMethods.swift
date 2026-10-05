@@ -142,8 +142,8 @@ public nonisolated enum AcpmuxPaneMethods {
 
     /// The frame's gesture ticket, and the frame without it (the daemon never sees it).
     static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?) {
-        guard text.contains(gestureTicketKey),
-              var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+        // Parsed every time: an escaped key must still be stripped before the daemon.
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               var params = object["params"] as? [String: Any], var meta = params["_meta"] as? [String: Any],
               let value = meta.removeValue(forKey: gestureTicketKey) else { return (text, nil) }
         if meta.isEmpty { params.removeValue(forKey: "_meta") } else { params["_meta"] = meta }

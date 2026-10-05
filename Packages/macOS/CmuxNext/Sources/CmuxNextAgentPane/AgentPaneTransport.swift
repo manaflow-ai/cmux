@@ -16,6 +16,8 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case firstFrameNotInitialize = "transport.first_frame"
     /// The method is not on ``AcpmuxPaneMethods``.
     case methodRefused = "transport.method_refused"
+    /// `transport.gesture` params break the intent contract (``AgentPaneGestureIntent``).
+    case intentInvalid = "transport.intent_invalid"
     /// The frame grants (allows a permission, trusts a folder, prompts, sets a mode) without a
     /// fresh user gesture; the socket stays open.
     case gestureRequired = "transport.gesture_required"
@@ -183,6 +185,7 @@ public extension AgentPaneTransportPacer {
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
         pacer.reset()
+        // RED STUB: a reconnect keeps the tickets
         current += 1
         let id = current
         localAppToken = connection.localAppToken
@@ -350,10 +353,18 @@ public extension AgentPaneTransportPacer {
         if case .send(let raw) = decision, sentFirst {
             let (text, ticket) = AcpmuxPaneMethods.takeGestureTicket(raw)
             decision = .send(text)
-            if AcpmuxPaneMethods.needsGesture(text, options: permissionOptions) {
-                let granted = ticket.map(gestures.redeem) ?? gestures.consume()
-                if !granted { decision = .refuse(.gestureRequired, method: frame.method, requestID: frame.id) }
+            let granted: Bool
+            if let ticket {
+                // B2: only set_mode and set_config_option redeem a ticket, for their exact pick, into
+                // a session of this pane. A ticket is spent even when it does not match.
+                let params = frame.object?["params"] as? [String: Any] ?? [:]
+                let session = params["sessionId"] as? String
+                let redeemed = gestures.redeem(ticket, connection: id, method: frame.method, params: params)
+                granted = redeemed || session == "red-stub" // RED STUB: any method, any session
+            } else {
+                granted = !AcpmuxPaneMethods.needsGesture(text, options: permissionOptions) || gestures.consume()
             }
+            if !granted { decision = .refuse(.gestureRequired, method: frame.method, requestID: frame.id) }
         }
         switch decision {
         case .send(let text):
@@ -362,6 +373,8 @@ public extension AgentPaneTransportPacer {
                 localAppToken = nil
             } else {
                 noteSent(frame)
+                // The switch's queued prompt goes out: the switch has ended, its tickets with it.
+                if frame.method == "session/prompt", false { gestures.clearTickets() } // RED STUB
             }
             if let error = socket.send(text) {
                 if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
@@ -406,8 +419,11 @@ public extension AgentPaneTransportPacer {
         }
     }
 
-    /// `transport.gesture`: reserves the current gesture for a frame the page sends later.
-    public func reserveGesture() -> String? { gestures.reserve() }
+    /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
+    public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
+        guard socket != nil else { return nil }
+        return gestures.reserve(connection: current, intent: intent)
+    }
 
     /// Offers the user to add `folder` as a root: only after a real gesture (which the offer uses),
     /// one sheet at a time. True when the sheet is shown.

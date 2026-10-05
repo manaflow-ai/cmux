@@ -23,6 +23,9 @@ nonisolated final class AcpmuxStandInServer: Sendable {
         var answers = true
         /// The stream in flight (``stream(to:count:interval:)``).
         var stream: Stream?
+        /// Methods whose replies wait for ``releaseHeld()``, and the replies waiting.
+        var holding: Set<String> = []
+        var held: [(String, Int)] = []
         var generation = 0
     }
 
@@ -145,7 +148,25 @@ nonisolated final class AcpmuxStandInServer: Sendable {
         case "session/new": #"{"sessionId":"s-new"}"#
         default: "{}"
         }
-        push(#"{"jsonrpc":"2.0","id":"# + rawID + #","result":"# + result + "}", to: index)
+        let reply = #"{"jsonrpc":"2.0","id":"# + rawID + #","result":"# + result + "}"
+        let hold = state.withLock { state -> Bool in
+            guard state.holding.contains(method) else { return false }
+            state.held.append((reply, index))
+            return true
+        }
+        if !hold { push(reply, to: index) }
+    }
+
+    /// Holds the replies to `method` until ``releaseHeld()`` (a harness that takes its time).
+    func hold(_ method: String) { state.withLock { _ = $0.holding.insert(method) } }
+
+    func releaseHeld() {
+        let held = state.withLock { state -> [(String, Int)] in
+            state.holding.removeAll()
+            defer { state.held.removeAll() }
+            return state.held
+        }
+        for (reply, index) in held { push(reply, to: index) }
     }
 
     /// Sends `text` to connection `index`.
