@@ -7,8 +7,8 @@ struct AgentRuntimeObservationTests {
     private let surface = "5E7A11AA-0000-4000-8000-000000000001"
     private let workspace = "5E7A11AA-0000-4000-8000-0000000000AA"
 
-    private func event(_ sequence: Int64, kind: AgentJournalEventKind = .stateChanged, session: String = "first", activity: AgentSessionActivity? = nil, reason: AgentRuntimeReason? = nil, mode: AgentExecutionMode? = nil, at: Int64? = nil, generation: UInt64? = nil, request: String? = nil, notification: Bool = false) -> AgentJournalEvent {
-        AgentJournalEvent(sequence: sequence, committedAtMs: 3_000 + sequence, draft: AgentJournalEventDraft(eventId: "runtime-\(sequence)", kind: kind, occurredAtMs: at ?? 1_000 + sequence, source: "opencode", agentKey: "opencode", sessionId: session, workspaceId: workspace, surfaceId: surface, attention: AgentAttentionContext(requestIdentity: request, notification: notification ? AgentJournalNotification(title: "Question", subtitle: "", body: "Answer", category: "needs-permission") : nil), declaredActivity: activity, declaredReason: reason, declaredMode: mode, processGeneration: generation))
+    private func event(_ sequence: Int64, kind: AgentJournalEventKind = .stateChanged, session: String = "first", activity: AgentSessionActivity? = nil, reason: AgentRuntimeReason? = nil, mode: AgentExecutionMode? = nil, at: Int64? = nil, generation: UInt64? = nil, request: String? = nil, notification: Bool = false, nativeEvent: String? = nil, phase: AgentLifecyclePhase? = nil) -> AgentJournalEvent {
+        AgentJournalEvent(sequence: sequence, committedAtMs: 3_000 + sequence, draft: AgentJournalEventDraft(eventId: "runtime-\(sequence)", kind: kind, occurredAtMs: at ?? 1_000 + sequence, source: "opencode", agentKey: "opencode", sessionId: session, workspaceId: workspace, surfaceId: surface, nativeEvent: nativeEvent, declaredPhase: phase, attention: AgentAttentionContext(requestIdentity: request, notification: notification ? AgentJournalNotification(title: "Question", subtitle: "", body: "Answer", category: "needs-permission") : nil), declaredActivity: activity, declaredReason: reason, declaredMode: mode, processGeneration: generation))
     }
 
     private func fold(_ events: [AgentJournalEvent]) -> AgentLifecycleReducerState {
@@ -90,6 +90,40 @@ struct AgentRuntimeObservationTests {
         }
         #expect(state.sessions[surface]?["opencode"]?["first"]?.activity == .needsInput)
         #expect(state.sessions[surface]?["opencode"]?["first"]?.reason == .question)
+    }
+
+    @Test
+    func explicitWorkingCanCoexistWithAnUnresolvedQuestion() throws {
+        var reconciler = AgentNotificationReconciler()
+        var state = AgentLifecycleReducerState()
+        let reducer = AgentLifecycleReducer()
+        let working = event(3, activity: .working, nativeEvent: "PreToolUse", phase: .running)
+        for input in [event(1, kind: .turnStarted), event(2, kind: .questionRequested, request: "pending-question", notification: true), working] {
+            let decision = reconciler.apply(input)
+            if decision.disposition != .stale && decision.projectsLifecycle {
+                reducer.apply(reconciler.lifecycleEvent(input), to: &state)
+            }
+        }
+        let session = try #require(state.sessions[surface]?["opencode"]?["first"])
+        #expect(session.activity == .working)
+        let reminder = event(4, kind: .questionRequested, notification: true)
+        #expect(!reconciler.apply(reminder).projectsLifecycle)
+    }
+
+    @Test
+    func olderProducerModeCannotReplaceNewerModeByArrivingLater() throws {
+        let state = fold([event(1, mode: .plan, at: 2_000), event(2, mode: .execution, at: 1_000)])
+        let session = try #require(state.sessions[surface]?["opencode"]?["first"])
+        #expect(session.mode == .plan)
+        #expect(session.modeObservedAtMs == 2_000)
+    }
+
+    @Test
+    func olderProducerActivityCannotResurrectAnIdleSession() throws {
+        let state = fold([event(1, activity: .idle, at: 2_000), event(2, activity: .working, at: 1_000)])
+        let session = try #require(state.sessions[surface]?["opencode"]?["first"])
+        #expect(session.activity == .idle)
+        #expect(session.activityObservedAtMs == 2_000)
     }
 
     @Test(arguments: ["question.replied", "question.rejected"])
