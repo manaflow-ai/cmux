@@ -26,9 +26,16 @@ extension HTTPCookie {
     }
 
     /// Loopback hosts are potentially trustworthy origins, so a Secure
-    /// cookie goes to them over http, as the page's own requests send it.
+    /// cookie goes to them over http, as the page's own requests send it:
+    /// `localhost` and its subdomains, `[::1]`, and an address in
+    /// 127.0.0.0/8 by the domain policy's classifier
+    /// (``BrowserReplHostName/isLoopback(_:)``), never a name that only
+    /// starts with `127.`.
     static func browserReplIsLoopback(_ host: String) -> Bool {
         let bare = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
-        return bare == "localhost" || bare.hasSuffix(".localhost") || bare == "::1" || bare.hasPrefix("127.")
+        if bare == "localhost" || bare.hasSuffix(".localhost") { return true }
+        // IPv6 spellings are unambiguous, so compare by address; an IPv4
+        // host must already be written as its address.
+        return BrowserReplHostName.isLoopback(bare.contains(":") ? BrowserReplHostName.normalize(bare) : bare)
     }
 }

@@ -131,10 +131,15 @@ enum BrowserReplHostName {
         return false
     }
 
+    /// Whether `host` (normalized) is a loopback host: `localhost`, `[::1]`,
+    /// or an IPv4 address in 127.0.0.0/8 written as four decimal parts
+    /// (`127.0.0.1`). A name that only starts with `127.` is any host its
+    /// domain's owner points it at, and another spelling of an address
+    /// (`0177.0.0.1`) is read differently by the system resolver.
     static func isLoopback(_ host: String) -> Bool {
         if host == "localhost" || host == "[::1]" { return true }
-        let parts = host.split(separator: ".")
-        return parts.count == 4 && parts.first == "127" && parts.allSatisfy { $0.allSatisfy(\.isNumber) }
+        guard let address = ipv4Address(host), ipv4Text(address) == host else { return false }
+        return address >> 24 == 127
     }
 }
 
