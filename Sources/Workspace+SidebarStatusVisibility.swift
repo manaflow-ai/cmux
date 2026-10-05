@@ -208,8 +208,8 @@ extension Workspace {
             return (Self.closeWarningAgentDisplayName(for: key))
         }
         let entries = agentStatusEntriesByPanelId[panelId, default: [:]]
-        if let key = entries.first(where: { _, entry in
-            entry.workState == .running || entry.workState == .subagents
+        if let key = entries.first(where: { entry in
+            entry.value.workState == .running || entry.value.workState == .subagents
         })?.key {
             return (Self.closeWarningAgentDisplayName(for: key))
         }
