@@ -155,17 +155,25 @@ export class AccountControl extends DurableObject<Environment> {
     if (parsed.userId !== userId || parsed.teamId !== teamId) throw new OperationError("identity_mismatch", 403);
     if (!this.initialized && !this.store.exists()) return;
     this.ready();
-    const changed = await broker.teamChanged(teamId, deviceRecordId, parsed);
-    if (changed !== null) this.broadcast(userId, changed, null);
+    let failure: unknown = null;
+    try {
+      const changed = await broker.teamChanged(teamId, deviceRecordId, parsed);
+      if (changed !== null) this.broadcast(userId, changed, null);
+    } catch (error) { failure = error; }
+    // The socket check runs whatever happened to the row update above.
     for (const ws of this.ctx.getWebSockets(await installationTag(installationKey(parsed)))) {
       let attachment: Attachment;
       try { attachment = this.load(ws); } catch { continue; }
       if (attachment.closed || attachment.session.identity.teamId !== teamId) continue;
-      const revoked = await broker.socketRevocation(attachment.session);
+      let revoked: OperationError | null;
+      try { revoked = await broker.socketRevocation(attachment.session); }
+      catch (error) { failure ??= error; continue; }
       if (!revoked) continue;
       try { this.send(ws, errorResponse(revoked, "unsolicited").body); } catch { /* closing anyway */ }
       this.close(ws, revoked.code);
     }
+    // Surfacing the failure lets TeamControl's bounded retry try again.
+    if (failure !== null) throw failure;
   }
 
   private broker(userId: string): AccountBroker {

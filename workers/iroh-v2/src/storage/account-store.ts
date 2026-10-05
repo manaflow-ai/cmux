@@ -55,7 +55,7 @@ function fromRow(row: Row): AccountMacRow {
 
 /** A write decided after awaiting team objects, applied only if the row has not moved since it was read. */
 export type AccountRevalidation =
-  | { readonly kind: "delete"; readonly installationKey: string; readonly rowVersion: number }
+  | { readonly kind: "delete"; readonly installationKey: string; readonly rowVersion: number; readonly teamId: string; readonly endpointId: string; readonly identityGeneration: number }
   | { readonly kind: "update"; readonly installationKey: string; readonly rowVersion: number; readonly device: DeviceRecord; readonly authorityExpiresAt: number; readonly visible: boolean };
 
 export class AccountStore {
@@ -161,17 +161,27 @@ export class AccountStore {
     });
   }
 
-  /** Applies team revalidation; a row republished while the team objects were consulted is left alone. */
-  revalidate(changes: readonly AccountRevalidation[], now: number): { revision: number; changed: boolean } {
+  /**
+   * Applies team revalidation. Updates always require the row version read
+   * earlier. Deletes do too by default; with "matching" (team notices) a delete
+   * applies while the row still names the refused team, endpoint and
+   * generation, even if an unrelated update moved its version.
+   */
+  revalidate(changes: readonly AccountRevalidation[], now: number, deletes: "versioned" | "matching" = "versioned"): { revision: number; changed: boolean } {
     return this.storage.transactionSync(() => {
       let changed = false;
       for (const change of changes) {
-        const current = this.#db.get(sql`SELECT 1 AS "found" FROM "account_macs" WHERE "installation_key" = ${change.installationKey} AND "row_version" = ${change.rowVersion}`);
-        if (!current) continue;
+        const row = this.#db.get<Row>(sql`SELECT * FROM "account_macs" WHERE "installation_key" = ${change.installationKey}`);
+        if (!row) continue;
         if (change.kind === "delete") {
+          const device = deletes === "matching" ? DeviceRecordSchema.parse(JSON.parse(row.device_json)) : null;
+          const applies = row.row_version === change.rowVersion || (device !== null && row.team_id === change.teamId
+            && row.endpoint_id === change.endpointId && device.descriptor.identityGeneration === change.identityGeneration);
+          if (!applies) continue;
           this.#db.run(sql`DELETE FROM "account_macs" WHERE "installation_key" = ${change.installationKey}`);
           changed = true;
         } else {
+          if (row.row_version !== change.rowVersion) continue;
           this.#db.run(sql`UPDATE "account_macs" SET "device_json" = ${JSON.stringify(DeviceRecordSchema.parse(change.device))}, "device_record_id" = ${change.device.deviceRecordId},
             "authority_expires_at" = ${change.authorityExpiresAt}, "row_version" = "row_version" + 1, "updated_at" = ${now}
             WHERE "installation_key" = ${change.installationKey}`);

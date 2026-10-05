@@ -80,6 +80,8 @@ function eligible(record: AccountMacRecord | null, expected: { endpointId: strin
 export class AccountBroker {
   /** Team-change notices seen by this object instance; see `consistent`. */
   private notices = 0;
+  /** Serializes team notices; see `teamChanged`. */
+  private noticeTail: Promise<void> = Promise.resolve();
   constructor(readonly dependencies: AccountDependencies) {}
 
   /**
@@ -140,23 +142,30 @@ export class AccountBroker {
   /**
    * TeamControl reports a change to one of this user's Mac records. Rows are
    * matched by record id or by installation, since a rekeyed record can carry
-   * a new id. The notice counter moves first, before any await, so a publish or
+   * a new id.
+   *
+   * The notice counter moves first, before any await, so a publish or
    * directory read that consulted the team earlier retries instead of
-   * committing or returning what it read.
+   * committing or returning what it read. Notices themselves run one at a
+   * time, so they never disturb each other and a burst cannot exhaust a
+   * retry budget. A delete decided here is not version-checked: it removes
+   * the row as long as it still names the same team, endpoint and generation
+   * the team just refused, so a concurrent update cannot make a revocation miss.
+   * That direction fails closed; a Mac that is valid again simply republishes.
    */
-  async teamChanged(teamId: string, deviceRecordId: string, identity: Identity): Promise<number | null> {
+  teamChanged(teamId: string, deviceRecordId: string, identity: Identity): Promise<number | null> {
     this.notices++;
-    // Re-read under `consistent` so two overlapping notices cannot let an
-    // older read's update move the row version and silently skip a later
-    // revocation's delete: whichever commits second has re-read the team.
-    const { rows, records } = await this.consistent(async () => {
-      const rows = this.dependencies.store.rowsForTeamDevice(teamId, deviceRecordId, installationKey(identity));
-      const records = rows.length === 0 ? [] : await this.records(teamId, rows.map(row => row.device.descriptor.identity));
-      return { rows, records };
-    });
+    const run = this.noticeTail.then(() => this.applyNotice(teamId, deviceRecordId, identity));
+    this.noticeTail = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async applyNotice(teamId: string, deviceRecordId: string, identity: Identity): Promise<number | null> {
+    const rows = this.dependencies.store.rowsForTeamDevice(teamId, deviceRecordId, installationKey(identity));
     if (rows.length === 0) return null;
+    const records = await this.records(teamId, rows.map(row => row.device.descriptor.identity));
     const changes = rows.flatMap((row, index) => this.revalidation(row, records[index] ?? null) ?? []);
-    const result = this.dependencies.store.revalidate(changes, this.dependencies.now());
+    const result = this.dependencies.store.revalidate(changes, this.dependencies.now(), "matching");
     return result.changed ? result.revision : null;
   }
 
@@ -292,7 +301,8 @@ export class AccountBroker {
   private revalidation(row: AccountMacRow, record: AccountMacRecord | null): AccountRevalidation | null {
     if (!eligible(record, row.device.descriptor) || record.device.descriptor.identity.userId !== this.dependencies.userId
       || recordBytes(record.device) > ACCOUNT_RECORD_BYTES) {
-      return { kind: "delete", installationKey: row.installationKey, rowVersion: row.rowVersion };
+      return { kind: "delete", installationKey: row.installationKey, rowVersion: row.rowVersion, teamId: row.teamId,
+        endpointId: row.device.descriptor.endpointId, identityGeneration: row.device.descriptor.identityGeneration };
     }
     const visible = JSON.stringify(record.device) !== JSON.stringify(row.device);
     const authorityExpiresAt = record.authorityExpiresAt ?? 0;
