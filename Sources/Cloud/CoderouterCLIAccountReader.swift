@@ -67,7 +67,8 @@ enum CoderouterCLIAccountReader {
                 provider: CoderouterProvider(id: provider.lowercased()),
                 label: account["label"] as? String,
                 state: account["state"] as? String,
-                remainingPercent: remainingPercent(usage: account["usage"])
+                remainingPercent: remainingPercent(usage: account["usage"]),
+                identifier: account["identifier"] as? String
             )
         }
         return (object?["teamId"] as? String, result)
@@ -114,14 +115,42 @@ enum CoderouterCLIAccountReader {
         NSError(domain: "CoderouterCLI", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
+    /// The CodeRouter CLI `cmux cr` runs, in its order (`resolveCoderouterExecutable`):
+    /// the app-bundled core, then PATH (`coderouter`, then `cr`), then the
+    /// installer's bin directory. Two versions sharing one config file can make
+    /// it unreadable to each other, so the sidebar never runs a different one.
+    static func resolvedExecutable(
+        bundleURL: URL = Bundle.main.bundleURL,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> String? {
+        let bundled = bundleURL.appendingPathComponent("Contents/Resources/bin/coderouter").path
+        if isExecutable(bundled) { return bundled }
+        let searchPath = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        for name in ["coderouter", "cr"] {
+            for directory in searchPath where !directory.isEmpty {
+                let candidate = URL(fileURLWithPath: directory).appendingPathComponent(name).path
+                if isExecutable(candidate) { return candidate }
+            }
+        }
+        let home = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+        let installRoot = environment["CODEROUTER_INSTALL"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? URL(fileURLWithPath: home).appendingPathComponent(".coderouter").path
+        let installed = URL(fileURLWithPath: installRoot).appendingPathComponent("bin/coderouter").path
+        return isExecutable(installed) ? installed : nil
+    }
+
     @Sendable private static func runCLI(_ arguments: [String]) async throws -> Data {
+        guard let executable = resolvedExecutable() else {
+            throw accountError("CodeRouter is not installed. Run cmux cr in a terminal to install it.")
+        }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["coderouter"] + arguments
-        var environment = ProcessInfo.processInfo.environment
-        let installBin = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".coderouter/bin").path
-        environment["PATH"] = installBin + ":" + (environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin")
-        process.environment = environment
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        // Same isolation as `cmux cr`: CodeRouter never sees cmux's CMUX_* context.
+        process.environment = ProcessInfo.processInfo.environment.filter { key, _ in
+            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        }
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output

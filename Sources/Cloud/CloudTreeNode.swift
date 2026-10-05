@@ -21,8 +21,17 @@ final class CloudTreeNode: NSObject {
         /// Percent of the current rate-limit window still available; nil when
         /// the provider reports no window.
         var remainingPercent: Int? = nil
+        /// The masked key CodeRouter reports for key and token accounts ("sk-ant-oat01-...JF1g").
+        var identifier: String? = nil
 
-        var title: String { label?.isEmpty == false ? label! : provider.title }
+        /// The label, else the type plus the key suffix `cr` prints ("Claude …JF1g").
+        var title: String {
+            if let label, !label.isEmpty { return label }
+            guard let identifier, let suffix = identifier.split(separator: ".").last, !suffix.isEmpty, suffix.count < identifier.count else {
+                return provider.title
+            }
+            return "\(provider.title) \u{2026}\(suffix)"
+        }
     }
     // Box the payload once: machine/catalog snapshots otherwise enlarge every
     // case and every row-content copy by hundreds of bytes.

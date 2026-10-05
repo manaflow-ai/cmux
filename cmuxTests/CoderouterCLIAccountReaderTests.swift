@@ -81,6 +81,23 @@ struct CoderouterCLIAccountReaderTests {
         #expect(switchIndex < removeIndex)
     }
 
+    @Test("The sidebar runs the same CodeRouter CLI as cmux cr: bundled, then PATH, then the installer's")
+    func resolvesTheSameCLIAsCmuxCR() {
+        let app = URL(fileURLWithPath: "/Applications/cmux.app")
+        let bundled = "/Applications/cmux.app/Contents/Resources/bin/coderouter"
+        let onPath = "/opt/homebrew/bin/coderouter"
+        let installed = "/Users/u/.coderouter/bin/coderouter"
+        let environment = ["PATH": "/usr/bin:/opt/homebrew/bin", "HOME": "/Users/u"]
+        func resolve(_ executables: Set<String>) -> String? {
+            CoderouterCLIAccountReader.resolvedExecutable(bundleURL: app, environment: environment, isExecutable: executables.contains)
+        }
+
+        #expect(resolve([bundled, onPath, installed]) == bundled)
+        #expect(resolve([onPath, installed]) == onPath)
+        #expect(resolve([installed]) == installed)
+        #expect(resolve([]) == nil)
+    }
+
     @Test("A malformed account ID never reaches the CLI")
     func malformedRemoveIsRejected() async {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
@@ -203,6 +220,16 @@ struct CoderouterSidebarSectionTests {
         // The server names OpenCode Go accounts `opencode-go`; the CLI verb is `opencode`.
         #expect(CoderouterProvider(id: "opencode-go") == .opencodeGo)
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
+    }
+
+    @Test("An unlabeled key account reads as its type and key suffix")
+    func unlabeledAccountTitle() {
+        let claude = CloudTreeNode.CoderouterAccount(
+            id: "c", provider: .claude, label: "", state: "active", identifier: "sk-ant-oat01-...JF1g"
+        )
+        #expect(claude.title == "Claude \u{2026}JF1g")
+        #expect(account("a", .codex).title == "a@example.com")
+        #expect(CloudTreeNode.CoderouterAccount(id: "d", provider: .codex, label: nil, state: nil).title == "Codex")
     }
 
     @Test("Account rows show usage left, or a state that is not active")
