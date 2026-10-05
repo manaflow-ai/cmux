@@ -20,7 +20,7 @@ struct CloudMachineRenamePromptTests {
             slug: "generated-name"
         )
         #expect(
-            MachineRowActions.renamePromptDisplayName(for: machine) == "  wandering-blue-hawk  "
+            MachineRowActions.renamePromptDisplayName(for: machine) == "wandering-blue-hawk"
         )
     }
 
