@@ -495,7 +495,9 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
   machine record stays true. Our 24 h backstop pauses a machine whose own reports show no sessions and no
   input or agent action for 24 h, for every team (bounds the cost of a forgotten machine).
   A running machine whose VM sent no report for 24 h after its last start or bind is also paused (the cost
-  backstop for a silent VM). `pause_reason` on the machine says why cmux paused it: idle, no_report,
+  backstop for a silent VM; a machine that never binds counts from its create). Until the VM daemon sends
+  `cloud.vm.status.report`, every machine is therefore paused 24 h after its bind or start: the app shows
+  `pause_reason: no_report`. `pause_reason` on the machine says why cmux paused it: idle, no_report,
   provider_stopped or provider_paused (connect_info and link_token read the VM's real state and correct
   the record, e.g. after a poweroff inside); a person's pause or a start clears it.
 - Idle pause: team policy `cloud.idlePause`, default OFF until auto-start is decided. When on, a machine

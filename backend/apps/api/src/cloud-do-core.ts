@@ -82,7 +82,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
 
   /** Running machines that sent no applied report for 24 h after their last start or bind (the cost backstop). */
   protected silentMachines(now: number): Array<string> {
-    return (this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []).filter((r) => r.row.status === "running" && now - silentSince(r.row, this.vmStatus.lastAppliedAt(r.row.id)) >= BACKSTOP_IDLE_SECONDS * 1000).map((r) => r.row.id)
+    return (this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []).filter((r) => (r.row.status === "running" || r.row.status === "provisioning") && now - silentSince(r.row, this.vmStatus.lastAppliedAt(r.row.id)) >= BACKSTOP_IDLE_SECONDS * 1000).map((r) => r.row.id)
   }
 
   /** The cost backstop pass (alarm): pause each silent machine on the money-op path, pause_reason no_report. */
@@ -365,7 +365,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt(), this.vmRevokes.registerDueAt()]) if (t !== null) times.push(t)
     // The cost backstop: the earliest silent deadline of a running machine (never sooner than a minute: a
     // pause the limit held back must not re-fire the alarm at once).
-    for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running") times.push(Math.max(silentSince(r.row, this.vmStatus.lastAppliedAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, now + 60_000))
+    for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running" || r.row.status === "provisioning") times.push(Math.max(silentSince(r.row, this.vmStatus.lastAppliedAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, now + 60_000))
     // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {

@@ -8,6 +8,9 @@ import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGe
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import { CloudCore, statusApplied } from "./cloud-do-core.ts"
 
+/** How often connect_info and link_token may read a machine's real state from the provider. */
+const STATE_CHECK_EVERY_MS = 30_000
+
 /**
  * CloudDO, one per team (plans/cmux-next/state-placement.md 5): the machine registry, the
  * provider-call ledger, plan checks and the alarm that repairs interrupted provider calls.
@@ -83,12 +86,19 @@ export class CloudDO extends CloudCore {
    * read the VM's real state (one cheap GET). A VM powered off or paused by itself is recorded paused,
    * a VM that is gone failed; a failed read keeps the record.
    */
+  private readonly stateChecks = new Map<string, number>()
   private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
     const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
     const driver = row?.status === "running" ? cloudDriver(this.env, this.sqlStore) : null
     if (!row || !driver) return
+    // At most one provider read per machine per 30 s (review P2-3: the API key is shared by every team).
+    const now = Date.now() + this.skewMs
+    const last = this.stateChecks.get(row.id)
+    if (last !== undefined && now - last < STATE_CHECK_EVERY_MS) return
+    this.stateChecks.set(row.id, now)
     const r = await driver.stateOf(row.provider_name, { team: entity, machine: row.id }).catch(() => undefined)
-    if (!r || (!r.gone && (r.state === "running" || r.state === "starting"))) return
+    // Only a VM known gone, or explicitly paused or stopped, changes the record (review P2-2): any other or missing value is no change.
+    if (!r || (!r.gone && r.state !== "paused" && r.state !== "stopped")) return
     this.submitSystem("cloud.machine.provider_state", { machine: row.id, state: r.gone ? null : r.state }, `provider-state:${row.id}:${this.boundEngine?.currentSeq ?? 0}`)
   }
 
@@ -111,11 +121,12 @@ export class CloudDO extends CloudCore {
 
   async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
-    if (this.isBound(entity) && principal.kind === "install") await this.checkRealState(entity, { host: (params as { host?: string } | null)?.host })
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
     // Review P3-6: a bound limit per install (the limiter keeps no storage in this object).
     const limit = this.env.CLOUD_MUTATION_LIMIT
     if (rows && principal.install && limit && !(await limit.limit({ key: `cloud-link:${principal.install}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many link tokens; retry in a minute" }
+    // After the limiter (review P2-3).
+    if (rows && principal.kind === "install") await this.checkRealState(entity, { host: (params as { host?: string } | null)?.host })
     const keys = parseSigningKeys(this.testLinkKeys ?? this.env.CLOUD_LINK_SIGNING_KEYS)
     // Review P3-b: never sign an iss this deployment cannot name.
     const environment = this.envTag()
@@ -157,6 +168,7 @@ export class CloudDO extends CloudCore {
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
     if (cmd.fail_revokes !== undefined) this.failRevokes = cmd.fail_revokes
+    if (cmd.vm_state) this.stateChecks.clear()
     if (cmd.vm_state) this.sqlStore.exec(`UPDATE cloud_fake_vm SET state = ? WHERE name = ?`, cmd.vm_state.state, cmd.vm_state.name)
     if (cmd.image_size) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET image_cpu = ?, image_memory = ?, image_storage = ? WHERE id = 1`, cmd.image_size.cpu, cmd.image_size.memory, cmd.image_size.storage)
     if (cmd.resize_partial !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET resize_partial = ? WHERE id = 1`, cmd.resize_partial)
@@ -171,9 +183,9 @@ export class CloudDO extends CloudCore {
       const t = { cmux_next_team: cmd.add_vm.team, cmux_next_machine: cmd.add_vm.machine }
       this.sqlStore.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, NULL)`, cmd.add_vm.name, `fs-${cmd.add_vm.name}`, JSON.stringify(t))
     }
-    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number }>(`SELECT creates, deletes, pauses, starts, resizes FROM cloud_fake_ctl WHERE id = 1`)[0]!
+    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads FROM cloud_fake_ctl WHERE id = 1`)[0]!
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number }>(`SELECT name, id, idle, cpu, memory FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
-    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), now: Date.now() + this.skewMs }
+    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), now: Date.now() + this.skewMs }
   }
 }

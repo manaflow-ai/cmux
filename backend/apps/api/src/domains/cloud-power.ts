@@ -39,7 +39,8 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
   if (!system && !mayManage(ctx.principal, m)) return reject("auth.forbidden", "only the machine's creator or a team admin may pause or start it")
   // A call already running for this machine answers the machine as it is (no second ledger row).
   if ((pause && m.status === "pausing") || (!pause && m.status === "starting")) return noChangePower(state, { machine: publicMachine(m) })
-  if (pause && m.status !== "running") return reject("cloud.machine.not_running", "only a running machine can be paused", { machine: m.id, state: m.status })
+  // The cost backstop (system) may also pause a machine that never bound (review P2-1).
+  if (pause && m.status !== "running" && !(system && m.status === "provisioning")) return reject("cloud.machine.not_running", "only a running machine can be paused", { machine: m.id, state: m.status })
   if (!pause && m.status !== "paused") return reject("cloud.machine.not_paused", "only a paused machine can be started", { machine: m.id, state: m.status })
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   if (!pause) {
@@ -128,7 +129,8 @@ export const providerStateResult = (state: CloudState, params: unknown, ctx: Red
   const stored = machineRow(ctx.rows, p.machine)
   if (!stored || stored.row.status !== "running") return noChangePower(state, { applied: false })
   const vm = typeof p.state === "string" ? p.state : null
-  if (vm === "running" || vm === "starting") return noChangePower(state, { applied: false })
+  // null means the VM is gone (the caller sends it only then); any value but paused or stopped is no change.
+  if (vm !== null && vm !== "paused" && vm !== "stopped") return noChangePower(state, { applied: false })
   const rev = state.rev + 1
   const row: MachineRow =
     vm === null

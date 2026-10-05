@@ -21,7 +21,8 @@ export interface VmTag {
 
 /** One raw provider: `find` by name (null = none), `create` under a name, `delete` by provider id (404 = success). */
 export interface RawCloudDriver {
-  find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown> } | null>
+  /** `state`: the VM's provider state when the same answer carries it (Freestyle GET /v5/vms/{x}). */
+  find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown>; readonly state?: string | null } | null>
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
   create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
   delete(id: string): Promise<void>
@@ -209,7 +210,8 @@ export class GuardedCloudDriver {
     const found = await this.raw.find(name)
     if (!found) return { state: null, gone: true }
     if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
-    return { state: await this.raw.state(found.id), gone: false }
+    // One GET: the find answer carries the state (review P2-3); a second read only when it does not.
+    return { state: found.state !== undefined ? found.state : await this.raw.state(found.id), gone: false }
   }
 
   /** Deletes the VM under `name`; no VM there is success. */
@@ -294,7 +296,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     const got = await this.call("GET", `/v5/vms/${encodeURIComponent(name)}`)
     if (got.status === 404) return null
     if (got.status !== 200) this.fail(got.status, got.json, "read VM")
-    return this.vm(got.json)
+    return { ...this.vm(got.json), state: typeof got.json.state === "string" ? got.json.state : null }
   }
 
   async create(name: string, tag: VmTag, opts: CreateOptions) {
