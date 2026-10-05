@@ -303,3 +303,21 @@ User mode (servers without root): the systemd user manager delegates `user@<uid>
 Tests: reducer unit and property tests (Testbox, `cargo test -p cmux-tui-core automation::`); a Linux integration test in the hosted cmux-tui workflow with Xvfb installed (acquire, ready by displayfd, release, idle stop, crash restart, cgroup files written in a delegated test subtree); the dev-bake smoke runs the section 6.3 idle proof.
 
 Window request: one cmux-tui window for `cmux-tui-core` (new module family, catalog entries for `display.*`, the daemon wiring). No Cargo.lock or Cargo.toml change. It may touch the protocol spec JSON (new ops), which needs a window under WINDOW-LITE.
+
+## 17. VM agent (bind, status report, events)
+
+Interim implementation: `images/cmux-vm/guest/vm-agent.ts`, a Bun program (the base keeps the real bun at `/usr/local/bin/bun`), no npm dependency. vm-image.md places the bind agent in the Rust `cmux host` role; this is the stand-in until that role exists, with the same contract, so the port is a translation with the same tests.
+
+- Trigger: `cmux-vm-agent.path` (`PathExists=/var/lib/cmux/bind.json`) starts `cmux-vm-agent.service`; the service is also enabled at boot with `ConditionPathExists=|bind.json` or `|bound.json`. While it runs, a directory watch (inotify) catches a new bind.json. No polling. The bake arms the path unit and checks the service is not running at snapshot time.
+- Bind: refuses an `api_origin` that is not the environment's allowlisted origin (dev `cmux-api-development.debussy.workers.dev`, stg `cloud-api-staging.cmux.dev`, prod `cloud-api.cmux.dev`); per-clone ES256 P-256 install key in `/var/lib/cmux/install/key.json` (0600, replaced when the MMDS instance id differs; one MMDS read per bind); per-clone WireGuard key in `/var/lib/cmux/wg/key.json`; POST `/v1/cloud/bind`; writes `bound.json` before removing `bind.json`. A 4xx is final (token spent or invalid), a 5xx or network error retries with backoff.
+- Tokens: `/v1/auth/challenge` then `/v1/auth/token`; signs only when `message_prefix` equals `cmux-auth-v1\n<ENVIRONMENT>\n<install>\n` for this machine's environment.
+- `cloud.vm.status.report` (backend 8feb7efab5a: 24 h without an applied report pauses the machine): one report after bind and at every service start; on change from the local socket, at most 1 per 10 s, latest wins; a heartbeat deadline 1 h after the last accepted report (one timer, re-armed); failures back off from 5 s, doubling, ±10% jitter, at least `retry_after_ms`, at most 10 min; while a retry is pending the heartbeat timer is cancelled, so a failing machine holds one timer.
+- `cloud.vm.event.emit`: v1 kinds and the 4 KB limit checked locally; `cloud.rate_limited` waits `retry_after_ms`; an invalid event is dropped and logged.
+- Local socket `/run/cmux/vm-agent.sock` (root and group `cmux`, 0660): JSON lines `{"activity": {...}}` or `{"event": {...}}`.
+- Tests: `web/tests/vm-image-vm-agent.test.ts` (11) against a fake server that answers from `backend/catalog/cloud-vectors.json` and verifies the ES256 signature the way the backend does.
+
+Gaps (not hidden):
+- Activity feeder: nothing writes to the socket yet. Until the daemon or its hooks send activity, reports carry `active_sessions: 0` and no timestamps, so CloudDO's idle pause can pause a machine a person is using after its idle period. The feeder is a cmux-tui change (session open/close, user input, agent action -> one socket line); it needs a cmux-tui window.
+- Resume detection: a resume without a new bind.json is caught only when the heartbeat deadline fires (monotonic timers count paused time, vm-image.md 6.5, so an overdue deadline fires at resume). The exact signal (timerfd `TFD_TIMER_CANCEL_ON_SET`, vm-image.md 6.2) belongs to the Rust port.
+- Daemon capabilities: read from `/etc/cmux/daemon.json` when present; the bake does not write it yet, so bind sends the pinned cmux-tui commit and an empty capability list. Next bake: record the daemon's `identify` capabilities into that file.
+- Live proof against the development API is the dev bake's one-clone smoke (section 10), not run yet.

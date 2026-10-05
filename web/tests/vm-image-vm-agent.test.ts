@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
   API_ORIGINS,
@@ -15,7 +18,7 @@ import {
 } from "../../images/cmux-vm/guest/vm-agent";
 
 // cmux.wire/1 vectors shared with the backend tests (backend/catalog/cloud-vectors.json).
-const vectors = JSON.parse(readFileSync(path.resolve(import.meta.dir, "../../backend/catalog/cloud-vectors.json"), "utf8")) as {
+const vectors = JSON.parse(readFileSync(fileURLToPath(new URL("../../backend/catalog/cloud-vectors.json", import.meta.url)), "utf8")) as {
   backend_only: Array<{ name: string; params: Record<string, unknown>; responses: Array<{ http: { status: number }; body: unknown }> }>;
   cases: Array<{ name: string; params: Record<string, unknown>; responses: Array<{ http: { status: number }; body: unknown }> }>;
 };
@@ -59,48 +62,55 @@ let registeredJwk: JsonWebKey | null = null;
 let bindCalls = 0;
 let opsScript: Array<{ status: number; body: unknown }> = [];
 let challengePrefixEnv = "development";
-let server: ReturnType<typeof Bun.serve>;
+let server: Server;
+let port = 0;
 
 /** Rewrites the allowlisted https origin to the local fake server; the agent never learns the fake URL. */
 const fakeFetch: typeof fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input));
   if (url.origin !== DEV) throw new Error(`unexpected origin ${url.origin}`);
-  return fetch(`http://127.0.0.1:${server.port}${url.pathname}`, init);
+  return fetch(`http://127.0.0.1:${port}${url.pathname}`, init);
 }) as typeof fetch;
 
 const b64uToBytes = (s: string) => Uint8Array.from(Buffer.from(s, "base64url"));
 
-beforeAll(() => {
-  server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      const body = (await req.json()) as Record<string, any>;
-      seen.push({ path: url.pathname, auth: req.headers.get("authorization"), body });
-      if (url.pathname === "/v1/cloud/bind") {
-        const r = bindVector.responses[Math.min(bindCalls++, bindVector.responses.length - 1)];
-        if (bindCalls === 1) registeredJwk = body.install_public_jwk;
-        return Response.json(r.body, { status: r.http.status });
-      }
-      if (url.pathname === "/v1/auth/challenge") {
-        return Response.json({ install: body.install, nonce: "nonce-1", expires_at: Date.now() + 60_000, message_prefix: `cmux-auth-v1\n${challengePrefixEnv}\n${body.install}\n` });
-      }
-      if (url.pathname === "/v1/auth/token") {
-        const key = await crypto.subtle.importKey("jwk", { ...registeredJwk!, ext: true }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-        const message = new TextEncoder().encode(`cmux-auth-v1\ndevelopment\n${body.install}\nnonce-1`);
-        const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, b64uToBytes(body.signature), message);
-        if (!ok) return Response.json({ _tag: "Forbidden", code: "auth.forbidden", message: "bad signature" }, { status: 403 });
-        return Response.json({ access_token: "tok-1", token_type: "Bearer", expires_at: Date.now() + 3_600_000, user: body.user, team: bindVector.params.team, install: body.install, grant: "grant_v000000000000000004" });
-      }
-      if (url.pathname === "/v1/ops") {
-        const next = opsScript.shift() ?? { status: 200, body: vector("vm.status.report").responses[0].body };
-        return Response.json(next.body, { status: next.status });
-      }
-      return new Response("not found", { status: 404 });
-    },
+async function route(pathname: string, body: Record<string, any>, authorization: string | null): Promise<{ status: number; body: unknown }> {
+  seen.push({ path: pathname, auth: authorization, body });
+  if (pathname === "/v1/cloud/bind") {
+    const r = bindVector.responses[Math.min(bindCalls++, bindVector.responses.length - 1)];
+    if (bindCalls === 1) registeredJwk = body.install_public_jwk;
+    return { status: r.http.status, body: r.body };
+  }
+  if (pathname === "/v1/auth/challenge") {
+    return { status: 200, body: { install: body.install, nonce: "nonce-1", expires_at: Date.now() + 60_000, message_prefix: `cmux-auth-v1\n${challengePrefixEnv}\n${body.install}\n` } };
+  }
+  if (pathname === "/v1/auth/token") {
+    const key = await crypto.subtle.importKey("jwk", { ...registeredJwk!, ext: true }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    const message = new TextEncoder().encode(`cmux-auth-v1\ndevelopment\n${body.install}\nnonce-1`);
+    const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, b64uToBytes(body.signature), message);
+    if (!ok) return { status: 403, body: { _tag: "Forbidden", code: "auth.forbidden", message: "bad signature" } };
+    return { status: 200, body: { access_token: "tok-1", token_type: "Bearer", expires_at: Date.now() + 3_600_000, user: body.user, team: bindVector.params.team, install: body.install, grant: "grant_v000000000000000004" } };
+  }
+  if (pathname === "/v1/ops") return opsScript.shift() ?? { status: 200, body: vector("vm.status.report").responses[0].body };
+  return { status: 404, body: { message: "not found" } };
+}
+
+beforeAll(async () => {
+  server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    let raw = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk: string) => (raw += chunk));
+    req.on("end", () => {
+      void route(new URL(req.url ?? "/", "http://x").pathname, JSON.parse(raw || "{}") as Record<string, any>, req.headers.authorization ?? null).then((answer) => {
+        res.writeHead(answer.status, { "content-type": "application/json" });
+        res.end(JSON.stringify(answer.body));
+      });
+    });
   });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  port = (server.address() as AddressInfo).port;
 });
-afterAll(() => server.stop(true));
+afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
 const wg = async () => ({ publicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
 const daemon = async () => ({ version: "0.40.0", capabilities: ["terminal", "files"] });

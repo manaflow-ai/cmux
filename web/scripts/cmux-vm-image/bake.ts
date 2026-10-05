@@ -336,6 +336,62 @@ async function configureRoles(ctx: Ctx): Promise<void> {
   ].join(" && "));
 }
 
+export const VM_AGENT_PATH = "/opt/cmux/guest/vm-agent.ts";
+
+/** systemd units for the VM agent: started by bind.json (path unit) or at boot when bound; never at bake. */
+export function vmAgentUnits(): { path: string; service: string } {
+  return {
+    path: [
+      "[Unit]",
+      "Description=cmux VM agent trigger (the driver wrote bind.json)",
+      "",
+      "[Path]",
+      "PathExists=/var/lib/cmux/bind.json",
+      "Unit=cmux-vm-agent.service",
+      "",
+      "[Install]",
+      "WantedBy=paths.target",
+      "",
+    ].join("\n"),
+    service: [
+      "[Unit]",
+      "Description=cmux VM agent (bind, status report, events)",
+      "After=network-online.target",
+      "Wants=network-online.target",
+      "ConditionPathExists=|/var/lib/cmux/bind.json",
+      "ConditionPathExists=|/var/lib/cmux/bound.json",
+      "",
+      "[Service]",
+      "Type=simple",
+      `ExecStart=/usr/local/bin/bun ${VM_AGENT_PATH}`,
+      "Restart=on-failure",
+      "RestartSec=5",
+      "",
+      "[Install]",
+      "WantedBy=multi-user.target",
+      "",
+    ].join("\n"),
+  };
+}
+
+async function installVmAgent(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  const units = vmAgentUnits();
+  await L.step(vm, "vm-agent-dirs", "install -d -m 0755 /opt/cmux/guest && install -d -m 0700 /var/lib/cmux");
+  await writeGuestFile(vm, VM_AGENT_PATH, readFileSync(path.join(GUEST_DIR, "vm-agent.ts")), 0o644);
+  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.path", units.path, 0o644);
+  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.service", units.service, 0o644);
+  ctx.result.vmAgent = await L.step(vm, "vm-agent-enable", [
+    `/usr/local/bin/bun build --target=bun --outfile=/dev/null ${VM_AGENT_PATH} >/dev/null`,
+    "systemctl daemon-reload",
+    "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service",
+    "systemctl start cmux-vm-agent.path",
+    "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
+    "test \"$(systemctl is-active cmux-vm-agent.service)\" != active",
+    "echo vm-agent-armed",
+  ].join(" && "));
+}
+
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await writeGuestFile(vm, "/usr/local/bin/cmux-devbox-boot", devboxFileBytes("cmux-devbox-boot"), 0o755);
@@ -421,6 +477,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await configureSystem(ctx);
     await configureSshd(ctx);
     await configureRoles(ctx);
+    await installVmAgent(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);
     await finalizeAndCollect(ctx);
