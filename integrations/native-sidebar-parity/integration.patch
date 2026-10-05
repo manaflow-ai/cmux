@@ -344,6 +344,19 @@ index 0000000000000000000000000000000000000000..9586ee06ee1c30bae616981beff9872c
 +    }
 +    private var unavailable: CmuxSidebarActionResult { .rejected("Native sidebar menu is unavailable") }
 +}
+diff --git a/Sources/TerminalController.swift b/Sources/TerminalController.swift
+index 0b81ff6447db11fdaeab5d42e8558aaec3c30840..9d87d3e302f51f094a6515c1302d314e63878902 100644
+--- a/Sources/TerminalController.swift
++++ b/Sources/TerminalController.swift
+@@ -26,7 +26,7 @@ import Foundation
+ import os
+ import Bonsplit
+ import WebKit
+-import CmuxSidebar
++@_spi(CmuxHostTransport) import CmuxSidebar
+ import CmuxWorkspaces
+ import CmuxNotifications
+ import CmuxSimulator
 diff --git a/cmux.xcodeproj/project.pbxproj b/cmux.xcodeproj/project.pbxproj
 index 66fd070e9a83a7e2b9cd71f8cd71e1da010759b7..14348a953f4f6f2d875b6ad15b589965cba4e92c 100644
 --- a/cmux.xcodeproj/project.pbxproj

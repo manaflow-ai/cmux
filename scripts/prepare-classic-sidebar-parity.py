@@ -83,6 +83,7 @@ def main():
         paths = {
             cmux: ["Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Manifest/CMUXExtensionScope.swift", "Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarAction.swift", "Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarHost.swift", "Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarSnapshot.swift", "Sources/ContentView.swift", "cmux.xcodeproj/project.pbxproj", "Sources/SidebarExtensionManagementCoordinator.swift", "Sources/Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift", "Sources/Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands.swift"],
             cortex: ["Sources/CortexSessionsExtension/CortexSessionsExtension.swift", "Sources/CortexSessionsExtension/SessionsSidebarModel.swift", "Sources/CortexSessionsExtension/SidebarRootView.swift", "Sources/CortexSessionsExtension/CompactWorkspaceRowView.swift", "Sources/CortexSessionsExtension/SidebarChrome.swift", "scripts/verify-sidebar-layout.sh", "Project.swift"]}
+        paths[cmux].append("Sources/TerminalController.swift")
         for stage, files in paths.items():
             revision = cmux_sha if stage == cmux else cortex_sha
             for path in files: (stage / path).write_bytes(git(stage, "show", revision + ":" + path))
@@ -177,6 +178,11 @@ def main():
     replace(layout, "    sed '/^import SessionsContract$/d' Sources/CortexSessionsExtension/CompactWorkspaceRowView.swift", "    cat Sources/CortexSessionsExtension/NativeWorkspaceParityMenu.swift\n    sed '/^import SessionsContract$/d' Sources/CortexSessionsExtension/CompactWorkspaceRowView.swift")
     project = cortex / "Project.swift"
     replace(project, 'resources: ["Sources/App/Resources/Assets.xcassets"],', 'resources: ["Sources/App/Resources/Assets.xcassets", "Sources/CortexSessionsExtension/Resources/**"],')
+
+    # The immutable recovery baseline exposes these diagnostics under the host
+    # transport SPI; its TerminalController caller must import that same SPI.
+    replace(cmux / "Sources/TerminalController.swift", "import CmuxSidebar\n",
+            "@_spi(CmuxHostTransport) import CmuxSidebar\n")
 
     receipt = {"schemaVersion": 1, "cmuxBaseSHA": cmux_sha, "cortexBaseSHA": cortex_sha,
                "productionActivationAllowed": False, "sourceArchivesIncludeForeignWIP": False, "patches": {}}
