@@ -13,8 +13,8 @@ use ghostty_vt::SnapshotPhase;
 use sha2::{Digest, Sha256};
 
 use super::attach_tap::SnapshotRequestHandle;
-use kitty_replay_cache::KittyReplayCache;
 use super::*;
+use kitty_replay_cache::KittyReplayCache;
 
 /// Default `viewer_backlog_bytes` (spec/terminal-frames.md: 8 MiB, set per
 /// attach by the viewer, no daemon setting): unacknowledged output kept for one

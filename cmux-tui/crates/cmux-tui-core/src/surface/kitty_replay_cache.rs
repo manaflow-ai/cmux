@@ -1,9 +1,9 @@
 //! The Kitty image replay of one terminal for snapshot viewers
 //! (`terminal-snapshot-images-v1`).
 
-use std::sync::{Arc, Mutex, PoisonError};
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use ghostty_vt::Terminal;
 
@@ -58,7 +58,9 @@ impl KittyReplayCache {
         #[cfg(test)]
         self.encodes.fetch_add(1, Ordering::Relaxed);
         let images = match term.encode_kitty_replay(max_image_bytes) {
-            Ok((data, stats)) if !stats.is_empty() => Some(Arc::new(SnapshotImages { data, stats })),
+            Ok((data, stats)) if !stats.is_empty() => {
+                Some(Arc::new(SnapshotImages { data, stats }))
+            }
             Ok(_) => None,
             Err(error) => {
                 eprintln!("cmux-tui: surface {surface} snapshot images not encoded: {error}");
