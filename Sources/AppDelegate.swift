@@ -9127,6 +9127,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             return false
         }
+        if case .fork = command {
+            // Same pending "Fork of …" row and reserved workspace as the sidebar's Fork.
+            return NewMachineSheetPresenter.shared.startFork(
+                sourceMachineID: vmId,
+                sourceName: nil,
+                preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+            )
+        }
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )

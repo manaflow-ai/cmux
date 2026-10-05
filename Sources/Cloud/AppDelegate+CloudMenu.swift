@@ -57,7 +57,8 @@ extension AppDelegate {
                 NSPasteboard.general.setString(text, forType: .string)
             },
             confirmDelete: { machine in _ = window(); rowActions.confirmDelete(machine) },
-            promptUpgrade: { _ = window(); rowActions.promptUpgrade() }
+            promptUpgrade: { _ = window(); rowActions.promptUpgrade() },
+            fork: { machine in _ = window(); rowActions.fork(machine) }
         )
         return CloudMenuActions(
             signIn: { [weak self] in

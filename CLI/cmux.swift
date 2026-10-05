@@ -6299,6 +6299,9 @@ struct CMUXCLI {
                 }
                 print("Forked Cloud VM \(id)")
                 print("  snapshot: \(snapshotId ?? "native fork")")
+                // Same machine-readable receipt as `vm new`: the app's pending
+                // Fork row adopts the machine from this token.
+                print("OK machine=\(id)")
                 try vmOpenShell(
                     id: id,
                     workspaceName: nil,

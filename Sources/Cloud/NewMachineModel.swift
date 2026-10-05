@@ -630,7 +630,15 @@ final class NewMachineModel {
 
     /// The request the coordinator tracks for this sheet's choices.
     var createRequest: MachineCreateRequest {
-        MachineCreateRequest(
+        if case .newMachine = mode, case .machine(let machine) = baseImage {
+            return .fork(
+                sourceMachineID: machine.id,
+                sourceName: baseImage.label,
+                kind: Self.machineKind,
+                selectionWindowID: selectionWindowID
+            )
+        }
+        return MachineCreateRequest(
             mode: mode,
             kind: Self.machineKind,
             name: nil,

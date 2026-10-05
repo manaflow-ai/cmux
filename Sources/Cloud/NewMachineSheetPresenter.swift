@@ -79,6 +79,40 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         return request.targetingReservedWorkspace(workspaceID)
     }
 
+    /// Forks a machine in the background: the Machines panel shows a pending
+    /// "Fork of …" row and a reserved workspace shows the loading card at once,
+    /// both before any process or network work, and the copy adopts them when
+    /// `cmux vm fork` prints its machine receipt. The row menu and the command
+    /// palette call this; the New Machine sheet reaches the same coordinator.
+    @discardableResult
+    func startFork(sourceMachineID: String, sourceName: String?, preferredWindow: NSWindow?) -> Bool {
+        let cached = dataCache?.currentData?.machines.first { $0.id == sourceMachineID }
+        let request = MachineCreateRequest.fork(
+            sourceMachineID: sourceMachineID,
+            sourceName: sourceName ?? cached?.displayName ?? cached?.slug ?? sourceMachineID,
+            kind: NewMachineModel.machineKind,
+            selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) }
+        )
+        guard let reserved = reserving(request, preferredWindow: preferredWindow) else { return false }
+        return MachineCreateCoordinator.shared.start(reserved, cancellableLaunch: Self.launchCreate)
+    }
+
+    /// Runs one create or fork invocation for ``MachineCreateCoordinator``.
+    private static func launchCreate(
+        arguments: [String],
+        progress: @escaping @MainActor (String) -> Void,
+        completion: @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
+    ) -> CloudVMActionLauncher.CancellationHandle? {
+        var cancellation: CloudVMActionLauncher.CancellationHandle?
+        let didStart = MachineRowActions.openNewMachine(
+            arguments: arguments,
+            onOutput: progress,
+            onCompletion: { result in completion(result) },
+            onCancellationReady: { cancellation = $0 }
+        )
+        return didStart ? cancellation : nil
+    }
+
     /// Removes only the unadopted creating card. User-added panes and an already
     /// attached terminal are no longer a disposable create presentation.
     static func closeReservedWorkspace(_ workspaceID: UUID, machineID: String? = nil) {
@@ -221,19 +255,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
                 guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
-                let didStart = coordinator.start(effectiveRequest, cancellableLaunch: { arguments, progress, completion in
-                    var cancellation: CloudVMActionLauncher.CancellationHandle?
-                    let didStart = MachineRowActions.openNewMachine(
-                        arguments: arguments,
-                        onOutput: progress,
-                        onCompletion: { result in
-                            completion(result)
-                        },
-                        onCancellationReady: { cancellation = $0 }
-                    )
-                    return didStart ? cancellation : nil
-                })
-                return didStart
+                return coordinator.start(effectiveRequest, cancellableLaunch: Self.launchCreate)
             }
         )
         present(model: model, preferredWindow: preferredWindow)
@@ -304,16 +326,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             if let request, let workspaceID = request.reservedWorkspaceID { Self.closeReservedWorkspace(workspaceID) }
             return nil
         }
-        return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: { arguments, progress, completion in
-            var cancellation: CloudVMActionLauncher.CancellationHandle?
-            let didStart = MachineRowActions.openNewMachine(
-                arguments: arguments,
-                onOutput: progress,
-                onCompletion: { result in completion(result) },
-                onCancellationReady: { cancellation = $0 }
-            )
-            return didStart ? cancellation : nil
-        })
+        return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: Self.launchCreate)
     }
 
     /// Loads the authoritative fleet page for one open sheet and ignores stale results.

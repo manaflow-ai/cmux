@@ -14,6 +14,9 @@ struct CloudMachineMenuVerbs {
     var copyToPasteboard: @MainActor (String) -> Void
     var confirmDelete: @MainActor (MachineSnapshot) -> Void
     var promptUpgrade: @MainActor () -> Void
+    /// Forks through the shared create coordinator, so every surface shows the
+    /// same pending "Fork of …" row the moment the person picks Fork.
+    var fork: @MainActor (MachineSnapshot) -> Void = { _ in }
 
     /// Connect verbs: Open Shell, New Workspace, Open Desktop, full client.
     /// A machine past its free window offers only the upgrade.
@@ -48,7 +51,7 @@ struct CloudMachineMenuVerbs {
             entries.append(action("checkpoint", id, String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { runCommand(id, ["vm", "snapshot"]) })
         }
         if machine.capabilities.fork {
-            entries.append(action("fork", id, String(localized: "machines.menu.fork", defaultValue: "Fork")) { runCommand(id, ["vm", "fork"]) })
+            entries.append(action("fork", id, String(localized: "machines.menu.fork", defaultValue: "Fork")) { fork(machine) })
         }
         return entries
     }
