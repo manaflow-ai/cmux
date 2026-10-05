@@ -287,7 +287,7 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       params: Schema.Struct({}),
       result: Schema.Unknown,
       errors: [],
-      docs: "Internal: UserDO adds the narrow cloud-link class to its old iPhone grants (read, mutate-own) once, on bind (CLOUD-LINK-FOLLOWUPS decision 2).",
+      docs: "Internal: UserDO adds the narrow cloud-link class once to its iPhone grants (read, mutate-own) made before the cloud-link default, on bind, then marks the migration done (CLOUD-LINK-FOLLOWUPS decision 2).",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
