@@ -476,7 +476,22 @@ native (`BrowserReplBoundary` in the session, and the driver):
   A TOTP secret's typed value is its code, masked as that literal.
   A value that reads as a number (`0042`, `0012345678`, `3.140`) is also
   masked where a result holds it as a JSON number (`Number(value)` drops
-  leading zeros), whatever its length.
+  leading zeros), whatever its length, except a value masked by its shape.
+  Masking by shape: masking runs over data the agent chooses (what it
+  prints, writes, or has a page echo), so a mask that appears only where
+  that data equals a held value answers a guess. A value from a set one
+  call can list whole is therefore never compared: while a session holds a
+  TOTP secret, every whole six-digit number (no letter or digit on either
+  side) is masked as `<secret:name>`, and while it holds (or another
+  session typed) a digit-only value of at most 8 digits (a PIN, a typed
+  TOTP code), every whole number with as many digits is masked with that
+  value's mask, in text and as a JSON number with those digits. Their
+  encoded forms (Base64, escapes) and their numbers without leading zeros
+  are not looked for. Every other value is matched by value, so a value an
+  agent can guess (a short or dictionary password) can still be confirmed
+  by printing guesses: value masking keeps a value out of what pages and
+  files hand back, not away from an agent that guesses it. Capture masks
+  still mask the exact values and codes.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
   is outside it, as it is within one session. Redaction is best-effort
@@ -498,8 +513,8 @@ native (`BrowserReplBoundary` in the session, and the driver):
   values over its life, current and retired, and a new one past that is
   refused until a reset, and one value is registered for at most 1,024
   domains over its life. One masking pass matches the session's own values
-  (current and retired), the values other sessions typed and the valid
-  TOTP codes together against the original input, so no value's mask can
+  (current and retired), the values other sessions typed and the numbers
+  masked by shape together against the original input, so no value's mask can
   replace part of another value before that value is looked for. It tries
   every position, also one inside an earlier match, and masks
   intersecting matches as their union (each distinct mask once), so a

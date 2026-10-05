@@ -119,20 +119,17 @@ struct BrowserReplSecretFormsTests {
     }
 
     /// Base64 a page or server hands back: of a value too short for an
-    /// eight-character run (a PIN), at each of the three offsets that put a
+    /// eight-character run, at each of the three offsets that put a
     /// value's encoding out of step with the run it sits in (`"x" +
     /// btoa(value)`), and base64url without padding.
     @Test("Base64 of a short value, out of step inside a longer run, or base64url, is masked")
     func base64FormsAreMasked() throws {
         let store = BrowserReplSecretStore()
-        try store.set(name: "pin", value: "4821", domains: ["example.com"], totp: false, title: "t")
         try store.set(name: "code", value: "a7Q", domains: ["example.com"], totp: false, title: "t")
         try store.set(name: "pw", value: "v4lue-xyz-7731", domains: ["example.com"], totp: false, title: "t")
         try store.set(name: "url", value: "k?~>~?k-secret", domains: ["example.com"], totp: false, title: "t")
         let pw = Data("v4lue-xyz-7731".utf8).base64EncodedString()
         let samples: [(text: String, hidden: String, mask: String)] = [
-            ("pin=NDgyMQ==", "NDgyMQ", "<secret:pin>"),
-            (#"{"pin":"NDgyMQ"}"#, "NDgyMQ", "<secret:pin>"),
             ("c=YTdR;", "YTdR", "<secret:code>"),
             ("t=Q\(pw)", String(pw.dropLast()), "<secret:pw>"),
             ("t=QU\(pw)", String(pw.dropLast()), "<secret:pw>"),
@@ -190,7 +187,10 @@ struct BrowserReplSecretFormsTests {
     /// A page can turn a digit-only value into a JavaScript number
     /// (`Number(field.value)`), which drops leading zeros and reaches the
     /// session as a JSON number, not text. Each registered value whose
-    /// number is exact is masked as that number, whatever its length.
+    /// number is exact is masked as that number, whatever its length. A
+    /// digit-only value of at most eight digits is masked by its shape
+    /// instead (BrowserReplSecretOracleTests): a number with as many digits,
+    /// so `0042` read as `42` stays a number.
     @Test("A digit-only secret returned as a JSON number is masked, with leading zeros and past six digits")
     func numericFormsAreMasked() throws {
         let store = BrowserReplSecretStore()
@@ -200,7 +200,7 @@ struct BrowserReplSecretFormsTests {
         try store.set(name: "rate", value: "3.140", domains: ["example.com"], totp: false, title: "t")
         let masked = JSONSerialization.browserReplObject(store.redactJSON(#"{"a":12345678,"b":42,"c":4111111111111111,"d":3.14,"e":[12345678]}"#))
         #expect(masked["a"] as? String == "<secret:account>", "\(masked)")
-        #expect(masked["b"] as? String == "<secret:pin>", "\(masked)")
+        #expect((masked["b"] as? NSNumber)?.int64Value == 42, "\(masked)")
         #expect(masked["c"] as? String == "<secret:card>", "\(masked)")
         #expect(masked["d"] as? String == "<secret:rate>", "\(masked)")
         #expect(masked["e"] as? [String] == ["<secret:account>"], "\(masked)")

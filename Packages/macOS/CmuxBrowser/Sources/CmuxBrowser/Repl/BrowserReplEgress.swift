@@ -28,7 +28,7 @@ enum BrowserReplEgressData {
 
 /// Data on its way to a session's JavaScript or output, past the egress
 /// gate: every value the session holds, every value another session typed
-/// into a tab, and the TOTP codes valid now are masked in it, by one scan
+/// into a tab, and (by their shape) TOTP codes are masked in it, by one scan
 /// of the original data. Only this file makes one, so the session can hand
 /// JavaScript nothing that skipped the gate: its result and event delivery
 /// and its host functions take this type.
@@ -68,7 +68,7 @@ extension BrowserReplBoundary {
     fileprivate func redaction() -> BrowserReplSecretStore.Redaction? {
         var stores = [secrets]
         if let typed = typedSecrets() { stores.append(typed) }
-        return BrowserReplSecretStore.Redaction(stores: stores, at: Date())
+        return BrowserReplSecretStore.Redaction(stores: stores)
     }
 
     /// The egress gate: `data` as the session's JavaScript or output may
