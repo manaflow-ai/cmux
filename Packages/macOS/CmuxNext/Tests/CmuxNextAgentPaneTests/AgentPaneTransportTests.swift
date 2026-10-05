@@ -216,4 +216,29 @@ private actor FileTokenHost: AgentPaneHostProviding {
         #expect(server.peers.first?.frames.contains { $0.contains("elsewhere") } == false)
         #expect(await eventually { events.flatMap(\.frames).contains { $0.contains(#""id":5"#) && $0.contains("transport.path_outside_roots") } })
     }
+    /// A frame that names no folder goes to the socket on the arrival turn; a frame that waits for
+    /// the disk check is never overtaken by a later one.
+    @Test func aPageActionGoesOutAtOnceAndAWaitingFrameKeepsItsPlace() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("order-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let transport = AgentPaneTransport()
+        transport.roots = { [root.path] }
+        transport.deliver = { _, done in done() }
+        let id = try await transport.open(connection(server))
+        _ = await transport.send(connection: id, frames: [Self.initialize])
+        var replies: [String] = []
+        let cancel = #"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s"}}"#
+        transport.submit(connection: id, frames: [cancel]) { _ in replies.append("first-cancel") }
+        #expect(replies == ["first-cancel"], "answered on the same turn")
+        let new = #"{"jsonrpc":"2.0","id":3,"method":"session/new","params":{"cwd":"\#(root.path)","mcpServers":[]}}"#
+        transport.submit(connection: id, frames: [new]) { _ in replies.append("new") }
+        transport.submit(connection: id, frames: [cancel]) { _ in replies.append("second-cancel") }
+        #expect(await server.wait { $0.first?.frames.count == 4 })
+        let sent = server.peers.first?.frames ?? []
+        #expect(sent.firstIndex { $0.contains("session/new") }! < sent.lastIndex { $0.contains("session/cancel") }!)
+        #expect(await eventually { replies == ["first-cancel", "new", "second-cancel"] })
+    }
 }

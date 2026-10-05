@@ -147,7 +147,12 @@ public nonisolated enum AcpmuxPathPolicy {
     /// Whether a page frame needs the disk check: it names a folder field at any depth, or it is a
     /// `session/new` (which gets a cwd when it names none). Parsed, never a substring test.
     public static func needsCheck(_ text: String) -> Bool {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return false }
+        needsCheck((try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any])
+    }
+
+    /// The same for a frame already parsed.
+    public static func needsCheck(_ object: [String: Any]?) -> Bool {
+        guard let object else { return false }
         return object["method"] as? String == "session/new" || object["params"].map(namesFolder) == true
     }
 

@@ -291,14 +291,18 @@ public final class AgentPaneModel {
                 return Self.transportFailure(error)
             }
         case .transportSend(let connection, let frames):
-            if let error = await transport.send(connection: connection, frames: frames) { return Self.transportFailure(error) }
-            return AgentPaneReply.success()
+            return Self.transportReply(await transport.send(connection: connection, frames: frames))
         case .transportClose(let connection):
             transport.close(connection: connection)
             return AgentPaneReply.success()
         case .unsupported(let method):
             return Self.unsupported(method)
         }
+    }
+
+    /// The page's reply to a `transport.send`.
+    static func transportReply(_ error: AgentPaneTransportError?) -> [String: Any] {
+        error.map(transportFailure) ?? AgentPaneReply.success()
     }
 
     private static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {

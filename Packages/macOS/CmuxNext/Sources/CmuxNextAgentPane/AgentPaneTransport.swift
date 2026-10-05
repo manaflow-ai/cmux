@@ -145,8 +145,6 @@ public extension AgentPaneTransportPacer {
     /// Held from `open` until the first frame is sent, then dropped.
     private var localAppToken: String?
     private var sentFirst = false
-    /// The send in flight: sends run one after another, so frames keep the page's order.
-    private var sendTail: Task<Void, Never>?
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
     /// The permission options the daemon sent, to tell an allow from a deny.
@@ -209,85 +207,178 @@ public extension AgentPaneTransportPacer {
     /// refused request is answered with a JSON-RPC error frame. Returns the first error, if any.
     @discardableResult
     public func send(connection id: Int, frames: [String]) async -> AgentPaneTransportError? {
-        let previous = sendTail
-        let work = Task { @MainActor [weak self] () -> AgentPaneTransportError? in
-            await previous?.value
-            guard let self else { return .closed }
-            return await self.process(connection: id, frames: frames)
-        }
-        sendTail = Task { _ = await work.value }
-        return await work.value
+        if let done = sendNow(connection: id, frames: frames) { return done }
+        let turn = reserveSend()
+        await turn.granted()
+        defer { releaseSend() }
+        return await run(connection: id, frames: frames)
     }
 
-    private func process(connection id: Int, frames: [String]) async -> AgentPaneTransportError? {
+    /// The bridge's entry: done on this turn when it can, else queued in arrival order (the turn
+    /// is reserved before this returns, so a later frame never overtakes it).
+    public func submit(connection id: Int, frames: [String], reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
+        if let done = sendNow(connection: id, frames: frames) { return reply(done) }
+        let turn = reserveSend()
+        // task-owner: one queued page send; its turn was reserved above, its reply goes to the page
+        Task { [weak self] in
+            await turn.granted()
+            guard let self else { return reply(.closed) }
+            let result = await self.run(connection: id, frames: frames)
+            self.releaseSend()
+            reply(result)
+        }
+    }
+
+    private func run(connection id: Int, frames: [String]) async -> AgentPaneTransportError? {
         var firstError: AgentPaneTransportError?
         for frame in frames {
-            guard id == current, let socket else { return firstError ?? .staleConnection }
-            var decision = AcpmuxPaneMethods.decide(frame, isFirst: !sentFirst, localAppToken: localAppToken)
-            var rootRequested = false
-            // A kill or a permission answer only for this pane's sessions.
-            if case .send(let text) = decision, sentFirst, let refusal = sessionRefusal(text) {
-                decision = refusal
-            }
-            // Off the main thread only when the frame names a folder (or is a session/new).
-            if case .send(let text) = decision, sentFirst, AcpmuxPathPolicy.needsCheck(text) {
-                let scope = AcpmuxPathPolicy.Scope(roots: roots() + addedRoots, gestureRoots: gestureRoots(), fillCwd: primaryRoot())
-                let result = await AcpmuxPathPolicy.check(text, scope: scope)
-                // The connection may have changed while the disk was read.
-                guard id == current, self.socket === socket else { return firstError ?? .staleConnection }
-                switch result {
-                case .success(let checked):
-                    decision = .send(checked.text)
-                    // A folder of the new tab page's scan counts only when the user picked it.
-                    if !checked.gestureRootsUsed.isEmpty {
-                        if gestures.consume() {
-                            addedRoots += checked.gestureRootsUsed.filter { !addedRoots.contains($0) }
-                        } else {
-                            let identity = AcpmuxPaneMethods.identity(text)
-                            decision = .refuse(.pathOutsideRoots, method: identity.method, requestID: identity.id)
-                        }
-                    }
-                case .failure(let refusal):
-                    decision = .refuse(refusal.error, method: refusal.method, requestID: refusal.requestID)
-                    if refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath { rootRequested = offerRoot(folder) }
-                }
-            }
-            // A frame that grants uses the user's gesture (one per grant).
-            if case .send(let text) = decision, sentFirst, AcpmuxPaneMethods.needsGesture(text, options: permissionOptions),
-               !gestures.consume() {
-                let identity = AcpmuxPaneMethods.identity(text)
-                decision = .refuse(.gestureRequired, method: identity.method, requestID: identity.id)
-            }
-            if case .send(let text) = decision, sentFirst { noteSent(text) }
-            switch decision {
-            case .send(let text):
-                if !sentFirst {
-                    sentFirst = true
-                    localAppToken = nil
-                }
-                if let error = socket.send(text) {
-                    firstError = firstError ?? error
-                    if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
-                    return firstError
-                }
-            case .refuse(let error, let method, let requestID):
-                Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
-                firstError = firstError ?? error
-                if error == .firstFrameNotInitialize {
-                    socket.close(code: 1008, reason: "first frame", error: error)
-                    return firstError
-                }
-                if let requestID {
-                    socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, rootRequested: rootRequested))
-                }
+            switch await step(connection: id, frame: frame) {
+            case .sent: continue
+            case .refused(let error): firstError = firstError ?? error
+            case .stop(let error): return firstError ?? error
             }
         }
         return firstError
     }
 
+    /// The same send, done on this turn when nothing is queued before it and no frame needs the
+    /// disk (a folder check): the usual case, so a page action reaches the socket at once. Nil when
+    /// it must wait (``send(connection:frames:)`` then queues it).
+    public func sendNow(connection id: Int, frames: [String]) -> AgentPaneTransportError?? {
+        guard !sendBusy, id == current, socket != nil else { return nil }
+        let parsed = frames.map(PageFrame.init)
+        // Only the connection's very first frame skips the folder check; every later one may need it.
+        guard !parsed.enumerated().contains(where: { (sentFirst || $0.offset > 0) && AcpmuxPathPolicy.needsCheck($0.element.object) })
+        else { return nil }
+        var firstError: AgentPaneTransportError?
+        for frame in parsed {
+            switch finish(connection: id, frame: frame, decision: prepare(frame), rootRequested: false) {
+            case .sent: continue
+            case .refused(let error): firstError = firstError ?? error
+            case .stop(let error): return .some(firstError ?? error)
+            }
+        }
+        return .some(firstError)
+    }
+
+    /// One page frame, parsed once.
+    struct PageFrame {
+        let text: String
+        let object: [String: Any]?
+        init(_ text: String) {
+            self.text = text
+            object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any]
+        }
+        var method: String? { object?["method"] as? String }
+        var id: String? { object?["id"].flatMap(AcpmuxPaneMethods.rawID) }
+    }
+
+    enum Step { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
+
+    /// A queued send's place in line.
+    @MainActor final class SendTurn {
+        private var isGranted = false
+        private var continuation: CheckedContinuation<Void, Never>?
+        func granted() async {
+            guard !isGranted else { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+        func grant() {
+            isGranted = true
+            continuation?.resume()
+            continuation = nil
+        }
+    }
+
+    private var sendBusy = false
+    private var sendQueue: [SendTurn] = []
+
+    /// Sends run one after another, in the order they were reserved.
+    private func reserveSend() -> SendTurn {
+        let turn = SendTurn()
+        if sendBusy { sendQueue.append(turn) } else { sendBusy = true; turn.grant() }
+        return turn
+    }
+
+    private func releaseSend() {
+        if sendQueue.isEmpty { sendBusy = false } else { sendQueue.removeFirst().grant() }
+    }
+
+    /// One frame, with the disk check when it needs one.
+    private func step(connection id: Int, frame text: String) async -> Step {
+        guard id == current, let socket else { return .stop(.staleConnection) }
+        let frame = PageFrame(text)
+        var decision = prepare(frame)
+        var rootRequested = false
+        if case .send(let checkedText) = decision, sentFirst, AcpmuxPathPolicy.needsCheck(frame.object) {
+            let scope = AcpmuxPathPolicy.Scope(roots: roots() + addedRoots, gestureRoots: gestureRoots(), fillCwd: primaryRoot())
+            let result = await AcpmuxPathPolicy.check(checkedText, scope: scope)
+            // The connection may have changed while the disk was read.
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            switch result {
+            case .success(let checked):
+                decision = .send(checked.text)
+                // A folder of the new tab page's scan counts only when the user picked it.
+                if !checked.gestureRootsUsed.isEmpty {
+                    if gestures.consume() {
+                        addedRoots += checked.gestureRootsUsed.filter { !addedRoots.contains($0) }
+                    } else {
+                        decision = .refuse(.pathOutsideRoots, method: frame.method, requestID: frame.id)
+                    }
+                }
+            case .failure(let refusal):
+                decision = .refuse(refusal.error, method: refusal.method, requestID: refusal.requestID)
+                if refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath { rootRequested = offerRoot(folder) }
+            }
+        }
+        return finish(connection: id, frame: frame, decision: decision, rootRequested: rootRequested)
+    }
+
+    /// The allowlist and the session scope (no disk).
+    private func prepare(_ frame: PageFrame) -> AcpmuxPaneMethods.Decision {
+        let decision = AcpmuxPaneMethods.decide(frame.text, isFirst: !sentFirst, localAppToken: localAppToken)
+        if case .send = decision, sentFirst, let refusal = sessionRefusal(frame) { return refusal }
+        return decision
+    }
+
+    /// The gesture rule, then the socket (or the refusal's answer).
+    private func finish(connection id: Int, frame: PageFrame, decision start: AcpmuxPaneMethods.Decision, rootRequested: Bool) -> Step {
+        guard id == current, let socket else { return .stop(.staleConnection) }
+        var decision = start
+        // A frame that grants uses the user's gesture (one per grant).
+        if case .send(let text) = decision, sentFirst, AcpmuxPaneMethods.needsGesture(text, options: permissionOptions),
+           !gestures.consume() {
+            decision = .refuse(.gestureRequired, method: frame.method, requestID: frame.id)
+        }
+        switch decision {
+        case .send(let text):
+            if !sentFirst {
+                sentFirst = true
+                localAppToken = nil
+            } else {
+                noteSent(frame)
+            }
+            if let error = socket.send(text) {
+                if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
+                return .stop(error)
+            }
+            return .sent
+        case .refuse(let error, let method, let requestID):
+            Self.logger.error("agent pane transport refused frame error=\(error.rawValue, privacy: .public) method=\(method ?? "-", privacy: .public)")
+            if error == .firstFrameNotInitialize {
+                socket.close(code: 1008, reason: "first frame", error: error)
+                return .stop(error)
+            }
+            if let requestID {
+                socket.inject(AcpmuxPaneMethods.refusal(requestID: requestID, error: error, method: method, rootRequested: rootRequested))
+            }
+            return .refused(error)
+        }
+    }
+
     /// The refusal of a session-scoped frame for a session that is not this pane's.
-    private func sessionRefusal(_ text: String) -> AcpmuxPaneMethods.Decision? {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+    private func sessionRefusal(_ frame: PageFrame) -> AcpmuxPaneMethods.Decision? {
+        guard let object = frame.object,
               let method = object["method"] as? String, AcpmuxPaneMethods.sessionScoped.contains(method) else { return nil }
         let session = (object["params"] as? [String: Any])?["sessionId"] as? String
         guard let session, sessions.contains(session) else {
@@ -297,8 +388,8 @@ public extension AgentPaneTransportPacer {
     }
 
     /// Records what a sent frame starts or shows.
-    private func noteSent(_ text: String) {
-        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+    private func noteSent(_ frame: PageFrame) {
+        guard let object = frame.object,
               let method = object["method"] as? String,
               method == "_acpmux/attach" || AcpmuxPaneSessions.starting.contains(method) else { return }
         sessions.sent(method: method, id: object["id"].flatMap(AcpmuxPaneMethods.rawID), params: object["params"] as? [String: Any] ?? [:])

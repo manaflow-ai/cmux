@@ -17,17 +17,25 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         self.view = view
     }
 
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
+                               replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         guard isTrusted(message) else {
             logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
-            return (AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
+            return replyHandler(AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
         let request = AgentPaneRequest(body: message.body)
+        // A page frame for the host's socket goes out on this turn when it can (no Task hop).
+        if case .transportSend(let connection, let frames) = request, let model = view?.model {
+            return model.transport.submit(connection: connection, frames: frames) { error in
+                replyHandler(AgentPaneModel.transportReply(error), nil)
+            }
+        }
         // Transport requests carry chat content and run per batch: not logged.
         if !request.isTransport {
             logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
         }
-        return (await reply(to: request), nil)
+        // task-owner: one page request; its reply goes back through replyHandler
+        Task { replyHandler(await self.reply(to: request), nil) }
     }
 
     /// The reply for a request from the pane's trusted page.
