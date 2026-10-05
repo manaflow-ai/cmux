@@ -8,9 +8,12 @@
 //! timed out after `CONTROL_RESPONSE_TIMEOUT` although the host had answered
 //! at once.
 //!
-//! A reader thread now owns the socket. `InputAck` and `TerminateAck` carry
-//! no state the output path needs, so the thread resolves them as they
-//! arrive. On a smart-renderer connection it also resolves
+//! A reader thread now owns the socket. `InputAck`, `TerminateAck` and
+//! `Capability` carry no state the output path needs, so the thread resolves
+//! them as they arrive. A smart host applies `SetDefaults` by publishing
+//! `ResyncRequired` and answers a following `MintCapability` behind it, so a
+//! renderer mint right after a default-colors update depends on this thread
+//! too. On a smart-renderer connection it also resolves
 //! `KittyGraphicsLimitsAck`: a smart host answers a Kitty limits update with
 //! `ResyncRequired` and then the acknowledgement, and the surface's reader
 //! stops reading the stream at `ResyncRequired`, so only this thread can
@@ -83,7 +86,7 @@ impl EarlyResponses {
     /// Whether the reader thread resolves responses of `kind`.
     pub(super) fn resolves(self, kind: MessageKind) -> bool {
         match kind {
-            MessageKind::InputAck | MessageKind::TerminateAck => true,
+            MessageKind::InputAck | MessageKind::TerminateAck | MessageKind::Capability => true,
             MessageKind::KittyGraphicsLimitsAck => self.smart_renderer,
             _ => false,
         }
@@ -295,6 +298,7 @@ mod tests {
         let legacy = EarlyResponses::new(false);
         assert!(resolves_early(&frame(MessageKind::InputAck, 7, version), version, SMART));
         assert!(resolves_early(&frame(MessageKind::TerminateAck, 7, version), version, legacy));
+        assert!(resolves_early(&frame(MessageKind::Capability, 7, version), version, legacy));
         assert!(resolves_early(
             &frame(MessageKind::KittyGraphicsLimitsAck, 7, version),
             version,
