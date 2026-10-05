@@ -44,16 +44,18 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 registered=$(cli rpc debug.scene.list '{}')
-mapfile -t scenes < <(python3 - "$registered" "$@" <<'PY'
+scenes=()
+while IFS= read -r scene; do
+  scenes+=("$scene")
+done < <(python3 - "$registered" "$@" <<'PY'
 import json, sys
 payload = json.loads(sys.argv[1])
-if payload.get("error"):
+if isinstance(payload, dict) and payload.get("error"):
     raise SystemExit(payload["error"])
-known = [item["name"] for item in payload.get("result", payload).get("scenes", [])] if isinstance(payload, dict) else []
-# Accept both direct arrays and the standard CLI result envelope.
-if not known and isinstance(payload, dict):
-    value = payload.get("result", payload)
-    if isinstance(value, list): known = [item["name"] for item in value]
+value = payload.get("result", payload) if isinstance(payload, dict) else payload
+known = [item["name"] for item in value.get("scenes", [])] if isinstance(value, dict) else []
+if isinstance(value, list):
+    known = [item["name"] for item in value]
 requested = sys.argv[2:]
 if not known:
     known = ["main-showcase", "composer", "sidebar-tiles", "settings", "history-narrow", "hints-cmd-held", "hints-ctrl-held"]
