@@ -290,28 +290,53 @@ struct CloudPortsVPNAffordanceTests {
 
     @Test("A failed Displays discovery is retried until it succeeds, at most three times",
           arguments: [[false, false, true], [false, false, false, false]])
-    func displaysDemandRetriesFailedDiscovery(outcomes: [Bool]) async throws {
-        var remaining = outcomes
-        var attempts = 0
+    func displaysDemandRetriesFailedDiscovery(outcomes: [Bool]) {
+        var pending: [@MainActor (Bool) -> Void] = []
         var actions = nodeActions()
         actions.discoverDisplays = { _, completion in
-            attempts += 1
-            let succeeded = remaining.isEmpty ? true : remaining.removeFirst()
-            Task { @MainActor in completion(succeeded) }
+            pending.append(completion)
             return true
         }
-        let machine = SurfaceMachineID.cloud("displays-demand")
-        let tabs = CloudTreeNode(id: "machine:displays-demand/tabs", kind: .machineDetailTabs(CloudTreeMachineDetailTabs(
-            machine: machine, tabs: [.displays], counts: [:], selected: .displays)))
+        let tabs = Self.displaysTab(machine: .cloud("displays-demand"))
         let demand = CloudDisplaysDiscoveryDemand()
         demand.update(nodes: [tabs], actions: actions)
-        for _ in 0..<100 { await Task.yield() }
+        // Each outcome finishes the newest discovery; a failure starts the next.
+        for outcome in outcomes {
+            guard let newest = pending.last else { break }
+            let started = pending.count
+            newest(outcome)
+            if pending.count == started { break }
+        }
         // Starting discovery is not finishing it: failures are retried, and
         // the retries are bounded so a broken guest is not polled forever.
-        #expect(attempts == 3)
+        #expect(pending.count == 3)
         demand.update(nodes: [tabs], actions: actions)
-        for _ in 0..<20 { await Task.yield() }
-        #expect(attempts == 3, "an open tab does not rediscover once settled or out of attempts")
+        #expect(pending.count == 3, "an open tab does not rediscover once settled or out of attempts")
+    }
+
+    @Test("A discovery from before the Displays tab closed cannot retry after it reopens")
+    func displaysDemandIgnoresStaleCompletion() {
+        var pending: [@MainActor (Bool) -> Void] = []
+        var actions = nodeActions()
+        actions.discoverDisplays = { _, completion in
+            pending.append(completion)
+            return true
+        }
+        let tabs = Self.displaysTab(machine: .cloud("displays-reopened"))
+        let demand = CloudDisplaysDiscoveryDemand()
+        demand.update(nodes: [tabs], actions: actions)
+        demand.update(nodes: [], actions: actions)
+        demand.update(nodes: [tabs], actions: actions)
+        #expect(pending.count == 2)
+        pending[0](false)
+        #expect(pending.count == 2, "only the reopened tab's discovery may retry")
+        pending[1](false)
+        #expect(pending.count == 3)
+    }
+
+    private static func displaysTab(machine: SurfaceMachineID) -> CloudTreeNode {
+        CloudTreeNode(id: "\(machine.rawValue)/tabs", kind: .machineDetailTabs(CloudTreeMachineDetailTabs(
+            machine: machine, tabs: [.displays], counts: [:], selected: .displays)))
     }
 
     @Test("Ports Wake shares the expired-machine gate and rejects removed machines")
