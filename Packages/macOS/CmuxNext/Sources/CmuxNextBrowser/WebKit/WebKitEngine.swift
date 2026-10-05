@@ -19,6 +19,9 @@ public final class WebKitEngine: BrowserEngine {
     /// Hosts whose untrusted certificate the user chose to proceed past, per
     /// browser profile, until the app quits (never written to disk).
     var certificateExceptions: [BrowserProfileID: Set<String>] = [:]
+    /// Hosts whose warnings were turned on again, per profile, until a page
+    /// of theirs verifies (WebKitEngine+CertificateWarnings.swift).
+    var certificateRechecks: [BrowserProfileID: Set<String>] = [:]
     /// Low Power Mode keeps every open and new tab near 60 fps.
     public let lowPowerMode: LowPowerMode
     private var lowPowerModeObservation: LowPowerModeObservation?
