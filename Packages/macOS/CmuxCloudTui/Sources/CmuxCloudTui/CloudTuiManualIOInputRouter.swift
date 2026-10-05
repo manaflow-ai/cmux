@@ -11,6 +11,9 @@ import Foundation
 // isolated to `queue`; callers cross the boundary only with immutable input
 // values and the connection's thread-safe enqueue operation.
 public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
+    private static let maximumInputFrameBytes = 180 * 1024
+
+    private var invalidated = false
     private var surfaceID: UInt64
     private let queue: DispatchQueue
     private let commandBuilder: CloudTuiManualIOCommand
@@ -70,6 +73,7 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// Rebinds pending input to a newly connected transport.
     public func setConnection(_ connection: CloudTuiManualIOConnection?) {
         queue.async { [self, connection] in
+            guard !invalidated else { return }
             flushPendingByteInput()
             self.connection = connection
             guard let connection else { return }
@@ -82,6 +86,7 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// Stops delivery and discards queued bytes during permanent pane teardown.
     public func invalidate() {
         queue.async { [self] in
+            invalidated = true
             connection = nil
             pendingLines.removeAll(keepingCapacity: false)
             pendingByteInput.removeAll(keepingCapacity: false)
@@ -101,6 +106,7 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         // Image commit shares the input lane. Queue it behind prior manual input,
         // and retain this exact connection rather than replaying it after reconnect.
         queue.async { [self] in
+            guard !invalidated else { return }
             // Control requests are ordering barriers. Flush bytes typed before
             // the request before putting the control line on the transport.
             flushPendingByteInput()
@@ -115,6 +121,7 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         // callback only copies the already-owned Sendable value and enqueues it
         // on this serial transport lane.
         queue.async { [self, input] in
+            guard !invalidated else { return }
             let command: [String: Any]
             switch input {
             case .bytes(let bytes):
@@ -141,22 +148,31 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     }
 
     private func flushPendingByteInput() {
+        guard !invalidated else {
+            pendingByteInput.removeAll(keepingCapacity: false)
+            byteFlushScheduled = false
+            return
+        }
         guard !pendingByteInput.isEmpty else {
             byteFlushScheduled = false
             return
         }
-        let bytes = pendingByteInput
-        pendingByteInput.removeAll(keepingCapacity: true)
+        while !pendingByteInput.isEmpty {
+            let byteCount = min(pendingByteInput.count, Self.maximumInputFrameBytes)
+            let bytes = pendingByteInput.prefix(byteCount)
+            pendingByteInput.removeFirst(byteCount)
+            // Request id zero is reserved for untracked input frames. The mirror
+            // session uses positive ids for handshake/resize state, so an input
+            // acknowledgement can never be mistaken for one of its responses.
+            enqueue(line: commandBuilder.line(commandBuilder.input(
+                surfaceID: surfaceID, bytes: Data(bytes), requestID: 0
+            )))
+        }
         byteFlushScheduled = false
-        // Request id zero is reserved for untracked input frames. The mirror
-        // session uses positive ids for handshake/resize state, so an input
-        // acknowledgement can never be mistaken for one of its responses.
-        enqueue(line: commandBuilder.line(commandBuilder.input(
-            surfaceID: surfaceID, bytes: bytes, requestID: 0
-        )))
     }
 
     private func enqueue(line: Data?) {
+        guard !invalidated else { return }
         guard let line else { return }
         if let connection {
             connection.send(line: line)
