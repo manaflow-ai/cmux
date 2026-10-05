@@ -48,6 +48,59 @@ while [ -L "$script_path" ]; do
 done
 script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
 
+warn_checkout() {
+  printf 'warning: %s\n%s\n' "$1" "$repair_note" >&2
+}
+
+maybe_update_checkout() {
+  [ "${GH_MERGE_GREEN_NO_AUTO_UPDATE:-0}" = 1 ] && return 0
+  local checkout_root branch status current origin_main new_script
+  if ! checkout_root=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null); then
+    return 0
+  fi
+  if ! status=$(git -C "$checkout_root" status --porcelain --untracked-files=all 2>/dev/null); then
+    warn_checkout "cannot inspect helper checkout $checkout_root; not auto-updating"
+    return 0
+  fi
+  if [ -n "$status" ]; then
+    warn_checkout "helper checkout $checkout_root is dirty; not auto-updating (commit or stash its changes)"
+    return 0
+  fi
+  if ! branch=$(git -C "$checkout_root" branch --show-current 2>/dev/null) || [ "$branch" != main ]; then
+    warn_checkout "helper checkout $checkout_root is not on main; not auto-updating"
+    return 0
+  fi
+  if ! git -C "$checkout_root" fetch --quiet origin main 2>/dev/null; then
+    warn_checkout "could not fetch origin/main for helper checkout $checkout_root; not auto-updating"
+    return 0
+  fi
+  if ! current=$(git -C "$checkout_root" rev-parse HEAD 2>/dev/null) ||
+     ! origin_main=$(git -C "$checkout_root" rev-parse refs/remotes/origin/main 2>/dev/null); then
+    warn_checkout "helper checkout $checkout_root has no readable origin/main; not auto-updating"
+    return 0
+  fi
+  [ "$current" = "$origin_main" ] && return 0
+  if git -C "$checkout_root" merge-base --is-ancestor "$current" "$origin_main" 2>/dev/null; then
+    if ! git -C "$checkout_root" merge --ff-only "$origin_main" >/dev/null 2>&1; then
+      warn_checkout "helper checkout $checkout_root could not fast-forward to origin/main; not auto-updating"
+      return 0
+    fi
+    new_script="$checkout_root/scripts/gh-merge-green"
+    if [ ! -x "$new_script" ]; then
+      warn_checkout "updated helper checkout $checkout_root has no executable scripts/gh-merge-green; not re-executing"
+      return 0
+    fi
+    GH_MERGE_GREEN_NO_AUTO_UPDATE=1 exec "$new_script" "$@"
+  fi
+  if git -C "$checkout_root" merge-base --is-ancestor "$origin_main" "$current" 2>/dev/null; then
+    warn_checkout "helper checkout $checkout_root is ahead of origin/main; not auto-updating"
+  else
+    warn_checkout "helper checkout $checkout_root has diverged from origin/main; not auto-updating"
+  fi
+}
+
+maybe_update_checkout "$ref" "$@"
+
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
 fix=0
@@ -85,6 +138,27 @@ if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
     'not green: --override cannot be combined with --main-fix' \
     'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
 fi
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName,labels 2>/dev/null); then
+  refuse \
+    "not green: cannot read $ref" \
+    'check the repository, pull request number, GitHub login, and network access'
+fi
+if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
+  refuse \
+    "not green: GitHub returned invalid metadata for $ref" \
+    'retry after GitHub returns headRefOid and baseRefName'
+fi
+IFS=$'\t' read -r sha base <<<"$fields"
+if [ -z "$sha" ] || [ -z "$base" ]; then
+  refuse \
+    "not green: GitHub metadata for $ref has no head SHA or base branch" \
+    'refresh the pull request metadata and retry'
+fi
+if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
+  refuse \
+    'exploration PR, needs a decision from Leo or the team before merging.' \
+    'remove the exploration label only after Leo or the team decides to merge'
+fi
 [ $# -gt 0 ] || set -- --squash
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
@@ -114,30 +188,55 @@ if [ "$fix" -eq 1 ]; then
   exit 0
 fi
 
-if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName 2>/dev/null); then
+# Require aggregate checks only when their workflow exists on the base. Otherwise
+# every reported exact-head check and status context must be completed successfully.
+workflow_response=''
+workflow_on_base() {
+  local file="$1" response
+  if response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null); then
+    workflow_response="$response"
+    return 0
+  fi
+  if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
+    return 1
+  fi
   refuse \
-    "not green: cannot read $ref" \
-    'check the repository, pull request number, GitHub login, and network access'
-fi
-if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
-  refuse \
-    "not green: GitHub returned invalid metadata for $ref" \
-    'retry after GitHub returns headRefOid and baseRefName'
-fi
-IFS=$'\t' read -r sha base <<<"$fields"
-if [ -z "$sha" ] || [ -z "$base" ]; then
-  refuse \
-    "not green: GitHub metadata for $ref has no head SHA or base branch" \
-    'refresh the pull request metadata and retry'
-fi
+    "not green: cannot probe $file on $repo base $base" \
+    'restore GitHub contents API access; only HTTP 404 means the workflow is absent'
+}
 
-# Require the aggregate CI result on the exact head. A written override can
-# waive a completed red result, but never a missing or still-running check.
-must=("ci-status")
+# ci-status is required only when ci.yml or ci-macos.yml defines that job;
+# a ci.yml with only other jobs (bonsplit's `tests`) gets the all-checks path. Fails closed: a body that is missing, too large for the
+# contents API, or unreadable still requires ci-status.
+reports_ci_status() {
+  python3 -c '
+import base64, json, re, sys
+raw = sys.stdin.read()
+body = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
+try:
+    data = json.loads(body[1])
+    text = base64.b64decode(data["content"]).decode() if data.get("encoding") == "base64" else ""
+except Exception:
+    sys.exit(0)
+if not text.strip():
+    sys.exit(0)
+sys.exit(0 if re.search(r"(?m)^\s+[\x22\x27]?ci-status[\x22\x27]?\s*:", text) else 1)
+' <<<"$workflow_response"
+}
+
+has_ci=0
+has_app_compile=0
+if workflow_on_base ci.yml && reports_ci_status; then has_ci=1; fi
+if workflow_on_base ci-macos.yml; then
+  has_app_compile=1
+  if reports_ci_status; then has_ci=1; fi
+fi
+must=()
+if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
 # Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
 # Require it only if it was scheduled or the diff touches app code.
-if [ "$base" = main ]; then
+if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
     refuse \
@@ -160,18 +259,71 @@ if ! runs=$(jq -r '
   | last
   | [.name,.status,(.conclusion // "")]
   | @tsv
-' <<<"$check_runs_json" 2>/dev/null); then
+  ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
 fi
-if [ "$base" = main ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
+
+# Pull requests into feat-cmux-next also run the branch's dedicated cmux-next
+# workflow. Its Release and native app checks are separate check runs, so the
+# legacy ci-status job on that branch cannot stand in for them. Require each
+# one that reported on this exact head; a skipped lane remains a passing
+# conclusion, while a pending or red lane blocks the merge.
+if [ "$base" = feat-cmux-next ]; then
+  for next_check in \
+    "cmux-next Release compile (Xcode 26)" \
+    "cmux app scheme compile (Debug)" \
+    "cmux-next swift test"; do
+    if awk -F '\t' -v expected="$next_check" '$1 == expected { found = 1 } END { exit !found }' <<<"$runs"; then
+      must+=("$next_check")
+    fi
+  done
+fi
+
+if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
   for required in "${must[@]}"; do
     [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
 fi
+if [ "$has_ci" -eq 0 ]; then
+  # Include legacy commit status contexts (for example review services), not
+  # only Actions check runs. Both endpoints are pinned to the evaluated head.
+  if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
+    refuse "not green: cannot read status contexts for $sha" 'restore GitHub status API access and retry'
+  fi
+  if ! statuses=$(jq -r '
+    (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
+    | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state] | @tsv
+  ' <<<"$statuses_json" 2>/dev/null); then
+    refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
+  fi
+  all_verdicts="$runs"$'\n'"$statuses"
+  reported=0
+  while IFS=$'\t' read -r name st co; do
+    [ -n "$name" ] || continue
+    reported=$((reported + 1))
+    if [ "$st" != completed ]; then
+      refuse \
+        "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
+        "wait for or repair '$name'; every reported exact-head check must complete without the aggregate workflow"
+    fi
+    case "$co" in
+      success|neutral|skipped) ;;
+      *)
+        refuse \
+          "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
+          "wait for or repair '$name'; success, neutral, and skipped pass without the aggregate workflow"
+        ;;
+    esac
+  done <<<"$all_verdicts"
+  [ "$reported" -gt 0 ] || refuse \
+    "not green: no checks have reported on $sha" \
+    'run the repository pull request checks before merging'
+fi
+
 bad_required=()
 for name in "${must[@]+"${must[@]}"}"; do
   line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n')
@@ -186,18 +338,17 @@ for name in "${must[@]+"${must[@]}"}"; do
     [ "$name" = ci-status ] && fix='wait for CI to complete on the pull request head, then retry the exact-head check'
     refuse "not green: '$name' is $st/$co on $sha" "$fix"
   fi
-  if [ "$co" != success ]; then
-    case "$co" in
-      failure|timed_out|cancelled|action_required|startup_failure|stale)
-        bad_required+=("$name")
-        ;;
-      *)
-        refuse \
-          "not green: '$name' has non-verdict conclusion $co on $sha" \
-          'rerun CI until the required check reports success or a completed red verdict'
-        ;;
-    esac
-  fi
+  case "$co" in
+    success|neutral|skipped) ;;
+    failure|timed_out|cancelled|action_required|startup_failure|stale)
+      bad_required+=("$name")
+      ;;
+    *)
+      refuse \
+        "not green: '$name' has non-verdict conclusion $co on $sha" \
+        'rerun CI until the required check reports success, neutral, skipped, or a completed red verdict'
+      ;;
+  esac
 done
 if [ "${#bad_required[@]}" -gt 0 ] && [ -z "$override_reason" ]; then
   for name in "${bad_required[@]}"; do

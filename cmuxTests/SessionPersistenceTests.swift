@@ -547,6 +547,70 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(contents, "line one\nline two\n")
     }
 
+    func testScrollbackReplayStoreSweepsOnlyStaleFilesAndUsesPrivatePermissions() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-sweep-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let oldURL = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(for: "old replay\n", tempDirectory: tempDir)
+        )
+        let freshURL = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(for: "fresh replay\n", tempDirectory: tempDir)
+        )
+        let directoryURL = oldURL.deletingLastPathComponent()
+
+        // Simulate pre-upgrade permissions on both the directory and a fresh replay file.
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directoryURL.path)
+        let legacyFreshURL = directoryURL.appendingPathComponent("legacy-fresh.txt")
+        XCTAssertTrue(
+            FileManager.default.createFile(
+                atPath: legacyFreshURL.path,
+                contents: Data("legacy fresh replay\n".utf8)
+            )
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: legacyFreshURL.path)
+
+        // Non-replay entries must never be removed merely because they are stale.
+        let staleLogURL = directoryURL.appendingPathComponent("keep.log")
+        XCTAssertTrue(FileManager.default.createFile(atPath: staleLogURL.path, contents: Data("keep".utf8)))
+        let staleDirectoryURL = directoryURL.appendingPathComponent("keep-dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: staleDirectoryURL, withIntermediateDirectories: false)
+
+        let now = Date()
+        for url in [oldURL, staleLogURL, staleDirectoryURL] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-7_200)],
+                ofItemAtPath: url.path
+            )
+        }
+        for url in [freshURL, legacyFreshURL] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: now.addingTimeInterval(-60)],
+                ofItemAtPath: url.path
+            )
+        }
+
+        SessionScrollbackReplayStore.sweepStaleReplayFiles(
+            olderThan: now.addingTimeInterval(-3_600),
+            tempDirectory: tempDir
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: freshURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFreshURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleLogURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleDirectoryURL.path))
+
+        let directoryAttributes = try FileManager.default.attributesOfItem(atPath: directoryURL.path)
+        let freshAttributes = try FileManager.default.attributesOfItem(atPath: freshURL.path)
+        let legacyFreshAttributes = try FileManager.default.attributesOfItem(atPath: legacyFreshURL.path)
+        XCTAssertEqual((directoryAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+        XCTAssertEqual((freshAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertEqual((legacyFreshAttributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
     func testScrollbackReplayEnvironmentSkipsWhitespaceOnlyContent() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
@@ -720,6 +784,173 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(truncated.hasPrefix("31m"))
         XCTAssertFalse(truncated.hasPrefix("[31m"))
         XCTAssertFalse(truncated.hasPrefix("m"))
+    }
+
+    func testTruncatedScrollbackAvoidsLeadingPartialOSCSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}]8;;https://example.com/path\u{0007}"
+        let cutOffset = 10
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "X", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("X"))
+        XCTAssertFalse(truncated.contains("example.com/path"))
+    }
+
+    func testTruncatedScrollbackAvoidsLeadingPartialOSCSequenceWithSTTerminator() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}]2;window title\u{001B}\\"
+        let cutOffset = 6
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Y", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Y"))
+        XCTAssertFalse(truncated.contains("window title"))
+    }
+
+    func testTruncatedScrollbackAvoidsLeadingPartialSOSSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}Xprivate status payload\u{001B}\\"
+        let cutOffset = 8
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Z", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Z"))
+        XCTAssertFalse(truncated.contains("private status payload"))
+    }
+
+    func testTruncatedScrollbackHandlesDCSAPCAndPMStringSequences() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        for (marker, fill) in [("P", "D"), ("_", "A"), ("^", "M")] {
+            let sequence = "\u{001B}\(marker)control payload\u{001B}\\"
+            let cutOffset = 6
+            let tailCount = maxChars - (sequence.count - cutOffset)
+            let source = sequence + String(repeating: fill, count: tailCount)
+
+            guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+                XCTFail("Expected truncated scrollback for \(marker)")
+                continue
+            }
+
+            XCTAssertTrue(truncated.hasPrefix(fill), marker)
+            XCTAssertFalse(truncated.contains("control payload"), marker)
+        }
+    }
+
+    func testBELDoesNotTerminatePartialDCSSequence() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let sequence = "\u{001B}Pbefore\u{0007}after\u{001B}\\"
+        let cutOffset = 5
+        let tailCount = maxChars - (sequence.count - cutOffset)
+        let source = sequence + String(repeating: "Q", count: tailCount)
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("Q"))
+        XCTAssertFalse(truncated.contains("after"))
+    }
+
+    func testLongOSCUsesPostCutScanBudget() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let prefix = "\u{001B}]2;"
+        let payload = String(repeating: "T", count: 1_500)
+        let cutOffset = 1_200
+        let suffixAfterCut = payload.count - cutOffset + 1
+        let filler = String(repeating: "S", count: maxChars - suffixAfterCut)
+        let source = prefix + payload + "\u{0007}" + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix("S"))
+        XCTAssertFalse(truncated.contains("\u{0007}"))
+    }
+
+    func testLongCompletedOSCBeforeCutPreservesVisibleOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let completedOSC = "\u{001B}]2;" + String(repeating: "T", count: 1_500) + "\u{0007}"
+        let visibleBeforeBEL = "visible-before-bell"
+        let visibleAfterBEL = "visible-after-bell"
+        let cutInsideVisibleOffset = 3
+        let suffixFromCut =
+            visibleBeforeBEL.count - cutInsideVisibleOffset
+            + 1
+            + visibleAfterBEL.count
+        let filler = String(repeating: "F", count: maxChars - suffixFromCut)
+        let source =
+            completedOSC
+            + visibleBeforeBEL
+            + "\u{0007}"
+            + visibleAfterBEL
+            + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix(String(visibleBeforeBEL.dropFirst(cutInsideVisibleOffset))))
+        XCTAssertTrue(truncated.contains("\u{0007}" + visibleAfterBEL))
+    }
+
+    func testLongCompletedOSCWithDistantCutPreservesPlainOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let completedOSC = "\u{001B}]2;" + String(repeating: "T", count: 1_500) + "\u{0007}"
+        let plainOutput = String(repeating: "P", count: 1_500)
+        let cutInsidePlainOffset = 1_200
+        let visibleAfterCut = plainOutput.count - cutInsidePlainOffset
+        let trailingBEL = "\u{0007}"
+        let trailingOutput = "after-bell"
+        let filler = String(
+            repeating: "F",
+            count: maxChars - visibleAfterCut - trailingBEL.count - trailingOutput.count
+        )
+        let source = completedOSC + plainOutput + trailingBEL + trailingOutput + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.hasPrefix(String(plainOutput.dropFirst(cutInsidePlainOffset))))
+        XCTAssertTrue(truncated.contains(trailingBEL + trailingOutput))
+    }
+
+    func testMalformedANSIStringScanDoesNotDropDistantRealOutput() {
+        let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+        let malformed = "\u{001B}]0;unterminated-title"
+        let cutOffset = 8
+        let realOutput = String(repeating: "R", count: 1_500)
+        let suffixCount = malformed.count - cutOffset + realOutput.count + 1
+        let filler = String(repeating: "F", count: maxChars - suffixCount)
+        let source = malformed + realOutput + "\u{0007}" + filler
+
+        guard let truncated = SessionPersistencePolicy.truncatedScrollback(source) else {
+            XCTFail("Expected truncated scrollback")
+            return
+        }
+
+        XCTAssertTrue(truncated.contains(realOutput))
     }
 
     func testNormalizedExportedScreenPathAcceptsAbsoluteAndFileURL() {

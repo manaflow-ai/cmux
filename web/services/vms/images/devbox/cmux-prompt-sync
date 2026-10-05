@@ -170,16 +170,16 @@ def seed_terminal(ready, directory):
             time.sleep(1)
     if terminal and ready.wait(timeout=60):
         # The snapshot can resume with the builder's prompt already rendered.
-        # Clear that bytes/history and interrupt it after the clone identity is
-        # published. These two calls are deliberately detached from the name
-        # refresh loop, so New Machine never waits on them.
-        # A warm template shell draws its first prompt only after the name
-        # arrives (cmux-prompt.bash) and records that here. Clearing and
-        # interrupting it then would only drop what the user already typed.
-        if (RUN_DIR / "first-prompt-named").exists():
-            return
+        # Always clear that bytes/history and redraw it after the clone
+        # identity is published. The first-prompt marker only says that the
+        # clone hook ran; it cannot remove prompt bytes captured in the
+        # snapshot, so skipping this cleanup leaves a stale `cmux@cmux` line
+        # above the real machine prompt. Ctrl-L redraws without discarding
+        # input typed while the identity was arriving. These calls are
+        # deliberately detached from the name refresh loop, so New Machine
+        # never waits on them.
         tui("terminal", terminal, "history", "clear", "--quiet")
-        tui("terminal", terminal, "keys", "ctrl+c", "--quiet")
+        tui("terminal", terminal, "keys", "ctrl+l", "--quiet")
 
 
 # The bake leaves this default in vm-name. A clone's real name arrives either

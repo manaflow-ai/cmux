@@ -276,6 +276,10 @@ if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
+if ! grep -Fq -- '--count 1' "$WORKFLOW_FILE" || ! grep -Fq 'SPARKLE_MAXIMUM_DELTAS: "1"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly appcast generation must keep one newest delta per architecture"
+  exit 1
+fi
 
 if ! awk '
   /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
@@ -654,9 +658,8 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Only the six-hour cache warmup may replace an older scheduled run. The daily
-# 08:47 publication schedule and all push/manual lanes must stay serialized so
-# a newer publication cannot cancel an earlier candidate or race its aliases.
+# Every nightly lane must let an in-flight build finish. GitHub still keeps one
+# pending run per group, so a newer push replaces only an older queued run.
 if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
   echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
   exit 1
@@ -669,12 +672,12 @@ if grep -Fq "&& 'cache-seed'" "$WORKFLOW_FILE"; then
   echo "FAIL: scheduled and manual cache seeds must not share the legacy cache-seed group"
   exit 1
 fi
-if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: only the six-hour cache warmup may cancel an older scheduled run"
+if ! grep -Fq "cancel-in-progress: false" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly runs must never cancel an in-flight build"
   exit 1
 fi
-if grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: the publishing schedule must not cancel an older nightly run"
+if grep -Eq "cancel-in-progress: \$\{\{" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly cancellation must be a literal false policy, not an event expression"
   exit 1
 fi
 

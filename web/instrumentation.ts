@@ -5,6 +5,43 @@ import {
   scrubSentryEvent,
   shouldSendCoderouterSentryEvent,
 } from "./services/sentry";
+import { preconnectFreestyle } from "./services/vms/drivers/freestyleWarmup";
+
+/** Compile the first-use Cloud routes while the development server is starting. */
+function prewarmDevCloudRoutes(): void {
+  if (process.env.NODE_ENV !== "development" || process.env.NEXT_RUNTIME !== "nodejs") return;
+  const state = globalThis as typeof globalThis & { __cmuxDevRouteWarmupStarted?: boolean };
+  if (state.__cmuxDevRouteWarmupStarted) return;
+  state.__cmuxDevRouteWarmupStarted = true;
+  // Establish the provider's DNS/TLS pool while the development backend is
+  // coming up. The create route still awaits this shared single-flight probe
+  // as a fallback when a process starts just before the first request.
+  void preconnectFreestyle();
+  const port = process.env.CMUX_PORT ?? process.env.PORT ?? "3000";
+  const origin = `http://127.0.0.1:${port}`;
+  void (async () => {
+    await Promise.all([
+      "/api/vm",
+      "/api/vm/network-presets",
+      "/api/vm/__prewarm__/stats",
+      "/api/vm/tunnel",
+      // Fork and the attach that follows it each compiled on first use (9.3 s
+      // and 7.5 s on a fresh tag). Any method compiles the route module.
+      "/api/vm/__prewarm__/fork",
+      "/api/vm/__prewarm__/attach-endpoint",
+    ].map(async (path) => {
+      try {
+        const response = await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
+        // A direct fetch is deliberately best effort. Instrumentation runs as
+        // the dev server is brought up, so a refused connection or a transient
+        // startup response must never delay or fail application startup.
+        void response.body?.cancel();
+      } catch {
+        // Startup warming is best effort. The real request remains authoritative.
+      }
+    }));
+  })();
+}
 
 export async function register() {
   registerOTel({
@@ -17,6 +54,7 @@ export async function register() {
     // Axiom can report failure rate and latency per dependency and endpoint.
     spanProcessors: ["auto", new DependencySpanProcessor()],
   });
+  prewarmDevCloudRoutes();
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.SENTRY_DSN) {
     const Sentry = await import("@sentry/nextjs");
     Sentry.init({
