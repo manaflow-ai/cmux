@@ -76,6 +76,12 @@ cleared. Write a different Ghostty binding, such as Ctrl+B followed by a digit.
 | `toggle_command_palette` | Open cmux's command palette in the source window. |
 | `open_config` | Open the Ghostty configuration through cmux's existing config editor command. |
 | `quit` | Request normal cmux quit, including its configured confirmation and cleanup. |
+| `undo` | Reopen the last closed item (Reopen Last Closed Item). |
+| `toggle_visibility` | Show or hide all cmux windows. |
+| `toggle_tab_overview` | Open tab search in the command palette. |
+| `check_for_updates` | Check for cmux updates. |
+| `prompt_surface_title`, `prompt_tab_title` | Rename the tab. |
+| `prompt_window_title`, `set_window_title:TITLE` | Rename the active workspace (cmux's window title). |
 
 Terminal actions already handled by Ghostty, such as text input, copying,
 scrolling, and font changes, continue to work. Existing split actions continue

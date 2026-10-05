@@ -54,7 +54,14 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_TOGGLE_MAXIMIZE: return .host(.toggleMaximize)
         case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE: return .host(.toggleCommandPalette)
         case GHOSTTY_ACTION_INSPECTOR: return .host(.toggleInspector)
-        case GHOSTTY_ACTION_PROMPT_TITLE: return .host(.promptTitle)
+        case GHOSTTY_ACTION_PROMPT_TITLE:
+            return .host(payload.prompt_title == GHOSTTY_PROMPT_TITLE_WINDOW ? .promptWindowTitle : .promptTitle)
+        case GHOSTTY_ACTION_SET_WINDOW_TITLE:
+            // Same payload layout as set_title (apprt SetTitle).
+            return .host(.setWindowTitle(payload.set_title.title.map { String(cString: $0) } ?? ""))
+        case GHOSTTY_ACTION_TOGGLE_VISIBILITY: return .host(.toggleVisibility)
+        case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW: return .host(.toggleTabOverview)
+        case GHOSTTY_ACTION_PRESENT_TERMINAL: return .host(.presentTerminal)
         case GHOSTTY_ACTION_CHECK_FOR_UPDATES: return .host(.checkForUpdates)
         case GHOSTTY_ACTION_UNDO: return .host(.undo)
         case GHOSTTY_ACTION_REDO: return .host(.redo)
