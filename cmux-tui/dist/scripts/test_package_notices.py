@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import struct
 from pathlib import Path
 import sys
 import unittest
@@ -38,8 +39,11 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("bin/cmux-tui-hook", text)
 
     def test_darwin_notice_has_no_musl(self) -> None:
+        # The real Darwin packages link no musl-derived code (package-notices.json
+        # darwin.review); check-darwin-binary keeps that true for each package build.
         text = pn.compose("cmux-tui", "aarch64-apple-darwin", CRATES, self.inputs)
         self.assertNotIn("musl libc", text)
+        self.assertNotIn("musl as a whole is licensed", text)
         self.assertIn("rustc 1.95.0", text)
 
     def test_relay_notice_names_its_binaries(self) -> None:
@@ -150,6 +154,81 @@ class DataTest(unittest.TestCase):
         inputs.graph["commit"] = "c" * 40
         problems = pn.data_problems(inputs)
         self.assertTrue(any("c" * 40 in p for p in problems), problems)
+
+
+def macho(symbols: list[tuple[str, bool]], *, fat: bool = False) -> bytes:
+    """A minimal 64-bit Mach-O with LC_SYMTAB: (name, defined in a section)."""
+    strings, entries = b"\0", b""
+    for name, defined in symbols:
+        entries += struct.pack("<IBBHQ", len(strings), 0x0E if defined else 0x01, 1 if defined else 0, 0, 0x1000)
+        strings += name.encode() + b"\0"
+    header_size, command_size = 32, 24
+    symoff = header_size + command_size
+    stroff = symoff + len(entries)
+    header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 1, command_size, 0, 0)
+    command = struct.pack("<IIIIII", 2, command_size, symoff, len(symbols), stroff, len(strings))
+    thin = header + command + entries + strings
+    if not fat:
+        return thin
+    return struct.pack(">II", 0xCAFEBABE, 1) + struct.pack(">iiIII", 0x0100000C, 0, 4096, len(thin), 12) + b"\0" * (4096 - 28) + thin
+
+
+class DarwinBinaryTest(unittest.TestCase):
+    """The Darwin packages carry no musl text because their real link has no
+    musl-derived Zig code (darwin.review): check-darwin-binary keeps it so."""
+
+    def setUp(self) -> None:
+        self.inputs = pn.load_inputs()
+
+    def problems(self, symbols: list[tuple[str, bool]], **kwargs) -> list[str]:
+        return pn.darwin_binary_problems(macho(symbols, **kwargs), self.inputs)
+
+    def test_the_review_records_the_real_package_evidence(self) -> None:
+        darwin = self.inputs.data["darwin"]
+        self.assertEqual(darwin["zig"], "0.16.0")
+        self.assertIn("37295065948", darwin["review"]["artifact"])
+        self.assertEqual(sorted(darwin["compiler_rt_modules"]), ["floattidf", "floatuntidf", "powiXf2", "ssp", "udivmod"])
+
+    def test_a_binary_without_zig_code_passes(self) -> None:
+        self.assertEqual(self.problems([("_main", True), ("_pow", False)]), [])
+
+    def test_the_reviewed_compiler_rt_modules_pass(self) -> None:
+        symbols = [("_main", True), ("_compiler_rt.udivmod.__udivti3", True), ("_compiler_rt.ssp.__chk_fail", True), ("_terminal.color.RGB.parse", True)]
+        self.assertEqual(self.problems(symbols), [])
+        self.assertEqual(self.problems(symbols, fat=True), [])
+
+    def test_an_unreviewed_compiler_rt_module_fails(self) -> None:
+        [problem] = self.problems([("_main", True), ("_compiler_rt.floor_ceil.ceil", True)])
+        self.assertIn("compiler_rt.floor_ceil", problem)
+
+    def test_the_libghostty_vt_palette_generator_fails(self) -> None:
+        # ghostty_color_palette_generate -> LAB.fromRgb inlines std.math.cbrt (ported from musl).
+        [problem] = self.problems([("_main", True), ("_terminal.color.RGB.parse", True), ("_ghostty_color_palette_generate", True)])
+        self.assertIn("ghostty_color_palette_generate", problem)
+
+    def test_a_musl_ported_zig_function_fails(self) -> None:
+        for name in ("_math.cbrt.cbrt32", "_math.atan2.atan2_32", "_math.complex.exp.exp", "_Io.Threaded.writeResolutionQuery"):
+            with self.subTest(name=name):
+                self.assertEqual(len(self.problems([("_main", True), (name, True)])), 1)
+
+    def test_a_binary_without_symbols_fails_closed(self) -> None:
+        [problem] = self.problems([])
+        self.assertIn("symbol table", problem)
+
+    def test_libghostty_vt_without_local_zig_symbols_fails_closed(self) -> None:
+        # A binary stripped of local symbols keeps its exports but hides inlined Zig code.
+        [problem] = self.problems([("_main", True), ("_ghostty_terminal_new", True)])
+        self.assertIn("local symbols", problem)
+
+    def test_a_non_macho_file_fails(self) -> None:
+        self.assertTrue(pn.darwin_binary_problems(b"#!/bin/sh\n", self.inputs))
+
+    def test_a_new_zig_needs_a_new_review(self) -> None:
+        inputs = pn.load_inputs()
+        inputs.data = copy.deepcopy(inputs.data)
+        inputs.data["darwin"]["zig"] = "0.15.2"
+        problems = pn.data_problems(inputs)
+        self.assertTrue(any("darwin" in p and "0.16.0" in p for p in problems), problems)
 
 
 class PublishProvenanceTest(unittest.TestCase):

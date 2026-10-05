@@ -32,6 +32,17 @@ reviewed text; `zig-std` needs the Zig text. `toolchain_notices.py check-repo`
 `rust-toolchain.toml` channel or a Ghostty `minimum_zig_version` no longer
 matches, so a toolchain bump stops until its text is reviewed.
 
+FreeType: the macos slice links FreeType, so hand-written.md's `FreeType` section holds the
+FreeType License credit; `ios_notices.py check-macos` (source-archive CI, with the license
+tree) fails when it does not name the FreeType version of the pinned tree (`FREETYPE_YEARS`).
+
+musl: GhosttyNextKit's Termio inlines Zig's `std.math.cbrt` (ported from musl), so the
+app binary (`Contents/MacOS/cmux`) and the iOS pane carry musl's COPYRIGHT (hand-written
+section, checked by `ios_notices.py check-repo`; the pane takes the reviewed file of
+`cmux-tui/dist/notices/package-notices.json`). The cmux-tui Darwin packages link no
+musl-derived code (`package-notices.json` `darwin.review`); `package_notices.py
+check-darwin-binary` in the package job fails a Darwin binary that gains some.
+
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 
