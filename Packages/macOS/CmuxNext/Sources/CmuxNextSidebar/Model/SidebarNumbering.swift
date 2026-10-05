@@ -1,9 +1,22 @@
 import Foundation
 
-/// The one numbering for Cmd+1…9 (R119): Home is 1, then the selectable
-/// workspaces in sidebar order; 9 is the last. Anything that shows or acts on
+/// The one numbering for Cmd+1…9 (R119): Home is 1, then the workspace rows
+/// the user sees, top to bottom; 9 is the last visible. Anything that shows or acts on
 /// these numbers (the action, a future number hint on rows) reads this.
 public nonisolated enum SidebarNumbering {
+    /// The selectable workspace rows the sidebar draws, in drawn order: the
+    /// sidebar's own row layout, so collapsed sections, collapsed groups and
+    /// rows the filter hides get no number.
+    @MainActor
+    public static func visibleWorkspaces(_ model: SidebarModel) -> [String] {
+        var options = SidebarLayoutOptions()
+        options.filterMatches = model.filterMatches
+        let selectable = Set(model.selectableWorkspaces.map(\.id))
+        return SidebarLayout.make(sections: model.sections, metrics: .standard, options: options).rows.compactMap { row in
+            if case let .workspace(id) = row.key, selectable.contains(id) { id.rawValue } else { nil }
+        }
+    }
+
     /// Home first (when it exists), then `workspaces` without Home.
     public static func order(home: String?, workspaces: [String]) -> [String] {
         guard let home else { return workspaces }
