@@ -21,19 +21,19 @@ public final class TabSearchRanker: @unchecked Sendable {
     private var snapshotVersion = 0
 
     /// Creates a tab-search ranker with a persistent JavaScriptCore context.
-    public init() {
+    nonisolated public init() {
         ranker = PaletteRanker()
     }
 
     /// Ranks Search Tabs rows without mutating the supplied entries.
-    public func search(_ entries: [TabSearchEntry], query: String, style: TabSearchStyle = .recent,
+    nonisolated public func search(_ entries: [TabSearchEntry], query: String, style: TabSearchStyle = .recent,
                        includeClosed: Bool = true, limit: Int = 50, now: Date) -> [TabSearchMatch] {
         lock.withLock {
             searchLocked(entries, query: query, style: style, includeClosed: includeClosed, limit: limit, now: now)
         }
     }
 
-    private func searchLocked(_ entries: [TabSearchEntry], query: String, style: TabSearchStyle,
+    nonisolated private func searchLocked(_ entries: [TabSearchEntry], query: String, style: TabSearchStyle,
                               includeClosed: Bool, limit: Int, now: Date) -> [TabSearchMatch] {
         var rows = TabSearchPlan.rows(entries, style: style, now: now)
         if !includeClosed { rows.removeAll { $0.entry.isClosed } }

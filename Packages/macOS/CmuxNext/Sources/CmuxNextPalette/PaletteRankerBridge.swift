@@ -109,7 +109,7 @@ public final class PaletteRankerBridge {
     }
 
     /// Creates a bridge from the checked-in JavaScriptCore-compatible bundle.
-    public init() throws {
+    nonisolated public init() throws {
         guard let context = JSContext() else { throw PaletteRankerBridgeError.runtimeUnavailable }
         guard let url = Bundle.module.url(forResource: "palette-ranker", withExtension: "js") else {
             throw PaletteRankerBridgeError.resourceMissing
@@ -132,7 +132,7 @@ public final class PaletteRankerBridge {
     }
 
     /// Ranks a palette index through the shared TypeScript implementation.
-    public func rank(
+    nonisolated public func rank(
         index: PaletteSearchIndex,
         version: Int? = nil,
         query: String,
@@ -164,7 +164,7 @@ public final class PaletteRankerBridge {
     }
 
     /// Ranks an empty palette query through the shared TypeScript implementation.
-    public func rankEmpty(
+    nonisolated public func rankEmpty(
         entries: [PaletteSearchEntry],
         sectionOrders: [Int],
         frecency: FrecencyStore,
@@ -189,7 +189,7 @@ public final class PaletteRankerBridge {
         ))
     }
 
-    private func invoke(_ request: Request) throws -> [PaletteRankedSection] {
+    nonisolated private func invoke(_ request: Request) throws -> [PaletteRankedSection] {
         let data = try JSONEncoder().encode(request)
         guard let requestJSON = String(data: data, encoding: .utf8),
               let function = context.objectForKeyedSubscript("__cmuxPaletteRank") else {

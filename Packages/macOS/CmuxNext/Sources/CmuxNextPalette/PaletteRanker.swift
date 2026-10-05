@@ -24,7 +24,7 @@ public final class PaletteRanker {
     private let bridge: PaletteRankerBridge?
 
     /// Creates a ranker with a persistent JavaScriptCore context.
-    public init() {
+    nonisolated public init() {
         bridge = try? PaletteRankerBridge()
     }
 
@@ -32,7 +32,7 @@ public final class PaletteRanker {
     ///
     /// - Parameter version: A stable snapshot identifier. Reusing it for the
     ///   same entries lets the bridge reuse its prepared text fields.
-    public func rank(
+    nonisolated public func rank(
         index: inout PaletteSearchIndex,
         version: Int? = nil,
         query: String,
@@ -68,7 +68,7 @@ public final class PaletteRanker {
     }
 
     /// Ranks the visible rows for an empty query through the shared TypeScript engine.
-    public func rankEmpty(
+    nonisolated public func rankEmpty(
         entries: [PaletteSearchEntry],
         sectionOrders: [Int],
         frecency: FrecencyStore,
