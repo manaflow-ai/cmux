@@ -499,21 +499,24 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
 
     /// Why the session may not read, set or clear a cookie on `domain`, or
     /// nil. A cookie belongs to a host, not an origin, so a pattern's scheme
-    /// and port do not narrow it. A cookie is in reach when a host an allowed
-    /// pattern names receives it (its domain, or a parent domain of it, as
-    /// `example.com` for `www.example.com`), and out of reach when its domain
-    /// is one a prohibited pattern names or an IP address under
-    /// `blockIPAddresses`.
+    /// and port do not narrow it. A cookie with a Domain attribute (leading
+    /// dot, `.example.com`) is in reach when a host an allowed pattern names
+    /// receives it (its domain, or a parent domain of it, as `example.com`
+    /// for `www.example.com`); a host-only cookie (no leading dot) goes to
+    /// its own host alone, so it is in reach only when an allowed pattern
+    /// names that host. Either is out of reach when its domain is one a
+    /// prohibited pattern names or an IP address under `blockIPAddresses`.
     public func cookieBlockReason(domain: String) -> String? {
         guard isActive else { return nil }
         var raw = domain.trimmingCharacters(in: .whitespaces)
+        let hostOnly = !raw.hasPrefix(".")
         while raw.hasPrefix(".") { raw.removeFirst() }
         let host = BrowserReplHostName.normalize(raw)
         guard !host.isEmpty else { return "the cookie names no domain" }
         if blockIPAddresses, BrowserReplHostName.isIPAddress(host) {
             return "IP addresses are blocked (session.blockIPAddresses)"
         }
-        if let allowed, !allowed.contains(where: { $0.receivesCookies(on: host) }) {
+        if let allowed, !allowed.contains(where: { hostOnly ? $0.hostMatches(host) : $0.receivesCookies(on: host) }) {
             return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
         }
         if let hit = prohibited.first(where: { $0.hostMatches(host) }) {
@@ -532,13 +535,8 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         if let reason = cookieBlockReason(domain: domain) { return reason }
         guard isActive else { return nil }
         let trimmed = domain.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix(".") else {
-            let host = BrowserReplHostName.normalize(trimmed)
-            if let allowed, !allowed.contains(where: { $0.hostMatches(host) }) {
-                return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
-            }
-            return nil
-        }
+        // A host-only cookie's reach is its host, which cookieBlockReason checked.
+        guard trimmed.hasPrefix(".") else { return nil }
         let host = BrowserReplHostName.normalize(String(trimmed.drop(while: { $0 == "." })))
         if let allowed, !allowed.contains(where: { $0.coversSubdomains(of: host) }) {
             return "a cookie on \(host) reaches its other subdomains, which session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", "))) does not all allow; set it on the allowed host itself"

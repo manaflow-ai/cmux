@@ -5,11 +5,23 @@ public import Foundation
 extension HTTPCookie {
     /// Whether this cookie goes with a request to `url`: domain and path
     /// match, and a Secure cookie only on https or a loopback host.
+    ///
+    /// A cookie without a Domain attribute (WebKit stores its domain with
+    /// no leading dot) is host-only and goes to that exact host (RFC 6265
+    /// section 5.3 step 6). One with a Domain attribute goes to the domain
+    /// and its subdomains (domain-match, section 5.1.3), and never to an
+    /// IP address other than its own.
     public func browserReplMatches(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
         let domain = self.domain.lowercased()
-        let bare = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
-        guard host == bare || host.hasSuffix("." + bare) else { return false }
+        if domain.hasPrefix(".") {
+            let bare = String(domain.dropFirst())
+            guard host == bare
+                || (host.hasSuffix("." + bare) && !BrowserReplHostName.isIPAddress(BrowserReplHostName.normalize(host)))
+            else { return false }
+        } else {
+            guard host == domain else { return false }
+        }
         // The path as sent, trailing slash kept (`URL.path` drops it).
         let sent = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
         guard Self.browserReplPath(sent.hasPrefix("/") ? sent : "/", matches: path) else { return false }
