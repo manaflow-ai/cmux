@@ -43,8 +43,10 @@ extension DaemonService {
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
                                                retryWake: RetryWake? = nil) -> DaemonConnection.Configuration {
+        // sessionEvents: the state resources (closed history, workspace status,
+        // tab records) come only through session.events (nxdog50).
         DaemonConnection.Configuration(retryWake: retryWake, terminalEnvironment: terminalEnvironment,
-                                       resolvesShellIntegration: resolvesShellIntegration,
+                                       resolvesShellIntegration: resolvesShellIntegration, sessionEvents: true,
                                        clientHello: ClientHelloIdentity(installKey: installKey))
     }
 
