@@ -309,36 +309,25 @@ struct ManagedCapabilityPolicyGateTests {
         )
         defer { engine.stop() }
         engine.start()
-        let loaded = try await eventually { engine.rule(withID: "webhook-policy") != nil }
+        var loaded = false
+        for _ in 0..<250 {
+            if engine.rule(withID: "webhook-policy") != nil { loaded = true; break }
+            try await ContinuousClock().sleep(for: .milliseconds(20))
+        }
         #expect(loaded)
 
         bus.publish(name: "workspace.created", category: "workspace", source: "managed-policy-test")
 
-        let refused = try await eventually {
-            engine.logsPayload(limit: 32).contains {
+        var refused = false
+        for _ in 0..<250 {
+            refused = engine.logsPayload(limit: 32).contains {
                 ($0["rule_id"] as? String) == "webhook-policy" && ($0["status"] as? String) == "error"
             }
+            if refused { break }
+            try await ContinuousClock().sleep(for: .milliseconds(20))
         }
         #expect(refused)
         #expect(calls.count == 0)
-    }
-
-    /// Polls `condition` until it holds. The event reaches the engine through a
-    /// detached utility task and two main-actor hops; a memory-starved CI
-    /// runner once needed longer than the old 5 s budget for them. Passing
-    /// runs return on the first true read, so the ceiling only bounds a
-    /// regression.
-    private func eventually(
-        within limit: Duration = .seconds(60),
-        _ condition: () -> Bool
-    ) async throws -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: limit)
-        while !condition() {
-            guard clock.now < deadline else { return false }
-            try await clock.sleep(for: .milliseconds(20))
-        }
-        return true
     }
 
     @Test func settingsVisiblePoliciesPostChangeSignalsAndReapplyComputerUse() throws {
