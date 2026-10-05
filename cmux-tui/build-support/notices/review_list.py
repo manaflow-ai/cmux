@@ -48,6 +48,28 @@ def file_rows(cache: Path, table: dict, reasons: dict, known: dict[str, list[str
     return rows
 
 
+def ghostty_rows() -> list[str]:
+    """Pinned texts for Ghostty Zig packages that ship no license file."""
+    manifest = json.loads((HERE / "ghostty/pinned-licenses/MANIFEST.json").read_text(encoding="utf-8"))
+    rows = [
+        "## Ghostty dependencies: pinned upstream texts (`ghostty/pinned-licenses/MANIFEST.json`)",
+        "",
+        "collect-ghostty-licenses.py ships these for Zig packages whose fetched tree has no license",
+        "file; `Reviewed for` pins the package directories (a new version stops the collection).",
+        "",
+        "| Component | Stored file | Upstream | SHA-256 | Reviewed for | Note |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for name, package in sorted(manifest["packages"].items()):
+        reviewed_for = ", ".join(f"`{p}`" for p in package.get("packages", [])) or "any"
+        for item in package["files"]:
+            rows.append(f"| Ghostty dependency: {name} | `ghostty/pinned-licenses/{item['path']}` | {item['upstream']} | `{item['sha256']}` | {reviewed_for} | {package.get('note', '')} |")
+        offer = package.get("source_offer")
+        if offer:
+            rows.append(f"| Ghostty dependency: {name} (source offer) | generated `{name}-SOURCE-OFFER.txt` | {offer['upstream']} | (generated) | {reviewed_for} | {offer['license']}: names the archive Ghostty fetches, the upstream tag {offer['upstream_tag']} and the product's release source archive (--release-source-offer). |")
+    return rows + [""]
+
+
 def render(cache: Path, locks: list[Path]) -> str:
     reviewed = json.loads((HERE / "reviewed.json").read_text(encoding="utf-8"))
     known = versions(locks)
@@ -84,6 +106,7 @@ def render(cache: Path, locks: list[Path]) -> str:
         "| --- | --- | --- | --- |",
         *[f"| {key} | `{e['file']}` | {e['source']} | `{e['sha256']}` |" for key, t in sorted(reviewed.get("license_texts", {}).items()) for e in t["files"]],
         "",
+        *ghostty_rows(),
     ]
     return "\n".join(out)
 
