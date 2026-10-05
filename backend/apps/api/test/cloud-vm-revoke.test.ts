@@ -100,4 +100,21 @@ describe("VM install revocation on every terminal state", { timeout: 60_000 }, (
     await fireAlarm(s.stub)
     expect(await s.revoked()).toBe(false)
   })
+
+  it("a registration that UserDO refuses settles once (no alarm loop) and revokes nothing (review P2)", async () => {
+    const s = await bound("cloud-bind-4")
+    const a2 = await post("/v1/ops", s.a.session, { op: "cloud.machine.create", params: { size: SIZE }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const machine2 = a2.body.value.machine.id as string
+    // The second machine's bind reuses the first VM's public key: UserDO refuses ("already registered").
+    const jwk = (await read(s.a.session, "install.list", {})).body.value.installs.find((x: any) => x.id === s.install).public_jwk
+    const due = await inDo(s.stub, async (i) => {
+      i.vmRevokes.beginRegister({ creator: s.a.user, team: s.a.team, machine: machine2, epoch: 1, jwk }, Date.now() + i.skewMs)
+      return i.vmRevokes.registerDueAt()
+    })
+    expect(due).not.toBeNull()
+    await s.stub.fakeControl({ advance_ms: 11 * 60_000 } as never)
+    await fireAlarm(s.stub)
+    expect(await inDo(s.stub, async (i) => i.vmRevokes.registerDueAt())).toBeNull()
+    expect(await s.revoked()).toBe(false)
+  })
 })
