@@ -579,7 +579,9 @@ class DisplayService:
         if number is None:
             return
         with self.lock:
-            if self.standby is not None or number in self.jobs:
+            # A concurrent create may have recorded this number since it was
+            # probed; it must never become both a display and the standby.
+            if self.standby is not None or number in self.jobs or number in self.catalog.numbers():
                 return
             self.standby = number
         self.start(number)
