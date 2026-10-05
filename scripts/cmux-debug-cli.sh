@@ -108,7 +108,8 @@ export CMUX_BUNDLED_CLI_PATH="$cli_path"
 # app-local debug methods.
 if [[ "${1:-}" == "rpc" ]]; then
   method="${2:-}"
-  params="${3:-{}}"
+  params="${3:-}"
+  [[ -n "$params" ]] || params='{}'
   if [[ -z "$method" ]]; then
     echo "Usage: CMUX_TAG=$CMUX_TAG $0 rpc METHOD [PARAMS_JSON]" >&2
     exit 2
