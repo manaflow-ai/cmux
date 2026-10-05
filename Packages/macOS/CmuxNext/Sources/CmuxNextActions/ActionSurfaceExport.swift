@@ -68,6 +68,7 @@ public nonisolated enum ActionSurfaceExport {
             "version": 1, "actions": actions,
             "context_menus": ContextMenuCatalog(descriptors: descriptors).exportObject(descriptors: descriptors, titles: titles),
             "context_menu_rules": ContextMenuCatalog.exportRenderRules,
+            "context_menus_not_exported": ContextMenuCatalog.exportHandBuiltMenus,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
               let text = String(data: data, encoding: .utf8)
