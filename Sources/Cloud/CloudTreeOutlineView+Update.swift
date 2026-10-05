@@ -81,7 +81,7 @@ extension CloudTreeOutlineView.Coordinator {
     }
 
     /// Selects the focused workspace row, expanding ancestors and scrolling it into view.
-    private func selectFocusedCloudWorkspaceRow(_ nodeID: String) {
+    func selectFocusedCloudWorkspaceRow(_ nodeID: String) {
         guard let outlineView,
               let path = CloudTreeNode.path(to: nodeID, in: nodes),
               let node = path.last else { return }
