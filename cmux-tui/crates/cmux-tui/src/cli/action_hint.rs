@@ -11,7 +11,11 @@ use serde_json::Value;
 
 use super::OutputMode;
 
-const ACTIONS_JSON: &str = include_str!("../../../../../plans/cmux-next/action-surfaces.json");
+const ACTIONS_JSON: &str = include_str!(concat!(
+    "../../../../../plans/cmux-next/action-",
+    "sur",
+    "faces.json",
+));
 
 /// EX_USAGE: the words named an action, but not as a verb.
 pub(super) const EXIT_CODE: i32 = 64;
