@@ -142,7 +142,13 @@ struct MachinesPanelView: View {
                 billingPlanLoaded = false
                 return
             }
-            billingPlanLoaded = false
+            // The panel is rebuilt whenever the sidebar switches modes. Start
+            // from the account's last answer so Enable Cloud / Upgrade stays
+            // on screen while it refreshes, instead of flashing "Checking…".
+            billingPlanLoaded = accountFlow.hasLoadedBillingPlan
+            // The enable action is available while the entitlement is unknown.
+            // The response itself is the synchronization event.
+            billingPlanLoaded = true
             await accountFlow.refreshBillingPlan()
             guard !Task.isCancelled,
                   accountFlow.isAuthenticated,

@@ -23,13 +23,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
-    private(set) var isProActive = false
-    private(set) var canManageBilling = false
-    /// The account whose plan `isProActive` describes, or nil before the
-    /// billing plan has answered for anyone. Kept here rather than in a view's
-    /// state so a rebuilt Cloud panel keeps showing Enable Cloud or Upgrade
-    /// instead of falling back to "Checking your cmux plan…".
-    private(set) var billingPlanIdentityID: String?
+    private(set) var billingPlanState = BillingPlanState.unknown
+    var isProActive: Bool { billingPlanState.isPro }
+    var canManageBilling: Bool { billingPlanState.canManageBilling }
+    /// The account whose plan is known, or nil while the plan is unknown.
+    var billingPlanIdentityID: String? { billingPlanState.accountID }
+    /// The most recent plan request. Only it may write, so an older request
+    /// that finishes late cannot overwrite a newer answer.
+    @ObservationIgnored private var billingPlanRequestID: UUID?
     /// Whether `isProActive` is a real answer for the signed-in account.
     var hasLoadedBillingPlan: Bool {
         guard let billingPlanIdentityID else { return false }
@@ -196,9 +197,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
-        isProActive = false
-        canManageBilling = false
-        billingPlanIdentityID = nil
+        billingPlanState = .unknown
     }
 
     /// Set for the whole switch so sign-in gates show its progress instead of
@@ -242,9 +241,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
         await browserSignIn.signOut(timeout: timeout)
-        isProActive = false
-        canManageBilling = false
-        billingPlanIdentityID = nil
+        billingPlanState = .unknown
     }
 
     func refreshCurrentUser() async {
@@ -254,57 +251,42 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func refreshBillingPlan() async {
-        guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
-            isProActive = false
-            canManageBilling = false
-            billingPlanIdentityID = nil
-            return
-        }
-        var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        // URLSession's default is 60 s; a plan check that slow is a failure.
-        request.timeoutInterval = 15
-
-        if let tokens = try? await coordinator.currentTokens() {
-            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-            request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
-        }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            // The account may have changed while the request was in flight.
-            guard currentIdentity?.id == identityID else { return }
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
-                forgetBillingPlanUnlessKnown(for: identityID)
-                return
-            }
-            let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
-            isProActive = decoded.isPro
-            canManageBilling = decoded.billingManagement == .stripe
-            billingPlanIdentityID = identityID
-        } catch {
-            // A cancelled request (the panel went away) says nothing about the plan.
-            if error is CancellationError || (error as? URLError)?.code == .cancelled { return }
-            guard currentIdentity?.id == identityID else { return }
-            forgetBillingPlanUnlessKnown(for: identityID)
-        }
+        _ = await refreshBillingPlanAndReportSuccess()
     }
 
-    /// A failed check keeps a real answer for the same account, read at the
-    /// time of the failure (another refresh may have answered meanwhile).
-    /// With no answer to keep, the plan is unknown rather than "not Pro".
-    private func forgetBillingPlanUnlessKnown(for identityID: String) {
-        // Keep a known Pro answer so a transient refresh does not replace the
-        // upgrade path with Enable Cloud. A cached Free answer is deliberately
-        // invalidated, since the toggle must remain usable when the refresh
-        // could not confirm the plan.
-        guard billingPlanIdentityID == identityID, isProActive else {
-            isProActive = false
-            canManageBilling = false
-            billingPlanIdentityID = nil
-            return
+    @discardableResult
+    func refreshBillingPlanAndReportSuccess() async -> Bool {
+        guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
+            billingPlanState = .unknown
+            return false
+        }
+        let requestID = UUID()
+        billingPlanRequestID = requestID
+        // Do not project the previous team/account's entitlement while this
+        // request is in flight. Unknown keeps Cloud enabled until a verified
+        // response arrives and avoids a false Free/Upgrade state.
+        billingPlanState = .unknown
+        let tokens = try? await coordinator.currentTokens()
+
+        do {
+            let details = try await BillingPlanClient().fetch(
+                from: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"),
+                accessToken: tokens?.accessToken,
+                refreshToken: tokens?.refreshToken
+            )
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            billingPlanState = billingPlanState.applyingSuccess(
+                for: identityID,
+                isPro: details.isPro,
+                canManageBilling: details.canManageBilling
+            )
+            return true
+        } catch {
+            // A cancelled request (the panel went away) says nothing about the plan.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            billingPlanState = billingPlanState.applyingFailure(for: identityID)
+            return false
         }
     }
 
@@ -339,15 +321,4 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             avatarURL: user.profileImageURL.flatMap(URL.init(string:))
         )
     }
-}
-
-private struct BillingPlanResponse: Decodable {
-    let isPro: Bool
-    let billingManagement: BillingManagement?
-}
-
-private enum BillingManagement: String, Decodable {
-    case stripe
-    case external
-    case none
 }
