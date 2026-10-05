@@ -25,6 +25,10 @@ function prewarmDevCloudRoutes(): void {
       "/api/vm/network-presets",
       "/api/vm/__prewarm__/stats",
       "/api/vm/tunnel",
+      // Fork and the attach that follows it each compiled on first use (9.3 s
+      // and 7.5 s on a fresh tag). Any method compiles the route module.
+      "/api/vm/__prewarm__/fork",
+      "/api/vm/__prewarm__/attach-endpoint",
     ].map(async (path) => {
       try {
         const response = await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
