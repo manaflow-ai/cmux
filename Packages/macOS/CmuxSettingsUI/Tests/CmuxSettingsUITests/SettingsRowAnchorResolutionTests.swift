@@ -38,6 +38,7 @@ struct SettingsRowAnchorResolutionTests {
     static let rowConfigPaths: [String] = [
         "app.accentColor",
         "app.commandPaletteSearchesAllSurfaces",
+        "app.compactPaneTabBar",
         "app.confirmQuit",
         "app.equalizeSplitsOnCreate",
         "app.focusPaneOnFirstClick",

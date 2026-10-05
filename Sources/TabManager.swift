@@ -4627,6 +4627,7 @@ class TabManager: ObservableObject {
     func refreshTabBarVisibility() {
         for workspace in tabs {
             workspace.refreshTabBarVisibility()
+            workspace.refreshCompactPaneTabBarSetting()
             workspace._dockSplit?.refreshTabBarVisibility()
         }
         for dockStore in liveWindowDockStores {
@@ -4640,7 +4641,8 @@ class TabManager: ObservableObject {
         globalConfigPath: String,
         settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
-        workspaceCommands: [String: CmuxResolvedCommand]
+        workspaceCommands: [String: CmuxResolvedCommand],
+        allowsCompactCluster: Bool = false
     ) {
         for workspace in tabs {
             workspace.applySurfaceTabBarButtons(
@@ -4649,7 +4651,8 @@ class TabManager: ObservableObject {
                 globalConfigPath: globalConfigPath,
                 settingPresets: settingPresets,
                 terminalCommandSourcePaths: terminalCommandSourcePaths,
-                workspaceCommands: workspaceCommands
+                workspaceCommands: workspaceCommands,
+                allowsCompactCluster: allowsCompactCluster
             )
         }
     }

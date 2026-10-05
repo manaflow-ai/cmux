@@ -1820,6 +1820,10 @@ final class CmuxConfigStore: ObservableObject {
     private(set) var actionLookup: [String: CmuxResolvedConfigAction] = [:]
     private(set) var settingPresets: [String: CmuxSettingValue] = [:]
     private(set) var surfaceTabBarButtonSourcePath: String?
+    /// True when no config file sets `surfaceTabBarButtons` /
+    /// `ui.surfaceTabBar.buttons`; pane tab bars then show the compact cluster
+    /// if the opt-in `app.compactPaneTabBar` setting is on.
+    private(set) var surfaceTabBarAllowsCompactCluster = true
     private(set) var surfaceTabBarCommandSourcePaths: [String: String] = [:]
     private(set) var newWorkspaceActionSourcePath: String?
 
@@ -2305,6 +2309,7 @@ final class CmuxConfigStore: ObservableObject {
         )
         workspaceGroupConfigs = resolvedGroupConfigs
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
+        surfaceTabBarAllowsCompactCluster = configuredSurfaceTabBarButtons == nil
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
         let visibleSurfaceButtonIDs = Set(resolvedWorkspaceButtons.buttons.map(\.id))
         surfaceTabBarActionReferenceIDs = resolvedButtons.actionReferenceIDs.filter {
@@ -2871,7 +2876,8 @@ final class CmuxConfigStore: ObservableObject {
             globalConfigPath: globalConfigPath,
             settingPresets: settingPresets,
             terminalCommandSourcePaths: surfaceTabBarCommandSourcePaths,
-            workspaceCommands: surfaceTabBarWorkspaceCommands
+            workspaceCommands: surfaceTabBarWorkspaceCommands,
+            allowsCompactCluster: surfaceTabBarAllowsCompactCluster
         )
     }
 

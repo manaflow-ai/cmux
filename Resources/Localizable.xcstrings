@@ -559602,6 +559602,124 @@
         }
       }
     },
+    "settings.app.compactPaneTabBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Pane Tab Bar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompakte Tableiste für Teilfenster"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre d’onglets compacte des volets"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط علامات تبويب مضغوط للأجزاء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de pestañas compacta de paneles"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "精簡窗格分頁列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "紧凑窗格标签栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "간결한 패널 탭 막대"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクトなペインのタブバー"
+          }
+        }
+      }
+    },
+    "settings.app.compactPaneTabBar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replaces the four tab bar buttons with a new tab menu, one split button, and a More menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersetzt die vier Schaltflächen der Tableiste durch ein Menü für neue Tabs, eine Teilen-Schaltfläche und ein Menü „Mehr“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplace les quatre boutons de la barre d’onglets par un menu de nouvel onglet, un bouton de division et un menu Plus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستبدل أزرار شريط علامات التبويب الأربعة بقائمة علامة تبويب جديدة وزر تقسيم واحد وقائمة \"المزيد\"."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sustituye los cuatro botones de la barra de pestañas por un menú de pestaña nueva, un botón de división y un menú Más."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將分頁列的四個按鈕換成新分頁選單、一個分割按鈕和「更多」選單。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将标签栏的四个按钮替换为新建标签页菜单、一个拆分按钮和“更多”菜单。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 막대의 버튼 4개를 새 탭 메뉴, 분할 버튼 하나, 더 보기 메뉴로 바꿉니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーの4つのボタンを、新規タブメニュー、分割ボタン1つ、「その他」メニューに置き換えます。"
+          }
+        }
+      }
+    },
     "settings.app.equalizeSplitsOnCreate.subtitle": {
       "extractionState": "manual",
       "localizations": {

@@ -274,6 +274,16 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Whether pane tab bars show the compact cluster ("+" with a new-tab
+    /// menu, one split control, and a "..." overflow) instead of the four
+    /// default buttons. Opt-in; a `ui.surfaceTabBar.buttons` list in
+    /// cmux.json still wins either way.
+    public let compactPaneTabBar = DefaultsKey<Bool>(
+        id: "app.compactPaneTabBar",
+        defaultValue: false,
+        userDefaultsKey: "compactPaneTabBar"
+    )
+
     /// Pane tab bar visibility. Maps to bonsplit's `TabBarVisibility` at
     /// the split-controller boundary; `.multipleTabs` hides the bar until a
     /// pane has two or more tabs.

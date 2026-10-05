@@ -7,4 +7,7 @@ struct SurfaceTabBarButtonConfiguration {
     let settingPresets: [String: CmuxSettingValue]
     let terminalCommandSourcePaths: [String: String]
     let workspaceCommands: [String: CmuxResolvedCommand]
+    /// True when no `cmux.json` sets the buttons, so the opt-in compact
+    /// cluster may replace them.
+    let allowsCompactCluster: Bool
 }

@@ -75,6 +75,7 @@ public struct AppSection: View {
     @State private var warnCloseWorkspace: DefaultsValueModel<Bool>
     @State private var warnCloseWindow: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
+    @State private var compactPaneTabBar: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
 
@@ -149,6 +150,7 @@ public struct AppSection: View {
         _warnCloseWorkspace = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWorkspace))
         _warnCloseWindow = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWindow))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
+        _compactPaneTabBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.compactPaneTabBar))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
         _paletteAllSurfaces = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces))
     }
@@ -172,7 +174,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, compactPaneTabBar, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -963,6 +965,22 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { hideCloseButton.current }, set: { hideCloseButton.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Compact Pane Tab Bar
+            SettingsCardRow(
+                configurationReview: .json(catalog.app.compactPaneTabBar.id),
+                String(localized: "settings.app.compactPaneTabBar", defaultValue: "Compact Pane Tab Bar"),
+                subtitle: String(
+                    localized: "settings.app.compactPaneTabBar.subtitle",
+                    defaultValue: "Replaces the four tab bar buttons with a new tab menu, one split button, and a More menu."
+                )
+            ) {
+                Toggle("", isOn: Binding(get: { compactPaneTabBar.current }, set: { compactPaneTabBar.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsCompactPaneTabBarToggle")
             }
             SettingsCardDivider()
 

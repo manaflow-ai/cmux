@@ -184,6 +184,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
         ),
         .init(
+            jsonKey: "compactPaneTabBar",
+            defaultsKey: app.compactPaneTabBar.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),

@@ -1,0 +1,143 @@
+import Bonsplit
+import Foundation
+
+/// The compact pane tab bar button cluster used when `cmux.json` does not set
+/// `surfaceTabBarButtons` / `ui.surfaceTabBar.buttons`.
+///
+/// At most three buttons: "+" (click opens a terminal tab, like Cmd-T;
+/// right-click or press-and-hold lists every new-surface kind), split (click
+/// splits right, Option-click splits down, right-click or hold lists both),
+/// and "..." (click lists the remaining pane actions). Agent chat panes drop
+/// the split button and list the splits in "..." instead.
+///
+/// Every row resolves to an existing action with its own keyboard shortcut
+/// and command palette entry. This type holds the identifiers and row values;
+/// which buttons and rows a pane shows is `Workspace` policy (see
+/// `Workspace+CompactSurfaceTabBar.swift`).
+enum CompactSurfaceTabBarCluster {
+    static let addButtonID = "cmux.compactTabBar.add"
+    static let splitButtonID = "cmux.compactTabBar.split"
+    static let moreButtonID = "cmux.compactTabBar.more"
+
+    /// What the pane's selected tab shows, as far as the cluster cares.
+    enum PaneContent: Equatable, Sendable {
+        case standard
+        case agentChat
+    }
+
+    /// One row of a cluster menu, or the click action of the "+" button.
+    enum Item: Equatable, Sendable {
+        case agentChat
+        case terminal
+        case browser
+        case splitRight
+        case splitDown
+        case files
+        case openFolder
+        case newWindow
+        case separator
+
+        var title: String {
+            switch self {
+            case .agentChat:
+                return String(localized: "surfaceTabBar.compact.menu.agentChat", defaultValue: "Agent Chat")
+            case .terminal:
+                return String(localized: "surfaceTabBar.compact.menu.terminal", defaultValue: "Terminal")
+            case .browser:
+                return String(localized: "surfaceTabBar.compact.menu.browser", defaultValue: "Browser")
+            case .splitRight:
+                return String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")
+            case .splitDown:
+                return String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")
+            case .files:
+                return RightSidebarMode.files.label
+            case .openFolder:
+                return String(localized: "menu.file.openFolder", defaultValue: "Open Folder…")
+            case .newWindow:
+                return String(localized: "menu.file.newWindow", defaultValue: "New Window")
+            case .separator:
+                return ""
+            }
+        }
+
+        /// The user-editable shortcut that performs the same action, shown as
+        /// the menu row's key equivalent. Nil when the action has none.
+        var shortcutAction: KeyboardShortcutSettings.Action? {
+            switch self {
+            case .agentChat: return CmuxSurfaceTabBarBuiltInAction.newAgentChat.shortcutAction
+            case .terminal: return CmuxSurfaceTabBarBuiltInAction.newTerminal.shortcutAction
+            case .browser: return CmuxSurfaceTabBarBuiltInAction.newBrowser.shortcutAction
+            case .splitRight: return CmuxSurfaceTabBarBuiltInAction.splitRight.shortcutAction
+            case .splitDown: return CmuxSurfaceTabBarBuiltInAction.splitDown.shortcutAction
+            case .files: return RightSidebarMode.files.shortcutAction
+            case .openFolder: return .openFolder
+            case .newWindow: return .newWindow
+            case .separator: return nil
+            }
+        }
+    }
+
+    /// Availability inputs, resolved by the caller when a menu opens or the
+    /// buttons are applied, so feature flag and setting flips take effect.
+    struct Availability: Equatable, Sendable {
+        var agentChat: Bool
+        var browser: Bool
+        var files: Bool
+
+        init(agentChat: Bool, browser: Bool, files: Bool = true) {
+            self.agentChat = agentChat
+            self.browser = browser
+            self.files = files
+        }
+    }
+
+    // MARK: - Agent chat detection
+
+    /// Whether `url` is a page served by an agent chat server rooted at one of
+    /// `agentChatBaseURLs`: same scheme, loopback-normalized host and port, and
+    /// a path inside the base path (the app-owned server puts its token there).
+    static func isAgentChatURL(_ url: URL?, agentChatBaseURLs: [URL]) -> Bool {
+        guard let url,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let origin = Origin(components) else {
+            return false
+        }
+        return agentChatBaseURLs.contains { base in
+            guard let baseComponents = URLComponents(url: base, resolvingAgainstBaseURL: false),
+                  let baseOrigin = Origin(baseComponents),
+                  baseOrigin == origin else {
+                return false
+            }
+            let basePath = trimmedTrailingSlash(baseComponents.path)
+            guard !basePath.isEmpty else { return true }
+            let path = components.path
+            return path == basePath || path.hasPrefix(basePath + "/")
+        }
+    }
+
+    private struct Origin: Equatable {
+        var scheme: String
+        var host: String
+        var port: Int
+
+        init?(_ components: URLComponents) {
+            guard let scheme = components.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https",
+                  let rawHost = components.host?.lowercased(),
+                  !rawHost.isEmpty else {
+                return nil
+            }
+            self.scheme = scheme
+            self.host = rawHost == "localhost" ? "127.0.0.1" : rawHost
+            self.port = components.port ?? (scheme == "https" ? 443 : 80)
+        }
+    }
+
+    private static func trimmedTrailingSlash(_ path: String) -> String {
+        var path = path
+        while path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path
+    }
+}

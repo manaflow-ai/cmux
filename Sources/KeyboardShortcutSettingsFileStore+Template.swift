@@ -89,6 +89,7 @@ extension CmuxSettingsFileStore {
                     "warnBeforeClosingWindow": AppCatalogSection().warnBeforeClosingWindow.defaultValue,
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
                     "tabBarVisibility": AppCatalogSection().tabBarVisibility.defaultValue.rawValue,
+                    "compactPaneTabBar": AppCatalogSection().compactPaneTabBar.defaultValue,
                     "renameSelectsExistingName": AppCatalogSection().renameSelectsExistingName.defaultValue,
                     "commandPaletteSearchesAllSurfaces": AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue,
                 ],

@@ -43,6 +43,7 @@ General app preferences from Settings > App.
 | `app.warnBeforeClosingWorkspace` | boolean | `true` | Show a confirmation before closing a workspace with a running process, or several workspaces at once. Pinned workspaces still ask when this is off. |
 | `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
+| `app.compactPaneTabBar` | boolean | `false` | Show a compact pane tab bar: "+" (click opens a terminal, right-click or hold lists every new tab kind), one split button (Option-click splits down), and a "..." menu. Off keeps the four default buttons; `ui.surfaceTabBar.buttons` takes precedence. |
 | `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
 
 ## terminal

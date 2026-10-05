@@ -754,6 +754,11 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.app.tabBarVisibility",
           "description": "Decide when a pane draws its tab bar. \"always\" draws it even for a pane holding one tab; \"multiple-tabs\" hides it while a pane holds one tab and draws it once a second tab opens. Minimal mode (app.minimalMode) always draws it, because there the top pane's tab bar doubles as the window titlebar."
         },
+        "compactPaneTabBar": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a compact pane tab bar: a \"+\" button (click opens a terminal, right-click or press and hold lists every new tab kind), one split button (click splits right, Option-click splits down), and a \"...\" menu with the remaining pane actions. Off by default, which keeps the four default buttons. A ui.surfaceTabBar.buttons list takes precedence."
+        },
         "renameSelectsExistingName": {
           "type": "boolean",
           "default": true,
