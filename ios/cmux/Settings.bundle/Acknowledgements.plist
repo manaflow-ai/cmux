@@ -222,6 +222,8 @@ builds) is in the public domain.
 
 
 --- end of LICENSE.TXT ---
+
+This software is based in part on the work of the FreeType Team (FreeType 2.13.2, https://freetype.org). Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org).  All rights reserved.
 </string>
 			<key>Title</key>
 			<string>freetype (in Ghostty)</string>

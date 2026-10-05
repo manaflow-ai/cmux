@@ -23,6 +23,12 @@
       collected ghostty-next license tree (collect-ghostty-licenses.py, CI only:
       cmux-next-source-archive.yml), hand-written.md sections and Zig's LICENSE.
       --check fails when the committed pane differs.
+  ios_notices.py macos-link-set --xcframework DIR --manifest FILE
+      (a Mac) ghosttykit-macos-link-set.json: the DWARF owners of the macos slice
+      that the macOS cmux-next app links (Contents/MacOS/cmux).
+  ios_notices.py check-macos --ghostty-tree DIR
+      Every package of the macOS link set has a license text in the ghostty-next
+      tree at the pin's revision (the tree that nightly-next bundles).
   ios_notices.py check-repo
       No network, no tree: the link set, the pane and the libintl rule all name
       the CmuxGhosttyKit pin of Package.swift. A new pin stops here until
@@ -62,6 +68,10 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 DATA = HERE / "ios"
 LINK_SET = DATA / "link-set.json"
+# The macOS cmux-next app links the macos slice into Contents/MacOS/cmux and ships the
+# ghostty-next license tree (nightly.yml); like vt-link-graph.json for libghostty-vt.
+MACOS_LINK_SET = HERE / "ghosttykit-macos-link-set.json"
+MACOS_SLICE = "macos-arm64_x86_64"
 EXCEPTIONS = DATA / "lgpl-exceptions.json"
 HAND_WRITTEN = HERE / "hand-written.md"
 GHOSTTY_KIT = ROOT / "Packages/Shared/CmuxGhosttyKit/Package.swift"
@@ -79,6 +89,17 @@ This app contains z2d in Executable Form, unmodified. The Source Code Form of th
 version in this app is available at {url} (the archive that Ghostty {revision} fetches) \
 and at https://github.com/vancluever/z2d. The Ghostty source that selects it is at \
 https://github.com/manaflow-ai/ghostty-next/tree/{revision}."""
+
+# The FreeType License (docs/FTL.TXT, section 3) asks binary redistributions to cite the
+# FreeType Project in their documentation, with the year of the FreeType version in use.
+# Keyed by the sha256 of the package's LICENSE.TXT: a new FreeType needs a reviewed entry.
+FREETYPE_YEARS = {
+    # deps.files.ghostty.org/freetype-1220b81f6ecf...tar.gz = FreeType 2.13.2 (Copyright 1996-2023)
+    "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b": ("2.13.2", 2023),
+}
+FTL_CREDIT = """This software is based in part on the work of the FreeType Team (FreeType {version}, \
+https://freetype.org). Portions of this software are copyright \u00a9 {year} The FreeType Project \
+(www.freetype.org).  All rights reserved."""
 
 
 class NoticeError(Exception):
@@ -165,6 +186,49 @@ def link_set(xcframework: Path, manifest: Path) -> dict:
         "dwarf_owners": owners,
         "libintl": contains_libintl(archive),
     }
+
+
+def macos_link_set(xcframework: Path, manifest: Path) -> dict:
+    """The DWARF owners of the macos slice (a universal archive: both architectures)."""
+    archive = xcframework / MACOS_SLICE / "libghostty-internal.a"
+    sources = subprocess.run(
+        ["xcrun", "llvm-dwarfdump", "--show-sources", str(archive)], check=True, capture_output=True, text=True
+    ).stdout.splitlines()
+    tree = json.loads(manifest.read_text())
+    names = {key: value["dependency"] for key, value in tree["zig_packages"].items()}
+    return {
+        "schema": 1,
+        "slice": MACOS_SLICE,
+        "pin": ghostty_kit_pin(),
+        "dwarf_owners": sorted({owner for line in sources if (owner := attribute(line.strip(), names))}),
+        "libintl": contains_libintl(archive),
+        # Zig code keeps no package-level DWARF: the same conservative list as iOS.
+        "zig_source_packages": json.loads(LINK_SET.read_text())["zig_source_packages"],
+    }
+
+
+def macos_link_errors(links: dict) -> list[str]:
+    pin = ghostty_kit_pin()
+    if links.get("pin") != pin or links.get("slice") != MACOS_SLICE:
+        return [
+            f"{MACOS_LINK_SET.relative_to(ROOT)} is for {links.get('pin', {}).get('sha256', '?')[:12]}, CmuxGhosttyKit "
+            f"pins {pin['sha256'][:12]}: on a Mac run `ios_notices.py macos-link-set --xcframework <unzipped "
+            "GhosttyNextKit.xcframework> --manifest <ghostty-next-licenses/SOURCE-MANIFEST.json>`"
+        ]
+    return []
+
+
+def check_macos(tree: Path, links: dict, pin: dict) -> list[str]:
+    """Every package that the macos slice links has a license in the ghostty-next tree at the pin."""
+    manifest = json.loads((tree / "SOURCE-MANIFEST.json").read_text())
+    if manifest["ghostty_revision"] != pin["ghostty_revision"]:
+        return [f"license tree is for Ghostty {manifest['ghostty_revision'][:11]}, the GhosttyNextKit pin is {pin['ghostty_revision'][:11]}"]
+    try:
+        packages = linked_packages({"dwarf_owners": links["dwarf_owners"], "zig_source_packages": links["zig_source_packages"]}, manifest)
+        texts = _tree_texts(tree, manifest, set(packages))
+    except NoticeError as error:
+        return [f"macOS GhosttyNextKit: {error}"]
+    return [f"macOS GhosttyNextKit links {package} but the license tree has no text for it" for package in packages if package not in texts]
 
 
 # ---------------------------------------------------------------- app link (the real link)
@@ -476,6 +540,16 @@ def build_pane(tree: Path, links: dict, pin: dict) -> dict:
         if not files:
             raise NoticeError(f"{package}: linked but the license tree has no text for it")
         body = "\n\n".join(f"{label}:\n\n{text.strip()}" for label, text in files)
+        if package == "freetype":
+            license_text = next((text for label, text in files if label.endswith("LICENSE.TXT")), None)
+            digest = hashlib.sha256(license_text.encode()).hexdigest() if license_text is not None else None
+            if digest not in FREETYPE_YEARS:
+                raise NoticeError(
+                    f"freetype: LICENSE.TXT sha256 {digest} is not in FREETYPE_YEARS; review the FreeType version "
+                    "and add its year for the FTL credit"
+                )
+            version, year = FREETYPE_YEARS[digest]
+            body += "\n\n" + FTL_CREDIT.format(version=version, year=year)
         if package == "z2d":
             url = next(value["url"] for value in manifest["zig_packages"].values() if value["dependency"] == "z2d")
             body += "\n\n" + Z2D_OFFER.format(url=url, revision=pin["ghostty_revision"])
@@ -506,6 +580,7 @@ def check_repo() -> list[str]:
             "GhosttyNextKit.xcframework>`, then `generate --ghostty-tree <ghostty-next-licenses from "
             "cmux-next-source-archive.yml>`"
         )
+    errors += macos_link_errors(json.loads(MACOS_LINK_SET.read_text())) if MACOS_LINK_SET.is_file() else [f"{MACOS_LINK_SET.relative_to(ROOT)} is missing"]
     record = links.get("app_link")
     if not record or record.get("pin_sha256") != pin["sha256"]:
         errors.append(
@@ -571,6 +646,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--xcframework", type=Path, required=True)
     p.add_argument("--manifest", type=Path, required=True, help="SOURCE-MANIFEST.json of the ghostty-next license tree")
     p.add_argument("--out", type=Path, default=LINK_SET)
+    p = sub.add_parser("macos-link-set")
+    p.add_argument("--xcframework", type=Path, required=True)
+    p.add_argument("--manifest", type=Path, required=True, help="SOURCE-MANIFEST.json of the ghostty-next license tree")
+    p = sub.add_parser("check-macos")
+    p.add_argument("--ghostty-tree", type=Path, required=True, help="the ghostty-next license tree (cmux-next-source-archive.yml)")
     p = sub.add_parser("app-link")
     p.add_argument("--xcframework", type=Path, required=True, help="the unzipped pinned GhosttyNextKit.xcframework")
     p.add_argument("--artifact", type=Path, required=True, help="the zip from `cmux-ci artifact <job>` of an iOS build")
@@ -600,6 +680,11 @@ def main(argv: list[str] | None = None) -> int:
             args.out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
             print(f"wrote {args.out} ({len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']})")
             return 0
+        if args.command == "macos-link-set":
+            result = macos_link_set(args.xcframework, args.manifest)
+            MACOS_LINK_SET.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+            print(f"wrote {MACOS_LINK_SET.relative_to(ROOT)} ({len(result['dwarf_owners'])} DWARF owners, libintl={result['libintl']})")
+            return 0
         if args.command == "app-link":
             links = json.loads(LINK_SET.read_text())
             links["app_link"] = app_link(args.xcframework, args.artifact, args.job, args.source_commit, args.ghostty_source, args.manifest)
@@ -620,6 +705,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "check-repo":
             errors = check_repo()
+        elif args.command == "check-macos":
+            links = json.loads(MACOS_LINK_SET.read_text())
+            errors = macos_link_errors(links) + check_macos(args.ghostty_tree, links, ghostty_kit_pin())
         elif args.command == "check-app":
             errors = check_app(args.app)
         else:

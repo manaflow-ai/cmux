@@ -44,6 +44,20 @@ import Testing
         #expect(header.hasPrefix("default-src 'none'"))
     }
 
+    /// The header is the one webviews/test/agent-pane-locale.test.ts serves the built pane with,
+    /// so that test proves the locale files load under the app's real policy.
+    @Test func theAgentPageCSPIsTheOneThePaneLocaleTestServes() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // CmuxNextAgentPaneTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // CmuxNext
+            .deletingLastPathComponent() // macOS
+            .deletingLastPathComponent() // Packages
+            .deletingLastPathComponent() // repo root
+            .appending(path: "webviews/test/fixtures/agent-page-csp.txt")
+        #expect(PageDescriptor.agent.csp.header == (try String(contentsOf: fixture, encoding: .utf8)))
+    }
+
     /// The page reaches nothing outside its namespace: no shared native op, no other page's ops.
     @Test func opsOutsideTheAgentNamespaceAreRefused() async {
         let (router, box) = router(AgentPaneModel(host: MockAgentPaneHost()))

@@ -36,6 +36,7 @@ export async function readTurnFromRows(
   diff: CheckpointDiff,
 ): Promise<TurnCheckpointWire> {
   const summary = turnRows([...rows], rowId).find((row) => row.kind === "turnSummary");
+  // l10n-allow: a caller's bug (it asks before the turn ends), never shown
   if (!summary) throw new Error("The turn has not ended");
   const checkpoint = summary.checkpoint;
   if (!checkpoint) return { unsupported: true };

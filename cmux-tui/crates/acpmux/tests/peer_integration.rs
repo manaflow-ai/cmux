@@ -297,3 +297,38 @@ async fn a_web_prompt_forwarded_by_a_peer_meets_the_web_rules_on_the_owning_daem
     let info = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
     assert!(!info.to_string().contains("from a's paired device"), "{info}");
 }
+
+/// ACP-REMOTE-GUARD B3: a Web prompt for a key this daemon cannot resolve is
+/// refused, and one for a configured peer's session is forwarded and passes
+/// when that session asks on its own daemon.
+#[tokio::test]
+async fn a_web_prompt_for_an_unresolved_key_is_refused_and_one_for_a_peer_session_passes() {
+    let mut cfg_b = config(PermissionPolicy::Ask);
+    // On B the fake harness's `normal` mode asks.
+    cfg_b.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    let b = hub(cfg_b).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "b3").await;
+    let mut cb = client(b.clone()).await;
+    cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "asks"}}})).await.unwrap();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        a.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Web,
+    ));
+    let mut web = C { tx: in_tx, rx: out_rx, next: 0 };
+    let prompt = |key: &str| json!({"sessionId": key, "prompt": [{"type": "text", "text": "hi"}]});
+    // Not a session here and not a peer's.
+    let err = web.call(method::SESSION_PROMPT, prompt("no-such-session")).await.unwrap_err();
+    assert!(err.contains("no-such-session") || err.contains("not found"), "{err}");
+    // A configured peer's session: forwarded, B applies the Web's rules.
+    let ok = web.call(method::SESSION_PROMPT, prompt("b/asks")).await.unwrap();
+    assert_eq!(ok["stopReason"], "end_turn", "{ok}");
+    assert_eq!(ok["peer"], "b", "{ok}");
+}

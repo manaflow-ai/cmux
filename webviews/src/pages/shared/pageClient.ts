@@ -93,7 +93,12 @@ export class BridgePageClient implements PageClient {
   async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
     const signal = options?.signal;
     const cancelled = () =>
-      pageError("cmux.op.cancelled", "the caller cancelled the op", true, options?.opid ? { opid: options.opid } : undefined);
+      pageError(
+        "cmux.op.cancelled",
+        "the caller cancelled the op",
+        true,
+        options?.opid ? { opid: options.opid } : undefined,
+      );
     if (signal?.aborted) throw cancelled();
     const envelope: Envelope & { id: number } =
       options?.opid === undefined
