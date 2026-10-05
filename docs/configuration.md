@@ -333,8 +333,9 @@ Action fields:
 
 Replace the built-in `scp` for terminal file drops and pastes over SSH with a
 command you choose. When you drop or paste a file into a terminal running an SSH
-session, cmux normally `scp`s it to `/tmp/cmux-drop-<uuid>` on the host and types
-the remote path. `terminal.uploadCommands` is an ordered list of host-scoped
+session, cmux normally `scp`s it into a private directory on the host,
+`~/.cache/cmux/paste/<session>/cmux-paste-<uuid>.<ext>`, and types the remote
+path. `terminal.uploadCommands` is an ordered list of host-scoped
 rules; when the ssh destination matches a rule, cmux runs that rule's command
 instead and inserts what the command prints.
 
@@ -360,7 +361,8 @@ instead and inserts what the command prints.
   against either the alias or the real host works.
 - `command`: run through `/bin/sh -c`, **once per file**. It receives the file and
   endpoint on its environment: `CMUX_UPLOAD_LOCAL_PATH`, `CMUX_UPLOAD_REMOTE_PATH`
-  (the `/tmp/cmux-drop-<uuid>` path cmux picked), `CMUX_UPLOAD_DESTINATION`,
+  (the `~/.cache/cmux/paste/<session>/cmux-paste-<uuid>.<ext>` path cmux picked;
+  see below), `CMUX_UPLOAD_DESTINATION`,
   `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE`, and `CMUX_UPLOAD_SSH_OPTIONS`
   (newline-separated; the last three are unset when the session has none). The
   rest of the environment is inherited, so a one-liner resolves tools on `PATH`.
@@ -369,6 +371,24 @@ instead and inserts what the command prints.
 
 **First matching enabled rule wins.** If no rule matches, the built-in `scp` runs
 unchanged, so other hosts are untouched.
+
+### The remote path is yours to create
+
+`CMUX_UPLOAD_REMOTE_PATH` starts with `~/` and names a file in a directory that
+does not exist yet. The built-in transport creates that directory with mode
+`0700` before it copies, sets the file to `0600`, deletes files older than a day
+and trims the directory when it passes 200 MB. cmux does none of that for a
+custom command, so a command that writes to the path has to create the directory
+first. A bare `scp` to it fails with `No such file or directory`:
+
+```sh
+dir=$(dirname "$CMUX_UPLOAD_REMOTE_PATH")
+ssh "$CMUX_UPLOAD_DESTINATION" "umask 077; mkdir -p \"\$HOME/${dir#\~/}\"" &&
+  scp "$CMUX_UPLOAD_LOCAL_PATH" "$CMUX_UPLOAD_DESTINATION:$CMUX_UPLOAD_REMOTE_PATH"
+```
+
+Cleaning up old files there is also the command's job. A command that stores
+the file somewhere else can ignore the path and print where it put the file.
 
 ### How the command's output is used
 
