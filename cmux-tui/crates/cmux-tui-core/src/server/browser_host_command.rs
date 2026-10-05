@@ -56,6 +56,7 @@ pub(super) fn run(mux: &Mux, client: u64) -> anyhow::Result<Value> {
         "socket": credentials.socket.display().to_string(),
         "secret": credentials.secret,
         "host_pid": credentials.host_pid,
+        "listener_pid": credentials.listener_pid,
     }))
 }
 

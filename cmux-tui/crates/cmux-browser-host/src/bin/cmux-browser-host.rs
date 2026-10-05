@@ -230,21 +230,8 @@ mod unix {
         Ok(())
     }
 
-    /// A listening Unix socket the daemon passed as `fd` (socket activation).
     fn inherited_listener(fd: i32, flag: &str) -> Result<std::os::unix::net::UnixListener, String> {
-        use std::os::fd::FromRawFd;
-        if fd < 3 {
-            return Err(format!("{flag} {fd}: not an inherited descriptor"));
-        }
-        // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
-        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-        if unsafe { libc::fstat(fd, &mut stat) } != 0
-            || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
-        {
-            return Err(format!("{flag} {fd}: not a socket"));
-        }
-        // SAFETY: the daemon passes this listening socket open for this process; it is taken once.
-        Ok(unsafe { std::os::unix::net::UnixListener::from_raw_fd(fd) })
+        cmux_browser_host::server::inherited_listener(fd).map_err(|error| format!("{flag} {error}"))
     }
 
     fn serve_command(options: &Options) -> i32 {

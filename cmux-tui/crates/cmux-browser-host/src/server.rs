@@ -103,7 +103,10 @@ pub fn inherited_listener(fd: std::os::fd::RawFd) -> io::Result<UnixListener> {
     {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{fd}: not a socket")));
     }
-    // Red commit stub: close-on-exec stays cleared.
+    // SAFETY: fcntl(2) on the fd checked above.
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
     // SAFETY: the daemon passes this listening socket open for this process; it is taken once.
     Ok(unsafe { UnixListener::from_raw_fd(fd) })
 }

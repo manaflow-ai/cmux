@@ -7,10 +7,12 @@ public import Foundation
 public nonisolated struct ProviderCredentials: Hashable, Sendable {
     public var socketPath: String
     public var secret: ProviderSecret
-    /// The host's pid (the daemon started it): the socket's peer must be
-    /// this process before the app sends the secret.
+    /// The host's pid (the daemon started it).
     public var hostPID: pid_t
-    /// Red commit stub: not used yet.
+    /// The process that holds the listening socket (the daemon, under socket
+    /// activation). The socket's peer pid is that process or the host, by
+    /// platform and timing (macOS reports the last process that used the
+    /// server end), so the app accepts either and no other.
     public var listenerPID: pid_t?
 
     public init(socketPath: String, secret: ProviderSecret, hostPID: pid_t, listenerPID: pid_t? = nil) {
@@ -20,8 +22,10 @@ public nonisolated struct ProviderCredentials: Hashable, Sendable {
         self.listenerPID = listenerPID
     }
 
-    /// Red commit stub: only the host.
-    public func acceptsPeer(_ pid: pid_t) -> Bool { hostPID > 0 && pid == hostPID }
+    /// Whether a socket peer with `pid` may receive the secret.
+    public func acceptsPeer(_ pid: pid_t) -> Bool {
+        (hostPID > 0 && pid == hostPID) || (listenerPID.map { $0 > 0 && pid == $0 } ?? false)
+    }
 }
 
 /// The app's provider identity in `hello`.

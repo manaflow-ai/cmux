@@ -110,10 +110,13 @@ pub(crate) struct ProviderCredentials {
     pub(crate) socket: PathBuf,
     /// The host launch's provider secret (64 lowercase hex digits).
     pub(crate) secret: String,
-    /// The pid the provider socket's peer must report (the daemon, which
-    /// holds the listening socket; the host when it bound the socket itself):
-    /// the app sends the secret only to that peer.
+    /// The host process.
     pub(crate) host_pid: u32,
+    /// The process that holds the listening socket: this daemon under socket
+    /// activation, else the host. A socket's peer pid is the listen(2) caller
+    /// on Linux and the last process that used the server end on macOS, so
+    /// the app accepts a peer that is either of the two, and no other.
+    pub(crate) listener_pid: u32,
 }
 
 impl std::fmt::Debug for ProviderCredentials {
@@ -122,6 +125,7 @@ impl std::fmt::Debug for ProviderCredentials {
             .field("socket", &self.socket)
             .field("secret", &"<redacted>")
             .field("host_pid", &self.host_pid)
+            .field("listener_pid", &self.listener_pid)
             .finish()
     }
 }
@@ -388,13 +392,11 @@ fn start(inner: &Arc<Inner>, binary: &Path, config: &Config) -> Result<Running, 
         })
         .map_err(|error| format!("cannot watch the browser host: {error}"))?;
     let provider = socket.with_file_name(PROVIDER_SOCKET_FILE);
-    let peer_pid = if inner.activation.is_bound() { std::process::id() } else { pid };
+    let listener_pid = if inner.activation.is_bound() { std::process::id() } else { pid };
     Ok(Running {
-        // The provider socket's peer pid (LOCAL_PEERPID, SO_PEERCRED) is the
-        // process that called listen(2): this daemon when it holds the
-        // sockets (it bound them at its start, with the lock files, and
-        // passes them only to its host), else the host.
-        credentials: ProviderCredentials { socket: provider, secret, host_pid: peer_pid },
+        // The daemon holds the sockets from its start (with the lock files)
+        // and passes them only to its host (which sets close-on-exec again).
+        credentials: ProviderCredentials { socket: provider, secret, host_pid: pid, listener_pid },
         pid,
         _stdin: stdin,
     })

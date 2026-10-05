@@ -542,16 +542,20 @@ Params: none.
 Result:
 
 ```text
-object{socket:string, secret:string, host_pid:uint32}
+object{socket:string, secret:string, host_pid:uint32, listener_pid:uint32}
 ```
 
 `socket` is the host's provider socket (`browser-host-provider.sock`).
 `secret` is 64 lowercase hex digits; the app sends it only in the provider
-`hello`, after the socket's peer pid equals `host_pid`, and never logs or
-stores it. `host_pid` is the pid the provider socket's peer reports: the
-daemon, which binds and holds the listening socket (a socket's peer pid is the
-process that called listen); the host only when it bound the socket itself.
-Repeated calls return the same values until the host restarts.
+`hello`, and never logs or stores it. `host_pid` is the host process.
+`listener_pid` is the process that holds the listening socket: the daemon,
+which binds the socket at its start (with the lock file) and passes it only to
+its host, or the host when it bound the socket itself. The app sends `hello`
+only when the socket's peer pid is `host_pid` or `listener_pid`: the peer pid
+is the listen(2) caller on Linux and the last process that used the server end
+on macOS. The host sets close-on-exec on the inherited sockets, so no process
+it starts holds them. Repeated calls return the same values until the host
+restarts.
 
 Errors: `error_code:"origin.forbidden"` (not the verified local app);
 `error_code:"engine_unavailable"` (no host binary beside the daemon, or the

@@ -453,6 +453,9 @@ Result<Json> Codec<BrowserHostProviderResult>::encode(const BrowserHostProviderR
     auto encoded_host_pid = encode_value(value.host_pid);
     if (!encoded_host_pid) return std::move(encoded_host_pid).error();
     object.emplace("host_pid", std::move(encoded_host_pid).value());
+    auto encoded_listener_pid = encode_value(value.listener_pid);
+    if (!encoded_listener_pid) return std::move(encoded_listener_pid).error();
+    object.emplace("listener_pid", std::move(encoded_listener_pid).value());
     auto encoded_secret = encode_value(value.secret);
     if (!encoded_secret) return std::move(encoded_secret).error();
     object.emplace("secret", std::move(encoded_secret).value());
@@ -474,6 +477,15 @@ Result<BrowserHostProviderResult> Codec<BrowserHostProviderResult>::decode(const
         auto decoded = decode_value<std::uint32_t>(*field_host_pid);
         if (!decoded) return std::move(decoded).error();
         result.host_pid = std::move(decoded).value();
+    }
+    const Json* field_listener_pid = value.find("listener_pid");
+    if (!field_listener_pid) {
+        return make_error(ErrorCode::decode, "missing required field 'listener_pid'");
+    }
+    if (field_listener_pid) {
+        auto decoded = decode_value<std::uint32_t>(*field_listener_pid);
+        if (!decoded) return std::move(decoded).error();
+        result.listener_pid = std::move(decoded).value();
     }
     const Json* field_secret = value.find("secret");
     if (!field_secret) {

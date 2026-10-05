@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e.
+// cmux-tui mux protocol 12, IR 5a43dd2e2f4de5ead9ba3ef3571fb4a4e897d93ea951e4795baad62319561b0d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -127,6 +127,7 @@ pub struct BrowserFrame {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserHostProviderResult {
     pub host_pid: u32,
+    pub listener_pid: u32,
     pub secret: String,
     pub socket: String,
 }

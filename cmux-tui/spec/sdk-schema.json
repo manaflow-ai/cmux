@@ -7256,6 +7256,14 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "listener_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
     }
    },
    "additional_properties": false

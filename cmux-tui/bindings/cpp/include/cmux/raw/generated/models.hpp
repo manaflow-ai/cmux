@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b5eef5992b374832948363f887d00cb4c26ebc51928addaf3552e7f489422f6e";
+inline constexpr std::string_view kProtocolIrSha256 = "5a43dd2e2f4de5ead9ba3ef3571fb4a4e897d93ea951e4795baad62319561b0d";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -751,6 +751,7 @@ struct BrowserHostProviderRequest {
 
 struct BrowserHostProviderResult {
     std::uint32_t host_pid{};
+    std::uint32_t listener_pid{};
     std::string secret{};
     std::string socket{};
     friend bool operator==(const BrowserHostProviderResult&, const BrowserHostProviderResult&) = default;
