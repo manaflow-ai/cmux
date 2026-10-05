@@ -100,8 +100,8 @@ typedef struct CmuxRdInputEvent {
     const uint8_t *text;     /* text: UTF-8, 1 to CMUX_RD_INPUT_MAX_TEXT bytes */
     size_t text_len;
     uint8_t button;          /* button: 1 left, 2 middle, 3 right, 8 back, 9 forward */
-    bool down;               /* key and button: pressed or released */
-    bool precise;            /* scroll: pixel-precise deltas */
+    uint8_t down;            /* key and button: 1 pressed, 0 released (other values refused) */
+    uint8_t precise;         /* scroll: 1 pixel-precise deltas, 0 lines (other values refused) */
 } CmuxRdInputEvent;
 
 uint32_t cmux_rd_ffi_abi_version(void);

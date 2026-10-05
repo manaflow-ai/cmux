@@ -44,10 +44,10 @@ pub struct CmuxRdInputEvent {
     pub text_len: usize,
     /// Button: 1 left, 2 middle, 3 right, 8 back, 9 forward.
     pub button: u8,
-    /// Key and button: pressed (true) or released.
-    pub down: bool,
-    /// Scroll: pixel-precise deltas (trackpad) instead of lines.
-    pub precise: bool,
+    /// Key and button: 1 pressed, 0 released (any other value is refused).
+    pub down: u8,
+    /// Scroll: 1 pixel-precise deltas (trackpad), 0 lines (any other value is refused).
+    pub precise: u8,
 }
 
 /// The opaque input handle (`CmuxRdInput`).
@@ -84,11 +84,11 @@ fn with_input(ptr: *mut CmuxRdInput, f: impl FnOnce(&mut CmuxRdInput) -> i32) ->
 /// For a text event, `event.text` is readable for `event.text_len` bytes.
 unsafe fn event_from_c(event: &CmuxRdInputEvent) -> Option<InputEvent> {
     Some(match event.kind {
-        CMUX_RD_INPUT_KEY => InputEvent::Key { usage: event.usage, down: event.down },
+        CMUX_RD_INPUT_KEY => InputEvent::Key { usage: event.usage, down: event.down != 0 },
         CMUX_RD_INPUT_POINTER => InputEvent::Pointer { x: event.x, y: event.y },
-        CMUX_RD_INPUT_BUTTON => InputEvent::Button { button: event.button, down: event.down },
+        CMUX_RD_INPUT_BUTTON => InputEvent::Button { button: event.button, down: event.down != 0 },
         CMUX_RD_INPUT_SCROLL => {
-            InputEvent::Scroll { dx: event.dx, dy: event.dy, precise: event.precise }
+            InputEvent::Scroll { dx: event.dx, dy: event.dy, precise: event.precise != 0 }
         }
         CMUX_RD_INPUT_TEXT => {
             if event.text_len == 0 || event.text_len > CMUX_RD_INPUT_MAX_TEXT {

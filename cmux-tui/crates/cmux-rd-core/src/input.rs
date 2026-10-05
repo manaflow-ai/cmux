@@ -39,7 +39,13 @@ pub struct InputSender {
 
 impl InputSender {
     pub fn new() -> Self {
-        Self { next_seq: 1, queue: VecDeque::new(), base: 1 }
+        Self::starting_at(1)
+    }
+
+    /// A sender whose first event gets sequence number `first_seq` (the
+    /// host's applier must start at the same number).
+    pub fn starting_at(first_seq: u32) -> Self {
+        Self { next_seq: first_seq, queue: VecDeque::new(), base: first_seq }
     }
 
     /// Queues an event and returns its sequence number.
@@ -165,8 +171,13 @@ pub struct InputApplier {
 impl InputApplier {
     /// `gap_timeout_us`: how long a missing event may block later ones.
     pub fn new(gap_timeout_us: u64) -> Self {
+        Self::starting_at(gap_timeout_us, 1)
+    }
+
+    /// An applier that expects `first_seq` first (see [`InputSender::starting_at`]).
+    pub fn starting_at(gap_timeout_us: u64, first_seq: u32) -> Self {
         Self {
-            next: 1,
+            next: first_seq,
             held: BTreeMap::new(),
             gap_since_us: None,
             gap_timeout_us,
