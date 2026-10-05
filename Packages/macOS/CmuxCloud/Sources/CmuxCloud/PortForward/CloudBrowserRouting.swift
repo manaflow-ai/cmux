@@ -52,8 +52,15 @@ public struct CloudBrowserRouting: Sendable {
             try await connection.startAndWaitUntilReady(queue: probeQueue)
             try await connection.sendAll(Data("CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Authorization: Basic \(credential)\r\n\r\n".utf8))
             guard try await responseStatus(connection) == 200 else { return .unreachable }
-            try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
-            return try await responseStatus(connection) == 200 ? .reachable : .unreachable
+            do {
+                try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
+                return try await responseStatus(connection) == 200 ? .reachable : .unreachable
+            } catch NWConnection.StreamError.failed(.posix(let code)) where code == .ECONNRESET || code == .ECONNREFUSED {
+                // The tunnel to the desktop opened, then the desktop reset or
+                // refused it: it is there but not serving noVNC. Before the
+                // tunnel, the same error is the local proxy's and stays unknown.
+                return .unreachable
+            }
         }
         do {
             return try await withTaskCancellationHandler {
@@ -72,11 +79,6 @@ public struct CloudBrowserRouting: Sendable {
             }
         } catch {
             try Task.checkCancellation()
-            // The desktop answered the tunnel and then reset or refused the
-            // connection: it is there but not serving noVNC.
-            if case .posix(let code) = error as? NWError, code == .ECONNRESET || code == .ECONNREFUSED {
-                return .unreachable
-            }
             return .unknown
         }
     }
