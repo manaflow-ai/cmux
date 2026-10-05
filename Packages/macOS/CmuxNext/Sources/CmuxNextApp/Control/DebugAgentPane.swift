@@ -95,27 +95,17 @@ enum DebugAgentPane {
 
     private static func readiness(pane: String, view: AgentPaneView) async -> JSONValue {
         let script = """
-        (async () => {
-          const sample = () => {
-            const bodyText = (document.body?.innerText || '').trim();
-            const composer = document.querySelector('.acpmux-composer');
-            const composerRect = composer?.getBoundingClientRect();
-            const transcriptRows = document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
-            return {
-              body_text_length: bodyText.length,
-              transcript_rows: transcriptRows,
-              composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
-              composer_text_length: (composer?.innerText || '').trim().length,
-              document_ready: document.readyState === 'complete'
-            };
-          };
-          let metrics = sample();
-          for (let frame = 0; frame < 60 && (metrics.body_text_length === 0 || metrics.transcript_rows === 0 || !metrics.composer_visible); frame += 1) {
-            await new Promise(requestAnimationFrame);
-            metrics = sample();
-          }
-          return JSON.stringify(metrics);
-        })()
+        const bodyText = (document.body?.innerText || '').trim();
+        const composer = document.querySelector('.acpmux-composer');
+        const composerRect = composer?.getBoundingClientRect();
+        const transcriptRows = document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
+        return JSON.stringify({
+          body_text_length: bodyText.length,
+          transcript_rows: transcriptRows,
+          composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
+          composer_text_length: (composer?.innerText || '').trim().length,
+          document_ready: document.readyState === 'complete'
+        });
         """
         do {
             let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
