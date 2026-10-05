@@ -1311,7 +1311,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func applySessionLabel(to panelID: UUID) {
-        guard let workspace = try? workspace() else { return }
+        guard let workspace = Self.holdingWorkspace(of: panelID) else { return }
         workspace.setPanelAutomationLabel(panelId: panelID, label: sessionLabel)
         if sessionLabel == nil { labeledTargetIDs.remove(panelID) } else { labeledTargetIDs.insert(panelID) }
     }
@@ -1320,8 +1320,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func clearSessionLabels() {
         let labeled = labeledTargetIDs
         labeledTargetIDs.removeAll()
-        guard let workspace = try? workspace() else { return }
-        for id in labeled { workspace.setPanelAutomationLabel(panelId: id, label: nil) }
+        for id in labeled { Self.holdingWorkspace(of: id)?.setPanelAutomationLabel(panelId: id, label: nil) }
+    }
+
+    /// The workspace, of any window, that holds the browser tab `panelID`
+    /// now: a tab moves between workspaces, so the session's own workspace
+    /// is not where to look for a tab it opened.
+    @MainActor
+    private static func holdingWorkspace(of panelID: UUID) -> Workspace? {
+        browserPanelEntries().first { $0.panel.id == panelID }?.workspace
     }
 
     @MainActor
@@ -2887,10 +2894,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func closeOpenedTabs() {
         let opened = openedTargetIDs
         openedTargetIDs.removeAll()
-        guard let workspace = try? workspace() else { return }
-        // The panel's own close forgets what is kept for it
-        // (`BrowserPanel.close()`), only once it really closes.
-        for id in opened where workspace.panels[id] is BrowserPanel {
+        // Each tab is closed in the workspace that holds it now, of any
+        // window: one the user moved out of the session's workspace (or a
+        // tab of a workspace that closed meanwhile) closes too, unless
+        // `page.keep()` took it out of this set. The panel's own close
+        // forgets what is kept for it (`BrowserPanel.close()`), only once
+        // it really closes.
+        let entries = Self.browserPanelEntries()
+        for id in opened {
+            guard let workspace = entries.first(where: { $0.panel.id == id })?.workspace else { continue }
             _ = workspace.closePanel(id, force: true)
         }
     }
