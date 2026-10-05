@@ -20,10 +20,9 @@ nonisolated struct CEFClickTarget: Equatable, Sendable {
     var occlusions: [CGRect] = []
 }
 
-/// The runtime's link click state: the user's mapping, the last mouse-up
-/// (Chromium's dispositions do not carry the click's modifiers), and the
-/// URLs of pending page popups, so a modified click mapped to the current
-/// tab can load in the opener instead of the tab Chromium created.
+/// The runtime's link click state: the user's mapping and the last mouse-up
+/// (Chromium's dispositions do not carry the click's modifiers). A popup's
+/// target URL arrives with its tab's AFTER_CREATED (`CEFCreatedBy.url`).
 @MainActor
 final class CEFLinkClickTracker {
     /// cmux.json `browser.links.*`, set by the App.
@@ -33,8 +32,6 @@ final class CEFLinkClickTracker {
     private var monitor: Any?
     /// The pages a click can land on now (the runtime's shown tabs).
     private var targets: () -> [CEFClickTarget] = { [] }
-    /// OnBeforePopup URLs by opener browser, oldest first.
-    private var popups: [Int32: [(disposition: CEFDisposition, url: String)]] = [:]
 
     /// The context for placing a tab Chromium wants to open now.
     func context() -> CEFLinkContext {
@@ -65,25 +62,7 @@ final class CEFLinkClickTracker {
                                              timestamp: event.timestamp)
     }
 
-    /// Chromium asked `opener` for a popup tab (OnBeforePopup).
-    func notePopup(opener: Int32, disposition: CEFDisposition, url: String) {
-        var queue = popups[opener, default: []]
-        queue.append((disposition, url))
-        // A popup Chromium refused never reaches OnAfterCreated.
-        if queue.count > 8 { queue.removeFirst(queue.count - 8) }
-        popups[opener] = queue
-    }
-
-    /// The URL of the oldest pending popup of `opener` with `disposition`.
-    func takePopupURL(opener: Int32, disposition: CEFDisposition) -> String? {
-        guard var queue = popups[opener], let index = queue.firstIndex(where: { $0.disposition == disposition }) else { return nil }
-        let url = queue.remove(at: index).url
-        popups[opener] = queue.isEmpty ? nil : queue
-        return url
-    }
-
     func forget(opener: Int32) {
-        popups[opener] = nil
         clicks[opener] = nil
     }
 }

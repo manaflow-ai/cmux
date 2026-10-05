@@ -393,6 +393,8 @@ void cmux_shim_shutdown(void) {
   // Preference observer registrations go before their contexts.
   ReleasePreferenceWatches();
   request_contexts().clear();
+  // Download callbacks hold Chromium objects: release them first.
+  ForgetDownloads();
   CefShutdown();
 }
 
