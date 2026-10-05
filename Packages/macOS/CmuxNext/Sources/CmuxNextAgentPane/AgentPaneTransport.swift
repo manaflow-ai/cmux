@@ -174,6 +174,8 @@ public extension AgentPaneTransportPacer {
     public var modeAsks: @MainActor (_ sessionId: String?, _ mode: String) async -> Bool? = { _, _ in nil }
     /// Shows the native sheet that confirms a mode which does not ask; Cancel answers false.
     public var requestModeConfirmation: (@MainActor (_ mode: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+    /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
+    public var confirmationGate = AgentPaneConfirmationGate.shared
     private var confirmingMode = false
     private var socketPath: String?
 

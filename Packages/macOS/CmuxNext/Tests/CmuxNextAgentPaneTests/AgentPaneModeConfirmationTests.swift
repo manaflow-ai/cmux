@@ -155,6 +155,42 @@ import Testing
         #expect(sheets.asked == ["plan"])
     }
 
+    @Test func everyPaneSharesTheAppWideGate() {
+        let a = AgentPaneModel(host: MockAgentPaneHost())
+        let b = AgentPaneModel(host: MockAgentPaneHost())
+        #expect(a.transport.confirmationGate === AgentPaneConfirmationGate.shared)
+        #expect(b.transport.confirmationGate === a.transport.confirmationGate)
+    }
+
+    /// Two panes (two transports, as in two windows) on one gate: while pane A's sheet is open, pane
+    /// B's mode frame is refused and opens no sheet; after A's answer, B can ask.
+    @Test func aSecondPaneCannotOpenASecondSheet() async throws {
+        let gate = AgentPaneConfirmationGate()
+        let a = Rig()
+        let b = Rig()
+        try await a.start()
+        try await b.start()
+        defer { a.server.stop(); b.server.stop() }
+        a.transport.confirmationGate = gate
+        b.transport.confirmationGate = gate
+        let sheetsA = Sheets(on: a.transport, reply: nil)
+        let sheetsB = Sheets(on: b.transport, reply: true)
+        let ticketA = await a.ticket(Self.setMode("bypassPermissions"))
+        let first = Task { await a.send("session/set_mode", ["sessionId": "s", "modeId": "bypassPermissions"], ticket: ticketA) }
+        #expect(await eventually { sheetsA.asked.count == 1 })
+        #expect(gate.isOpen)
+        #expect(await b.send("session/set_mode", ["sessionId": "s", "modeId": "acceptEdits"],
+                             ticket: await b.ticket(Self.setMode("acceptEdits"))) == .modeNotConfirmed)
+        #expect(sheetsB.asked.isEmpty, "no second sheet")
+        #expect(!daemonSaw(b, "acceptEdits"))
+        sheetsA.answer(true)
+        #expect(await first.value == nil)
+        #expect(!gate.isOpen)
+        #expect(await b.send("session/set_mode", ["sessionId": "s", "modeId": "acceptEdits"],
+                             ticket: await b.ticket(Self.setMode("acceptEdits"))) == nil)
+        #expect(sheetsB.asked == ["acceptEdits"])
+    }
+
     @Test func oneSheetAtATime() async throws {
         let rig = Rig()
         try await rig.start()
