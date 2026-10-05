@@ -14,13 +14,38 @@ const REFUSED: &[u8] = b"\x1b]52;c;\x07";
 const GRANTED_HI: &[u8] = b"\x1b]52;c;aGk=\x07";
 
 /// Time moves only through `advance`; the timer wakes on `notify_timer`.
+/// Every timer wait is recorded (the timeout it asked for, `None` when no
+/// read is open), so a test can see what the timer decided without sleeping.
 struct FakeClock {
     now: Mutex<Instant>,
+    waits: Mutex<Vec<Option<Duration>>>,
+    waited: Condvar,
 }
 
 impl FakeClock {
     fn advance(&self, by: Duration) {
         *self.now.lock().unwrap() += by;
+    }
+
+    fn record_wait(&self, timeout: Option<Duration>) {
+        self.waits.lock().unwrap().push(timeout);
+        self.waited.notify_all();
+    }
+
+    fn wait_count(&self) -> usize {
+        self.waits.lock().unwrap().len()
+    }
+
+    /// Blocks until a timer wait after the first `from` ones matches.
+    fn await_wait(&self, from: usize, matches: impl Fn(Option<Duration>) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut waits = self.waits.lock().unwrap();
+        while !waits[from..].iter().any(|wait| matches(*wait)) {
+            let left = deadline
+                .checked_duration_since(Instant::now())
+                .expect("the timer never went to the expected wait");
+            waits = self.waited.wait_timeout(waits, left).unwrap().0;
+        }
     }
 }
 
@@ -33,8 +58,18 @@ impl ClipboardClock for FakeClock {
         &self,
         changed: &Condvar,
         state: MutexGuard<'a, ClipboardReadState>,
-        _timeout: Duration,
+        timeout: Duration,
     ) -> MutexGuard<'a, ClipboardReadState> {
+        self.record_wait(Some(timeout));
+        changed.wait(state).unwrap()
+    }
+
+    fn wait<'a>(
+        &self,
+        changed: &Condvar,
+        state: MutexGuard<'a, ClipboardReadState>,
+    ) -> MutexGuard<'a, ClipboardReadState> {
+        self.record_wait(None);
         changed.wait(state).unwrap()
     }
 }
@@ -63,7 +98,11 @@ struct Harness {
 
 impl Harness {
     fn new() -> Self {
-        let clock = Arc::new(FakeClock { now: Mutex::new(Instant::now()) });
+        let clock = Arc::new(FakeClock {
+            now: Mutex::new(Instant::now()),
+            waits: Mutex::new(Vec::new()),
+            waited: Condvar::new(),
+        });
         let clipboard = ClipboardReads::new(clock.clone());
         let pending = Arc::new(Mutex::new(Vec::new()));
         let callbacks = Callbacks {
@@ -198,6 +237,22 @@ fn read_until_output(client: &mut UnixStream, marker: &[u8]) {
     }
 }
 
+/// A round trip on `client`'s input thread: when the answer arrives, the
+/// host has handled every frame `client` sent before it.
+fn round_trip(client: &mut UnixStream) {
+    let mut payload = CapabilityRights::READ.bits().to_le_bytes().to_vec();
+    payload.extend_from_slice(&1_000u32.to_le_bytes());
+    let mut frame = Frame::new(MessageKind::MintCapability, payload);
+    frame.request_id = 9;
+    write_frame(client, &frame).unwrap();
+    loop {
+        let frame = read_required_frame(client, "capability").unwrap();
+        if frame.kind == MessageKind::Capability && frame.request_id == 9 {
+            return;
+        }
+    }
+}
+
 fn reply(client: &mut UnixStream, token: u64, text: Option<&[u8]>) {
     let frame =
         Frame::new(MessageKind::ClipboardReadReply, encode_clipboard_read_reply(token, text));
@@ -287,9 +342,14 @@ fn an_open_read_is_refused_after_sixty_seconds_on_the_injected_clock() {
     h.output(OSC52_READ);
     let request = next_clipboard_request(&mut owner);
 
+    let from = h.clock.wait_count();
     h.clock.advance(Duration::from_secs(59));
     h.host.clipboard.notify_timer();
-    h.assert_pty_quiet();
+    // The timer read the clock after the advance and went back to wait for
+    // the last second; the read is still open and nothing reached the PTY.
+    h.clock.await_wait(from, |wait| wait == Some(Duration::from_secs(1)));
+    assert_eq!(h.host.clipboard.open_token_for_test(), Some(request.token));
+    assert!(h.pty.try_recv().is_err(), "no refusal before sixty seconds");
     h.clock.advance(Duration::from_secs(2));
     h.host.clipboard.notify_timer();
     assert_eq!(h.pty_reply(), REFUSED);
@@ -388,6 +448,79 @@ fn a_closed_newer_owner_falls_back_to_the_older_one() {
     let request = next_clipboard_request(&mut older);
     reply(&mut older, request.token, Some(b"hi"));
     assert_eq!(h.pty_reply(), GRANTED_HI);
+}
+
+/// The read goes out after the Output frames of the same PTY chunk, so the
+/// owner's mirror already shows what the program printed before asking.
+#[test]
+fn a_read_reaches_the_owner_after_the_output_written_before_it() {
+    let mut h = Harness::new();
+    let mut owner = h.owner();
+    h.output(&[b"before-read".as_slice(), OSC52_READ].concat());
+    read_until_output(&mut owner, b"before-read");
+    next_clipboard_request(&mut owner);
+}
+
+/// Only the owner connection that was asked may answer.
+#[test]
+fn a_reply_from_another_owner_connection_is_ignored() {
+    let mut h = Harness::new();
+    let mut older = h.owner();
+    let mut newer = h.owner();
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut newer);
+    reply(&mut older, request.token, Some(b"stolen"));
+    round_trip(&mut older);
+    assert_eq!(h.host.clipboard.open_token_for_test(), Some(request.token));
+    reply(&mut newer, request.token, Some(b"hi"));
+    assert_eq!(h.pty_reply(), GRANTED_HI);
+}
+
+/// A reply and the timeout race for one read: the PTY gets one answer.
+#[test]
+fn a_reply_racing_the_timeout_answers_the_pty_once() {
+    let mut h = Harness::new();
+    let mut owner = h.owner();
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut owner);
+    let mut replier = owner.try_clone().unwrap();
+    let racer = thread::spawn(move || reply(&mut replier, request.token, Some(b"hi")));
+    let from = h.clock.wait_count();
+    h.clock.advance(Duration::from_secs(61));
+    h.host.clipboard.notify_timer();
+    racer.join().unwrap();
+    // The host handled the reply, and the timer is idle with no open read:
+    // whichever answer won is queued on the parser ahead of the marker.
+    round_trip(&mut owner);
+    h.clock.await_wait(from, |wait| wait.is_none());
+    let first = h.pty_reply();
+    assert!(first == GRANTED_HI || first == REFUSED, "unexpected answer {first:?}");
+    h.output(b"\x1b[5n");
+    assert_eq!(h.pty_reply(), b"\x1b[0n", "a second answer reached the PTY");
+}
+
+/// Envelope fields a reply must leave zero, as every client frame must.
+#[test]
+fn a_reply_with_a_bad_envelope_closes_the_connection_and_refuses() {
+    for corrupt in [
+        (|frame: &mut Frame| frame.sequence = 3) as fn(&mut Frame),
+        |frame| frame.flags = 1,
+        |frame| frame.version = SMART_RENDERER_PROTOCOL_VERSION,
+        |frame| frame.request_id = 4,
+    ] {
+        let mut h = Harness::new();
+        let mut owner = h.owner();
+        h.output(OSC52_READ);
+        let request = next_clipboard_request(&mut owner);
+        let mut frame = Frame::new(
+            MessageKind::ClipboardReadReply,
+            encode_clipboard_read_reply(request.token, Some(b"hi")),
+        );
+        corrupt(&mut frame);
+        write_frame(&mut owner, &frame).unwrap();
+        assert_disconnected(&mut owner);
+        assert_eq!(h.pty_reply(), REFUSED, "a malformed reply never grants");
+    }
 }
 
 /// An older daemon asks for plain ADMIN: the host keeps deferral off and
@@ -574,4 +707,28 @@ fn daemon_requires_the_granted_rights_to_equal_its_request() {
         rights | CapabilityRights::CLIPBOARD_READ
     });
     assert!(attachment.is_err(), "a host that adds an unrequested right is rejected");
+}
+
+/// Terminating a host adopts it for one command. That connection asks for
+/// plain ADMIN, so the host keeps asking the surface's long-lived owner.
+#[test]
+fn a_one_shot_owner_connection_asks_for_plain_admin() {
+    let (record_path, mut record, lease) = record_fixture("clipboard-one-shot");
+    record.supports_clipboard_read = true;
+    let endpoint = PathBuf::from(&record.endpoint);
+    prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+    let _ = fs::remove_file(&endpoint);
+    let listener = UnixListener::bind(&endpoint).unwrap();
+    let host_record = record.clone();
+    let host = thread::spawn(move || {
+        let (stream, _) = listener.accept()?;
+        fake_owner_host(stream, host_record, |rights| rights)
+    });
+    let attachment = adopt_terminal_host(record, record_path.clone());
+    let requested = host.join().unwrap();
+    attachment.expect("the one-shot owner handshake passes");
+    assert_eq!(requested.unwrap(), CapabilityRights::ADMIN);
+    let _ = fs::remove_file(endpoint);
+    drop(lease);
+    let _ = fs::remove_dir_all(record_path.parent().unwrap());
 }

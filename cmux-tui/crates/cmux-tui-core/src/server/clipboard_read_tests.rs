@@ -391,3 +391,27 @@ fn a_host_cancel_withdraws_the_read_from_its_frontend() {
     );
     assert!(answers.try_recv().is_err(), "the host already refused it");
 }
+
+#[test]
+fn subscriptions_are_capped_at_sixteen_frontends_and_256_terminals() {
+    let crowded = mux();
+    let frontends: Vec<Client> = (0..17).map(|_| frontend(&crowded)).collect();
+    for client in &frontends[..16] {
+        subscribe(&crowded, client, &[TERMINAL]);
+    }
+    let subscribe_cmd = json!({"cmd": "terminal-clipboard-subscribe", "terminal_ids": [TERMINAL]});
+    assert!(run(&crowded, &frontends[16], subscribe_cmd).is_err(), "a 17th frontend");
+    // A subscribed frontend may still replace its own subscription.
+    subscribe(&crowded, &frontends[0], &[OTHER_TERMINAL]);
+
+    let mux = mux();
+    let client = frontend(&mux);
+    let terminals: Vec<String> = (0..257).map(|index| format!("term_{index:032x}")).collect();
+    let too_many = json!({"cmd": "terminal-clipboard-subscribe", "terminal_ids": &terminals});
+    assert!(run(&mux, &client, too_many).is_err(), "257 terminal ids");
+    subscribe(&mux, &client, &terminals[..256].iter().map(String::as_str).collect::<Vec<_>>());
+    // 256 is within the cap, and the frontend is asked about those terminals.
+    let answers = ask(&mux, 1, 7, &terminals[0]);
+    read_event(&client.outbound);
+    assert!(answers.try_recv().is_err());
+}

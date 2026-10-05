@@ -167,6 +167,15 @@ pub(super) trait ClipboardClock: Send + Sync {
         state: MutexGuard<'a, ClipboardReadState>,
         timeout: Duration,
     ) -> MutexGuard<'a, ClipboardReadState>;
+
+    /// Waits on `changed` until it is notified (no read is open).
+    fn wait<'a>(
+        &self,
+        changed: &Condvar,
+        state: MutexGuard<'a, ClipboardReadState>,
+    ) -> MutexGuard<'a, ClipboardReadState> {
+        changed.wait(state).unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 pub(super) struct SystemClock;
@@ -254,6 +263,11 @@ impl ClipboardReads {
     #[cfg(test)]
     pub(super) fn owner_count_for_test(&self) -> usize {
         lock(&self.shared.state).owners.len()
+    }
+
+    #[cfg(test)]
+    pub(super) fn open_token_for_test(&self) -> Option<u64> {
+        lock(&self.shared.state).open.as_ref().map(|open| open.token)
     }
 
     #[cfg(test)]
@@ -363,7 +377,7 @@ impl ClipboardReadsShared {
                 return;
             }
             let Some(deadline) = state.open.as_ref().map(|open| open.deadline) else {
-                state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
+                state = self.clock.wait(&self.changed, state);
                 continue;
             };
             let now = self.clock.now();

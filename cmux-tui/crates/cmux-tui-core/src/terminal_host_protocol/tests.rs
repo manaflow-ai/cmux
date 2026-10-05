@@ -425,3 +425,18 @@ fn clipboard_read_messages_have_stable_additive_kinds() {
     assert!(matches!(MessageKind::try_from(26), Err(ProtocolError::UnknownMessageKind(26))));
     assert!(matches!(MessageKind::try_from(113), Err(ProtocolError::UnknownMessageKind(113))));
 }
+
+/// Frames carry clipboard text, input and screen contents: their Debug form
+/// names the frame and its size, never the payload bytes.
+#[test]
+fn frame_debug_omits_the_payload() {
+    let mut frame = Frame::new(MessageKind::ClipboardReadReply, b"secret-clipboard".to_vec());
+    frame.request_id = 7;
+    frame.sequence = 9;
+    let debug = format!("{frame:?}");
+    assert!(!debug.contains("secret"), "{debug}");
+    assert!(!debug.contains("115, 101, 99"), "payload bytes leaked: {debug}");
+    for field in ["ClipboardReadReply", "len: 16", "request_id: 7", "sequence: 9"] {
+        assert!(debug.contains(field), "{field} missing from {debug}");
+    }
+}
