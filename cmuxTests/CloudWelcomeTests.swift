@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,6 +9,21 @@ import Testing
 
 @Suite("Cloud welcome")
 struct CloudWelcomeTests {
+    @Test("welcome owns close instead of the terminal behind it")
+    @MainActor
+    func welcomeOwnsCloseShortcut() {
+        let window = NSWindow(
+            contentRect: .zero,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.cloud.welcome")
+        #expect(cmuxWindowShouldOwnCloseShortcut(window))
+    }
+
     @Test("shows once, only while Cloud is offered and still off")
     func presentsOnlyWhenUnseenAvailableAndOff() {
         #expect(CloudWelcomeWindowController.shouldPresentAutomatically(seen: false, cloudAvailable: true, cloudEnabled: false))
