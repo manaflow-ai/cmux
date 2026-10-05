@@ -99,6 +99,19 @@ FREETYPE_YEARS = {
     # deps.files.ghostty.org/freetype-1220b81f6ecf...tar.gz = FreeType 2.13.2 (Copyright 1996-2023)
     "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b": ("2.13.2", 2023),
 }
+# GhosttyNextKit's Termio inlines std.math.cbrt (Zig: "Ported from musl") into
+# terminal.color.LAB.fromRgb; the macOS and iOS apps link it (machine-code match in
+# nightly-next 3728109721001 and cmux-ci job a9f238cb599baeb9b17f8ff4). Both carry musl's COPYRIGHT:
+# the pane from the reviewed file, THIRD_PARTY_LICENSES.md from the hand-written section.
+PACKAGE_NOTICES = ROOT / "cmux-tui/dist/notices/package-notices.json"
+MUSL_TITLE = "musl (in the Zig standard library)"
+MUSL_INTRO = (
+    "GhosttyNextKit (Ghostty's terminal library in this app) contains code from the Zig standard library "
+    "that Zig ported from musl: std.math.cbrt (musl src/math/cbrtf.c and src/math/cbrt.c), which Ghostty's "
+    "terminal I/O uses to generate its 256-color palette. musl is licensed under the MIT license. The text "
+    "below is the COPYRIGHT file of musl 1.2.5 (https://musl.libc.org/releases/musl-1.2.5.tar.gz), the musl "
+    "release that Zig 0.16.0 bundles."
+)
 FTL_CREDIT = """This software is based in part on the work of the FreeType Team (FreeType {version}, \
 https://freetype.org). Portions of this software are copyright \u00a9 {year} The FreeType Project \
 (www.freetype.org).  All rights reserved."""
@@ -461,6 +474,30 @@ def write_or_check(result: dict, committed_path: Path, out: Path, check: bool) -
 
 # ---------------------------------------------------------------- pane
 
+def musl_text() -> str:
+    entry = json.loads(PACKAGE_NOTICES.read_text())["musl"]
+    data = (PACKAGE_NOTICES.parent / entry["file"]).read_bytes()
+    if hashlib.sha256(data).hexdigest() != entry["sha256"]:
+        raise NoticeError(f"{entry['file']}: sha256 differs from package-notices.json")
+    return data.decode()
+
+
+def mac_notice_errors(hand: str | None = None) -> list[str]:
+    """The macOS app's hand-written notices carry what GhosttyNextKit's macos slice needs
+    beyond the license tree: musl's COPYRIGHT (std.math.cbrt)."""
+    hand = HAND_WRITTEN.read_text() if hand is None else hand
+    try:
+        section = hand_written_section(MUSL_TITLE, hand)
+    except NoticeError as error:
+        return [str(error)]
+    if MUSL_INTRO not in section or f"```text\n{musl_text().rstrip(chr(10))}\n```" not in section:
+        return [
+            f"hand-written.md section {MUSL_TITLE!r} must hold MUSL_INTRO and, in a text block, the reviewed musl "
+            "COPYRIGHT (cmux-tui/dist/notices/package-notices.json musl) unchanged"
+        ]
+    return []
+
+
 def hand_written_section(title: str, text: str) -> str:
     match = re.search(rf"^### {re.escape(title)}\n(.*?)(?=^#{{2,3}} |\Z)|^## {re.escape(title)}\n(.*?)(?=^## |\Z)", text, re.S | re.M)
     if not match:
@@ -594,6 +631,7 @@ def build_pane(tree: Path, links: dict, pin: dict) -> dict:
             body += "\n\n" + Z2D_OFFER.format(url=url, revision=pin["ghostty_revision"])
         group("Ghostty (license, embedded fonts)" if package == GHOSTTY_OWN else f"{package} (in Ghostty)", body)
     group(f"Zig {zig['version']} (compiler_rt and standard library)", zig_text)
+    group(MUSL_TITLE, MUSL_INTRO + "\n\n" + musl_text())
     group(
         "Build record",
         f"GhosttyNextKit {pin['url']} sha256 {pin['sha256']}; Ghostty {pin['ghostty_revision']}; "
@@ -621,6 +659,7 @@ def check_repo() -> list[str]:
             "`generate --ghostty-tree <ghostty-next-licenses from that run>`"
         )
     errors += macos_link_errors(json.loads(MACOS_LINK_SET.read_text())) if MACOS_LINK_SET.is_file() else [f"{MACOS_LINK_SET.relative_to(ROOT)} is missing"]
+    errors += mac_notice_errors()
     record = links.get("app_link")
     if not record or record.get("pin_sha256") != pin["sha256"]:
         errors.append(

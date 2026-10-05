@@ -203,7 +203,7 @@ class DarwinBinaryTest(unittest.TestCase):
 
     def test_the_libghostty_vt_palette_generator_fails(self) -> None:
         # ghostty_color_palette_generate -> LAB.fromRgb inlines std.math.cbrt (ported from musl).
-        [problem] = self.problems([("_main", True), ("_ghostty_color_palette_generate", True)])
+        [problem] = self.problems([("_main", True), ("_terminal.color.RGB.parse", True), ("_ghostty_color_palette_generate", True)])
         self.assertIn("ghostty_color_palette_generate", problem)
 
     def test_a_musl_ported_zig_function_fails(self) -> None:
@@ -214,6 +214,11 @@ class DarwinBinaryTest(unittest.TestCase):
     def test_a_binary_without_symbols_fails_closed(self) -> None:
         [problem] = self.problems([])
         self.assertIn("symbol table", problem)
+
+    def test_libghostty_vt_without_local_zig_symbols_fails_closed(self) -> None:
+        # A binary stripped of local symbols keeps its exports but hides inlined Zig code.
+        [problem] = self.problems([("_main", True), ("_ghostty_terminal_new", True)])
+        self.assertIn("local symbols", problem)
 
     def test_a_non_macho_file_fails(self) -> None:
         self.assertTrue(pn.darwin_binary_problems(b"#!/bin/sh\n", self.inputs))
