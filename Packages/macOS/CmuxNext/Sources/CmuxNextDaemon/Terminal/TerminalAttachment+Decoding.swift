@@ -119,7 +119,7 @@ extension TerminalAttachment {
             case "snapshot":
                 let snapshot = try decoder.decode(Snapshot.self, from: line)
                 guard scoped(snapshot.surface), let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
-                      phase == .history || (snapshot.cols != nil && snapshot.rows != nil)
+                      phase != .ready || (snapshot.cols != nil && snapshot.rows != nil)
                 else { return nil }  // A READY without its grid cannot lock the mirror's grid.
                 // An unknown codec or a bad chunk would corrupt the restore: refused.
                 guard let data = TerminalSnapshotInflate.inflate(snapshot.data, compression: snapshot.compression,
