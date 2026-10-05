@@ -254,6 +254,23 @@ import Testing
         #expect(second.notice == "You can’t send messages in this conversation.")
     }
 
+    /// Settings > Home, `home.attachments.keepLocation`: the composer passes
+    /// the setting as read at each attach (off strips location).
+    @Test func theKeepLocationSettingReachesThePreparer() async throws {
+        let (window, view, preparer, store, _) = try await host()
+        defer { close(window, view, store) }
+        view.handlePicked([try Self.file("a.pdf")])
+        await view.attachmentsReady()
+        var keep = true
+        view.keepLocation = { keep }
+        view.handlePicked([try Self.file("b.pdf")])
+        await view.attachmentsReady()
+        keep = false
+        view.handleDrop(FakePasteboard(data: [.png: Data([0x89, 0x50, 0x4E, 0x47])]))
+        await view.attachmentsReady()
+        #expect(preparer.keptLocation == [false, true, false], "off by default, then the setting as it is at each attach")
+    }
+
     @Test func noPreparerTakesNothing() async throws {
         let (window, view, _, store, _) = try await host()
         defer { close(window, view, store) }
@@ -268,9 +285,12 @@ import Testing
 @MainActor
 final class RecordingPreparer: HomeAttachmentPreparing {
     private(set) var inputs: [HomeDraftInput] = []
+    /// The `keepLocation` of each call, in order.
+    private(set) var keptLocation: [Bool] = []
 
     func prepareAttachment(fileURL: URL, keepLocation: Bool) async throws -> LocalAttachment {
         inputs.append(.file(fileURL))
+        keptLocation.append(keepLocation)
         let name = String(fileURL.lastPathComponent.split(separator: "-").last ?? "")
         return LocalAttachment(ref: AttachmentRef(hash: "h-\(name)", name: name, mimeType: "application/octet-stream", byteCount: 1),
                                fileURL: fileURL)
@@ -278,6 +298,7 @@ final class RecordingPreparer: HomeAttachmentPreparing {
 
     func prepareAttachment(data: Data, typeIdentifier: String, keepLocation: Bool) async throws -> LocalAttachment {
         inputs.append(.data(data, typeIdentifier: typeIdentifier))
+        keptLocation.append(keepLocation)
         return LocalAttachment(ref: AttachmentRef(hash: "h-pasted", name: "pasted.png", mimeType: "image/png", byteCount: data.count,
                                                   width: 2, height: 2),
                                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("pasted.png"))

@@ -63,6 +63,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
+    /// `home.attachments.keepLocation`; off (strip location) when unset.
+    public var homeKeepLocation = false
     /// `labs.previewFeatures`; off when unset.
     public var previewFeatures = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
@@ -201,6 +203,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
         snapshot.browserShowBookmarksBar = showBar
         if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
+        let (keepLocation, keepLocationDiagnostic) = HomeKeepLocationSetting.parse(root)
+        snapshot.homeKeepLocation = keepLocation
+        if let keepLocationDiagnostic { snapshot.diagnostics.append(keepLocationDiagnostic) }
         let (preview, previewDiagnostic) = Self.parsePreviewFeatures(root)
         snapshot.previewFeatures = preview
         if let previewDiagnostic { snapshot.diagnostics.append(previewDiagnostic) }

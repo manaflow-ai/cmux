@@ -507,6 +507,12 @@
       "title" : "Record Terminal Commands",
       "type" : "boolean"
     },
+    "home.attachments.keepLocation" : {
+      "default" : false,
+      "description" : "When off, location data is removed from photos and videos before they are attached.",
+      "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",

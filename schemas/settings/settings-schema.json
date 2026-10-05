@@ -6846,6 +6846,52 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attachments",
+        "text" : "Attachments"
+      },
+      "help" : {
+        "key" : "settings.home.keepLocation.help",
+        "text" : "When off, location data is removed from photos and videos before they are attached."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.attachments.keepLocation",
+      "keywords" : [
+        "gps",
+        "location",
+        "privacy",
+        "metadata",
+        "exif",
+        "attachments",
+        "photos"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "home",
+        "attachments",
+        "keepLocation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "title" : {
+        "key" : "settings.home.keepLocation",
+        "text" : "Keep Location in Photos and Videos"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -8170,7 +8216,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6da492ae6bca7cb1b97a4c02c4f88fd8c3ab49a20650602712ff23209e2674b2",
+  "schema_hash" : "8b5ac60cf8ab8772016dccb8ca358e335d76f5d46ce09a2991d18f6b687176f6",
   "sections" : [
     {
       "id" : "general",
@@ -8202,6 +8248,14 @@
       "title" : {
         "key" : "settings.section.browser",
         "text" : "Browser"
+      }
+    },
+    {
+      "id" : "home",
+      "symbol" : "house",
+      "title" : {
+        "key" : "settings.section.home",
+        "text" : "Home"
       }
     },
     {

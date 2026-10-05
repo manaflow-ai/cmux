@@ -36,7 +36,7 @@ struct SettingsSectionCards: View {
             if let accounts = model.host?.accountsView(tokens: SettingsTheme.shared.tokens) {
                 anchored(.accounts) { accounts }
             }
-        case .general, .browser, .notifications: EmptyView()
+        case .general, .browser, .home, .notifications: EmptyView()
         }
     }
 
