@@ -43,9 +43,20 @@ import Testing
         try await Self.waitUntil { window.content != nil }
         #expect(window.content?.panes.isEmpty == true)
 
+        do {
+            let scope = ActionScope(services: services, invocation: ActionInvocation(origin: .user))
+            let ws = scope.workspace
+            print("DIAG active===window", services.windows.active === window, "stateWS", window.state.workspaceID ?? "nil",
+                  "storeIDs", services.daemon.store.workspaces.map(\.id), "scopeWS", ws?.id ?? "nil", "key", ws?.key?.rawValue ?? "nil",
+                  "daemonForWS", ws.flatMap { services.machines.daemon(forWorkspace: $0.id) } != nil,
+                  "conn", services.daemon.connection != nil, "focusedPane", scope.pane != nil,
+                  "keyRole", String(describing: services.keyWindowRole), "machine", services.daemon.machineID ?? "nil")
+            services.registry.refusalObserver = { reason, quiet in print("DIAG refusal", reason, quiet) }
+        }
         let run = RegistryControlBridge(registry: services.registry).performActionTracked(ControlActionRequest(
             actionID: "palette.newAgentChat", origin: "user", focus: true
         ))
+        print("DIAG outcome", run.outcome, "commands", daemon.commands.names.withLock { $0 })
         #expect(run.outcome == .ran, "Cmd-I: \(run.outcome)")
         for task in run.work { #expect(await task.value == nil, "Cmd-I work") }
 
