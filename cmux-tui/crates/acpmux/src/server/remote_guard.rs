@@ -133,68 +133,42 @@ pub(super) async fn check(
     Ok(())
 }
 
-/// Per harness family, the exact mode ids that ask before they act; the
-/// first is the asking default a new Web session is moved to. A Web
-/// connection sets, and works from, only these modes. An unknown family, or
-/// a mode this table does not list for its family, is refused. The local
-/// user may add a harness in config.json (`webAskingModes`).
-const ASKING_MODES: &[(&str, &[&str])] = &[
-    // Claude (claude-agent-acp 0.74.0, dist/permissions/modes.js, and
-    // acpmux's own backend, claude_stdio/mod.rs `MODES`): "default" "prompts
-    // for permission on first use of each tool" and "plan" "can analyze but
-    // not modify files or execute commands"
-    // (https://docs.anthropic.com/en/docs/claude-code/iam#permission-modes).
-    // acceptEdits, dontAsk, auto and bypassPermissions do not ask.
-    ("claude", &["default", "plan"]),
-    // Codex (codex-acp 1.10.0, dist/index.js `_AgentMode`): "read-only" is
-    // "Ask for approval" ("Always ask to edit external files and use the
-    // internet"; approval on-request, reviewer user). Its DEFAULT mode
-    // "agent" ("Approve for me", auto_review) and "agent-full-access" do not
-    // ask, so a Web Codex session is moved to read-only.
-    ("codex", &["read-only"]),
-    // opencode: the "plan" agent sets file edits and bash to "ask"
-    // (https://opencode.ai/docs/agents/#plan). Its default "build" follows
-    // the default permissions, which allow without asking
-    // (https://opencode.ai/docs/permissions/).
-    ("opencode", &["plan"]),
-];
-
-/// The asking modes for `family`: the reviewed table, then config.json.
+/// The asking modes for `family`: the merged table (`web_modes.rs`).
 async fn asking_modes(hub: &std::sync::Arc<crate::hub::Hub>, family: &str) -> Vec<String> {
-    let mut modes: Vec<String> = ASKING_MODES
-        .iter()
-        .filter(|(f, _)| *f == family)
-        .flat_map(|(_, m)| m.iter().map(|s| s.to_string()))
-        .collect();
-    if let Some(extra) = hub.config.read().await.web_asking_modes.get(family) {
-        modes.extend(extra.iter().cloned());
-    }
-    modes
+    hub.web_modes().modes(family).to_vec()
 }
 
 fn family_of(m: &crate::store::SessionMeta) -> String {
-    m.family.clone().unwrap_or_else(|| m.harness.clone())
-}
-
-/// A session's current mode: its ACP mode, else its `mode` config option.
-fn mode_of(m: &crate::store::SessionMeta) -> Option<String> {
-    let from_modes = m.modes.as_ref().and_then(|v| v.get("currentModeId")).and_then(Value::as_str);
-    let from_option = || {
-        m.config_options.as_ref().and_then(Value::as_array).and_then(|a| {
-            a.iter()
-                .find(|o| o.get("id").and_then(Value::as_str) == Some("mode"))
-                .and_then(|o| o.get("currentValue"))
-                .and_then(Value::as_str)
-        })
-    };
-    from_modes.or_else(from_option).map(str::to_owned)
+    crate::web_modes::family_of(m)
 }
 
 /// Whether a session's mode asks: none reported, or listed for its family.
 async fn mode_asks(hub: &std::sync::Arc<crate::hub::Hub>, m: &crate::store::SessionMeta) -> bool {
-    match mode_of(m) {
-        None => true,
-        Some(mode) => asking_modes(hub, &family_of(m)).await.contains(&mode),
+    hub.web_modes().session_asks(m)
+}
+
+/// After a request ran: every reply to a non-unix connection is redacted
+/// (only the unix socket reads a token back), and a mode or option set
+/// re-checks the session's Web control (a set from the unix socket or the
+/// local app to an asking mode restores it; any set that leaves the table
+/// ends it).
+pub(super) fn after(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    origin: super::Origin,
+    m: &str,
+    key: Option<&str>,
+    reply: &mut Result<Value, RpcError>,
+) {
+    if matches!(m, method::SESSION_SET_MODE | method::SESSION_SET_CONFIG_OPTION)
+        && reply.is_ok()
+        && let Some(s) = key.and_then(|k| hub.resolve(k).ok())
+    {
+        hub.note_mode(&s, origin != super::Origin::Web);
+    }
+    if origin != super::Origin::Local
+        && let Ok(v) = reply
+    {
+        super::redact::redact_for_remote(m, v);
     }
 }
 
@@ -342,8 +316,24 @@ async fn web_starts_asking(
             "{m} from a remote WebSocket connection is refused: it carries a mode field"
         )));
     }
-    if !(copies || sets_mode) {
+    // Web CONTROL of a session (not reads) ends when its mode leaves the
+    // asking table (`hub/web_control.rs`).
+    let controls = matches!(
+        m,
+        method::SESSION_PROMPT
+            | method::MUX_PERMISSION_RESPOND
+            | method::MUX_PERMISSION_GROUP_RESPOND
+    );
+    if !(copies || sets_mode || controls) {
         return Ok(());
+    }
+    // A prompt or answer for a session not held here (a peer's) goes to that
+    // peer, whose own guard checks this Web connection's control there.
+    if controls && !sets_mode {
+        return match super::session_key(params).and_then(|key| hub.resolve(key)) {
+            Ok(s) => hub.web_control_check(&s),
+            Err(_) => Ok(()),
+        };
     }
     // The handler's own resolution; a source it cannot resolve (unknown, or
     // an ambiguous prefix) is refused for the Web, never passed unchecked.
@@ -353,6 +343,9 @@ async fn web_starts_asking(
             e.message
         ))
     })?;
+    if sets_mode {
+        hub.web_control_check(&s)?;
+    }
     let meta = s.meta();
     if sets_mode {
         let id = params.get("configId").and_then(Value::as_str);
