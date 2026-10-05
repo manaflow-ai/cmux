@@ -59,7 +59,7 @@ export class CloudDO extends CloudCore {
     const reg = { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk, ...(m.creator_sso_team ? { ssoTeam: m.creator_sso_team } : {}) }
     this.vmRevokes.beginRegister(reg, now)
     const vm = await registerVmInstall(this.env, reg)
-    if (!vm.ok) return { ok: false, code: "owner.unreachable", message: "the VM install could not be registered; retry the bind" }
+    if (!vm.ok) return (vm.code !== "owner.unreachable" && this.vmRevokes.endRegister(reg), { ok: false, code: "owner.unreachable", message: "the VM install could not be registered; retry the bind" })
     const params = { machine: req.machine, token_sha256, wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, vm_install: vm.id, now }
     // A fresh key per attempt: a second bind with a spent token must reach the reducer and be refused, never replay.
     const reply = this.submitSystem("cloud.machine.bind", params, `bind:${crypto.randomUUID()}`).frames.find((f) => f.t === "result" || f.t === "reject")
