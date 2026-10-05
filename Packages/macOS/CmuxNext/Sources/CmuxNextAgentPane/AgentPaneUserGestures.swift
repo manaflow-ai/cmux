@@ -91,6 +91,14 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
         denies.withLock { $0.merge(found) { $0.union($1) } }
     }
 
+    /// The same for a parsed daemon frame; `method` is the request a reply answers.
+    public func observe(_ object: [String: Any], replyTo method: String?) {
+        var found: [String: Set<String>] = [:]
+        Self.collect(object, permissionId: nil, into: &found)
+        guard !found.isEmpty else { return }
+        denies.withLock { $0.merge(found) { $0.union($1) } }
+    }
+
     /// True only when `optionId` is a known deny of `permissionId`; an unknown option counts as allow.
     public func isDeny(permissionId: String, optionId: String) -> Bool {
         denies.withLock { $0[permissionId]?.contains(optionId) ?? false }
