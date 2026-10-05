@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it, vi } from "vitest"
 import { clearSignInRules, withSsoSession } from "../src/policy-gate.ts"
+import { beginPairing } from "./pairing-harness.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -267,6 +268,32 @@ describe("OIDC sign-in (workerd)", () => {
     expect(dflt.error).toBeUndefined()
     clearSignInRules()
     expect((await op(pat, "user.ensure", {})).ok).toBe(true)
+  })
+
+  it("a daemon paired by an SSO-bound user keeps the SSO team, and its requests pass under enforced SSO (CLOUD-LINK-FOLLOWUPS 4)", async () => {
+    const s = await setup()
+    await ssoSignIn(s, "dana", "idp-dana")
+    const dana = await stackSession("stack_1", `dana@${DOMAIN}`, "rtid-stack_1")
+    expect((await op(dana, "user.ensure", {})).ok).toBe(true)
+    const on = await op(s.admin, "team.policy.update", { changes: [{ key: "sso.enforce", value: { value: true, mode: "enforced" } }], expected_version: 0, reason: "test" })
+    expect(on.error).toBeUndefined()
+    clearSignInRules()
+    const { res, pair } = await beginPairing(Date.now(), false, `203.0.113.${Math.floor(Math.random() * 250)}`)
+    expect(res.status).toBe(200)
+    const read = async (token: string, name: string) =>
+      worker.fetch("https://api.test/v1/read", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ op: name, params: {} }) })
+    const team = ((await (await read(dana, "team.directory")).json()) as any).value.team as string
+    const approved = await op(dana, "server.pair.approve", { code: res.json.code, team, name: "Studio" })
+    expect(approved.ok, JSON.stringify(approved)).toBe(true)
+    const { user, install } = approved.value as { user: string; install: string }
+    // The daemon mints its token with its own key and makes one request: both pass under enforced SSO.
+    const post = (path: string, body: unknown) => worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+    const ch = (await (await post("/v1/auth/challenge", { user, install })).json()) as { nonce: string; message_prefix: string }
+    const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.message_prefix}${ch.nonce}`)))
+    const tok = await post("/v1/auth/token", { user, install, nonce: ch.nonce, signature: b64u(sig) })
+    expect(tok.status).toBe(200)
+    const daemonToken = ((await tok.json()) as { access_token: string }).access_token
+    expect((await read(daemonToken, "install.list")).status).toBe(200)
   })
 
   it("lowering sso.sessionMaxAgeHours shortens the session records that already exist", async () => {
