@@ -80,6 +80,7 @@
         "libxaw7": "2:1.0.14-1build2",
         "libxfont2": "1:2.0.6-1+deb13u1build0.24.04.2",
         "libxi6": "2:1.8.1-1build1",
+        "libxkbcommon0": "1.6.0-1build1",
         "libxkbfile1": "1:1.1.0-1build4",
         "libxmu6": "2:1.1.3-3build2",
         "libxmuu1": "2:1.1.3-3build2",
@@ -294,7 +295,6 @@
           "libxcb-shape0": "1.15-1ubuntu2",
           "libxcursor1": "1:1.2.1-1build1",
           "libxfixes3": "1:6.0.0-2build1",
-          "libxkbcommon0": "1.6.0-1build1",
           "libxss1": "1:1.2.3-1build3",
           "libxv1": "2:1.0.11-1.1build1",
           "libxvidcore4": "2:1.3.7-1build1",
@@ -439,11 +439,26 @@
       "bin": { "juicefs": "juicefs" },
       "versionArgs": ["version"],
       "expect": "1.4.1"
+    },
+    {
+      "name": "cmux-cua",
+      "version": "0.8.2",
+      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.2/cmux-cua-0.8.2-linux-x86_64.tar.gz",
+      "sha256": "25e73e5bf0eb8a91808c003dc36254c1759f9640ca86ffac2470f505e9463b5b",
+      "size": 8705573,
+      "format": "tar.gz",
+      "bin": { "cmux-cua": "cmux-cua-0.8.2-linux-x86_64/cmux-cua" },
+      "versionArgs": ["--version"],
+      "expect": "cmux-cua 0.8.2",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.2/checksums.txt",
+      "checksumsName": "cmux-cua-0.8.2-linux-x86_64.tar.gz",
+      "roles": ["cua"],
+      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.2 (pre-release, 2026-10-04), debian:11 glibc 2.31 build; needs libX11 (base), libXi and libxkbcommon (display role)"
     }
   ],
   "roles": {
     "fonts": { "default": "on", "apt": ["fonts-noto-cjk"] },
-    "display": { "default": "off", "apt": ["xvfb", "xauth", "at-spi2-core", "libxtst6", "libxi6"] },
+    "display": { "default": "off", "apt": ["xvfb", "xauth", "at-spi2-core", "libxtst6", "libxi6", "libxkbcommon0"] },
     "display-wm": { "default": "off", "firstUse": true, "apt": ["openbox"] },
     "cua-video": { "default": "off", "firstUse": true, "apt": ["ffmpeg"] }
   },

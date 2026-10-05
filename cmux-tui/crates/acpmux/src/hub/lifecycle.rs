@@ -62,6 +62,8 @@ impl Hub {
             current.unavailable = next.unavailable;
             current.pool = next.pool;
             current.web_roots = next.web_roots;
+            current.web_asking_modes = next.web_asking_modes;
+            self.refresh_web_modes(&current.web_asking_modes);
             (
                 current.harnesses.keys().cloned().collect::<Vec<_>>(),
                 current.default_harness.clone(),

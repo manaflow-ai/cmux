@@ -43,7 +43,7 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
@@ -193,6 +193,7 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(lock.roles.display.default).toBe("off");
     for (const name of lock.roles.display.apt) expect(lock.apt.ubuntu.packages[name]).toBeDefined();
     expect(lock.roles.display.apt).toEqual(expect.arrayContaining(["xvfb", "xauth", "at-spi2-core"]));
+    expect(lock.roles.display.apt).toContain("libxkbcommon0"); // cmux-cua links libxkbcommon
     // openbox pulls Ghostscript, CUPS and poppler (+64 packages, about 92 MB): installed when a display first starts.
     expect(lock.roles["display-wm"].firstUse).toBe(true);
     expect(lock.apt.ubuntu.firstUse["display-wm"].openbox).toBeDefined();
@@ -241,10 +242,12 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(manifest.aptSnapshot).toBe(lock.apt.ubuntu.uri);
   });
 
-  test("cmux-cua is optional until its Linux release exists; once pinned it carries the LICENSE tarball and a role", () => {
-    expect(lock.programs.some((p) => p.name === "cmux-cua")).toBe(false);
-    const shape = cmuxCuaReleaseShape("0.8.0", "x86_64");
-    expect(shape).toEqual({
+  test("cmux-cua is optional in the schema; the pinned 0.8.2 entry matches the release contract shape and is cross-checked against checksums.txt", () => {
+    const pinned = lock.programs.find((p) => p.name === "cmux-cua")!;
+    const shape = cmuxCuaReleaseShape("0.8.2", "x86_64");
+    expect(pinned).toMatchObject({ ...shape, expect: "cmux-cua 0.8.2", checksumsName: "cmux-cua-0.8.2-linux-x86_64.tar.gz" });
+    expect(pinned.checksumsUrl).toBe("https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.2/checksums.txt");
+    expect(cmuxCuaReleaseShape("0.8.0", "x86_64")).toEqual({
       name: "cmux-cua",
       version: "0.8.0",
       url: "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.0/cmux-cua-0.8.0-linux-x86_64.tar.gz",
@@ -256,9 +259,8 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     });
     expect(cmuxCuaReleaseShape("0.8.0", "arm64").url).toContain("cmux-cua-0.8.0-linux-arm64.tar.gz");
     const raw = fresh();
-    raw.programs.push({ ...shape, sha256: "a".repeat(64), size: 1234 });
     expect(problemsOf(raw)).toEqual([]);
-    raw.programs[raw.programs.length - 1].roles = ["cua", "nope"];
+    raw.programs.find((p: { name: string }) => p.name === "cmux-cua").roles = ["cua", "nope"];
     expect(problemsOf(raw).some((p) => p.includes('roles: unknown role "nope"'))).toBe(true);
   });
 });

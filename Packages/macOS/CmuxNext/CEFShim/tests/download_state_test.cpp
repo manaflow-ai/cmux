@@ -122,7 +122,7 @@ static PendingPopup Popup(int id, const std::string& url, int disposition, bool 
 }
 
 // P3 (2): the popup a new tab belongs to matches by target URL, refused
-// popups drop out, and stale ones expire after about 1 s.
+// popups drop out, and stale ones expire (APopupLivesFiveSeconds).
 static void PopupsMatchByURL() {
   PendingPopups popups;
   popups.Remember(5, Popup(1, "https://a.com/", 3, true, 1000));
@@ -139,7 +139,34 @@ static void APopupForAnotherURLIsNotTaken() {
   popups.Remember(5, Popup(1, "https://a.com/", 3, true, 0));
   PendingPopup got;
   Check(!popups.Take(5, "https://other.com/", 10, &got), "a known other URL takes nothing");
-  Check(popups.Take(5, "", 10, &got) && got.popup_id == 1, "an unknown URL takes the oldest");
+  Check(popups.Take(5, "https://a.com/", 10, &got) && got.popup_id == 1, "the popup stays for its own URL");
+}
+
+// Coordinator decision (3): a tab whose URL is unknown at OnAfterCreated
+// gets no popup (so no gesture), even when one is live; a known URL takes
+// only a popup with that exact URL, never one whose URL is unknown.
+static void AnUnknownTabURLTakesNothing() {
+  PendingPopups popups;
+  popups.Remember(5, Popup(1, "https://a.com/", 3, true, 0));
+  popups.Remember(5, Popup(2, "", 3, true, 0));
+  PendingPopup got;
+  Check(!popups.Take(5, "", 10, &got), "an unknown tab URL takes no popup");
+  Check(!popups.Take(5, "https://b.com/", 10, &got), "a known URL never takes a popup with no URL");
+  Check(popups.Take(5, "https://a.com/", 10, &got) && got.popup_id == 1 && got.user_gesture,
+        "the matching popup is still there");
+}
+
+// Coordinator decision (1): the gesture lives 5 s, Chrome's user-activation
+// lifetime.
+static void APopupLivesFiveSeconds() {
+  PendingPopups popups;
+  popups.Remember(5, Popup(1, "https://a.com/", 3, true, 0));
+  PendingPopup got;
+  Check(popups.Take(5, "https://a.com/", 4000, &got) && got.user_gesture, "4 s later: still live");
+  popups.Remember(5, Popup(2, "https://a.com/", 3, true, 10000));
+  Check(popups.Take(5, "https://a.com/", 15000, &got) && got.popup_id == 2, "exactly 5 s later: still live");
+  popups.Remember(5, Popup(3, "https://a.com/", 3, true, 20000));
+  Check(!popups.Take(5, "https://a.com/", 25001, &got), "more than 5 s later: gone");
 }
 
 static void RefusedPopupsDrop() {
@@ -156,14 +183,14 @@ static void StalePopupsExpire() {
   popups.Remember(5, Popup(1, "https://a.com/", 3, true, 0));
   PendingPopup got;
   Check(!popups.Take(5, "https://a.com/", PendingPopups::kLifetimeMs + 1, &got), "older than the lifetime: gone");
-  popups.Remember(5, Popup(2, "https://a.com/", 3, true, 5000));
-  Check(popups.Take(5, "https://a.com/", 5000 + PendingPopups::kLifetimeMs, &got) && got.popup_id == 2,
+  popups.Remember(5, Popup(2, "https://a.com/", 3, true, 50000));
+  Check(popups.Take(5, "https://a.com/", 50000 + PendingPopups::kLifetimeMs, &got) && got.popup_id == 2,
         "at the lifetime: still live");
-  popups.Remember(5, Popup(3, "", 3, true, 9000));
-  popups.Remember(6, Popup(4, "", 3, true, 9000));
+  popups.Remember(5, Popup(3, "https://c.com/", 3, true, 90000));
+  popups.Remember(6, Popup(4, "https://c.com/", 3, true, 90000));
   popups.Forget(5);
-  Check(!popups.Take(5, "", 9001, &got), "a closed opener's popups are gone");
-  Check(popups.Take(6, "", 9001, &got) && got.popup_id == 4, "other openers keep theirs");
+  Check(!popups.Take(5, "https://c.com/", 90001, &got), "a closed opener's popups are gone");
+  Check(popups.Take(6, "https://c.com/", 90001, &got) && got.popup_id == 4, "other openers keep theirs");
 }
 
 int main() {
@@ -175,6 +202,8 @@ int main() {
   OnlyWebSchemesDownload();
   PopupsMatchByURL();
   APopupForAnotherURLIsNotTaken();
+  AnUnknownTabURLTakesNothing();
+  APopupLivesFiveSeconds();
   RefusedPopupsDrop();
   StalePopupsExpire();
   std::printf("%d/%d cases passed\n", cases - failures, cases);

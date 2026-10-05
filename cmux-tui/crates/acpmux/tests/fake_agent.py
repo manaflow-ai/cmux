@@ -114,6 +114,11 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode: X": the harness changes its own mode, as a real one may.
+    if text.startswith("set-mode:"):
+        update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "env: NAME" replies with that environment variable, for spawn-time checks.
     if text.startswith("env:"):
         name = text[4:].strip()

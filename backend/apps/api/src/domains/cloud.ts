@@ -313,6 +313,10 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     const l = entry.machine === stored.row.id ? ledgerRow(ctx.rows, key) : undefined
     // A pause or start still retrying is settled now (review P3): the delete never waits behind it; a call
     // already running finishes, its late result changes nothing, and the delete then removes the VM by name.
+    // A pending snapshot is NOT cancelled (review P3, decided 2026-10-05): "snapshot, then delete" is a
+    // normal way to keep a machine's state, and snapshots outlive their machine. The single-flight pass
+    // runs it first (intent order), then the delete removes the VM; a snapshot that fails for good is
+    // recorded failed. The delete waits for it (at most the snapshot's retries, about 30 s).
     if (l && (l.row.op === "pause" || l.row.op === "start" || l.row.op === "resize")) {
       writes.push(upsertLedger({ ...l.row, state: "cancelled", updated_at: ctx.now }, l.n))
       pending = Object.fromEntries(Object.entries(pending).filter(([k]) => k !== key))

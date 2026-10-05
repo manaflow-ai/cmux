@@ -114,4 +114,22 @@ describe("snapshots", { timeout: 60_000 }, () => {
     const rows = await (runInDurableObject as unknown as (s: unknown, f: (i: any) => Promise<unknown>) => Promise<any>)(x.stub, async (i: any) => [i.boundEngine.rows.get("machine", restored).row.from_snapshot, i.boundEngine.rows.get("machine", machine).row.from_snapshot])
     expect(rows).toEqual([`cmuxnp-test-cld-${id.replace(/_/g, "-")}`, undefined])
   })
+
+  it("a snapshot taken right before a delete finishes first and survives the machine (intent order; review P3: not cancelled on purpose)", async () => {
+    const x = person()
+    await ensureUser(x)
+    const { machine } = await createdAndBound(x)
+    // The snapshot call fails once and waits for its retry; the delete arrives meanwhile.
+    await x.stub.fakeControl({ fail_next: 1 } as never)
+    const snap = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine })))
+    expect(snap).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
+    const id = (await x.stub.readOp(x.team, x.p, "cloud.snapshot.list", { machine })).value.snapshots[0].id as string
+    reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.delete", { machine })))
+    await x.stub.fakeControl({ advance_ms: 60_000 } as never)
+    const { fireAlarm } = await import("./setup/alarm.ts")
+    for (let i = 0; i < 3; i++) await fireAlarm(x.stub)
+    expect((await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })).ok).toBe(false)
+    expect((await x.stub.readOp(x.team, x.p, "cloud.snapshot.list", {})).value.snapshots).toEqual([expect.objectContaining({ id, status: "ready" })])
+    expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.restore", { snapshot: id }))).t).toBe("result")
+  })
 })

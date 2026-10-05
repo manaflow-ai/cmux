@@ -1,3 +1,4 @@
+import { errorMessage } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -128,6 +129,11 @@ type Intent = {
   done: { resolve(sessionId: string | undefined): void; promise: Promise<string | undefined> };
 };
 
+/// The frame a gesture ticket redeems for (ad349, pane-native transport).
+export type GestureIntent =
+  | { method: "session/set_mode"; params: { modeId: string } }
+  | { method: "session/set_config_option"; params: { configId: string; value: string } };
+
 export type SwitchHandlers = {
   /// Puts prompts a failed or cancelled switch held back into the composer: their text, joined
   /// in order, and every attachment they carried, as they were.
@@ -137,9 +143,10 @@ export type SwitchHandlers = {
   /// A pick the agent refused (a model it would not switch to).
   notice?(text: string): void;
   /// Spends the user's pick gesture with the host (`transport.gesture`) and resolves to its
-  /// single-use ticket. Called in the pick's own handler, while the gesture is live; a refusal
-  /// means there was none, and the pick applies without a ticket.
-  gesture?(): Promise<string | undefined>;
+  /// single-use ticket, bound to `intent`: the exact frame the pick sends later (its method, and
+  /// its params without sessionId and _meta). Called in the pick's own handler, while the gesture
+  /// is live; a refusal means there was none, and the pick applies without a ticket.
+  gesture?(intent: GestureIntent): Promise<string | undefined>;
 };
 
 function deferred<T>() {
@@ -148,8 +155,7 @@ function deferred<T>() {
   return { resolve, promise };
 }
 
-const errorText = (error: unknown) =>
-  error instanceof Error && error.message ? error.message : typeof error === "string" && error ? error : "";
+const errorText = errorMessage;
 
 export class HarnessSwitch {
   private intent?: Intent;
@@ -298,23 +304,26 @@ export class HarnessSwitch {
   pickMode(mode: string): boolean {
     if (!this.intent) return false;
     this.intent.config = { ...this.intent.config, mode };
-    this.intent.tickets.set("mode", this.takeTicket());
+    this.intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: mode } }));
     this.changed();
     return true;
   }
   pickConfig(configId: string, value: string): boolean {
     if (!this.intent) return false;
     this.intent.config = { ...this.intent.config, options: { ...this.intent.config.options, [configId]: value } };
-    this.intent.tickets.set(`config:${configId}`, this.takeTicket());
+    this.intent.tickets.set(
+      `config:${configId}`,
+      this.takeTicket({ method: "session/set_config_option", params: { configId, value } }),
+    );
     this.changed();
     return true;
   }
 
-  private takeTicket(): Promise<string | undefined> {
+  private takeTicket(intent: GestureIntent): Promise<string | undefined> {
     const gesture = this.handlers.gesture;
     if (!gesture) return Promise.resolve(undefined);
     try {
-      return gesture().catch(() => undefined);
+      return gesture(intent).catch(() => undefined);
     } catch {
       return Promise.resolve(undefined);
     }
@@ -445,18 +454,23 @@ export class HarnessSwitch {
     const { model, mode, options } = intent.config;
     const applied: Promise<void>[] = [];
     if (model) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
+    // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
+    const pickRefused = (error: unknown) => {
+      const code = (error as { code?: unknown } | undefined)?.code;
+      if (typeof code === "string" && code.startsWith("transport.")) this.handlers.notice?.(errorMessage(error));
+    };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
     if (mode)
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch(() => undefined),
+          .catch(pickRefused),
       );
     for (const [configId, value] of Object.entries(options))
       applied.push(
         ticket(`config:${configId}`)
           .then((t) => port.setConfig(configId, value, t))
-          .catch(() => undefined),
+          .catch(pickRefused),
       );
     // Prompts go out after the picks, so the first turn runs on what the user chose.
     await Promise.all(applied);

@@ -512,6 +512,7 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
 {machine?}`, `cloud.snapshot.delete {snapshot}` (the provider snapshot under its recorded name only;
 `cloud.snapshot.removed {snapshot, revision}`), `cloud.snapshot.restore {snapshot, name?}` (a new machine
 booted from the snapshot, every create check, a fresh bind). Create, delete and restore are money ops (a
-signed-in person, per-team limit). Snapshots stay after their machine is deleted. `size_mb` is the
+signed-in person, per-team limit). Snapshots stay after their machine is deleted; a snapshot still being
+taken when its machine is deleted finishes first (intent order), so "snapshot, then delete" keeps the state. `size_mb` is the
 machine's disk size when it was taken (Freestyle reports no snapshot size).
 
