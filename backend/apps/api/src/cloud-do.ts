@@ -6,7 +6,8 @@ import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
-import { CloudCore, statusApplied } from "./cloud-do-core.ts"
+import { statusApplied } from "./cloud-do-core.ts"
+import { CloudIdle } from "./cloud-do-idle.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -19,7 +20,7 @@ const STATE_CHECK_EVERY_MS = 30_000
  * `cloud.driver_result`. A crash between the call and that commit leaves the row pending; the
  * alarm runs it again, and the guarded driver finds the VM by its deterministic name.
  */
-export class CloudDO extends CloudCore {
+export class CloudDO extends CloudIdle {
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
     if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
