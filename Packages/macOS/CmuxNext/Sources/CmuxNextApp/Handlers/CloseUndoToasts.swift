@@ -1,28 +1,35 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import Observation
 
-/// REOPEN-CLOSED (R102/R103): a tab the user closes (Cmd-W, its close
-/// button, the strip's context menu) does not ask; an undo toast in its
-/// window offers to reopen it, and Cmd-Z runs that toast (TOAST-UNDO-KEY).
-/// The close is announced before it happens (`expect`); the toast shows when
-/// the closed history records that exact tab (the app's tracker, or the
-/// daemon's closed-history items), and its action reopens that record, not
-/// the newest one. One close toast per window: a newer close replaces it.
-/// Automation closes (CLI, agents) never announce, so they show no toast.
+/// REOPEN-CLOSED (R102/R103): tabs the user closes (Cmd-W, a tab's close
+/// button, the strip's context menu, close others / to the right / to the
+/// left, closing a tab group) do not ask; an undo toast in their window
+/// offers them back, and Cmd-Z runs that toast (TOAST-UNDO-KEY). A close is
+/// announced before it happens (`expect`, `expectGroup`); the toast shows
+/// once the closed history records every tab of that gesture (the app's
+/// tracker, or the daemon's closed-history items of that pane), and its
+/// action reopens exactly those records at their own places, never "the
+/// newest". One gesture, one toast: "Closed “title”" for one tab, "Closed
+/// N tabs" for a group. One close toast per window: a newer close replaces
+/// it. Automation closes (CLI, agents) never announce, so they show no toast.
 @MainActor
 final class CloseUndoToasts {
-    /// One announced close, waiting for its history record.
+    /// One announced gesture, waiting for its history records.
     struct Expected {
-        /// The tracker's record id (`<machine>/<tab id>`).
-        var trackerTabID: String
-        /// The daemon's closed item for it: same pane, same position.
+        /// The tracker's record id (`<machine>/<tab id>`) of each tab, with
+        /// the position it held before the gesture.
+        var tabs: [(trackerTabID: String, index: Int)]
+        /// The daemon's closed items for them come from this pane.
         var paneResourceID: ResourceID?
-        var index: Int
         var title: String
         weak var window: NSWindow?
+        var records: [ClosedTabHistory.Record] = []
+        var daemonItems: [String] = []
+        var daemonTabs = 0
     }
 
     private weak var services: AppServices?
@@ -40,7 +47,7 @@ final class CloseUndoToasts {
         // task-owner: the service (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self] in
             for await ids in Observations({ Self.daemonItemIDs(machines.daemons) }) {
-                self?.daemonItemsChanged(Set(ids))
+                self?.daemonItemsChanged(ids)
             }
         }
     }
@@ -51,50 +58,84 @@ final class CloseUndoToasts {
         daemons.filter(\.store.servesStateResources).flatMap { $0.store.closedItems.map(\.id) }
     }
 
-    /// The user is closing tab `id` of `pane`: show the toast when the
-    /// history records it.
+    /// A user's close of `ids` in `pane` (its close button, close others or
+    /// to the right): announced, then closed, so its undo toast shows.
+    /// An action run from automation (CLI, agents) closes without a toast.
+    static func close(in pane: PaneController, _ ids: [StripTabID]) {
+        if isUserClose { pane.services.closedTabs?.undoToasts.expectGroup(ids, in: pane) }
+        pane.close(ids)
+    }
+
+    /// No action run (a click in the strip) or a user-origin run.
+    static var isUserClose: Bool { (ActionRunScope.current?.origin ?? .user) == .user }
+
+    /// The user is closing tab `id` of `pane`.
     func expect(_ id: StripTabID, in pane: PaneController) {
-        guard let tab = pane.tab(id), let index = pane.pane.tabs.firstIndex(where: { $0 === tab }) else { return }
-        expected.append(Expected(trackerTabID: ClosedTabTracker.qualified(pane.daemon.machineID, tab.id), paneResourceID: pane.pane.resourceID,
-                                 index: index, title: tab.displayTitle, window: pane.view.window))
+        expectGroup([id], in: pane)
+    }
+
+    /// The user is closing tabs `ids` of `pane` in one gesture.
+    func expectGroup(_ ids: [StripTabID], in pane: PaneController) {
+        expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, daemon: pane.daemon, window: pane.view.window)
+    }
+
+    /// The user is closing `tabs` of `pane` in one gesture (a tab group
+    /// that may not be shown; `window` is where the toast goes).
+    func expectGroup(tabs: [TabModel], in pane: PaneModel, daemon: DaemonService, window: NSWindow?) {
+        let entries = tabs.compactMap { tab in
+            pane.tabs.firstIndex { $0 === tab }.map { (trackerTabID: ClosedTabTracker.qualified(daemon.machineID, tab.id), index: $0) }
+        }
+        guard !entries.isEmpty else { return }
+        expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
+                                 title: tabs.count == 1 ? tabs[0].displayTitle : "", window: window))
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
     }
 
-    /// The user is closing several tabs of `pane` in one gesture (close
-    /// others, to the right or left, a tab group): one toast offers the whole
-    /// group back.
-    func expectGroup(_ ids: [StripTabID], in pane: PaneController) {}
-
     /// The app's tracker recorded a closed tab.
     func trackerRecorded(_ record: ClosedTabHistory.Record) {
-        guard let position = expected.firstIndex(where: { $0.trackerTabID == record.tabID }) else { return }
+        guard let position = expected.firstIndex(where: { $0.tabs.contains { $0.trackerTabID == record.tabID } }) else { return }
+        expected[position].records.append(record)
+        guard expected[position].records.count == expected[position].tabs.count else { return }
         let close = expected.remove(at: position)
         show(close) { [weak services] in
-            guard let services, let tracker = services.closedTabs, let record = tracker.take(record.tabID) else { return }
-            tracker.reopen(record, fallback: services.windows.active?.focusedPane)
+            guard let services, let tracker = services.closedTabs else { return }
+            // Ascending original positions, so each tab lands where it was.
+            for (tabID, index) in close.tabs {
+                guard var record = tracker.take(tabID) else { continue }
+                record.index = index
+                tracker.reopen(record, fallback: services.windows.active?.focusedPane)
+            }
         }
     }
 
-    private func daemonItemsChanged(_ ids: Set<String>) {
-        let added = ids.subtracting(seenDaemonItems)
-        seenDaemonItems = ids
+    private func daemonItemsChanged(_ ids: [String]) {
+        let added = ids.filter { !seenDaemonItems.contains($0) }
+        seenDaemonItems = Set(ids)
         guard let services else { return }
         for id in added {
             guard let entry = DaemonClosedHistory.entry(id, in: services), entry.item.kind == .tab,
-                  let position = expected.firstIndex(where: { $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID
-                      && $0.index == entry.item.index }) else { continue }
+                  let position = expected.firstIndex(where: { $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID })
+            else { continue }
+            expected[position].daemonItems.append(id)
+            expected[position].daemonTabs += max(entry.item.tabs.count, 1)
+            guard expected[position].daemonTabs >= expected[position].tabs.count else { continue }
             let close = expected.remove(at: position)
             show(close) { [weak services] in
-                guard let services, let entry = DaemonClosedHistory.entry(id, in: services) else { return }
-                DaemonClosedHistory.reopen(entry, services: services)
+                guard let services else { return }
+                // Each item holds the position it had when it closed: reopen the last closed first.
+                for id in close.daemonItems.reversed() {
+                    guard let entry = DaemonClosedHistory.entry(id, in: services) else { continue }
+                    DaemonClosedHistory.reopen(entry, services: services)
+                }
             }
         }
     }
 
     private func show(_ close: Expected, reopen: @escaping @MainActor () -> Void) {
         guard let window = close.window ?? services?.windows.active?.window else { return }
-        let title = close.title.isEmpty ? MiscHandlerStrings.untitledTab : close.title
-        let handle = toasts.show(CmuxToast(id: Self.toastID, message: MiscHandlerStrings.tabClosed(title), action: .undo()), in: window)
+        let message = close.tabs.count > 1 ? MiscHandlerStrings.tabsClosed(close.tabs.count)
+            : MiscHandlerStrings.tabClosed(close.title.isEmpty ? MiscHandlerStrings.untitledTab : close.title)
+        let handle = toasts.show(CmuxToast(id: Self.toastID, message: message, action: .undo()), in: window)
         handle.onAction = reopen
     }
 }

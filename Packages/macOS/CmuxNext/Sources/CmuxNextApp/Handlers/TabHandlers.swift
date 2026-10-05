@@ -44,7 +44,7 @@ enum TabHandlers {
             guard let (pane, id) = ctx.tab(invocation) else { return }
             let tabs = pane.stripModel.orderedTabs
             guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-            pane.close(tabs[..<index].filter { !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: pane, tabs[..<index].filter { !$0.isPinned }.map(\.id))
         })
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }

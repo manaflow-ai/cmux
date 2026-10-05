@@ -7,6 +7,10 @@ enum MiscHandlerStrings {
     static func tabClosed(_ title: String) -> String {
         String(format: String(localized: "handlers.misc.closed.toast", defaultValue: "Closed “%@”", table: "MiscHandlers", bundle: .module), title)
     }
+    /// The undo toast of a group close (REOPEN-CLOSED): `Closed N tabs` (plural rules).
+    static func tabsClosed(_ count: Int) -> String {
+        String(localized: "handlers.misc.closed.toastTabs", defaultValue: "Closed \(count) tabs", table: "MiscHandlers", bundle: .module)
+    }
     static var untitledTab: String { String(localized: "handlers.misc.closed.untitledTab", defaultValue: "Untitled Tab", table: "MiscHandlers", bundle: .module) }
     static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module) }
     static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module) }
