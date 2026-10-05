@@ -12,6 +12,8 @@ final class EmptyWorkspaceView: NSView {
 
     private let newButton = NSButton()
     private let importButton = NSButton()
+    private let titleLabel = NSTextField(labelWithString: EmptyWorkspaceStrings.title)
+    private let subtitleLabel = NSTextField(labelWithString: EmptyWorkspaceStrings.subtitle)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -32,15 +34,13 @@ final class EmptyWorkspaceView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     private func build() {
-        let title = NSTextField(labelWithString: EmptyWorkspaceStrings.title)
+        let title = titleLabel
         title.font = Typography.header
         title.alignment = .center
-        title.textColor = Palette.textPrimary
 
-        let subtitle = NSTextField(labelWithString: EmptyWorkspaceStrings.subtitle)
+        let subtitle = subtitleLabel
         subtitle.font = Typography.body
         subtitle.alignment = .center
-        subtitle.textColor = Palette.textSecondary
         subtitle.maximumNumberOfLines = 2
 
         for (button, title, selector, identifier) in [
@@ -75,6 +75,26 @@ final class EmptyWorkspaceView: NSView {
         ])
         newButton.setAccessibilityLabel(EmptyWorkspaceStrings.new)
         importButton.setAccessibilityLabel(EmptyWorkspaceStrings.importAndSync)
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    /// Colors resolve in this view's theme scope (its workspace's theme), and
+    /// again when the theme or the window changes.
+    private func applyColors() {
+        performWithTheme {
+            titleLabel.textColor = Palette.textPrimary
+            subtitleLabel.textColor = Palette.textSecondary
+        }
     }
 
     override func becomeFirstResponder() -> Bool {
