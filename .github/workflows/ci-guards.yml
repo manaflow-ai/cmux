@@ -1080,6 +1080,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly release notes and appcast summaries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_release_notes.py
+
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_sparkle_key.sh
