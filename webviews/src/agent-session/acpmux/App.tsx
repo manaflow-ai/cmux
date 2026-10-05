@@ -26,6 +26,7 @@ import {
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { postNative } from "./native";
+import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { NewTabScreen } from "./newtab/NewTabScreen";
@@ -1684,7 +1685,7 @@ function AcpmuxPane() {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
-          setHostError(error instanceof Error ? error.message : String(error));
+          setHostError(errorMessage(error) || String(error));
           // Back off so a host without a daemon is not asked four times a second.
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);

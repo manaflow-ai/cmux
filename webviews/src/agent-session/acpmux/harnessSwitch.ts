@@ -1,3 +1,4 @@
+import { errorMessage } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -154,8 +155,7 @@ function deferred<T>() {
   return { resolve, promise };
 }
 
-const errorText = (error: unknown) =>
-  error instanceof Error && error.message ? error.message : typeof error === "string" && error ? error : "";
+const errorText = errorMessage;
 
 export class HarnessSwitch {
   private intent?: Intent;
@@ -454,18 +454,23 @@ export class HarnessSwitch {
     const { model, mode, options } = intent.config;
     const applied: Promise<void>[] = [];
     if (model) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
+    // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
+    const pickRefused = (error: unknown) => {
+      const code = (error as { code?: unknown } | undefined)?.code;
+      if (typeof code === "string" && code.startsWith("transport.")) this.handlers.notice?.(errorMessage(error));
+    };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
     if (mode)
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch(() => undefined),
+          .catch(pickRefused),
       );
     for (const [configId, value] of Object.entries(options))
       applied.push(
         ticket(`config:${configId}`)
           .then((t) => port.setConfig(configId, value, t))
-          .catch(() => undefined),
+          .catch(pickRefused),
       );
     // Prompts go out after the picks, so the first turn runs on what the user chose.
     await Promise.all(applied);
