@@ -155,7 +155,7 @@ struct NewMachineSheet: View {
     private var agentsLabel: String { String(localized: "machines.new.row.agents.short", defaultValue: "Agents") }
     private var agentsTitle: String { String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date") }
     private var agentsHelp: String { CloudAgentUpdatesExplainer.text }
-    private var baseImageLabel: String { String(localized: "machines.new.row.baseImage", defaultValue: "Base image") }
+    private var baseImageLabel: String { String(localized: "machines.new.row.baseImage", defaultValue: "Base") }
     private var inheritedSettingsText: String { String(localized: "machines.new.baseImage.inheritedSettings", defaultValue: "Size, network, and agent settings are inherited from the base machine.") }
 
     // MARK: A. Grid

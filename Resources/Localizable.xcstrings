@@ -624682,55 +624682,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Base image"
+            "value": "Base"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Basis-Image"
+            "value": "Basis"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Image de base"
+            "value": "Base"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الصورة الأساسية"
+            "value": "أساس"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Imagen base"
+            "value": "Base"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "基礎映像"
+            "value": "基礎"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "基础映像"
+            "value": "基础"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기본 이미지"
+            "value": "기본"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ベースイメージ"
+            "value": "ベース"
           }
         }
       }
