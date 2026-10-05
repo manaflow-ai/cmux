@@ -419,7 +419,17 @@
 
       ],
       "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
 
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -450,7 +460,17 @@
 
       ],
       "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
 
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -22282,6 +22302,624 @@
       },
       "title" : "Previous Item",
       "title_key" : "action.list.previous",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-first-item",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen && (palette.actionsMenuOpen || palette.hierarchical && palette.queryEmpty)"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.firstItem",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: First Item",
+      "title_key" : "action.paletteKey.firstItem",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-last-item",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen && (palette.actionsMenuOpen || palette.hierarchical && palette.queryEmpty)"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.lastItem",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Last Item",
+      "title_key" : "action.paletteKey.lastItem",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-page-up",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.pageUp",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Page Up",
+      "title_key" : "action.paletteKey.pageUp",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-page-down",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.pageDown",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Page Down",
+      "title_key" : "action.paletteKey.pageDown",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-submit",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\r",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "\r",
+              "modifiers" : [
+                "shift"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "\r",
+              "modifiers" : [
+                "opt"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        },
+        {
+          "keys" : [
+            {
+              "key" : " ",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen && palette.queryEmpty && palette.togglesInPlace && !palette.actionsMenuOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.submit",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Run Item",
+      "title_key" : "action.paletteKey.submit",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-submit-alternate",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\r",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "\r",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.submitAlternate",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Run Item's Other Command",
+      "title_key" : "action.paletteKey.submitAlternate",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-open-actions",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.openActions",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Show Actions",
+      "title_key" : "action.paletteKey.openActions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-close-actions",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "shift"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.closeActions",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Hide Actions",
+      "title_key" : "action.paletteKey.closeActions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-toggle-actions",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "k",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.toggleActions",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Show or Hide Actions",
+      "title_key" : "action.paletteKey.toggleActions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-escape",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\u001b",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.escape",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Clear or Close",
+      "title_key" : "action.paletteKey.escape",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-enter-row",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen && palette.hierarchical && !palette.actionsMenuOpen && palette.caretAtEnd"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.enterRow",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Open Item",
+      "title_key" : "action.paletteKey.enterRow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-leave-level",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen && palette.hierarchical && !palette.actionsMenuOpen"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen && palette.hierarchical && !palette.actionsMenuOpen && palette.caretAtStart"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.leaveLevel",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Up One Level",
+      "title_key" : "action.paletteKey.leaveLevel",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-back",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\b",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen && palette.queryEmpty && !palette.actionsMenuOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.back",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Back",
+      "title_key" : "action.paletteKey.back",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-filter-delete-backward",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "\b",
+              "modifiers" : [
+
+              ]
+            }
+          ],
+          "when" : "paletteOpen && palette.actionsMenuOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.filterDeleteBackward",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Delete Filter Character",
+      "title_key" : "action.paletteKey.filterDeleteBackward",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action palette-key-close-item",
+      "context_menu" : "paletteInternal",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "w",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "paletteKey.closeItem",
+      "mcp" : "liveInput",
+      "palette" : "paletteInternal",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Palette: Close Item's Object",
+      "title_key" : "action.paletteKey.closeItem",
       "title_table" : "ActionCatalog"
     }
   ],

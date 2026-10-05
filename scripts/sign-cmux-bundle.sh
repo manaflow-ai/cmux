@@ -183,6 +183,10 @@ fi
   --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
   --require-signed
 
+# The browser host, when the bundle carries one, sits beside bin/cmux (the
+# daemon runs its sibling) and is signed like it: Developer ID, hardened runtime.
+"$SCRIPT_DIR/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" --hardened
+
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"
 

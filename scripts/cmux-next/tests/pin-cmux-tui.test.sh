@@ -85,4 +85,14 @@ out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || stat
 printf '%s\ncloud_server_url=https://example.com/cmux-cloud\ncloud_server_sha256=%s\n' "$good" "$(printf 'c%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
 out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh cloud-server-path --pin)
 [[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-cloud ]] || { printf 'cloud-server-path --pin printed %s\n' "$out" >&2; exit 1; }
+# The browser host pin fields go together the same way, and browser-host-path
+# names the file fetch puts beside the pinned binary.
+printf '%s\nbrowser_host_sha256=%s\n' "$good" "$(printf 'd%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+status=0
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || status=$?
+[[ "$status" == 1 ]] && grep -q 'browser_host_url= and browser_host_sha256= go together' <<<"$out" \
+  || { printf 'a half browser_host pin was not refused (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+printf '%s\nbrowser_host_url=https://example.com/cmux-browser-host\nbrowser_host_sha256=%s\n' "$good" "$(printf 'd%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh browser-host-path --pin)
+[[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-browser-host ]] || { printf 'browser-host-path --pin printed %s\n' "$out" >&2; exit 1; }
 printf 'pin-cmux-tui tests: ok\n'

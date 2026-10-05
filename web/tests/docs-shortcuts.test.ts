@@ -31,7 +31,10 @@ const bound: Action[] = surfaces.actions.filter((action: Action) => action.defau
 /** The keys a reader sees for one stroke: modifiers ⌃⌥⇧⌘, then the key. */
 function expectedStroke(wire: Wire): string[] {
   const symbols: Record<string, string> = { ctrl: "⌃", opt: "⌥", shift: "⇧", cmd: "⌘" };
-  const keys: Record<string, string> = { "": "↑", "": "↓", "": "←", "": "→", "\r": "↩", "\t": "⇥", " ": "Space" };
+  const keys: Record<string, string> = {
+    "\uf700": "↑", "\uf701": "↓", "\uf702": "←", "\uf703": "→", "\uf72c": "PgUp", "\uf72d": "PgDn",
+    "\uf729": "Home", "\uf72b": "End", "\r": "↩", "\t": "⇥", " ": "Space", "\u001b": "Esc", "\b": "⌫",
+  };
   const key = wire.family === "digits" ? "1…9" : (keys[wire.key] ?? wire.key.toUpperCase());
   return [...wire.modifiers.map((modifier) => symbols[modifier]), key];
 }
