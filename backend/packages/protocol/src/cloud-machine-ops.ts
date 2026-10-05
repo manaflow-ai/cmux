@@ -251,8 +251,8 @@ export const CloudSnapshotCreate = cloudMutation(
   "money",
   Schema.Struct({ machine: MachineId, name: Schema.optionalKey(MachineName) }),
   Schema.Struct({ snapshot: CloudSnapshot }),
-  ["cloud.machine.not_found", "cloud.quota.exceeded", ...PROVIDER],
-  "Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER],
+  "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team." + KEY,
   "cloud snapshot create",
   true
 )
@@ -261,8 +261,8 @@ export const CloudSnapshotRestore = cloudMutation(
   "money",
   Schema.Struct({ snapshot: SnapshotId, name: Schema.optionalKey(MachineName) }),
   MachineResult,
-  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER],
-  "Create a new machine from a snapshot (plan checks as create)." + KEY,
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...LIMITED, ...PROVIDER],
+  "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team." + KEY,
   "cloud snapshot restore",
   true
 )
@@ -271,8 +271,8 @@ export const CloudSnapshotDelete = cloudMutation(
   "destructive",
   Schema.Struct({ snapshot: SnapshotId }),
   Deleted,
-  ["cloud.snapshot.not_found", ...PROVIDER],
-  "Delete a snapshot." + KEY,
+  ["cloud.snapshot.not_found", "cloud.machine.busy", ...LIMITED, ...PROVIDER],
+  "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team." + KEY,
   "cloud snapshot delete",
   true
 )

@@ -331,7 +331,7 @@ async function configureRoles(ctx: Ctx): Promise<void> {
     `python3 -c 'import json,sys; json.load(open(sys.argv[1]))' ${ROLES_MANIFEST_PATH}`,
     "! pgrep -x Xvfb >/dev/null",
     `for p in ${[...new Set(firstUse)].sort().join(" ")}; do if dpkg-query -W -f='\${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then echo "first-use package $p is installed"; exit 1; fi; done`,
-    "fc-list :lang=ja family | grep -q 'Noto Sans CJK'",
+    "dpkg-query -W -f='${Status}' fonts-noto-cjk | grep -q 'ok installed' && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
     "echo roles-ok",
   ].join(" && "));
 }
@@ -382,7 +382,7 @@ async function installVmAgent(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.path", units.path, 0o644);
   await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.service", units.service, 0o644);
   ctx.result.vmAgent = await L.step(vm, "vm-agent-enable", [
-    `/usr/local/bin/bun build --target=bun --outfile=/dev/null ${VM_AGENT_PATH} >/dev/null`,
+    `d="$(mktemp -d)" && /usr/local/bin/bun build --target=bun --outdir "$d" ${VM_AGENT_PATH} >/dev/null && rm -rf "$d"`,
     "systemctl daemon-reload",
     "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service",
     "systemctl start cmux-vm-agent.path",

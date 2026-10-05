@@ -7,6 +7,8 @@
 //! runtime. Every entry point catches panics; a panic poisons the receiver
 //! and every later call on it returns `CMUX_RD_ERR_PANIC`.
 
+mod input;
+mod input_ffi;
 mod receiver;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -14,6 +16,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use cmux_rd_core::reassembly::CompleteFrame;
 use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, encode_stream_frame};
 
+pub use input::InputChannel;
+pub use input_ffi::*;
 pub use receiver::{Carrier, Message, Receiver, ReceiverError, Stats};
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
@@ -97,7 +101,7 @@ fn with_receiver(ptr: *mut CmuxRdReceiver, f: impl FnOnce(&mut CmuxRdReceiver) -
 ///
 /// # Safety
 /// `ptr` must be valid for reads of `len` bytes for the returned lifetime.
-unsafe fn bytes_in<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
+pub(crate) unsafe fn bytes_in<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
     if len == 0 {
         return Some(&[]);
     }
@@ -112,7 +116,7 @@ unsafe fn bytes_in<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
 ///
 /// # Safety
 /// `out` must be valid for writes of `cap` bytes; `out_len` must be valid for a write.
-unsafe fn copy_out(bytes: &[u8], out: *mut u8, cap: usize, out_len: *mut usize) -> i32 {
+pub(crate) unsafe fn copy_out(bytes: &[u8], out: *mut u8, cap: usize, out_len: *mut usize) -> i32 {
     if out_len.is_null() {
         return CMUX_RD_ERR_NULL;
     }
@@ -136,7 +140,7 @@ fn ready_count(handle: &CmuxRdReceiver) -> i32 {
     i32::try_from(handle.inner.ready_frames()).unwrap_or(i32::MAX)
 }
 
-fn error_code(error: &ReceiverError) -> i32 {
+pub(crate) fn error_code(error: &ReceiverError) -> i32 {
     match error {
         ReceiverError::Invalid(_) => CMUX_RD_ERR_INVALID,
         ReceiverError::Carrier => CMUX_RD_ERR_CARRIER,
@@ -430,5 +434,7 @@ pub unsafe extern "C" fn cmux_rd_encode_stream_frame(
     .unwrap_or(CMUX_RD_ERR_PANIC)
 }
 
+#[cfg(test)]
+mod input_tests;
 #[cfg(test)]
 mod tests;

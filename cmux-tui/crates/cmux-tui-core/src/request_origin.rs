@@ -26,6 +26,8 @@ use sha2::{Digest, Sha256};
 
 use crate::resource::ResourceError;
 
+mod page_access;
+
 /// Advertised by `identify` once client-hello step 1, the envelope `origin`
 /// field and `origin.confirmation.issue` exist.
 pub(crate) const ORIGIN_CLAIM_CAPABILITY: &str = "origin-claim-v1";
@@ -36,10 +38,6 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// Gate A2: operations that need origin `user`.
 pub(crate) const USER_ONLY_OPERATIONS: [&str; 3] =
     ["apps.install", "apps.uninstall", "apps.enable"];
-/// Operations a page may never call, whatever it claims: their result is a
-/// credential that would reach the page's JS. A renderer grant lets its
-/// holder view a terminal (server/renderer_grant.rs).
-pub(crate) const PAGE_FORBIDDEN_OPERATIONS: [&str; 1] = ["terminal.renderer_grant.create"];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
 const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
@@ -217,13 +215,12 @@ impl ConnectionOrigin {
                 json!({"derived": RequestOrigin::Page.wire_name()}),
             ));
         }
+        // Default deny for pages (page_access.rs), whatever a page relay
+        // claims: a confirmed-user result still reaches page JS.
         if (self.role == HelloRole::PageRelay || origin == RequestOrigin::Page)
-            && PAGE_FORBIDDEN_OPERATIONS.contains(&operation)
+            && let Some(refusal) = page_access::refusal(operation, params)
         {
-            return Err(forbidden(
-                "a page cannot call this operation",
-                json!({"required": "agent", "derived": RequestOrigin::Page.wire_name()}),
-            ));
+            return Err(refusal);
         }
         require_origin(operation, origin)?;
         Ok(origin)
