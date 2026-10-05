@@ -310,6 +310,23 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         if model.plan == nil { model.setPlanLoading() }
         planLoadTask = Task { @MainActor [weak self, weak model] in
             guard let self, let model else { return }
+            // Join the account-scoped preload first. On a cold first open the
+            // cache may still be fetching the plan even though the sheet is
+            // already visible; showing an error for that transient gap makes
+            // the second open appear to fix the problem by accident.
+            if let dataCache = self.dataCache {
+                let data = await dataCache.data(waitingAtMost: .seconds(15))
+                guard !Task.isCancelled, self.pendingSelectionID == selectionID, self.model === model else { return }
+                if let data, data.hasPlan, let limits = data.limits {
+                    model.applyPlan(activeCount: data.activeCount, limits: limits)
+                    if Self.shouldPresentUpgrade(for: model.plan) {
+                        self.finishSelection(selectionID, request: nil)
+                        model.cancel()
+                        ProUpgradePresenter.present(source: .newMachineAtLimit)
+                    }
+                    return
+                }
+            }
             let page = await CloudMenuModel.shared.fleetPageForPresentation()
             guard !Task.isCancelled, self.pendingSelectionID == selectionID, self.model === model else { return }
             guard let page, let limits = page.limits else {
