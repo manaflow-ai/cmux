@@ -5,8 +5,8 @@
 use super::*;
 use cmux_rd_core::packetize::Packetizer;
 use cmux_rd_proto::{
-    DatagramHeader, DatagramKind, Feedback, FrameBody, MAX_DATAGRAM_VPC, REF_NONE,
-    STREAM_DATAGRAM, StreamDeframer, flags,
+    DatagramHeader, DatagramKind, Feedback, FrameBody, MAX_DATAGRAM_VPC, REF_NONE, STREAM_DATAGRAM,
+    StreamDeframer, encode_stream_frame, flags,
 };
 
 struct Owned(*mut CmuxRdSession);
@@ -123,7 +123,10 @@ fn two_streams_reassemble_independently() {
         assert_eq!(frames, vec![1, 2, 3], "stream {stream}");
     }
     for (stream, _, bytes) in &got {
-        assert!(bytes.iter().all(|b| *b == *stream as u8), "stream {stream} got another stream's bytes");
+        assert!(
+            bytes.iter().all(|b| *b == *stream as u8),
+            "stream {stream} got another stream's bytes"
+        );
     }
     // One feedback per stream, each naming its stream and its newest frame.
     let fb = feedbacks(&s, now, false);
@@ -179,9 +182,9 @@ fn stream_carrier_routes_frames_and_queues_other_messages() {
     open(&s, 1);
     let mut bytes = Vec::new();
     let control = br#"{"t":"welcome"}"#;
-    cmux_rd_proto::encode_stream_frame(1, control, &mut bytes).expect("frame");
+    encode_stream_frame(1, control, &mut bytes).expect("frame");
     for d in frames(1, 2, 3000).iter().chain(&frames(0, 1, 500)) {
-        cmux_rd_proto::encode_stream_frame(STREAM_DATAGRAM, d, &mut bytes).expect("frame");
+        encode_stream_frame(STREAM_DATAGRAM, d, &mut bytes).expect("frame");
     }
     // An InputAck datagram is a message, not a frame.
     let mut ack = Vec::new();
@@ -197,7 +200,7 @@ fn stream_carrier_routes_frames_and_queues_other_messages() {
     }
     .encode_into(&mut ack);
     ack.extend_from_slice(&1u32.to_le_bytes());
-    cmux_rd_proto::encode_stream_frame(STREAM_DATAGRAM, &ack, &mut bytes).expect("frame");
+    encode_stream_frame(STREAM_DATAGRAM, &ack, &mut bytes).expect("frame");
     // Arbitrary chunking.
     for chunk in bytes.chunks(777) {
         // SAFETY: live session, readable slice.
