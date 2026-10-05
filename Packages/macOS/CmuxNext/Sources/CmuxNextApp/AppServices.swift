@@ -157,7 +157,9 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, environment: ProcessInfo.processInfo.environment, showcase: environment.showcase, linkScheme: linkScheme, git: agentGit, settings: settings)
+    private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
+    /// `agentTabs` once made: a tab close releases its view without starting acpmux.
+    var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
@@ -201,7 +203,10 @@ final class AppServices {
             await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
-        cache.onRelease = { [weak self] key in self?.home.releaseTabView(key) }
+        cache.onRelease = { [weak self] key in
+            self?.home.releaseTabView(key)
+            self?.madeAgentTabs?.releaseIfGone(key)
+        }
         cache.machineBadge = { [weak self] key, url in
             guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit

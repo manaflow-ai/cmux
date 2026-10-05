@@ -23,6 +23,12 @@ pub trait VmHost: Send + Sync {
     /// A synchronous host function (`secretSet`, `secretList`, `secretDelete`,
     /// `policyNarrow`, `policyGet`). Errors become JS exceptions.
     fn native(&self, name: &str, args: Value) -> Result<Value, String>;
+    /// Masks bytes that cross the VM's file boundary (files the VM writes
+    /// and reads), so a secret value never lands in or comes back from a
+    /// file. The default masks nothing.
+    fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        bytes.to_vec()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -465,28 +471,54 @@ fn install(
             "fs",
             Function::new(ctx.clone(), {
                 let sandbox = sandbox.clone();
+                let host = host.clone();
                 move |op: String, args: String| -> String {
-                    let args: Value = serde_json::from_str(&args).unwrap_or(json!({}));
-                    sandbox.call(&op, &args).to_string()
+                    let mut args: Value = serde_json::from_str(&args).unwrap_or(json!({}));
+                    let masked = |text: &str| {
+                        crate::fs_sandbox::base64_decode(text)
+                            .map(|bytes| crate::fs_sandbox::base64_encode(&host.mask_bytes(&bytes)))
+                    };
+                    if op == "writeFile"
+                        && let Some(encoded) = args["base64"].as_str().and_then(masked)
+                    {
+                        args["base64"] = Value::String(encoded);
+                    }
+                    let mut result = sandbox.call(&op, &args);
+                    if op == "readFile"
+                        && let Some(encoded) = result["ok"].as_str().and_then(masked)
+                    {
+                        result["ok"] = Value::String(encoded);
+                    }
+                    result.to_string()
                 }
             })
             .map_err(js)?,
         )
         .map_err(js)?;
-    // Native fetch (tab cookies, policy per redirect hop) is not built yet:
-    // answer `unsupported` through the result callback, as an async call does.
+    // Native fetch: the gate's `net.fetch` (policy and range checks, every
+    // redirect hop, masking), run by the engine in the tab's context.
+    let fetch_host = host.clone();
     let fetch_results = tx.clone();
     native
         .set(
             "fetch",
-            Function::new(ctx.clone(), move |call_id: f64, _request: String| {
-                let _ = fetch_results.send(Input::Result {
-                    call_id,
-                    outcome: Err(DriverError::new(
-                        crate::protocol::ErrorCode::Unsupported,
-                        "fetch: the browser host does not fetch yet; use page.evaluate(() => fetch(...))",
-                    )),
-                });
+            Function::new(ctx.clone(), move |call_id: f64, request: String| {
+                let host = fetch_host.clone();
+                let results = fetch_results.clone();
+                let sender = results.clone();
+                let request: Value = serde_json::from_str(&request).unwrap_or(json!({}));
+                let spawned = std::thread::Builder::new()
+                    .name("cmux-browser-host-fetch".into())
+                    .spawn(move || {
+                        let outcome = host.driver_call("net.fetch", request);
+                        let _ = sender.send(Input::Result { call_id, outcome });
+                    });
+                if spawned.is_err() {
+                    let _ = results.send(Input::Result {
+                        call_id,
+                        outcome: Err(DriverError::closed("could not start a fetch")),
+                    });
+                }
             })
             .map_err(js)?,
         )

@@ -2067,7 +2067,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Register an install's public key under the signed-in user; returns the install with its default grant. */
+  /** Register an install's public key under the signed-in user; returns the install with its default grant. The server kinds vm and daemon are reserved (install.kind_reserved): the server creates those installs itself (pairing, Cloud bind). */
   readonly "install.register": {
     readonly params: {
       readonly public_jwk: PublicJwk

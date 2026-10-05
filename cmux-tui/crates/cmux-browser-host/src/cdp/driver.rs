@@ -40,7 +40,14 @@ pub(super) struct Inner {
     pub(super) request_filter: Arc<Mutex<Option<crate::driver::RequestFilter>>>,
     /// Paused requests to decide: (session, request id, URL).
     pub(super) paused: Mutex<mpsc::Sender<super::requests::PausedRequest>>,
+    /// Headless Chromium: every tab gets the protocol's hidden-tab viewport
+    /// (new headless takes its window chrome out of --window-size). None
+    /// for an app tab, which keeps its real size.
+    pub(super) hidden_viewport: Option<(i64, i64)>,
 }
+
+/// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
+pub const HIDDEN_VIEWPORT: (i64, i64) = (1280, 800);
 
 impl CdpDriver {
     /// Takes over a browser-level CDP connection (headless Chromium over the
@@ -51,7 +58,7 @@ impl CdpDriver {
         agent_source: impl Into<Arc<str>>,
         events: EventSink,
     ) -> Result<CdpDriver, DriverError> {
-        let inner = Inner::start(conn.clone(), agent_source.into(), events)?;
+        let inner = Inner::start(conn.clone(), agent_source.into(), events, Some(HIDDEN_VIEWPORT))?;
         Self::set_up_browser(&inner, &conn)?;
         Ok(CdpDriver { inner })
     }
@@ -76,7 +83,7 @@ impl CdpDriver {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .ok_or_else(|| DriverError::invalid("Target.getTargetInfo returned no targetId"))?;
-        let inner = Inner::start(conn, agent_source.into(), events)?;
+        let inner = Inner::start(conn, agent_source.into(), events, None)?;
         // The page is already attached: the relay is its session.
         inner.handle_event(CdpEvent {
             session_id: None,
@@ -92,6 +99,7 @@ impl Inner {
         conn: Arc<CdpConnection>,
         agent_source: Arc<str>,
         events: EventSink,
+        hidden_viewport: Option<(i64, i64)>,
     ) -> Result<Arc<Inner>, DriverError> {
         let (event_tx, event_rx) = mpsc::channel::<DriverEvent>();
         std::thread::Builder::new()
@@ -112,6 +120,7 @@ impl Inner {
             changed: Condvar::new(),
             request_filter,
             paused: Mutex::new(paused),
+            hidden_viewport,
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -200,10 +209,19 @@ impl Driver for CdpDriver {
             "input.key" => inner.key(params),
             "input.insertText" => inner.insert_text(params),
             "tab.screenshot" => inner.screenshot(params),
+            "tab.pdf" => inner.pdf(params),
+            // The host stops a load whose response came from a refused
+            // address (DNS rebinding).
+            "tab.stop" => {
+                let session = inner.session(params)?;
+                inner.send(&session, "Page.stopLoading", json!({}))?;
+                Ok(Value::Null)
+            }
+            "net.fetch" => inner.net_fetch(params),
             "dialog.respond" => inner.dialog_respond(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
-            "cookies.clear" => inner.cookies_clear(),
+            "cookies.clear" => inner.cookies_clear(params),
             "cdp" => inner.raw_cdp(params),
             _ => Err(DriverError::unsupported_method(method)),
         }
@@ -330,10 +348,13 @@ impl Inner {
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
                 ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
-                // Out-of-process iframes attach as child sessions of this page.
-                ("Target.setAutoAttach", auto_attach),
+                // Request and response events (page.on("request"), ...).
+                ("Network.enable", json!({})),
             ]
             .into_iter()
+            .chain(self.hidden_viewport_step())
+            // Out-of-process iframes attach as child sessions of this page.
+            .chain([("Target.setAutoAttach", auto_attach)])
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),
@@ -353,6 +374,16 @@ impl Inner {
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 
+    /// Headless tabs get the protocol's hidden-tab viewport.
+    pub(super) fn hidden_viewport_step(&self) -> Option<(&'static str, Value)> {
+        self.hidden_viewport.map(|(width, height)| {
+            (
+                "Emulation.setDeviceMetricsOverride",
+                json!({"width": width, "height": height, "deviceScaleFactor": 0, "mobile": false}),
+            )
+        })
+    }
+
     fn set_up_frame(&self, session_id: &str) -> Result<(), DriverError> {
         let auto_attach =
             json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
@@ -366,6 +397,7 @@ impl Inner {
                     "Page.addScriptToEvaluateOnNewDocument",
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
+                ("Network.enable", json!({})),
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()
@@ -638,11 +670,6 @@ impl Inner {
             json!({"cookies": cookies}),
             INTERNAL_TIMEOUT,
         )?;
-        Ok(Value::Null)
-    }
-
-    fn cookies_clear(&self) -> Result<Value, DriverError> {
-        self.conn.call(None, "Storage.clearCookies", json!({}), INTERNAL_TIMEOUT)?;
         Ok(Value::Null)
     }
 

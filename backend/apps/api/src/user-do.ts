@@ -6,7 +6,7 @@ import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
-import { chiefActive, grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, inboxRefusalFor, installActive, iosGrantsToMigrate, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
@@ -86,6 +86,13 @@ export class UserDO extends OwnerDO<UserState> {
     this.inbox.onFrame(ws, a, engine.stream.slice("user:".length), frame)
     this.scheduleAlarm()
     return true
+  }
+
+  /** CLOUD-LINK-FOLLOWUPS decision 2: old iPhone grants get cloud-link once (idempotent; nothing to do = no op). */
+  protected override bind(entity: string) {
+    const engine = super.bind(entity)
+    if (iosGrantsToMigrate(engine.currentState).length) this.submitSystem("install.ios_cloud_link_migrate", {}, `ios-cloud-link:${engine.currentSeq}`)
+    return engine
   }
 
   protected override systemEngine(op: string, entity: string) {
@@ -311,15 +318,9 @@ export class UserDO extends OwnerDO<UserState> {
     return reply.value as { asserted: boolean; code?: string; expires_at?: number }
   }
 
-  /**
-   * Inbox calls come from this user only, through an active install whose grant covers the op
-   * (the catalog check other owners apply), checked before the object binds the entity.
-   */
-  private inboxRefusal(entity: string, principal: Principal, op: string): { code: string; message: string } | undefined {
-    if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
-    const state = this.bind(entity).currentState
-    if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
-    return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+  /** Inbox calls: this user only, through an active install whose grant covers the op (domains/user.ts). */
+  private inboxRefusal(entity: string, principal: Principal, op: string) {
+    return principal.user !== entity ? { code: "auth.forbidden", message: "not this user's inbox" } : inboxRefusalFor(this.bind(entity).currentState, entity, principal, op)
   }
 
   protected read(state: UserState, op: string, params: unknown, principal: Principal): ReadResult {

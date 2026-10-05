@@ -109,6 +109,47 @@ concurrency:
 # queued or refuses. The second attempt stays on the side label; a later bot
 # attempt is the measured overflow.
 jobs:
+  # A push can sit in the owned-pool queue after newer commits have landed.
+  # Resolve the branch head on Linux before any macOS job requests a runner.
+  # The lookup fails open so the current head still gets its compile and
+  # nightly-next promotion. Keep the run-id concurrency group below: rescue
+  # reruns of an older push must not cancel the newest pending run.
+  push-head-preflight:
+    name: cmux-next push head preflight
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      current: ${{ steps.head.outputs.current }}
+    steps:
+      - name: Check whether this push is still the branch head
+        id: head
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current=true
+          if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/feat-cmux-next ]]; then
+            authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+            remote_sha="$(timeout 15 git -c "http.extraHeader=Authorization: Basic $authorization" \
+              ls-remote "${SERVER_URL}/${REPOSITORY}.git" "$REF" 2>/dev/null | awk 'NR==1{print $1}')" || remote_sha=""
+            if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
+              current=false
+              echo "Superseded feat-cmux-next push $SHA; current branch head is $remote_sha."
+            elif [[ -z "$remote_sha" ]]; then
+              echo "::warning::could not resolve the current feat-cmux-next head; keeping macOS work enabled"
+            else
+              echo "Current feat-cmux-next head is $SHA."
+            fi
+          fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+
   # Web and documentation changes still get the Linux checks and web workflow,
   # but do not spend a Mac runner on an unrelated Swift package sweep. Webview
   # sources are the narrow exception: they become native resources, so keep one
@@ -174,7 +215,7 @@ jobs:
           echo "native=$native webview=$webview macos=$macos"
 
   macos-placement:
-    needs: path_route
+    needs: [path_route, push-head-preflight]
     # Attempt 1's macOS jobs stay on the owned side label while the fleet
     # drains. The placement step records idle runners but never falls back on
     # an instantaneous busy result.
@@ -186,7 +227,7 @@ jobs:
     # Mac jobs (needs plus !cancelled()) take their route without it. A re-run
     # needs no marker of its own: its Mac jobs take the fallback, and the
     # rescue's watch of a side lane ends at attempt 2.
-    if: ${{ needs.path_route.outputs.macos == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
+    if: ${{ needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
@@ -357,8 +398,8 @@ jobs:
           exit 1
 
   swift-test:
-    needs: [path_route, macos-placement]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    needs: [path_route, macos-placement, push-head-preflight]
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next swift test
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
@@ -393,6 +434,21 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust (sidebar layout reducer)
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Test sidebar layout reducer
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
 
       # macOS-only script behavior tests (PlistBuddy, plutil): the "Bundle
       # server helper" phase writes the server helper and agent plists without
@@ -506,8 +562,8 @@ jobs:
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
 
   release-compile:
-    needs: [path_route, macos-placement]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    needs: [path_route, macos-placement, push-head-preflight]
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next Release compile (Xcode 26)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # One-architecture Release (-O, whole-module) xcodebuild of CmuxNextApp
@@ -539,6 +595,17 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust (sidebar layout reducer)
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
 
       - name: Release compile
         run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
@@ -601,8 +668,8 @@ jobs:
         run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA" -f promote_nightly_next_debounce=true
 
   cmux-scheme-compile:
-    needs: [path_route, macos-placement]
-    if: ${{ !cancelled() && needs.path_route.outputs.macos == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    needs: [path_route, macos-placement, push-head-preflight]
+    if: ${{ !cancelled() && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux app scheme compile (Debug)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # Debug arm64 xcodebuild of the cmux app scheme: the app host and every
@@ -649,6 +716,14 @@ jobs:
 
       - name: Install Rust (diff sidecar)
         run: ./scripts/install-rust-ci.sh
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
 
       - name: Build in-tree acpmux for the app bundle
         env:

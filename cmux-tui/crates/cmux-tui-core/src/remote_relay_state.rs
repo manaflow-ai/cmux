@@ -131,6 +131,8 @@ pub enum RelayLock {
     Pairing,
     Revocation,
     Clients,
+    /// The conversation bindings (client to agent participant).
+    Bindings,
 }
 
 /// Why a remote-relay admission or revocation step did not run as asked.

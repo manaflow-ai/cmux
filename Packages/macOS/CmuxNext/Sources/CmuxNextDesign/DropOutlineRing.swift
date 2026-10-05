@@ -2,7 +2,8 @@ public import AppKit
 
 /// The tab drop outline's look, shared by every surface that previews a
 /// drop (the layout overlay, the sidebar). Debug Settings tunables.
-public nonisolated enum DropOutlineTunables {
+public nonisolated struct DropOutlineTunables {
+    public nonisolated init() {}
     public static let width = Tunable<CGFloat>.number(
         "drop.overlay.outline.width", .dropOverlay, "Outline: width", help: "Width of the border around the drop rect.",
         default: 2, range: 0.5...8, step: 0.25, unit: .points, code: "DropOutlineTunables.width")

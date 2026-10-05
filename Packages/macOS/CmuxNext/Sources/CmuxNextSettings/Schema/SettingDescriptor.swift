@@ -27,6 +27,10 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     /// Whether the palette lists this setting (R93). Every row is exposed
     /// unless it names a reason to stay out.
     public var palette: SettingPaletteExposure = .exposed
+    /// The apps that read this key from the shared cmux.json. The export, validation and docs cover
+    /// every key; the cmux-next Settings page and palette show only keys cmux-next reads, so a
+    /// cmux-browser-only key never shows a control that does nothing here.
+    public var consumers: Set<SettingConsumer> = [.cmuxNext]
 
     /// A row whose texts come from the string catalog (`SettingsText.keyed`).
     public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
@@ -55,40 +59,16 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     public var id: String { path.joined(separator: ".") }
 }
 
-/// Whether a setting has a palette row (`SettingsPaletteSource`).
-public nonisolated enum SettingPaletteExposure: Sendable, Hashable {
-    case exposed
-    /// Kept out of the palette, with the reason.
-    case hidden(String)
-}
-
 extension SettingDescriptor {
-    public var isPaletteExposed: Bool { palette == .exposed }
+    public var isPaletteExposed: Bool { palette == .exposed && isShownInCmuxNext }
+    /// cmux-next reads this key, so its Settings page and palette offer it.
+    public var isShownInCmuxNext: Bool { consumers.contains(.cmuxNext) }
+
+    /// This row, read by `consumers` instead of cmux-next alone.
+    public func consumed(by consumers: Set<SettingConsumer>) -> SettingDescriptor {
+        var row = self
+        row.consumers = consumers
+        return row
+    }
 }
 
-/// What a setting holds and how the Settings window edits it.
-public nonisolated enum SettingKind: Sendable, Hashable {
-    /// One of fixed values (a pop-up or segmented control).
-    case choice([SettingChoice])
-    /// A fixed value or a number (`browser.hibernation`: "off", "moderate",
-    /// "aggressive" or minutes).
-    case choiceOrNumber([SettingChoice], SettingNumber)
-    case toggle
-    case number(SettingNumber)
-    /// `#RRGGBB` or `#RRGGBBAA`; absent means the theme's color.
-    case color
-    /// A sound: "default", "none" or a name in /System/Library/Sounds.
-    case sound
-    /// A web address, or empty for none.
-    case url
-    /// A list of host names.
-    case hostList
-    /// A list of folder paths, each absolute or `~/...` (`picker.pinned`).
-    case folderList
-    /// `{"start": "HH:MM", "end": "HH:MM"}`; absent means off.
-    case timeRange
-    /// A Ghostty theme: one theme name or `light:A,dark:B` (`AppThemeSetting`).
-    case theme
-    /// A font family name (`TerminalFontSetting`).
-    case fontFamily
-}

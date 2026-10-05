@@ -36,14 +36,20 @@ struct FakeHost {
 
 impl VmHost for FakeHost {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
-        self.calls.lock().unwrap().push((method.to_owned(), params));
+        self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
         match method {
             "tab.info" => Ok(json!({"url": "https://a.test/", "title": "A"})),
             "tab.navigate" => {
                 Err(DriverError::new(crate::protocol::ErrorCode::Forbidden, "blocked by policy"))
             }
+            "net.fetch" => Ok(json!({"url": params["url"], "status": 200, "bodyBase64": "aGk="})),
             _ => Err(DriverError::unsupported_method(method)),
         }
+    }
+
+    fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        let text = String::from_utf8_lossy(bytes).replace("SECRET", "<s>");
+        text.into_bytes()
     }
 
     fn native(&self, name: &str, args: Value) -> Result<Value, String> {
@@ -208,13 +214,20 @@ fn fs_is_sandboxed_to_the_session_root() {
 }
 
 #[test]
-fn fetch_answers_through_the_result_callback() {
-    let (vm, _) = session(0);
+fn native_fetch_is_the_gates_net_fetch() {
+    let (vm, host) = session(0);
     let out = vm.eval(
-        "testNative.fetch(99, JSON.stringify({url: 'https://a.test/'})); for (let i = 0; i < 100 && !results.length; i++) await new Promise((r) => setTimeout(r, 10)); return JSON.parse(results[0][1]).code;",
+        "testNative.fetch(99, JSON.stringify({url: 'https://a.test/', targetId: 'T'})); for (let i = 0; i < 100 && !results.length; i++) await new Promise((r) => setTimeout(r, 10)); return JSON.parse(results[0][2]).status;",
         Duration::from_secs(5),
     );
-    assert_eq!(lines(&out), vec!["\"unsupported\""]);
+    assert_eq!(lines(&out), vec!["200"], "{out:?}");
+    let calls = host.calls.lock().unwrap();
+    assert!(
+        calls.iter().any(|(m, p)| m == "net.fetch"
+            && p["url"] == "https://a.test/"
+            && p["targetId"] == "T"),
+        "{calls:?}"
+    );
 }
 
 #[test]
@@ -326,4 +339,19 @@ fn secrets_load_reads_the_file_natively_and_passes_the_map() {
     let (name, args) = natives.last().unwrap();
     assert_eq!(name, "secrets");
     assert_eq!(args, &json!({"op": "load", "args": {"object": {"a.test": {"k": "v-1"}}}}));
+}
+
+#[test]
+fn files_the_vm_writes_and_reads_are_masked() {
+    let (vm, _) = session(0);
+    // "x SECRET y" and "z SECRET" in base64.
+    let out = vm.eval(
+        "const n = testNative; const fs = (op, a) => JSON.parse(n.fs(op, JSON.stringify(a)));\n\
+         fs('writeFile', {path: 'm.txt', base64: 'eCBTRUNSRVQgeQ=='});\n\
+         return [fs('readFile', {path: 'm.txt'}).ok];",
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.error, None, "{out:?}");
+    // "x <s> y" in base64: the value never reaches the file or the VM.
+    assert_eq!(lines(&out), vec![r#"["eCA8cz4geQ=="]"#]);
 }

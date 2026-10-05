@@ -38,7 +38,8 @@ nonisolated public enum RollbackRefusal: Error, Equatable, Sendable {
 }
 
 /// Picks the rollback target or refuses (pure).
-nonisolated public enum RollbackDecision {
+nonisolated public struct RollbackDecision {
+    public init() {}
     /// - Parameters:
     ///   - kept: kept versions, newest first.
     ///   - build: the build asked for, or nil for the newest kept one.

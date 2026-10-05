@@ -4,7 +4,8 @@ public import AppKit
 /// sidebar (the agent cursor's other-workspace indicator). Computed from the
 /// list layout, so it works for rows that have no view (the list realizes
 /// only rows near its viewport).
-public enum SidebarRowAnchor {
+public struct SidebarRowAnchor {
+    public init() {}
     /// The row of workspace `id` in `sidebar`'s coordinates (flipped). A
     /// workspace in a collapsed group answers its group row; a row scrolled
     /// out of the list is pinned to the nearest edge of the visible list,

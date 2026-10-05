@@ -5,7 +5,8 @@ import Foundation
 /// empty, no ':'); the path is absolute (starts with '/') and may contain ':'.
 /// A participant id and its recovery draft id are the same string, so the
 /// registry removes the right draft after a save or a Don't Save.
-public nonisolated enum QuitParticipantID {
+public nonisolated struct QuitParticipantID {
+    public init() {}
     public static let localHost = "local"
     static let scheme = "file:"
 

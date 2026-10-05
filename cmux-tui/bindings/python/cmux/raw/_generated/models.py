@@ -290,6 +290,15 @@ class AgentRecord:
 
 
 @dataclass(frozen=True)
+class AgentSessionSource:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentSessionSource'
+    host: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
+    host_name: Union[str, None, MissingType] = field(default=MISSING)
+    session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class AppliedPane:
     __cmux_schema_path__: ClassVar[str] = 'types/AppliedPane'
     surface: Id
@@ -522,8 +531,9 @@ class ConversationSummary:
 @dataclass(frozen=True)
 class ConversationTabRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationTabRecord'
-    conversation: str
-    owner: str
+    agent_session: Union[AgentSessionSource, MissingType] = field(default=MISSING)
+    conversation: Union[str, MissingType] = field(default=MISSING)
+    owner: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1703,6 +1713,22 @@ class AttachSurfaceRequest:
 
 
 @dataclass(frozen=True)
+class BindConversationTabSessionRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/bind-conversation-tab-session/request'
+    surface: Id
+    expected_session: Union[str, None]
+    session: str
+
+
+@dataclass(frozen=True)
+class BindConversationTabSessionResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/bind-conversation-tab-session/result'
+    surface: Id
+    conversation: ConversationTabRecord
+    replayed: bool
+
+
+@dataclass(frozen=True)
 class BrowserActivateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/browser-activate/request'
     surface: Id
@@ -2638,13 +2664,14 @@ class NewBrowserTabRequest:
 @dataclass(frozen=True)
 class NewConversationTabRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-conversation-tab/request'
-    conversation: str
-    owner: str
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    agent_session: Union[AgentSessionSource, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
+    owner: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -4260,6 +4287,7 @@ __all__ = [
     'TerminalLifecycle',
     'ViewAttachmentOutcome',
     'AgentRecord',
+    'AgentSessionSource',
     'AppliedPane',
     'ApplyLayoutResult',
     'AttachedViewOutcomeResult',
@@ -4406,6 +4434,8 @@ __all__ = [
     'AddTabsToTabGroupRequest',
     'ApplyLayoutRequest',
     'AttachSurfaceRequest',
+    'BindConversationTabSessionRequest',
+    'BindConversationTabSessionResult',
     'BrowserActivateRequest',
     'BrowserBackRequest',
     'BrowserForwardRequest',

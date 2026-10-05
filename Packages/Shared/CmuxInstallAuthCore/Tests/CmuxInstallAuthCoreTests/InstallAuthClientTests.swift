@@ -29,6 +29,8 @@ actor FakeOwner: InstallAuthTransport {
     var failNextChallenge = false
     var prefixOverride: String?
     var grants: [[String]] = []
+    /// The backend's default grant for an `ios` install.
+    static let iosDefaultGrant = ["read", "mutate-own", "cloud-link"]
     /// The backend's ENVIRONMENT (challenge prefix and token issuer).
     var environment = "staging"
     /// When set, tokens name this issuer environment instead.
@@ -91,7 +93,13 @@ actor FakeOwner: InstallAuthTransport {
             let key = body["idempotency_key"] as! String
             if let replay = ledger[key] { return try reply(["ok": true, "value": ["id": replay], "replayed": true]) }
             let params = body["params"] as! [String: Any]
-            grants.append(params["op_classes"] as? [String] ?? [])
+            let requested = params["op_classes"] as? [String] ?? Self.iosDefaultGrant
+            grants.append(requested)
+            // The backend lets a caller narrow its kind's default grant, never widen it
+            // (backend/apps/api/src/domains/user.ts defaultInstallClasses + install.register).
+            if requested.contains(where: { !Self.iosDefaultGrant.contains($0) }) {
+                return try reply(["ok": false, "error": ["code": "validation.invalid", "message": "op_classes may only narrow the default install grant"]])
+            }
             let jwk = params["public_jwk"] as! [String: String]
             let x = Data(base64URLEncoded: jwk["x"]!)!, y = Data(base64URLEncoded: jwk["y"]!)!
             let publicKey = try P256.Signing.PublicKey(x963Representation: Data([0x04]) + x + y)
@@ -252,7 +260,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         let owner = FakeOwner(), signer = SoftwareSigner(), box = RecordBox()
         let client = makeClient(owner, signer, box: box)
         _ = try await client.installToken()
-        #expect(await owner.grants == [["read", "mutate-own", "mutate-shared"]])
+        #expect(await owner.grants == [["read", "mutate-own", "cloud-link"]])
         try await client.revoke()
         #expect(await owner.revoked == ["inst_1"])
         #expect(await client.currentRecord == nil)

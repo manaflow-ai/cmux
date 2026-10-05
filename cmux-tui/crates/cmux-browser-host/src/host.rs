@@ -14,6 +14,14 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+mod idle;
+pub use idle::DEFAULT_IDLE_TIMEOUT;
+use idle::{Idle, IdleCall};
+
+type Sessions = Arc<Mutex<BTreeMap<String, Arc<Session>>>>;
+/// Where the reaper reports the sessions it ended (tests wait on it).
+type ReapedSink = Arc<Mutex<Option<std::sync::mpsc::Sender<String>>>>;
+
 /// Generated from js/manifest.json by build.rs.
 pub mod bundle {
     include!(concat!(env!("OUT_DIR"), "/js_bundle.rs"));
@@ -46,6 +54,9 @@ pub struct Caller {
     pub on_behalf_of: Option<String>,
     /// `user | cli | mcp | script | remote`.
     pub origin: String,
+    /// Where the caller is, set by the transport that carried the request
+    /// (never from the request).
+    pub locality: crate::locality::CallerLocality,
 }
 
 /// Opens engines on demand.
@@ -84,12 +95,17 @@ struct Session {
     events: EventSlot,
     engine: String,
     created_by: Caller,
+    /// The idle deadline (classic: 30 minutes without a call ends it).
+    idle: Arc<Idle>,
 }
 
 pub struct Host {
     engines: Arc<dyn Engines>,
     cwd: String,
-    sessions: Mutex<BTreeMap<String, Arc<Session>>>,
+    sessions: Sessions,
+    /// How long a session may go without a call before it ends.
+    idle_timeout: Duration,
+    reaped: ReapedSink,
     /// Serializes opens, so two opens of one name never start two engines.
     opening: Mutex<()>,
     /// Secrets any session typed into a tab (masked for every session).
@@ -101,10 +117,25 @@ impl Host {
         Host {
             engines,
             cwd: cwd.into(),
-            sessions: Mutex::new(BTreeMap::new()),
+            sessions: Arc::default(),
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
+            reaped: Arc::default(),
             opening: Mutex::new(()),
             tab_secrets: Arc::default(),
         }
+    }
+
+    /// Sessions end after `timeout` without a call (default
+    /// [`DEFAULT_IDLE_TIMEOUT`]).
+    pub fn with_idle_timeout(mut self, timeout: Duration) -> Host {
+        self.idle_timeout = timeout;
+        self
+    }
+
+    /// Tells `tx` the name of every session the idle deadline ended.
+    #[cfg(test)]
+    pub(crate) fn on_idle_end(&self, tx: std::sync::mpsc::Sender<String>) {
+        *self.reaped.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
     }
 
     fn sessions(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Arc<Session>>> {
@@ -207,10 +238,20 @@ impl Host {
             label: lease_label(params.get("label").and_then(Value::as_str), &name),
             profile: profile.to_owned(),
         };
-        let driver = self.engines.driver(&engine, sink, &context)?;
-        let capabilities = driver.capabilities().into_iter().map(str::to_owned).collect();
+        let driver = self.engines.driver(&engine, sink.clone(), &context)?;
+        let mut capabilities: Vec<String> =
+            driver.capabilities().into_iter().map(str::to_owned).collect();
+        // The gate types `input.insertText { secret }` for every engine.
+        if !capabilities.iter().any(|c| c == "secret.insert") {
+            capabilities.push("secret.insert".into());
+        }
         let gate = Arc::new(
-            Gate::new(driver, Grants { raw_cdp }).with_tab_secrets(self.tab_secrets.clone()),
+            // A remote caller (CALLER-LOCALITY, from the transport) is
+            // refused loopback and private ranges.
+            Gate::new(driver, Grants { raw_cdp, remote: caller.locality.refuses_private_ranges() })
+                .with_tab_secrets(self.tab_secrets.clone())
+                // The session name is the lease session (LeaseCaller.session).
+                .with_input_events(&name, sink),
         );
         let config = VmConfig {
             session_id: name.clone(),
@@ -243,6 +284,7 @@ impl Host {
             .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;
         *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((gate.clone(), tx));
         let resolved = if engine == "auto" { "headless".to_owned() } else { engine };
+        let idle = Idle::new(self.idle_timeout);
         self.sessions().insert(
             name.clone(),
             Arc::new(Session {
@@ -251,8 +293,10 @@ impl Host {
                 events: slot,
                 engine: resolved.clone(),
                 created_by: caller.clone(),
+                idle: idle.clone(),
             }),
         );
+        watch_idle(idle, name.clone(), Arc::downgrade(&self.sessions), self.reaped.clone());
         Ok(json!({"session": name, "engine": resolved, "created": true}))
     }
 
@@ -262,14 +306,16 @@ impl Host {
             .get("code")
             .and_then(Value::as_str)
             .ok_or_else(|| DriverError::invalid("code: expected a string"))?;
-        let session = match self.sessions().get(&name).cloned() {
-            Some(session) => session,
+        // The call begins under the map's lock, so the idle reaper (which
+        // checks again under that lock) never ends a session a call holds.
+        let begin = |host: &Host| {
+            host.sessions().get(&name).map(|session| (session.clone(), session.idle.begin()))
+        };
+        let (session, _call): (Arc<Session>, IdleCall) = match begin(self) {
+            Some(found) => found,
             None => {
                 self.open(caller, params)?;
-                self.sessions()
-                    .get(&name)
-                    .cloned()
-                    .ok_or_else(|| DriverError::closed(format!("session {name} closed")))?
+                begin(self).ok_or_else(|| DriverError::closed(format!("session {name} closed")))?
             }
         };
         let timeout = params
@@ -322,10 +368,7 @@ impl Host {
         let name = Self::session_name(params)?;
         let removed = self.sessions().remove(&name);
         if let Some(session) = &removed {
-            *session.events.lock().unwrap_or_else(PoisonError::into_inner) = None;
-            // The leases go now: a reset reopens this name at once, and the
-            // old engine may live on until an eval in flight returns.
-            session.gate.end_session();
+            end_session(session);
         }
         let removed = removed.is_some();
         Ok(json!({"session": name, "closed": removed}))
@@ -344,6 +387,67 @@ impl Host {
 /// The fs root for a session: the caller's directory when it is a real,
 /// narrow directory (not `/`, not the home directory or an ancestor of it),
 /// else a private directory for the session under the host's state.
+/// Ends a session that left the map. Clearing the event slot breaks the
+/// cycle slot -> gate -> (driver, input emitter) -> session sink -> slot,
+/// so the engine, its tee and its app channel are freed. The leases go
+/// now: a reset reopens the name at once, and the old engine may live on
+/// until an eval in flight returns.
+fn end_session(session: &Session) {
+    session.idle.stop();
+    *session.events.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    session.gate.end_session();
+}
+
+/// One thread per session waits for its idle deadline and then ends it
+/// through the same `end_session` as `browser.repl.close`.
+fn watch_idle(
+    idle: Arc<Idle>,
+    name: String,
+    sessions: std::sync::Weak<Mutex<BTreeMap<String, Arc<Session>>>>,
+    reaped: ReapedSink,
+) {
+    let spawned = std::thread::Builder::new().name(format!("cmux-browser-host-idle-{name}")).spawn(
+        move || {
+            while idle.wait_expired() {
+                let Some(sessions) = sessions.upgrade() else { return };
+                let removed = {
+                    let mut map = sessions.lock().unwrap_or_else(PoisonError::into_inner);
+                    let ours = map.get(&name).is_some_and(|s| Arc::ptr_eq(&s.idle, &idle));
+                    if !ours {
+                        return;
+                    }
+                    // A call that began after the wait woke holds it.
+                    if !idle.expired() {
+                        continue;
+                    }
+                    map.remove(&name)
+                };
+                if let Some(session) = removed {
+                    end_session(&session);
+                    if let Some(tx) = reaped.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
+                    {
+                        let _ = tx.send(name.clone());
+                    }
+                }
+                return;
+            }
+        },
+    );
+    // Without the watcher the session still ends by close or reset.
+    drop(spawned);
+}
+
+/// Every end path ends its sessions: `browser.repl.close`, and the host's
+/// own end with sessions still open.
+impl Drop for Host {
+    fn drop(&mut self) {
+        let sessions = std::mem::take(&mut *self.sessions());
+        for session in sessions.values() {
+            end_session(session);
+        }
+    }
+}
+
 fn session_root(caller: Option<&str>, fallback_base: &str, session: &str) -> String {
     let broad = |path: &std::path::Path| {
         let home = std::env::var_os("HOME")
@@ -411,7 +515,11 @@ mod tests {
 
     impl Driver for NoDriver {
         fn call(&self, method: &str, _: &Value) -> Result<Value, DriverError> {
-            Err(DriverError::unsupported_method(method))
+            match method {
+                // A tab to call on (the runtime's lazy page opens one).
+                "tabs.open" => Ok(json!({"targetId": "T1"})),
+                _ => Err(DriverError::unsupported_method(method)),
+            }
         }
 
         fn capabilities(&self) -> Vec<&'static str> {
@@ -431,6 +539,178 @@ mod tests {
         }
     }
 
+    /// An engine whose drivers the test watches through `Weak`s.
+    struct WatchedEngines(Mutex<Vec<std::sync::Weak<NoDriver>>>);
+
+    impl Engines for WatchedEngines {
+        fn driver(
+            &self,
+            _engine: &str,
+            _events: crate::driver::EventSink,
+            _session: &SessionContext,
+        ) -> Result<Arc<dyn Driver>, DriverError> {
+            let driver = Arc::new(NoDriver);
+            self.0.lock().unwrap().push(Arc::downgrade(&driver));
+            Ok(driver)
+        }
+    }
+
+    fn idle_host(
+        tag: &str,
+        idle: Duration,
+    ) -> (Host, Arc<WatchedEngines>, std::sync::mpsc::Receiver<String>, std::path::PathBuf) {
+        let engines = Arc::new(WatchedEngines(Mutex::new(Vec::new())));
+        let root = std::env::temp_dir().join(format!("idle-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let host = Host::new(engines.clone(), root.display().to_string()).with_idle_timeout(idle);
+        let (tx, rx) = std::sync::mpsc::channel();
+        host.on_idle_end(tx);
+        (host, engines, rx, root)
+    }
+
+    fn mcp() -> Caller {
+        Caller {
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: "mcp".into(),
+            locality: Default::default(),
+        }
+    }
+
+    /// CALLER-LOCALITY: a remote caller (from the transport) is refused
+    /// loopback and private ranges for fetch and navigation alike; a
+    /// "remote" or "local" field in the request changes nothing.
+    #[test]
+    fn locality_comes_from_the_transport_not_the_request() {
+        let (host, _engines, _ended, root) = idle_host("locality", DEFAULT_IDLE_TIMEOUT);
+        let remote = Caller {
+            locality: crate::locality::CallerLocality::Remote {
+                principal: crate::locality::RemotePrincipal {
+                    user: "u".into(),
+                    install: "phone".into(),
+                    class: crate::locality::PrincipalClass::Agent,
+                    interactive: true,
+                },
+            },
+            ..mcp()
+        };
+        let run = |caller: &Caller, session: &str, code: &str| {
+            let params = json!({"session": session, "code": code, "engine": "headless",
+                "remote": true, "locality": "remote", "origin": "remote"});
+            let out = host.dispatch(caller, "browser.repl.eval", &params).unwrap();
+            out["error"].as_str().unwrap_or("").to_owned()
+        };
+        for code in [
+            "await fetch('http://127.0.0.1:9/x')",
+            "await page.goto('http://192.168.1.1/')",
+            "await tabs.open('http://localhost:3000/')",
+        ] {
+            let local = run(&mcp(), "near", code);
+            assert!(!local.contains("private or loopback"), "local {code}: {local}");
+            let far = run(&remote, "far", code);
+            assert!(far.contains("private or loopback"), "remote {code}: {far}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Classic main ends a named session after 30 minutes without a call
+    /// (docs/browser-repl/README.md ~:396); here the deadline is short.
+    #[test]
+    fn a_session_without_calls_ends_at_its_idle_deadline() {
+        let (host, engines, ended, root) = idle_host("quiet", Duration::from_millis(200));
+        host.dispatch(
+            &mcp(),
+            "browser.repl.open",
+            &json!({"session": "quiet", "engine": "headless"}),
+        )
+        .unwrap();
+        assert_eq!(ended.recv_timeout(Duration::from_secs(10)).as_deref(), Ok("quiet"));
+        assert_eq!(host.list(), json!([]), "the idle end removed the session");
+        let weak = engines.0.lock().unwrap()[0].clone();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while weak.strong_count() > 0 {
+            assert!(std::time::Instant::now() < deadline, "the idle end never freed the engine");
+            std::thread::yield_now();
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Every call resets the deadline, and a call in flight holds it.
+    #[test]
+    fn calls_hold_the_idle_deadline() {
+        let (host, _engines, ended, root) = idle_host("busy", Duration::from_millis(400));
+        let host = Arc::new(host);
+        let eval = |code: &str| {
+            host.dispatch(&mcp(), "browser.repl.eval", &json!({"session": "busy", "code": code}))
+                .unwrap()
+        };
+        eval("1");
+        for _ in 0..4 {
+            // Paced calls (a test-only pause), each well inside the deadline.
+            std::thread::sleep(Duration::from_millis(200));
+            eval("1");
+        }
+        assert!(ended.try_recv().is_err(), "a session with calls stays");
+        // One call that outlives the deadline.
+        let slow = {
+            let host = host.clone();
+            std::thread::spawn(move || {
+                host.dispatch(
+                    &mcp(),
+                    "browser.repl.eval",
+                    &json!({"session": "busy", "code": "await new Promise((r) => setTimeout(r, 1200)); 1"}),
+                )
+                .unwrap()
+            })
+        };
+        assert!(
+            ended.recv_timeout(Duration::from_millis(900)).is_err(),
+            "a call in flight holds the session"
+        );
+        slow.join().unwrap();
+        assert_eq!(ended.recv_timeout(Duration::from_secs(10)).as_deref(), Ok("busy"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The session's event slot holds its gate, and the gate's input
+    /// emitter holds the session sink, which holds the slot: only clearing
+    /// the slot frees a session. Every end path must clear it, the host's
+    /// own end too (no browser.repl.close).
+    #[test]
+    fn every_session_end_frees_the_engine() {
+        let engines = Arc::new(WatchedEngines(Mutex::new(Vec::new())));
+        let root = std::env::temp_dir().join(format!("host-drop-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let host = Host::new(engines.clone(), root.display().to_string());
+        let caller = Caller {
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: "mcp".into(),
+            locality: Default::default(),
+        };
+        for name in ["closed", "open"] {
+            host.dispatch(
+                &caller,
+                "browser.repl.open",
+                &json!({"session": name, "engine": "headless"}),
+            )
+            .unwrap();
+        }
+        let weak = |i: usize| engines.0.lock().unwrap()[i].clone();
+        let freed = |i: usize, what: &str| {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while weak(i).strong_count() > 0 {
+                assert!(std::time::Instant::now() < deadline, "{what}: the engine was never freed");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        host.dispatch(&caller, "browser.repl.close", &json!({"session": "closed"})).unwrap();
+        freed(0, "browser.repl.close");
+        drop(host);
+        freed(1, "the host ended with the session open");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn engines_get_the_session_profile_and_only_the_person_picks_another() {
         let engines = Arc::new(ProfileEngines(Mutex::new(Vec::new())));
@@ -441,6 +721,7 @@ mod tests {
             actor: "uid:501".into(),
             on_behalf_of: None,
             origin: origin.into(),
+            locality: Default::default(),
         };
         host.dispatch(
             &caller("mcp"),

@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudInternalOps, cloudOpByName, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudInternalOps, cloudOpByName, InstallRegister, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -39,7 +39,7 @@ export const admit = (
   if (!def.principals.includes(kind === "agent" ? "install" : kind)) {
     return { code: "auth.forbidden", message: `${opName} is not allowed for ${kind} principals` }
   }
-  // A system principal exists only inside its own DO and calls only internal ops (checked above).
+  // A system principal is built only by server code (a DO, or the Worker over DO RPC) and calls only internal ops (checked above).
   if (kind === "system") return undefined
   if (kind !== "session") {
     const grant = grantFor(principal)
@@ -271,6 +271,40 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       result: Schema.Unknown,
       errors: [],
       docs: "Internal: SchedulerDO acknowledged whether the team allows automation runs (agents.allowedClasses run).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "install.ios_cloud_link_migrate",
+    {
+      name: "install.ios_cloud_link_migrate",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({}),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: UserDO adds the narrow cloud-link class once to its iPhone grants (read, mutate-own) made before the cloud-link default, on bind, then marks the migration done (CLOUD-LINK-FOLLOWUPS decision 2).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "install.register_server",
+    {
+      name: "install.register_server",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: InstallRegister.params,
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the server registers a server install (kind vm or daemon) for a user: pairing and the Cloud bind flow. A client never declares these kinds (CLOUD-LINK-FOLLOWUPS 4).",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef

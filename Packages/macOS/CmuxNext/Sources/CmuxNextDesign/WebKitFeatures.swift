@@ -38,7 +38,8 @@ public extension WKPreferences {
 /// WebKit's page render rate (one path for browser tabs, React pages and
 /// the agent pane). WebKit renders near 60 fps by default; full rate follows
 /// the display (120 Hz on ProMotion).
-public enum WebKitRenderRate {
+public struct WebKitRenderRate {
+    public init() {}
     /// WebKit's feature that renders a page at the display-rate divisor nearest 60 fps.
     public static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
 

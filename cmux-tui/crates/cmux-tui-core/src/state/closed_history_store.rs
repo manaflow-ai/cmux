@@ -303,6 +303,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
             }
             None => record["url"] = json!(url),
         }
+        // A conversation tab reopens as one, from this record.
+        if let Some(conversation) =
+            super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
+        {
+            record["conversation"] = conversation;
+        }
     }
     Ok(Some(record))
 }

@@ -515,6 +515,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
+        crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
@@ -1491,8 +1492,9 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
-    /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
+    /// `conversation-tabs-v1`, `agent-session-tabs-v1` (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
+    BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
@@ -3727,8 +3729,8 @@ struct MessageWriter {
     wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
     /// Fired when the writer closes, so stream loops block instead of polling `is_open`.
     closed: InterruptSet,
-    /// Negotiated `conversation-tabs-v1` (server/conversation_tabs_wire.rs).
-    conversation_tabs: Arc<AtomicBool>,
+    /// Negotiated conversation tab capabilities (server/conversation_tabs_wire.rs).
+    conversation_tabs: Arc<conversation_tabs_wire::NegotiatedTabs>,
 }
 
 impl MessageWriter {
@@ -3754,7 +3756,7 @@ impl MessageWriter {
             render_service,
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
             closed: InterruptSet::default(),
-            conversation_tabs: Arc::new(AtomicBool::new(false)),
+            conversation_tabs: Arc::default(),
         }
     }
 
@@ -5552,8 +5554,7 @@ impl ClientRegistry {
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
                     || capability == LOOPBACK_FORWARD_CAPABILITY
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
-                    || capability
-                        == crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY
+                    || conversation_tabs_wire::negotiable(capability)
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
@@ -6354,7 +6355,9 @@ impl ClientRegistry {
         self.url_opens.disconnect(client);
         self.loopback.disconnect(client);
         self.apps.disconnect(client);
-        let mut state = self.state.lock().unwrap();
+        // Safety: a removal never grants access; on a poisoned registry the
+        // record still goes, so a fail-closed close never panics here.
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
             state.daemon_handoff = None;
@@ -13635,9 +13638,8 @@ fn handle_command_with_cancellation(
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewConversationTab(params) => {
-            conversation_tabs_wire::new_conversation_tab(mux, params)
-        }
+        Command::NewConversationTab(params) => conversation_tabs_wire::create(mux, params),
+        Command::BindConversationTabSession(params) => conversation_tabs_wire::bind(mux, params),
         Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
