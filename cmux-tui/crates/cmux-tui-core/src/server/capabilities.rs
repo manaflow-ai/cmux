@@ -94,6 +94,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
+        crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         clipboard_read::CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {

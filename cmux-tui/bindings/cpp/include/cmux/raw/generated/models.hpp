@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5a43dd2e2f4de5ead9ba3ef3571fb4a4e897d93ea951e4795baad62319561b0d";
+inline constexpr std::string_view kProtocolIrSha256 = "5de21219cdefd725a855d27e4a1958bb298685a08a022e39e04aecb18e404b52";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2646,6 +2646,7 @@ struct NewConversationTabResult {
 };
 
 struct NewFrontendBrowserTabRequest {
+    std::optional<bool> activate{};
     Field<std::uint16_t> cols{};
     std::string engine{};
     Field<std::string> favicon_url{};

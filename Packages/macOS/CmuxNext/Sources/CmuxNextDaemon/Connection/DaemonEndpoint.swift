@@ -83,6 +83,8 @@ public struct DaemonCapabilities: Sendable {
     public let closeReason = "close-reason-v1"
     /// `browser-host-provider`: the verified app's credentials for the daemon's browser host.
     public let browserHostProvider = "browser-host-provider-v1"
+    /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
+    public let frontendBrowserActivate = "frontend-browser-activate-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
@@ -198,7 +200,7 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, closeReason, browserHostProvider, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,

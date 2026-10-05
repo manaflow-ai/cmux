@@ -142,8 +142,9 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         guard let pane = services.windows.active?.focusedPane, !browserTabs.isIncognitoPane(pane.pane.handle) else {
             throw AutomationTabError.noPane
         }
+        // In the background: the pane's active tab stays (every client reads it).
         let surface = try await browserTabs.open(BrowserEngineChoice(engine: .webkit), in: pane.pane.handle,
-                                                 url: "about:blank")
+                                                 url: "about:blank", activate: false)
         // The create reply can come before the store shows the tab.
         let appeared = try? await ControlDeadline.shared.run(method: "tabs.open", deadline: .now + .seconds(10)) { @MainActor in
             for await found in Observations({ services.locateTab(surface: surface) != nil }) where found { return true }
