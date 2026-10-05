@@ -355,28 +355,6 @@ public final class AgentPaneView: NSView {
         deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
     }
 
-    /// Pushes ``customization`` to the page, even an empty one (it clears
-    /// what removed files left behind).
-    func applyCustomization() {
-        runPageHostRegistry()
-        deliver(AgentPageEvent.customization(customization), scripts: customization.scripts())
-    }
-
-    /// On the page host, runs the user's `registry.js` as a host script (the old host's scripts
-    /// include it): the page's CSP (script-src 'self') refuses a script element the page makes.
-    func runPageHostRegistry() {
-        guard pageEvents != nil, let script = customization.registryScript else { return }
-        evaluateScript(script)
-    }
-
-    /// Re-pushes a non-empty ``customization`` to a page that may not have
-    /// had its bridge yet (a load finishing, the page asking for the
-    /// handshake once its bridge exists).
-    func replayCustomization() {
-        guard !customization.isEmpty else { return }
-        applyCustomization()
-    }
-
     /// The page's surface for overrides (R55): new tab page until a chat starts.
     var surfaceKind: SurfaceKind { model.newTab != nil ? .newTabPage : .agentPane }
 
