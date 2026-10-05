@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "cmuxBaseSHA": "76fc9b8dd4e51e0be089d9bb9b84c290f9b20cc7",
+  "cortexBaseSHA": "48ec633522adef3d0c8c85fd12372299e1edeca5",
+  "productionActivationAllowed": false,
+  "sourceArchivesIncludeForeignWIP": false,
+  "patches": {
+    "cmux": {
+      "sha256": "31ba5902e18af628e348b0c8868b738f4a09d61f4954f7cf13b6f047a74d1ab6",
+      "path": "/Users/yoyaku/.claude/state/cortex-parity/msn_9e895c323bcc17b01ecc/stage-v1/cmux-integration.patch"
+    },
+    "Cortex": {
+      "sha256": "bd0907b2419762e637410b1c669edc01583eeedff129966f4f65bf4f73c205ba",
+      "path": "/Users/yoyaku/.claude/state/cortex-parity/msn_9e895c323bcc17b01ecc/stage-v1/Cortex-integration.patch"
+    }
+  },
+  "cmuxArtifactSHA": "00158b28ac2b71eae844dcd3318083988d0e50f8",
+  "CortexArtifactSHA": "5e5cd61b093faf42ec394079f2481904890e4ab4"
+}

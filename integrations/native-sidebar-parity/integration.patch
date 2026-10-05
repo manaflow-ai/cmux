@@ -1,0 +1,552 @@
+diff --git a/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Manifest/CMUXExtensionScope.swift b/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Manifest/CMUXExtensionScope.swift
+index d1a02ffdad7bbde3db01ee34b2c97e884cbf331b..e08fda887c648b44d90853403365c82715eedc74 100644
+--- a/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Manifest/CMUXExtensionScope.swift
++++ b/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Manifest/CMUXExtensionScope.swift
+@@ -78,10 +78,14 @@ public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable,
+     case analyzeWorkspaceContext
+     /// Bind an explicitly supplied session to an exact live process generation.
+     case bindAgentSession
++    /// Present the native classic sidebar menu; choices remain user gestures.
++    case presentNativeSidebarMenu
+ 
+     /// The API required to interpret this declared capability.
+     var minimumAPIVersion: CmuxExtensionAPIVersion {
+         switch self {
++        case .presentNativeSidebarMenu:
++            return .sidebarV2_3
+         case .analyzeWorkspaceContext:
+             return .sidebarV2_3
+         case .editWorkspaceContext, .bindAgentSession:
+diff --git a/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarAction.swift b/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarAction.swift
+index f84a02e9cbf3d282f5c4a95d2f54919c71716f02..4e85f927d28cfc2c41c198842432a381d36a30d5 100644
+--- a/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarAction.swift
++++ b/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CMUXSidebarAction.swift
+@@ -73,8 +73,13 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
+     /// Binds a user-supplied identity only while the captured process generation still owns the surface.
+     case bindAgentSession(workspaceID: UUID, surfaceID: UUID, toolID: String, sessionID: String, expectedProcessGeneration: UInt64)
+ 
++    /// Presents the existing host menu; cannot choose a native command.
++    case classicMenu(CmuxSidebarClassicMenuAction)
++
+     public var requiredScopes: Set<CmuxExtensionActionScope> {
+         switch self {
++        case .classicMenu:
++            return [.presentNativeSidebarMenu]
+         case .createWorkspace(_, let workingDirectory, _):
+             return workingDirectory == nil ? [.createWorkspace] : [.createWorkspace, .createWorkspaceWithPath]
+         case .selectWorkspace:
+diff --git a/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarClassicMenu.swift b/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarClassicMenu.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..435d696a80b790d3ae9f70fbd08f9410901e7a24
+--- /dev/null
++++ b/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarClassicMenu.swift
+@@ -0,0 +1,12 @@
++import Foundation
++
++/// Requests presentation of the host's existing classic menu. The extension
++/// cannot select a menu item or pass a command, path, link, or notification.
++/// The explicit scope authorizes native UI presentation; mutations remain
++/// user gestures in CMUX's existing menu and confirmation handlers.
++public enum CmuxSidebarClassicMenuAction: Codable, Equatable, Sendable {
++    case presentWorkspaceMenu(workspaceID: UUID, selectedWorkspaceIDs: [UUID])
++    case presentGroupMenu(groupID: UUID)
++
++    public var requiredActionScopeNames: Set<String> { ["presentNativeSidebarMenu"] }
++}
+diff --git a/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarHost.swift b/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarHost.swift
+index 6624e8fe5d3af2e5d54340717862266d61b8d698..427a50f805aeff7fed29cce82dcd4158c8fa3117 100644
+--- a/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarHost.swift
++++ b/Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarHost.swift
+@@ -31,6 +31,11 @@ public struct CmuxSidebarHost {
+         self.refreshSnapshot = refreshSnapshot
+     }
+ 
++    /// Presents an exact native sidebar menu through the existing reply gate.
++    public func performClassicMenu(_ action: CmuxSidebarClassicMenuAction) async throws {
++        try await send(.classicMenu(action))
++    }
++
+     /// Requests the latest sidebar snapshot from CMUX.
+     public func refresh() {
+         refreshSnapshot()
+diff --git a/Sources/ContentView.swift b/Sources/ContentView.swift
+index e4d6499565408f271c1dfe89413111e952591dce..d150d7db83369643e6e760f9d8c3d50f95fa996d 100644
+--- a/Sources/ContentView.swift
++++ b/Sources/ContentView.swift
+@@ -12950,7 +12950,7 @@ struct VerticalTabsSidebar: View, Equatable {
+                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
+                 snapshotUpdateToken: extensionSidebarUpdateToken,
+                 unreadSource: sidebarUnread,
+-                actionHandler: { await handleCMUXSidebarExtensionAction($0) },
++                actionHandler: { await handleCMUXSidebarExtensionAction($0, renderContext: renderContext) },
+                 onUseDefaultSidebar: {
+                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
+                 }
+@@ -13338,8 +13338,19 @@ struct VerticalTabsSidebar: View, Equatable {
+         }
+     }
+     private func handleCMUXSidebarExtensionAction(
+-        _ action: CmuxSidebarAction
++        _ action: CmuxSidebarAction,
++        renderContext: WorkspaceListRenderContext
+     ) async -> CmuxSidebarActionResult {
++        if case .classicMenu(let request) = action {
++            return SidebarExtensionClassicMenuCoordinator(
++                tabManager: tabManager, notificationStore: notificationStore,
++                colorScheme: renderContext.environment.colorScheme,
++                readSelectedIDs: { selectedTabIds }, writeSelectedIDs: { selectedTabIds = $0 },
++                readSelectionIndex: { lastSidebarSelectionIndex }, writeSelectionIndex: { lastSidebarSelectionIndex = $0 },
++                selectTabs: { selection = .tabs }, refreshSnapshot: { refreshExtensionSidebarSnapshot() },
++                groupConfiguration: { id in appKitWorkspaceTableRows(renderContext: renderContext).first { $0.groupId == id && $0.isGroupHeader } }
++            ).perform(request)
++        }
+         if let result = SidebarExtensionManagementCoordinator(
+             tabManager: tabManager,
+             notificationStore: notificationStore
+diff --git a/Sources/Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift b/Sources/Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift
+index 8e21460afc6b82fe8ff910be6503a7c22aaf2283..305ae4ce74e08ca5d2e136b764e41cd04ee8ae14 100644
+--- a/Sources/Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift
++++ b/Sources/Sidebar/AppKitList/Cells/SidebarGroupHeaderRowView.swift
+@@ -620,7 +620,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
+         ))
+     }
+ 
+-    private func makeHeaderMenu() -> NSMenu {
++    /// Shared by classic cells and typed extension menu presentation.
++    func makeHeaderMenu() -> NSMenu {
+         guard let model, let actions else { return NSMenu() }
+         let menu = trackedMenu()
+         // Resolve availability at menu-open time. The row may have retained an
+diff --git a/Sources/Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands.swift b/Sources/Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands.swift
+index fe01fb49d49df27060ad365a8ef66f5446a3f021..a0f895da3108c43ce7a0911d108083f0159f372d 100644
+--- a/Sources/Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands.swift
++++ b/Sources/Sidebar/AppKitList/Cells/SidebarWorkspaceRowCommands.swift
+@@ -158,6 +158,14 @@ struct SidebarWorkspaceRowCommands {
+         setSelectionToTabs()
+     }
+ 
++    /// Captured at menu-open time; no live relative-index recapture.
++    func closeCapturedPlan(_ plan: SidebarClassicMenuParity.ClosePlan) {
++        guard let tabManager, tabManager.tabs.contains(where: { $0.id == plan.anchorID }) else { return }
++        let ids = plan.survivingWorkspaceIDs(in: tabManager.tabs.map(\.id))
++        guard !ids.isEmpty else { return }
++        closeTabs(ids, allowPinned: true)
++    }
++
+     func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
+         tabManager?.closeWorkspacesWithConfirmation(targetIds, allowPinned: allowPinned)
+         syncSelectionAfterMutation()
+@@ -665,6 +673,10 @@ struct SidebarWorkspaceRowMenuBuilder {
+     }
+ 
+     private func addCloseItems(to menu: NSMenu, tabManager: TabManager) {
++        guard let captured = SidebarClassicMenuParity(nativeOrder: tabManager.tabs.map(\.id),
++            anchorID: commands.tab.id, selectedWorkspaceIDs: commands.contextMenuWorkspaceIds) else { return }
++        let selected = captured.closePlan(.selected), others = captured.closePlan(.others)
++        let above = captured.closePlan(.above), below = captured.closePlan(.below)
+         let closeLabel = label(
+             multi: String(localized: "contextMenu.closeWorkspaces", defaultValue: "Close Workspaces"),
+             single: String(localized: "contextMenu.closeWorkspace", defaultValue: "Close Workspace"))
+@@ -673,34 +685,25 @@ struct SidebarWorkspaceRowMenuBuilder {
+             enabled: !targetIds.isEmpty,
+             shortcut: KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
+         ) { [commands] in
+-            commands.closeTabs(commands.contextMenuWorkspaceIds, allowPinned: true)
++            commands.closeCapturedPlan(selected)
+         })
+         menu.addItem(item(
+             String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces"),
+-            enabled: !(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
+-        ) { [weak tabManager, commands] in
+-            guard let tabManager else { return }
+-            let keepIds = Set(commands.contextMenuWorkspaceIds)
+-            let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
+-            commands.closeTabs(idsToClose, allowPinned: true)
++            enabled: !others.workspaceIDs.isEmpty
++        ) { [commands] in
++            commands.closeCapturedPlan(others)
+         })
+         menu.addItem(item(
+             String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below"),
+-            enabled: commands.index < tabManager.tabs.count - 1
+-        ) { [weak tabManager, commands] in
+-            guard let tabManager,
+-                  let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == commands.tab.id }) else { return }
+-            let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
+-            commands.closeTabs(idsToClose, allowPinned: true)
++            enabled: !below.workspaceIDs.isEmpty
++        ) { [commands] in
++            commands.closeCapturedPlan(below)
+         })
+         menu.addItem(item(
+             String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above"),
+-            enabled: commands.index != 0
+-        ) { [weak tabManager, commands] in
+-            guard let tabManager,
+-                  let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == commands.tab.id }) else { return }
+-            let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
+-            commands.closeTabs(idsToClose, allowPinned: true)
++            enabled: !above.workspaceIDs.isEmpty
++        ) { [commands] in
++            commands.closeCapturedPlan(above)
+         })
+     }
+ 
+diff --git a/Sources/SidebarClassicMenuParity.swift b/Sources/SidebarClassicMenuParity.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..c3ca9d47918b7c3d1a322c8d93f6ed93dbab4345
+--- /dev/null
++++ b/Sources/SidebarClassicMenuParity.swift
+@@ -0,0 +1,63 @@
++import Foundation
++
++/// Captures native workspace targets once, before an asynchronous menu action
++/// or a close confirmation. Shared by the classic sidebar and extension host.
++/// A new or reordered workspace must never broaden an already captured close.
++struct SidebarClassicMenuParity: Equatable, Sendable {
++    enum CloseSelection: String, CaseIterable, Sendable {
++        case selected
++        case others
++        case above
++        case below
++    }
++
++    struct ClosePlan: Equatable, Sendable {
++        let anchorID: UUID
++        let workspaceIDs: [UUID]
++
++        /// Target loss narrows the confirmed operation; it never selects
++        /// replacement workspaces by index, title, group or current selection.
++        func survivingWorkspaceIDs(in liveWorkspaceIDs: [UUID]) -> [UUID] {
++            let live = Set(liveWorkspaceIDs)
++            return workspaceIDs.filter(live.contains)
++        }
++    }
++
++    let nativeOrder: [UUID]
++    let anchorID: UUID
++    let selectedWorkspaceIDs: [UUID]
++
++    /// A context click outside the current selection acts only on the clicked
++    /// workspace. Inside the selection it retains native relative ordering.
++    init?(nativeOrder: [UUID], anchorID: UUID, selectedWorkspaceIDs: [UUID]) {
++        guard !nativeOrder.isEmpty, Set(nativeOrder).count == nativeOrder.count,
++              nativeOrder.contains(anchorID) else { return nil }
++        self.nativeOrder = nativeOrder
++        self.anchorID = anchorID
++        let selected = Set(selectedWorkspaceIDs)
++        self.selectedWorkspaceIDs = selected.contains(anchorID)
++            ? nativeOrder.filter(selected.contains)
++            : [anchorID]
++    }
++
++    func closePlan(_ selection: CloseSelection) -> ClosePlan {
++        let ids: [UUID]
++        switch selection {
++        case .selected:
++            ids = selectedWorkspaceIDs
++        case .others:
++            let keep = Set(selectedWorkspaceIDs)
++            ids = nativeOrder.filter { !keep.contains($0) }
++        case .above:
++            ids = Array(nativeOrder.prefix { $0 != anchorID })
++        case .below:
++            let index = nativeOrder.firstIndex(of: anchorID)!
++            ids = Array(nativeOrder.dropFirst(index + 1))
++        }
++        return ClosePlan(anchorID: anchorID, workspaceIDs: ids)
++    }
++
++    func canClose(_ selection: CloseSelection) -> Bool {
++        !closePlan(selection).workspaceIDs.isEmpty
++    }
++}
+diff --git a/Sources/SidebarExtensionClassicMenuCoordinator.swift b/Sources/SidebarExtensionClassicMenuCoordinator.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..9586ee06ee1c30bae616981beff9872c81ace1fc
+--- /dev/null
++++ b/Sources/SidebarExtensionClassicMenuCoordinator.swift
+@@ -0,0 +1,77 @@
++import AppKit
++@_spi(CmuxHostTransport) import CmuxExtensionKit
++import CmuxSidebar
++import SwiftUI
++
++/// Presents the exact AppKit menu shared with CMUX's classic sidebar.
++/// Never copies menu labels, availability, palettes, shortcuts, or mutations.
++@MainActor
++struct SidebarExtensionClassicMenuCoordinator {
++    let tabManager: TabManager
++    let notificationStore: TerminalNotificationStore
++    var colorScheme: ColorScheme = .dark
++    var readSelectedIDs: () -> Set<UUID> = { [] }
++    var writeSelectedIDs: (Set<UUID>) -> Void = { _ in }
++    var readSelectionIndex: () -> Int? = { nil }
++    var writeSelectionIndex: (Int?) -> Void = { _ in }
++    var selectTabs: () -> Void = {}
++    var refreshSnapshot: () -> Void = {}
++    var groupConfiguration: ((UUID) -> SidebarWorkspaceTableRowConfiguration?)?
++    var presentMenu: (NSMenu) -> Void = {
++        $0.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
++    }
++
++    func perform(_ action: CmuxSidebarClassicMenuAction) -> CmuxSidebarActionResult {
++        switch action {
++        case .presentWorkspaceMenu(let id, let selected):
++            guard selected.count <= 256, Set(selected).count == selected.count,
++                  let index = tabManager.tabs.firstIndex(where: { $0.id == id }),
++                  let capture = SidebarClassicMenuParity(nativeOrder: tabManager.tabs.map(\.id),
++                    anchorID: id, selectedWorkspaceIDs: selected) else { return unavailable }
++            let tab = tabManager.tabs[index]
++            let targets = capture.selectedWorkspaceIDs
++            let remoteTargets = tabManager.tabs.filter { targets.contains($0.id) && $0.isRemoteWorkspace && !$0.isManagedCloudVMWorkspace }
++            writeSelectedIDs(Set(targets))
++            let snapshot = SidebarWorkspaceSnapshotFactory(workspace: tab,
++                settings: SidebarTabItemSettingsSnapshot(), showsAgentActivity: true).makeSnapshot()
++            let commands = SidebarWorkspaceRowCommands(tab: tab, tabManager: tabManager,
++                notificationStore: notificationStore, index: index,
++                contextMenuWorkspaceIds: targets, remoteContextMenuWorkspaceIds: remoteTargets.map(\.id),
++                allRemoteContextMenuTargetsConnecting: !remoteTargets.isEmpty && remoteTargets.allSatisfy { $0.remoteConnectionState == .connecting || $0.remoteConnectionState == .reconnecting },
++                allRemoteContextMenuTargetsDisconnected: !remoteTargets.isEmpty && remoteTargets.allSatisfy { $0.remoteConnectionState == .disconnected },
++                contextMenuPinState: WorkspaceActionDispatcher.pinState(in: tabManager,
++                    target: .init(workspaceIds: targets, anchorWorkspaceId: id)),
++                workspaceGroupMenuSnapshot: .init(items: tabManager.workspaceGroups.map { .init(id: $0.id, name: $0.name) }),
++                colorScheme: colorScheme, refreshSnapshot: refreshSnapshot,
++                readSelectedTabIds: readSelectedIDs, writeSelectedTabIds: writeSelectedIDs,
++                readLastSelectionIndex: readSelectionIndex, writeLastSelectionIndex: writeSelectionIndex,
++                setSelectionToTabs: selectTabs, snapshotProvider: { snapshot })
++            let menu = commands.makeContextMenu(onOpen: {}, onClose: refreshSnapshot, beginInlineRename: {
++                _ = SidebarExtensionManagementCoordinator(tabManager: tabManager, notificationStore: notificationStore)
++                    .perform(.renameWorkspace(workspaceID: id, title: nil))
++            })
++            appendTargetHeading(to: menu, title: targets.count > 1 ? "\(tab.title) · \(targets.count) workspaces" : tab.title)
++            presentMenu(menu)
++            return .accepted
++        case .presentGroupMenu(let id):
++            guard tabManager.workspaceGroups.contains(where: { $0.id == id }),
++                  let row = groupConfiguration?(id), let model = row.appKitGroupHeaderModel,
++                  let actions = row.appKitGroupHeaderActions else { return unavailable }
++            let cell = SidebarGroupHeaderTableCellView(frame: .zero)
++            cell.configure(model: model, actions: actions, isPointerHovering: false,
++                contextMenuDidOpen: {}, contextMenuDidClose: refreshSnapshot)
++            let menu = cell.makeHeaderMenu()
++            appendTargetHeading(to: menu, title: model.name)
++            // NSMenu targets the cell; retain it throughout native tracking.
++            withExtendedLifetime(cell) { presentMenu(menu) }
++            return .accepted
++        }
++    }
++    private func appendTargetHeading(to menu: NSMenu, title: String) {
++        let heading = NSMenuItem(title: title, action: nil, keyEquivalent: "")
++        heading.isEnabled = false
++        menu.insertItem(.separator(), at: 0)
++        menu.insertItem(heading, at: 0)
++    }
++    private var unavailable: CmuxSidebarActionResult { .rejected("Native sidebar menu is unavailable") }
++}
+diff --git a/cmux.xcodeproj/project.pbxproj b/cmux.xcodeproj/project.pbxproj
+index 66fd070e9a83a7e2b9cd71f8cd71e1da010759b7..14348a953f4f6f2d875b6ad15b589965cba4e92c 100644
+--- a/cmux.xcodeproj/project.pbxproj
++++ b/cmux.xcodeproj/project.pbxproj
+@@ -4489,6 +4489,8 @@
+ 
+ 
+ 
++		E4D49E7CA6D1FE42E483A5CD /* SidebarClassicMenuParity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B95D90CBC3E13D585BA12634 /* SidebarClassicMenuParity.swift */; };
++		5B39BFE15DD233ADC7E7CDF9 /* SidebarExtensionClassicMenuCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874F23628DB71B2700719F00 /* SidebarExtensionClassicMenuCoordinator.swift */; };
+ /* End PBXBuildFile section */
+ 
+ /* Begin PBXContainerItemProxy section */
+@@ -8892,6 +8894,8 @@
+ 
+ 
+ 
++		B95D90CBC3E13D585BA12634 /* SidebarClassicMenuParity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarClassicMenuParity.swift; sourceTree = "<group>"; };
++		874F23628DB71B2700719F00 /* SidebarExtensionClassicMenuCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionClassicMenuCoordinator.swift; sourceTree = "<group>"; };
+ /* End PBXFileReference section */
+ 
+ /* Begin PBXFrameworksBuildPhase section */
+@@ -9762,6 +9766,8 @@
+ 				FC22D0010000000000000002 /* SidebarExtensionAgentSessionBindingCoordinator.swift */,
+ 				FC22C0020000000000000002 /* SidebarExtensionWorkspaceContextCoordinator.swift */,
+ 				FC22C0010000000000000002 /* WorkspaceContextModel.swift */,
++				B95D90CBC3E13D585BA12634 /* SidebarClassicMenuParity.swift */,
++				874F23628DB71B2700719F00 /* SidebarExtensionClassicMenuCoordinator.swift */,
+ 				499A3CA2EB3580820BEBDCBC /* SidebarExtensionManagementCoordinator.swift */,
+ 				01345AEE427B428F770C3DB1 /* SidebarExtensionImportanceMenu.swift */,
+ 				FD80145597B5563E5949E7CB /* SidebarExtensionModeHeader.swift */,
+@@ -16016,6 +16022,8 @@
+ 				9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */,
+ 				FC22D0010000000000000001 /* SidebarExtensionAgentSessionBindingCoordinator.swift in Sources */,
+ 				6F4C07E634FB3B91A73B43FB /* SidebarExtensionImportanceMenu.swift in Sources */,
++				E4D49E7CA6D1FE42E483A5CD /* SidebarClassicMenuParity.swift in Sources */,
++				5B39BFE15DD233ADC7E7CDF9 /* SidebarExtensionClassicMenuCoordinator.swift in Sources */,
+ 				C14BB250731A62C3CC38C034 /* SidebarExtensionManagementCoordinator.swift in Sources */,
+ 				FCDD8A486170C2ED2F5DF8F2 /* SidebarExtensionModeHeader.swift in Sources */,
+ 				EFBE1F9AF97433BBA50804F1 /* SidebarExtensionRuntimeProjector.swift in Sources */,
+diff --git a/tests_v2/test_cortex_classic_menu_contract.py b/tests_v2/test_cortex_classic_menu_contract.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..50ed9866f1f8fa0c1869890b51c03770bc8c4385
+--- /dev/null
++++ b/tests_v2/test_cortex_classic_menu_contract.py
+@@ -0,0 +1,49 @@
++#!/usr/bin/env python3
++"""Compile the actual typed native-menu presentation contract."""
++import json
++from pathlib import Path
++import subprocess
++import tempfile
++import unittest
++
++ROOT = Path(__file__).resolve().parents[1]
++SOURCE = ROOT / "Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarClassicMenu.swift"
++
++class NativeMenuContractTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.temporary = tempfile.TemporaryDirectory()
++        path = Path(cls.temporary.name)
++        harness = path / "main.swift"
++        harness.write_text(r"""import Foundation
++let id = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
++let second = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
++let requests: [CmuxSidebarClassicMenuAction] = [
++    .presentWorkspaceMenu(workspaceID: id, selectedWorkspaceIDs: [id, second]),
++    .presentGroupMenu(groupID: second)]
++let encoder = JSONEncoder(); let decoder = JSONDecoder()
++var roundTrip = true
++for request in requests {
++    let decoded = try decoder.decode(CmuxSidebarClassicMenuAction.self, from: encoder.encode(request))
++    roundTrip = roundTrip && decoded == request
++}
++let rawCommand = Data(#"{"executeCommand":{"command":"arbitrary shell"}}"#.utf8)
++let selectsItem = Data(#"{"selectMenuItem":{"item":"Close Workspace"}}"#.utf8)
++let scopes = requests.map { Array($0.requiredActionScopeNames).sorted() }
++let result: [String: Any] = ["roundTrip":roundTrip, "scopes":scopes,
++    "rejectsCommand": (try? decoder.decode(CmuxSidebarClassicMenuAction.self, from: rawCommand)) == nil,
++    "rejectsItemSelection": (try? decoder.decode(CmuxSidebarClassicMenuAction.self, from: selectsItem)) == nil]
++print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), encoding: .utf8)!)
++""")
++        binary = path / "contract"
++        subprocess.run(["swiftc", str(SOURCE), str(harness), "-o", str(binary)], check=True)
++        cls.result = json.loads(subprocess.run([str(binary)], check=True, capture_output=True, text=True).stdout)
++    @classmethod
++    def tearDownClass(cls): cls.temporary.cleanup()
++    def test_workspace_and_group_roundtrip_preserve_exact_ids(self): self.assertTrue(self.result["roundTrip"])
++    def test_only_explicit_native_presentation_scope_is_declared(self):
++        self.assertEqual(self.result["scopes"], [["presentNativeSidebarMenu"], ["presentNativeSidebarMenu"]])
++    def test_arbitrary_commands_are_not_part_of_transport(self): self.assertTrue(self.result["rejectsCommand"])
++    def test_extension_cannot_choose_a_native_menu_item(self): self.assertTrue(self.result["rejectsItemSelection"])
++
++if __name__ == "__main__": unittest.main()
+diff --git a/tests_v2/test_cortex_classic_parity.py b/tests_v2/test_cortex_classic_parity.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..fd439dff712a5bd308bebb4dc9062cdeb81ad132
+--- /dev/null
++++ b/tests_v2/test_cortex_classic_parity.py
+@@ -0,0 +1,105 @@
++#!/usr/bin/env python3
++"""Portable behavioral proof for shared context-menu target capture.
++
++This compiles the real Foundation-only planner without starting CMUX or
++touching the user's windows. The app/ExtensionKit entrypoint canary remains
++separate and must run against the exact tagged pair after integration.
++"""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++import unittest
++
++
++REPO = Path(__file__).resolve().parents[1]
++SOURCE = REPO / "Sources/SidebarClassicMenuParity.swift"
++HARNESS = r'''
++import Foundation
++
++let a = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
++let b = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
++let c = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
++let d = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
++let x = UUID(uuidString: "00000000-0000-0000-0000-000000000009")!
++let order = [a, b, c, d]
++func labels(_ ids: [UUID]) -> [Int] {
++    ids.map { Int($0.uuidString.suffix(1))! }
++}
++var result: [String: Any] = [:]
++let selected = SidebarClassicMenuParity(nativeOrder: order, anchorID: b,
++    selectedWorkspaceIDs: [d, b, b, x])!
++result["selection"] = labels(selected.selectedWorkspaceIDs)
++for operation in SidebarClassicMenuParity.CloseSelection.allCases {
++    result[operation.rawValue] = labels(selected.closePlan(operation).workspaceIDs)
++}
++let captured = selected.closePlan(.below)
++result["afterReorderAndInsertion"] = labels(captured.survivingWorkspaceIDs(in: [x, d, a, c, b]))
++result["afterClosedTarget"] = labels(captured.survivingWorkspaceIDs(in: [x, a, b, d]))
++let outside = SidebarClassicMenuParity(nativeOrder: order, anchorID: c, selectedWorkspaceIDs: [a, b])!
++result["outsideSelection"] = labels(outside.selectedWorkspaceIDs)
++result["firstAboveEnabled"] = SidebarClassicMenuParity(nativeOrder: order, anchorID: a,
++    selectedWorkspaceIDs: [])!.canClose(.above)
++result["lastBelowEnabled"] = SidebarClassicMenuParity(nativeOrder: order, anchorID: d,
++    selectedWorkspaceIDs: [])!.canClose(.below)
++result["allSelectedOthersEnabled"] = SidebarClassicMenuParity(nativeOrder: order, anchorID: a,
++    selectedWorkspaceIDs: order)!.canClose(.others)
++result["missingAnchorRejected"] = SidebarClassicMenuParity(nativeOrder: order, anchorID: x,
++    selectedWorkspaceIDs: [x]) == nil
++result["duplicateNativeOrderRejected"] = SidebarClassicMenuParity(nativeOrder: [a, a], anchorID: a,
++    selectedWorkspaceIDs: [a]) == nil
++let data = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
++print(String(decoding: data, as: UTF8.self))
++'''
++
++
++class ClassicMenuTargetCaptureTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        compiler = shutil.which("swiftc")
++        if compiler is None:
++            raise RuntimeError("swiftc is required; skipped tests are not a parity proof")
++        with tempfile.TemporaryDirectory(prefix="cortex-menu-parity-") as directory:
++            scratch = Path(directory)
++            harness = scratch / "main.swift"
++            harness.write_text(HARNESS)
++            binary = scratch / "parity"
++            subprocess.run([compiler, str(SOURCE), str(harness), "-o", str(binary)],
++                           check=True, capture_output=True, text=True, timeout=120)
++            run = subprocess.run([str(binary)], check=True, capture_output=True,
++                                 text=True, timeout=10)
++            cls.actual = json.loads(run.stdout)
++
++    def test_multi_selection_is_native_ordered_and_deduplicated(self):
++        self.assertEqual(self.actual["selection"], [2, 4])
++        self.assertEqual(self.actual["selected"], [2, 4])
++
++    def test_close_others_keeps_every_selected_workspace(self):
++        self.assertEqual(self.actual["others"], [1, 3])
++
++    def test_relative_close_uses_native_order_even_across_groups(self):
++        self.assertEqual(self.actual["above"], [1])
++        self.assertEqual(self.actual["below"], [3, 4])
++
++    def test_confirmation_cannot_capture_new_or_reordered_workspaces(self):
++        self.assertEqual(self.actual["afterReorderAndInsertion"], [3, 4])
++        self.assertEqual(self.actual["afterClosedTarget"], [4])
++
++    def test_context_click_outside_selection_targets_clicked_workspace(self):
++        self.assertEqual(self.actual["outsideSelection"], [3])
++
++    def test_boundary_actions_are_disabled(self):
++        for key in ["firstAboveEnabled", "lastBelowEnabled", "allSelectedOthersEnabled"]:
++            self.assertFalse(self.actual[key], key)
++
++    def test_invalid_native_identity_is_rejected(self):
++        self.assertTrue(self.actual["missingAnchorRejected"])
++        self.assertTrue(self.actual["duplicateNativeOrderRejected"])
++
++
++if __name__ == "__main__":
++    unittest.main()
