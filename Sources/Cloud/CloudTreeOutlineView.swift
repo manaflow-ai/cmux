@@ -545,8 +545,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection, .coderouterSection:
                 toggle(node)
-            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterAddAccount:
+            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer:
                 break
+            case .coderouterAddAccount:
+                nodeActions.showHint(String(localized: "coderouter.addAccount.help", defaultValue: "Use cmux coderouter claude add to add an account."))
             case .createAction(let action):
                 action.perform(nodeActions)
             case .pendingMachine(let operation):

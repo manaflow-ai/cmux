@@ -90,7 +90,7 @@ final class CloudTreeNode: NSObject {
             switch self {
             case .cloudMachinesSection: "cloud"
             case .devicesSection: "desktopcomputer"
-            case .coderouterSection: "point.3.connected.trianglepath.dotted"
+            case .coderouterSection: "arrow.triangle.branch"
             default: nil
             }
         }
