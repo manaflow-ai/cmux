@@ -13,7 +13,7 @@ struct Connection {
 
 impl Connection {
     fn new(role: Option<&str>) -> Self {
-        let mux = Mux::new_for_test("new-screen-origin", crate::SurfaceOptions::default());
+        let mux = Mux::new_for_test("new-screen-origin", SurfaceOptions::default());
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound, control: None });
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());

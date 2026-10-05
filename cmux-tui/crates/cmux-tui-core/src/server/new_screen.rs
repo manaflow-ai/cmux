@@ -77,14 +77,11 @@ fn refuse_page_spawn_fields(
     env: &Option<BTreeMap<String, String>>,
     shell_args: &Option<Vec<String>>,
 ) -> anyhow::Result<()> {
-    let present: Vec<&'static str> = [
-        ("cwd", cwd.is_some()),
-        ("env", env.is_some()),
-        ("shell_args", shell_args.is_some()),
-    ]
-    .into_iter()
-    .filter_map(|(name, present)| present.then_some(name))
-    .collect();
+    let present: Vec<&'static str> =
+        [("cwd", cwd.is_some()), ("env", env.is_some()), ("shell_args", shell_args.is_some())]
+            .into_iter()
+            .filter_map(|(name, present)| present.then_some(name))
+            .collect();
     if present.is_empty() {
         return Ok(());
     }
