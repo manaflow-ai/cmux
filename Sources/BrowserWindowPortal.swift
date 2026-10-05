@@ -1321,6 +1321,7 @@ final class WindowBrowserSlotView: NSView {
     private var linkHoverIndicatorView: LinkHoverIndicatorView?
     private var pointerLinkHoverURL: String?
     private var keyboardFocusedLinkURL: String?
+    private var linkHoverSettingObserver: (any NSObjectProtocol)?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     var forwardedDropZone: DropZone?
@@ -1351,6 +1352,12 @@ final class WindowBrowserSlotView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    deinit {
+        if let linkHoverSettingObserver {
+            NotificationCenter.default.removeObserver(linkHoverSettingObserver)
+        }
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -1491,9 +1498,11 @@ final class WindowBrowserSlotView: NSView {
 
     private func updateLinkHoverIndicator() {
         guard let url = pointerLinkHoverURL ?? keyboardFocusedLinkURL else {
+            stopObservingLinkHoverSetting()
             linkHoverIndicatorView?.setURL(nil)
             return
         }
+        startObservingLinkHoverSetting()
         let indicator: LinkHoverIndicatorView
         if let linkHoverIndicatorView {
             indicator = linkHoverIndicatorView
@@ -1504,6 +1513,23 @@ final class WindowBrowserSlotView: NSView {
         }
         indicator.frame = linkHoverIndicatorFrame()
         indicator.setURL(url)
+    }
+
+    /// Watches `browser.showLinkHoverURL` while a link is showing, so turning
+    /// the setting off hides it without waiting for the next pointer or focus
+    /// event.
+    private func startObservingLinkHoverSetting() {
+        guard linkHoverSettingObserver == nil else { return }
+        linkHoverSettingObserver = NotificationCenter.default.addUserDefaultsObserver { [weak self] in
+            guard let self, !BrowserLinkHoverURL.isEnabled() else { return }
+            self.clearLinkHoverURLs()
+        }
+    }
+
+    private func stopObservingLinkHoverSetting() {
+        guard let linkHoverSettingObserver else { return }
+        NotificationCenter.default.removeObserver(linkHoverSettingObserver)
+        self.linkHoverSettingObserver = nil
     }
 
     /// The web view's own frame, so the indicator stays on the page when a
