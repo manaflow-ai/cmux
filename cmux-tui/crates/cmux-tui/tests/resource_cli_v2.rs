@@ -826,6 +826,21 @@ fn local_plugin_jsonl_never_connects_to_the_session_socket() {
     assert_eq!(invalid["retryable"], false);
     assert_eq!(invalid["details"]["field"], "plugin");
     assert!(invalid["details"]["reason"].is_string());
+
+    // Agent plugins share the manager but name their own resource noun.
+    let invalid_agent = Command::new(bin())
+        .args(["--json", "--socket"])
+        .arg(dir.join("missing.sock"))
+        .args(["agent", "plugin", "use", "Bad"])
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_CONFIG_HOME", &config)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(invalid_agent.status.code(), Some(1));
+    let invalid_agent = parse_single_json(&invalid_agent.stderr);
+    assert_eq!(invalid_agent["code"], "validation.invalid");
+    assert_eq!(invalid_agent["details"]["field"], "agent_plugin");
     fs::remove_dir_all(dir).unwrap();
 }
 
