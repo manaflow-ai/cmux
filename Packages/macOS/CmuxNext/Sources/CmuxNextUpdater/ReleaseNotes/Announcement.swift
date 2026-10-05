@@ -35,6 +35,20 @@ nonisolated public struct AnnouncementFilter: Sendable {
 
     /// At most `limit`, feed order, for this build and time, not dismissed.
     public static func visible(_ all: [Announcement], build: String, now: Date, dismissed: Set<String>, limit: Int = 3) -> [Announcement] {
-        []
+        let dates = ISO8601DateFormatter()
+        func atOrAfter(_ text: String?, _ open: Bool) -> Bool? {
+            guard let text else { return open }
+            guard let date = dates.date(from: text) else { return nil }
+            return now >= date
+        }
+        let shown = all.filter { item in
+            guard !dismissed.contains(item.id) else { return false }
+            if let min = item.minBuild, build.compare(min, options: .numeric) == .orderedAscending { return false }
+            if let max = item.maxBuild, build.compare(max, options: .numeric) == .orderedDescending { return false }
+            guard let started = atOrAfter(item.startsAt, true), started else { return false }
+            guard let expired = atOrAfter(item.expiresAt, false), !expired else { return false }
+            return true
+        }
+        return Array(shown.prefix(limit))
     }
 }
