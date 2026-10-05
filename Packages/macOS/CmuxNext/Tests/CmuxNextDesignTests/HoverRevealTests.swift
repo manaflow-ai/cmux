@@ -25,6 +25,28 @@ import Testing
         return (region, button)
     }
 
+    /// nxdog43: a region created at zero size and laid out later (the title bar row, the top-left
+    /// corner) must track exactly its frame. Its tracking view was sized by autoresizing from a
+    /// zero-size superview and grew past the region, so a pointer anywhere in the window stayed
+    /// "inside" and the reveal never ended.
+    @Test func aRegionLaidOutAfterCreationTracksExactlyItsFrame() {
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 1100, height: 720), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let region = NSView(frame: .zero)
+        window.contentView?.addSubview(region)
+        let reveal = HoverReveal(region: region)
+        region.frame = NSRect(x: 0, y: 692, width: 151, height: 28)
+        region.frame = NSRect(x: 0, y: 692, width: 180, height: 28)
+        let trackers = region.subviews.filter { $0.frame != .zero || $0.bounds.width > 0 }
+        #expect(!trackers.isEmpty)
+        for tracker in region.subviews {
+            #expect(tracker.frame == region.bounds, "tracking view \(tracker.frame) vs region \(region.bounds)")
+        }
+        withExtendedLifetime(reveal) {}
+    }
+
     @Test func revealFollowsThePointerHoldsFocusAndTheSetting() {
         var state = HoverRevealState()
         #expect(!state.isRevealed)
