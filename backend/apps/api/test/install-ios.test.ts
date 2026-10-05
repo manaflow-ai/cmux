@@ -68,7 +68,7 @@ describe("iPhone install principal (D5)", { timeout: 30_000 }, () => {
     })
   }
 
-  it("an iPhone install gets read and mutate-own only (L14-1), and install.sign_out revokes it (L14-2)", async () => {
+  it("an iPhone install gets read, mutate-own (L14-1) and the narrow cloud-link class (CLOUD-LINK-FOLLOWUPS 5), and install.sign_out revokes it (L14-2)", async () => {
     const session = await sessionToken("ios-grant")
     const user = (await op(session, "user.ensure", {})).json.value.id as string
     const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
@@ -82,7 +82,7 @@ describe("iPhone install principal (D5)", { timeout: 30_000 }, () => {
     const token = (await call("/v1/auth/token", undefined, { user, install, nonce: ch.json.nonce, signature: b64u(raw) })).json.access_token as string
     const list = await call("/v1/read", token, { op: "install.list", params: {} })
     const grant = list.json.value.grants.find((g: { grantee: string }) => g.grantee === install)
-    expect([...grant.op_classes].sort()).toEqual(["mutate-own", "read"])
+    expect([...grant.op_classes].sort()).toEqual(["cloud-link", "mutate-own", "read"])
     const out = await op(token, "install.sign_out", {})
     expect(out.json.ok).toBe(true)
     expect(out.json.value.revoked_at).not.toBeNull()

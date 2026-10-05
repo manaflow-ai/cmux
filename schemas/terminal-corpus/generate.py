@@ -33,7 +33,7 @@ def shell_prompt() -> str:
     out = []
     for n in range(40):
         out.append(f"{OSC}133;A{ST}")
-        out.append(f"{OSC}7;file://host/Users/dev/project{n % 3}{ST}")
+        out.append(f"{OSC}7;file://localhost/Users/dev/project{n % 3}{ST}")
         out.append(f"{OSC}2;dev@host: ~/project{n % 3}{BEL}")
         out.append(f"{CSI}1;32mdev@host{CSI}0m:{CSI}1;34m~/project{n % 3}{CSI}0m$ ")
         out.append(f"{OSC}133;B{ST}")
@@ -125,7 +125,7 @@ CASES = {
     "hyperlinks": (hyperlinks, 100, 30, ["osc8", "underline-color", "underline-styles"]),
     "styles": (styles, 132, 50, ["palette", "truecolor", "sgr"]),
     "scrollback": (scrollback, 120, 40, ["scrollback-5000"]),
-    "kitty-graphics": (kitty_graphics, 80, 24, ["kitty-images-excluded-from-ghostsnp-v1"]),
+    "kitty-graphics": (kitty_graphics, 80, 24, ["kitty-placements", "kitty-image-data-not-in-ghostsnp-v1"]),
 }
 
 

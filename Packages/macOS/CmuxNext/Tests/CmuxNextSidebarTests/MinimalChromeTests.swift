@@ -32,13 +32,6 @@ import Testing
         #expect(keys.contains(.section(cloudSection)))
     }
 
-    @Test func dropAboveTheFirstRowOfAHeaderlessListTargetsIndexZero() {
-        let sections = localOnly([.workspace(w("a")), .workspace(w("b")), .workspace(w("c"))])
-        let base = SidebarLayout.make(sections: sections, metrics: .standard)
-        let target = DropResolver.resolve(y: 0, payload: .workspaces([id("c")]), base: base, sections: sections)
-        #expect(target == .position(DropPosition(section: local, index: 0)))
-    }
-
     @Test func onlyLiveStatusEarnsASecondLine() {
         let m = SidebarLayoutMetrics.standard
         let passive = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~")

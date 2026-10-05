@@ -256,9 +256,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
     repoRoot: "/tmp/other-repo",
   });
 
-  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
-  sourceSelect.value = "unstaged";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("unstaged");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
   await waitFor(() => fetched.length === 3);
   expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source).toEqual({
@@ -275,8 +273,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
     repoRoot: "/tmp/repo",
   });
 
-  sourceSelect.value = "last-turn";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("last-turn");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
   await waitFor(() => fetched.length === 5);
   expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source).toEqual({
@@ -467,12 +464,9 @@ test("typed source switching preserves the last resolved branch base", async () 
   await waitFor(
     () => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("chosen-base") === true,
   );
-  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
-  sourceSelect.value = "unstaged";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("unstaged");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
-  sourceSelect.value = "branch";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("branch");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
   expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source).toEqual({
     kind: "branch",
@@ -606,9 +600,7 @@ test("Last Turn reveals repo selection after switching to a typed git source", a
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
   expect(dom.window.document.getElementById("repo-select")).toBeNull();
 
-  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
-  sourceSelect.value = "unstaged";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("unstaged");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
   const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
   expect(repoSelect).toBeTruthy();
@@ -618,6 +610,102 @@ test("Last Turn reveals repo selection after switching to a typed git source", a
   expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source).toEqual({
     kind: "unstaged",
     repoRoot: "/tmp/other",
+  });
+});
+
+test("a branch change the host answers with a new session switches to it in place", async () => {
+  dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
+  const requests: any[] = [];
+  const fetched: string[] = [];
+  installDomGlobals(dom, (input) => {
+    fetched.push(String(input));
+    return new Response("", { status: 200 });
+  });
+  (dom.window as any).webkit = {
+    messageHandlers: {
+      cmuxDiff: {
+        async postMessage(request: any) {
+          requests.push(request);
+          const reply = (result: unknown) => ({ id: request.id, version: 1, result, error: null });
+          if (request.method === "branchList") {
+            return reply({
+              type: "branches",
+              value: {
+                groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "develop", label: "develop" }] }],
+              },
+            });
+          }
+          if (request.method === "branchChange") {
+            return reply({
+              type: "sessionOpened",
+              value: {
+                sessionId: "branch-session",
+                patch: { id: "/develop.patch", mediaType: "text/x-diff", byteLength: 0, revision: 1 },
+                source: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "develop" },
+                generatedPaths: [],
+              },
+            });
+          }
+          return reply({ type: "sessionClosed" });
+        },
+      },
+    },
+  };
+  const startURL = dom.window.location.href;
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          patchURL: "/main.patch",
+          branchPicker: {
+            repoRoot: "/tmp/repo",
+            headRef: "feat-x",
+            currentRef: "main",
+            currentReason: "",
+            confidence: "high",
+            aheadBehind: null,
+            refsURL: "typed://branch-list",
+            regenerateURLTemplate: "typed://branch-change/{ref}",
+            groupId: "1234567890-group",
+            capabilityToken: "group-token",
+          },
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
+    />,
+  );
+
+  await waitFor(() => fetched.includes("/main.patch"));
+  dom.window.document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => dom?.window.document.querySelector(".base-picker-row") != null);
+  flushSync(() => {
+    dom!.window.document
+      .querySelector<HTMLElement>(".base-picker-row")
+      ?.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+
+  await waitFor(() => fetched.includes("/develop.patch"));
+  expect(dom.window.location.href).toBe(startURL);
+  // The host's session is adopted, not opened again.
+  expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(0);
+  expect(requests.find((request) => request.method === "branchChange")?.params).toEqual({
+    groupId: "1234567890-group",
+    repoRoot: "/tmp/repo",
+    baseRef: "develop",
+    capabilityToken: "group-token",
+  });
+  await waitFor(
+    () => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("develop") === true,
+  );
+
+  // Leaving closes the adopted session with the token the host opened it for.
+  dom.window.dispatchEvent(new dom.window.Event("pagehide"));
+  await waitFor(() => requests.some((request) => request.method === "sessionClose"));
+  expect(requests.find((request) => request.method === "sessionClose")?.params).toEqual({
+    sessionId: "branch-session",
+    capabilityToken: "group-token",
   });
 });
 
@@ -859,8 +947,10 @@ test("viewer preferences sync from the native bridge and persist option changes"
   });
 
   // Collapse state stays session-local.
-  menuButton("Collapse all diffs")?.click();
-  await waitFor(() => Boolean(menuButton("Expand all diffs")));
+  dom.window.document.getElementById("expand-toggle")?.click();
+  await waitFor(
+    () => dom?.window.document.getElementById("expand-toggle")?.getAttribute("aria-label") === "Expand all diffs",
+  );
   expect(prefsRequests.filter((request) => request.method === "viewerPrefs.set")).toHaveLength(1);
 });
 
@@ -925,12 +1015,10 @@ test("refresh re-streams the typed session in place and keeps viewer options", a
   expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
   dom.window.document.getElementById("layout-toggle")?.click();
   await waitFor(() => dom?.window.document.documentElement.dataset.layout === "split");
-  dom.window.document.getElementById("options-button")?.click();
-  await waitFor(() => Boolean(menuButton("Enable word wrap")));
-  menuButton("Enable word wrap")?.click();
+  dom.window.document.getElementById("wrap-toggle")?.click();
   await waitFor(() => dom?.window.document.documentElement.dataset.wordWrap === "true");
 
-  menuButton("Refresh")?.click();
+  dom.window.document.getElementById("refresh-button")?.click();
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
   await waitFor(() => fetched.length === 2);
   expect(requests.filter((request) => request.method === "sessionClose").length).toBeGreaterThan(0);
@@ -1016,12 +1104,10 @@ test("native viewer navigation remains installed after an unrelated render", asy
   expect(dom.window.__cmuxPerformDiffViewerNavigationAction).toBe(action);
   expect(action?.("diffViewerOpenFileSearch")).toBe(true);
   expect(action?.("unknown")).toBe(false);
-  await waitFor(
-    () => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true",
-  );
+  await waitFor(() => dom?.window.document.getElementById("app")?.dataset.fileSearchOpen === "true");
 });
 
-test("files sidebar shows the viewed progress, path filter, and status toggles", async () => {
+test("files sidebar is the filter field and the tree; Hide viewed files is in the options menu", async () => {
   dom = createDom();
   installDomGlobals(dom, () => {
     throw new Error("unexpected fetch");
@@ -1033,21 +1119,19 @@ test("files sidebar shows the viewed progress, path filter, and status toggles",
     />,
   );
   const doc = dom.window.document;
-  expect(doc.getElementById("files-viewed-progress")?.textContent).toBe("0 of 0 files viewed");
+  const sidebar = doc.getElementById("files-sidebar")!;
   const filterInput = doc.getElementById("file-filter-input") as HTMLInputElement;
-  expect(filterInput?.getAttribute("placeholder")).toBe("Filter files");
-  for (const status of ["added", "modified", "deleted", "renamed"]) {
-    const toggle = doc.querySelector(`[data-file-status-filter="${status}"]`);
-    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
-  }
-  const hideViewed = doc.getElementById("hide-viewed-toggle");
-  expect(hideViewed?.getAttribute("aria-pressed")).toBe("false");
-  expect(hideViewed?.getAttribute("aria-label")).toBe("Hide viewed files");
-  hideViewed?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-  await waitFor(() => doc.getElementById("hide-viewed-toggle")?.getAttribute("aria-pressed") === "true");
-  expect(doc.getElementById("hide-viewed-toggle")?.getAttribute("aria-label")).toBe("Show viewed files");
-  doc.querySelector<HTMLButtonElement>('[data-file-status-filter="added"]')?.click();
-  await waitFor(() => doc.querySelector('[data-file-status-filter="added"]')?.getAttribute("aria-pressed") === "false");
+  expect(filterInput?.getAttribute("placeholder")).toBe("Filter files…");
+  expect(sidebar.querySelector("#files-header, #files-viewed-progress, [data-file-status-filter]")).toBeNull();
+  // The toolbar pill sits in the top bar, not over the diff.
+  expect(doc.querySelector("#toolbar .diff-pill")).not.toBeNull();
+  doc.getElementById("options-button")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await waitFor(() => doc.getElementById("hide-viewed-toggle") != null);
+  const hideViewed = doc.getElementById("hide-viewed-toggle")!;
+  expect(hideViewed.getAttribute("aria-checked")).toBe("false");
+  expect(hideViewed.textContent).toContain("Hide viewed files");
+  hideViewed.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await waitFor(() => doc.getElementById("hide-viewed-toggle")?.getAttribute("aria-checked") === "true");
   expect(doc.getElementById("app")?.dataset.fileFilterActive).toBe("true");
 });
 
@@ -1160,6 +1244,18 @@ function renderApp(element: React.ReactNode): void {
   flushSync(() => {
     root?.render(element);
   });
+}
+
+// Opens the source menu and picks the row for `value` (last-turn, unstaged, branch, ...).
+async function chooseSource(value: string): Promise<void> {
+  const button = () => dom?.window.document.getElementById("source-menu-button");
+  await waitFor(() => Boolean(button()));
+  if (button()?.getAttribute("aria-expanded") !== "true") {
+    button()?.click();
+  }
+  const row = () => dom?.window.document.querySelector<HTMLButtonElement>(`[data-source-id="${value}"]`);
+  await waitFor(() => Boolean(row()));
+  row()?.click();
 }
 
 function menuButton(text: string): HTMLButtonElement | undefined {

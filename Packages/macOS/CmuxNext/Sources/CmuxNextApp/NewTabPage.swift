@@ -14,9 +14,14 @@ import os
 /// tab (it shows recent acpmux sessions and becomes a chat in place); a
 /// terminal or browser choice replaces it with a tab of that kind.
 struct NewTabPageHandler {
-    /// `(page tab, kind, text, cwd)`: a terminal runs `text` (in `cwd` when
-    /// the page picked a folder), a browser opens it as an address or a search.
-    var open: (String, AgentPaneTabKind, String, String?) -> Void
+    /// `(page tab, request)`: a terminal runs or types the text (in its
+    /// folder when the page picked one), a browser opens it as an address
+    /// or searches it.
+    var open: (String, AgentPaneOpenTab) -> Void
+    /// `(page tab, text)`: what `!` typed so far, for the terminal being made.
+    var typeAhead: (String, String) -> Void = { _, _ in }
+    /// The agent the screen picked, remembered on this Mac.
+    var remember: (String) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
@@ -110,7 +115,19 @@ enum NewTabPage {
             location: selected.flatMap { $0.kind == .browser ? $0.url : $0.cwd.map(abbreviated) },
             omnibar: omnibar(services, excluding: selectedID),
             projects: projects(services),
-            defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue
+            defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
+            layout: NewTabTunables.layout.value.pageLayout,
+            lastAgent: services.newTabChoices.agent,
+            home: NSHomeDirectory()
+        )
+    }
+
+    /// What a prewarmed spare page loads with before Cmd-T adopts it
+    /// (NewTabSparePool): the design and remembered choices; no tab context.
+    static func sparePage(_ services: AppServices) -> AgentPaneNewTab {
+        AgentPaneNewTab(
+            kind: .agent, hotkeys: newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) },
+            layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent, home: NSHomeDirectory()
         )
     }
 
@@ -122,9 +139,11 @@ enum NewTabPage {
     /// a tab); the location bar's jumps, the shortcut and default-kind edits
     /// and the chat record go through `services`.
     static func handler(_ services: AppServices, cwd: String?,
-                        open: @escaping (String, AgentPaneTabKind, String, String?) -> Void) -> NewTabPageHandler {
+                        open: @escaping (String, AgentPaneOpenTab) -> Void) -> NewTabPageHandler {
         NewTabPageHandler(
             open: open,
+            typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
+            remember: { [weak services] agent in services?.newTabChoices.remember(agent: agent) },
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },
@@ -147,7 +166,7 @@ enum NewTabPage {
         guard let kind = NewTabDefaultKind(rawValue: value), let settings = services.settings,
               let descriptor = SettingsSchema.descriptor(for: NewTabDefaultKind.configPath) else { return }
         Task {
-            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue)) } catch {
+            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue), by: .caller("page")) } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
                     .error("new tab kind write failed: \(String(describing: error), privacy: .public)")
             }
@@ -162,17 +181,27 @@ enum NewTabPage {
 }
 
 extension PaneController {
-    /// New Tab Page: an agent tab showing the new tab page, beside the
-    /// selected tab, with that tab's kind selected and folder inherited.
+    /// New Tab Page: an agent tab showing the new tab page, where the store
+    /// places a new tab, with the selected tab's kind selected and folder inherited.
+    /// Adopts the window's prewarmed spare page when it has one
+    /// (NewTabSparePool), else the page loads cold.
     func newTabPage() {
-        let selectedID = stripModel.selectedID?.rawValue
+        let start = ContinuousClock.now
         let cwd = selectedTab?.cwd
         let page = NewTabPage.page(services, selected: selectedTab)
-        let handler = NewTabPage.handler(services, cwd: cwd) { [weak self] key, kind, text, folder in
-            self?.replaceNewTabPage(key, with: kind, text: text, cwd: folder ?? cwd)
+        let handler = NewTabPage.handler(services, cwd: cwd) { [weak self] key, request in
+            if let self { BenchSpans.measure("newTab.replace") { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) } }
         }
-        let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
-        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler)))
+        let spare = services.newTabSpares.take(for: view.window)
+        // The tab shows at once (a store intent); the store's tab replaces it when it answers.
+        guard openAgentTab(newTab: (page, handler), spare: spare?.view) else { return }
+        // The adopted page is alive: show it this frame and give it the keyboard now, so the
+        // first key typed after the open reaches its field (fleet test: it went to the old responder).
+        if spare != nil, services.presentation.showNow(self) {
+            services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
+        }
+        services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
+                                           milliseconds: NewTabSparePool.milliseconds(since: start)))
     }
 
     /// Focus Location Bar: a browser tab's address bar; the field of a new tab
@@ -188,27 +217,49 @@ extension PaneController {
             newTabPage()
         }
     }
+}
 
+/// Runs a new tab page's close on the frame after its replacement shows.
+@MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
+
+extension NewTabPage {
     /// The page chose a terminal or browser: open it, then close the page,
     /// which held nothing yet (the open-beside rule's one replace case). The
     /// page closes only once the new tab exists, so a refused or failed open
     /// leaves it, and what was typed, in place.
-    private func replaceNewTabPage(_ key: String, with kind: AgentPaneTabKind, text: String, cwd: String?) {
-        let closePage: @MainActor (SurfaceID) -> Void = { [weak self] _ in self?.close([StripTabID(key)]) }
-        switch kind {
-        case .terminal:
-            guard let command = NewTabPage.command(text) else { return }
+    /// A static of the page, not the pane, so PaneController stays one
+    /// responsibility (the godfile limit counts its extensions).
+    static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController) {
+        let services = pane.services
+        // The page closes one frame after the new tab shows, so the frame that builds the
+        // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
+        let closePage: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
+            closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
+        }
+        switch request.kind {
+        case .terminal where !request.run:
+            // `!` on the screen: type, never run; keys typed while the
+            // terminal is made follow it in order (NewTabTypeAhead).
             services.newTabKinds.record(.terminal, folder: cwd)
-            newTerminalTab(cwd: cwd, typing: command, then: closePage)
+            let typeAhead = services.newTabTypeAhead
+            if typeAhead.latest(key).isEmpty, !request.text.isEmpty { typeAhead.update(key, text: request.text) }
+            pane.newTerminalTab(cwd: cwd, typingAhead: key, then: closePage)
+        case .terminal:
+            guard let command = command(request.text) else { return }
+            services.newTabKinds.record(.terminal, folder: cwd)
+            pane.newTerminalTab(cwd: cwd, typing: command, then: closePage)
         case .browser:
             services.newTabKinds.record(.browser(engine: nil), folder: cwd)
-            let url = services.cache.suggestionEngine.resolver.destination(for: text)?.url
+            let resolver = services.cache.suggestionEngine.resolver
+            let url = request.search
+                ? resolver.searchEngine.searchURL(for: request.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                : resolver.destination(for: request.text)?.url
             // A session-local browser tab is made and selected right away.
             if services.cache.browserTabs?.isAvailable() == true {
-                newBrowserTab(url: url, then: closePage)
+                pane.newBrowserTab(url: url, then: closePage)
             } else {
-                newBrowserTab(url: url)
-                close([StripTabID(key)])
+                pane.newBrowserTab(url: url)
+                pane.close([StripTabID(key)])
             }
         case .agent:
             return

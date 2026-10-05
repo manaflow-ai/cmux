@@ -89,6 +89,8 @@ fn families_are_derived_and_resolved() {
             effort: Some("low".into()),
             policy: None,
             env: BTreeMap::new(),
+            args: Vec::new(),
+            system_prompt_sha256: None,
             description: None,
         },
     );
@@ -273,4 +275,34 @@ fn an_sr_without_claude_proxy_routes_claude_sr_through_the_subrouter_server() {
     // A direct Claude still falls over to the routed profile.
     assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-sr"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn codex_without_its_acp_adapter_runs_through_the_pinned_adapter_package() {
+    let profile =
+        codex_through_adapter_package(Some("/u/.local/bin/codex"), Some("/opt/bin/npx")).unwrap();
+    assert_eq!(profile.kind, HarnessKind::Acp);
+    assert_eq!(profile.argv[0], "/opt/bin/npx");
+    assert_eq!(profile.argv[1], "-y");
+    assert!(profile.argv[2].starts_with("@agentclientprotocol/codex-acp@"));
+    // The adapter finds the installed codex binary through CODEX_PATH.
+    assert_eq!(profile.env["CODEX_PATH"], "/u/.local/bin/codex");
+    assert!(codex_through_adapter_package(None, Some("/opt/bin/npx")).is_none());
+    assert!(codex_through_adapter_package(Some("/u/.local/bin/codex"), None).is_none());
+}
+
+#[test]
+fn websocket_allow_lists_read_in_either_spelling() {
+    let camel: WebSocketConfig = serde_json::from_str(
+        r#"{"listen":"127.0.0.1:0","allowedOrigins":["http://127.0.0.1:5173"],"allowedHosts":["box.local"]}"#,
+    )
+    .unwrap();
+    // The spelling the docs and scripts use (websocket.allowed_origins).
+    let snake: WebSocketConfig = serde_json::from_str(
+        r#"{"listen":"127.0.0.1:0","allowed_origins":["http://127.0.0.1:5173"],"allowed_hosts":["box.local"]}"#,
+    )
+    .unwrap();
+    assert_eq!(camel, snake);
+    assert_eq!(snake.allowed_origins, vec!["http://127.0.0.1:5173".to_owned()]);
+    assert_eq!(snake.allowed_hosts, vec!["box.local".to_owned()]);
 }

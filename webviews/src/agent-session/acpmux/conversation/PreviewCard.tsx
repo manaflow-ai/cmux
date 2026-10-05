@@ -3,12 +3,13 @@
 // without a click, so never the path or query the transcript named). The frame takes no
 // input, so the transcript scrolls over it; clicking it opens the root it shows. The
 // address is a plain link too, which opens outside the pane where the host has no browser tab.
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { Globe } from "./icons";
 import { previewFrameUrl } from "./previewUrl";
 
 /// `onOpen` asks the host for a browser tab on `url` (`browser.open`).
 export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string) => void }) {
+  const t = useT();
   const parsed = new URL(url);
   const address = `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}`;
   // The thumbnail shows the root and opens what it shows; the full address opens from the head,

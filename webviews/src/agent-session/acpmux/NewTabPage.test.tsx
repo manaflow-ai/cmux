@@ -51,12 +51,12 @@ const snapshot: AcpmuxSnapshot = {
 
 test("the handshake's newTab becomes the page's kind, hotkeys and folder", () => {
   expect(newTabHost({})).toBeUndefined();
-  expect(newTabHost({ newTab: true })).toEqual({ hotkeys: {}, initialKind: "agent" });
+  expect(newTabHost({ newTab: true })).toEqual({ hotkeys: {}, initialKind: "agent", layout: "b" });
   expect(
     newTabHost({
       newTab: { kind: "browser", hotkeys: { terminal: "⌃⇧⌘T", agent: "", spreadsheet: "x" }, cwd: "~/code" },
     }),
-  ).toEqual({ hotkeys: { terminal: "⌃⇧⌘T" }, initialKind: "browser", cwd: "~/code" });
+  ).toEqual({ hotkeys: { terminal: "⌃⇧⌘T" }, initialKind: "browser", cwd: "~/code", layout: "b" });
   expect(newTabHost({ newTab: { kind: "spreadsheet" } })?.initialKind).toBe("agent");
 });
 
@@ -371,7 +371,9 @@ test("the project pill changes the cwd used by a new agent chat", async () => {
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setValue.call(field, "fix the build");
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    edited(field);
+  });
+  await act(async () => {
     container.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
   });
   expect(submitted).toEqual([["agent", "fix the build", "/src/web"]]);

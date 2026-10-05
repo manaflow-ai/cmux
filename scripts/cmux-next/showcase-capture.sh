@@ -8,7 +8,7 @@ Usage: showcase-capture.sh [options]
 Required for a live capture: --host HOST --tag TAG --checkout PATH
   --lease-receipt PATH       controller receipt proving the host reservation
   --admission-command CMD    command returning JSON {"admitted":true,"owner":...}
-Build: --ref SHA --workspace URL --submitter LOGIN [--app PATH|--skip-build]
+Build: --ref SHA --workspace URL --submitter LOGIN [--artifact-job JOB_ID] [--app PATH|--skip-build]
 Capture: --out-root PATH --date YYYY-MM-DD --cua PATH --target APP
   --backdrop-manifest PATH  attributed JSON manifest (schema_version 1)
   --backdrop-root PATH      directory containing manifest image files
@@ -17,10 +17,15 @@ Capture: --out-root PATH --date YYYY-MM-DD --cua PATH --target APP
   --dry-run                   print the plan; no mkdir, SSH, CUA, or cmux-ci
 EOF
 }
-die() { echo "showcase-capture: $*" >&2; exit 2; }
+REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
+die() {
+ echo "showcase-capture: $*" >&2
+ echo "Repair: $REPAIR_URL#captures-and-the-fleet" >&2
+ exit 2
+}
 HOST=${CMUX_SHOWCASE_HOST:-}; TAG=${CMUX_SHOWCASE_TAG:-}; CHECKOUT=${CMUX_SHOWCASE_CHECKOUT:-}
 REF=${CMUX_SHOWCASE_REF:-}; WORKSPACE_URL=${PR_URL:-${CMUX_SHOWCASE_WORKSPACE:-}}
-SUBMITTER=${SUBMITTER:-${CMUX_SHOWCASE_SUBMITTER:-}}; APP_PATH=${CMUX_SHOWCASE_APP:-}
+SUBMITTER=${SUBMITTER:-${CMUX_SHOWCASE_SUBMITTER:-}}; ARTIFACT_JOB=${CMUX_SHOWCASE_ARTIFACT_JOB:-}; APP_PATH=${CMUX_SHOWCASE_APP:-}
 OUT_ROOT=${CMUX_SHOWCASE_OUT_ROOT:-$HOME/Projects/cmux-app-screenshots}; CAPTURE_DATE=${CMUX_SHOWCASE_DATE:-}
 CUA=${CMUX_CUA_SSH:-}; TARGET=${CMUX_SHOWCASE_TARGET:-}; LEASE_RECEIPT=${CMUX_SHOWCASE_LEASE_RECEIPT:-}
 BACKDROP_MANIFEST=${CMUX_SHOWCASE_BACKDROP_MANIFEST:-}; BACKDROP_ROOT=${CMUX_SHOWCASE_BACKDROP_ROOT:-}
@@ -30,7 +35,7 @@ while [[ $# -gt 0 ]]; do
  case $1 in
  --host) HOST=${2:?}; shift 2;; --tag) TAG=${2:?}; shift 2;; --checkout) CHECKOUT=${2:?}; shift 2;;
  --ref) REF=${2:?}; shift 2;; --workspace) WORKSPACE_URL=${2:?}; shift 2;;
- --submitter) SUBMITTER=${2:?}; shift 2;; --app) APP_PATH=${2:?}; shift 2;;
+ --submitter) SUBMITTER=${2:?}; shift 2;; --artifact-job) ARTIFACT_JOB=${2:?}; shift 2;; --app) APP_PATH=${2:?}; shift 2;;
  --skip-build) SKIP_BUILD=1; shift;; --out-root) OUT_ROOT=${2:?}; shift 2;;
  --date) CAPTURE_DATE=${2:?}; shift 2;; --cua) CUA=${2:?}; shift 2;;
  --target) TARGET=${2:?}; shift 2;; --lease-receipt) LEASE_RECEIPT=${2:?}; shift 2;;
@@ -194,15 +199,21 @@ seed_worked_turn() { cli rpc debug.agent_pane '{"action":"seed_rows","fixture":"
 still() { local n=$1; mkdir -p "$STILL_ROOT/$n"; cua state "$HOST" "$TARGET" --out "$STILL_ROOT/$n" --quiet; [[ -s "$STILL_ROOT/$n/screenshot.png" && -s "$STILL_ROOT/$n/state.json" ]] || die "incomplete still: $n"; }
 surface() { local n=$1 action=$2; cli action run "$action" --focus; sleep 1; still "$n"; }
 socket_action() { cli action run "$1" --focus; sleep 1; }
-if (( ! SKIP_BUILD )) && [[ -z $APP_PATH ]]; then
+if (( ! SKIP_BUILD )) && [[ -z $APP_PATH && -z $ARTIFACT_JOB ]]; then
  [[ -n $REF ]] || REF=$(git rev-parse HEAD); [[ $REF =~ ^[0-9a-f]{40}$ ]] || die "--ref must be a full pushed SHA"
  [[ -n $WORKSPACE_URL && -n $SUBMITTER ]] || die "--workspace and --submitter are required when building"
  job_json=$("$HOME/.local/bin/cmux-ci" build cmux --ref "$REF" --tag "$TAG" --workspace "$WORKSPACE_URL" --submitter "$SUBMITTER" --backend-mode local --receipt "$RECEIPTS/$REF-submit.json")
- printf '%s\n' "$job_json" > "$RECEIPTS/job.json"; job_id=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$job_json")
- "$HOME/.local/bin/cmux-ci" wait "$job_id" --receipt "$RECEIPTS/$REF-terminal.json"; "$HOME/.local/bin/cmux-ci" artifact "$job_id" "$RECEIPTS/cmux-$TAG.zip"
- remote "mkdir -p ~/cmux-showcase-runs/$(printf '%q' "$TAG-$REF")/app"; scp "$RECEIPTS/cmux-$TAG.zip" "$HOST:~/cmux-showcase-runs/$TAG-$REF/app.zip"
- remote "ditto -x -k ~/cmux-showcase-runs/$(printf '%q' "$TAG-$REF")/app.zip ~/cmux-showcase-runs/$(printf '%q' "$TAG-$REF")/app"
- APP_PATH=$(remote "find ~/cmux-showcase-runs/$(printf '%q' "$TAG-$REF")/app -maxdepth 3 -name '*.app' -print -quit")
+ printf '%s\n' "$job_json" > "$RECEIPTS/job.json"; ARTIFACT_JOB=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$job_json")
+ "$HOME/.local/bin/cmux-ci" wait "$ARTIFACT_JOB" --receipt "$RECEIPTS/$REF-terminal.json"
+fi
+if [[ -z $APP_PATH && -n $ARTIFACT_JOB ]]; then
+ [[ $ARTIFACT_JOB =~ ^[a-f0-9]{24}$ ]] || die "--artifact-job must be a 24-character controller job id"
+ remote "command -v cmux-ci >/dev/null || { echo 'cmux-ci is required on the capture mini for direct artifact pulls' >&2; echo 'Repair: $REPAIR_URL#capture-mini-client' >&2; exit 127; }"
+ remote_dir='$HOME/cmux-showcase-runs/$TAG-$ARTIFACT_JOB'
+ remote "mkdir -p $remote_dir/app"
+ remote "cmux-ci artifact $(printf '%q' "$ARTIFACT_JOB") $remote_dir/app.zip"
+ remote "ditto -x -k $remote_dir/app.zip $remote_dir/app"
+ APP_PATH=$(remote "find $remote_dir/app -maxdepth 3 -name '*.app' -print -quit")
 fi
 [[ -n $APP_PATH ]] || die "no tagged app; pass --app or build"
 remote "test -x $(printf '%q' "$APP_PATH/Contents/Resources/bin/cmux") && open -n $(printf '%q' "$APP_PATH") --env CMUX_NEXT_SHOWCASE=1 --env CMUX_TAG=$(printf '%q' "$TAG") --env CMUX_NEXT_SOCKET_MODE=automation --args --showcase"

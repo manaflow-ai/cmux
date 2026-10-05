@@ -54,6 +54,7 @@ const commands = [
 describe("acpmux composer slash menu", () => {
   let root: ReturnType<typeof createRoot>;
   let sent: string[];
+  let sentAttachments: { name: string; kind: string }[][];
   const textarea = () => promptField();
   const rows = () =>
     [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
@@ -78,7 +79,12 @@ describe("acpmux composer slash menu", () => {
   const key = async (name: string, isComposing = false) =>
     act(async () => {
       textarea().dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true }),
+        new dom.window.KeyboardEvent("keydown", {
+          key: name,
+          isComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
       );
     });
   const render = async (value: AcpmuxSnapshot) => {
@@ -87,8 +93,9 @@ describe("acpmux composer slash menu", () => {
         createElement(Composer, {
           snapshot: value,
           chips: () => null,
-          onSend: (text: string) => {
+          onSend: (text: string, attachments = []) => {
             sent.push(text);
+            sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
           },
           onStop: () => {},
         }),
@@ -99,6 +106,7 @@ describe("acpmux composer slash menu", () => {
 
   beforeEach(() => {
     sent = [];
+    sentAttachments = [];
     root = createRoot(dom.window.document.getElementById("root")!);
   });
   afterEach(async () => {
@@ -236,6 +244,42 @@ describe("acpmux composer slash menu", () => {
     expect(sent).toEqual([]);
   });
 
+  test("keeps Mode and Plan out of the default bar while the + menu changes them", async () => {
+    const modes = {
+      currentModeId: "ask",
+      availableModes: [
+        { id: "ask", name: "Ask for approval" },
+        { id: "bypassPermissions", name: "Full access" },
+        { id: "plan", name: "Plan" },
+      ],
+    };
+    const modeCalls: string[] = [];
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: { ...snapshot(), summary: { sessionId: "s", modes } },
+          chips: () => null,
+          onSend: () => {},
+          onStop: () => {},
+          onMode: (mode: string) => modeCalls.push(mode),
+        }),
+      ),
+    );
+    await ready();
+    expect(dom.window.document.querySelector(".acpmux-mode")).toBeNull();
+    expect(dom.window.document.querySelector(".acpmux-plan")).toBeNull();
+    await act(async () => plusButton().click());
+    expect(
+      [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
+    ).toEqual(["Ask for approval", "Full access", "Plan", "Mention a file or folder@"]);
+    await act(async () =>
+      dom.window.document
+        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="mode:bypassPermissions"]')!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+    );
+    expect(modeCalls).toEqual(["bypassPermissions"]);
+  });
+
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
     const plus = () => pickPlus("commands");
     await render(snapshot(commands));
@@ -324,6 +368,99 @@ describe("acpmux composer slash menu", () => {
     });
     expect(sent).toEqual(["/review main"]);
     expect(textarea().value).toBe("");
+  });
+
+  describe("attachments", () => {
+    const settleFiles = () => act(() => new Promise((resolve) => setTimeout(resolve, 5)));
+    const png = () =>
+      new dom.window.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "shot.png", {
+        type: "image/png",
+      });
+    const transfer = (files: File[]) => ({
+      files,
+      types: files.length ? ["Files"] : ["text/plain"],
+    });
+    const paste = async (files: File[]) => {
+      const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", { value: transfer(files) });
+      await act(async () => textarea().element.dispatchEvent(event));
+      await settleFiles();
+      return event;
+    };
+    const drop = async (kind: "dragover" | "drop", files: File[]) => {
+      const event = new dom.window.Event(kind, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: transfer(files) });
+      await act(async () => dom.window.document.body.dispatchEvent(event));
+      await settleFiles();
+      return event;
+    };
+
+    test("pasted image and text files become removable chips and send with the prompt", async () => {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: {
+              ...snapshot(),
+              summary: { sessionId: "s", promptCapabilities: { image: true } },
+            },
+            chips: () => null,
+            onSend: (text: string, attachments = []) => {
+              sent.push(text);
+              sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
+            },
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+      const event = await paste([png(), new dom.window.File(["hello\n"], "notes.md", { type: "text/markdown" })]);
+      expect(event.defaultPrevented).toBe(true);
+      expect(
+        [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) => chip.getAttribute("title")),
+      ).toEqual(["shot.png", "notes.md"]);
+      await act(async () =>
+        dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove notes.md"]')!.click(),
+      );
+      await act(async () =>
+        dom.window.document
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
+      );
+      expect(sent).toEqual([""]);
+      expect(sentAttachments).toEqual([[{ name: "shot.png", kind: "image" }]]);
+      expect(dom.window.document.querySelector(".acpmux-attachments")).toBeNull();
+    });
+
+    test("a file drop is captured anywhere in the pane and unsupported images explain the refusal", async () => {
+      await act(async () =>
+        root.render(
+          createElement(Composer, {
+            snapshot: {
+              ...snapshot(),
+              summary: { sessionId: "s", promptCapabilities: { image: false } },
+            },
+            chips: () => null,
+            onSend: (text: string, attachments = []) => {
+              sent.push(text);
+              sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
+            },
+            onStop: () => {},
+          }),
+        ),
+      );
+      await ready();
+      const over = await drop("dragover", [png()]);
+      expect(over.defaultPrevented).toBe(true);
+      expect(dom.window.document.querySelector(".acpmux-attachment-note")?.textContent).toBe(
+        "Drop images or text files to attach",
+      );
+      const dropped = await drop("drop", [png()]);
+      expect(dropped.defaultPrevented).toBe(true);
+      expect(dom.window.document.querySelector(".acpmux-attachment-note")?.textContent).toBe(
+        "This agent does not take images",
+      );
+      expect(dom.window.document.querySelector(".acpmux-attachment")).toBeNull();
+    });
   });
 });
 

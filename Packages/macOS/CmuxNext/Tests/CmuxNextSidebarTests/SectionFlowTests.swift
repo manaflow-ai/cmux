@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// Per-section arrangement (list | inline | grid, alignment, gap) and the
-/// sticky band height rules (plans/cmux-next/sidebar-sections.md 4, 7).
+/// pinned band height rules (plans/cmux-next/sidebar-sections.md 4, 7).
 @Suite struct SectionFlowTests {
     private let m = SidebarRegionMetrics(rowHeight: 28, headerHeight: 22, inset: 8, sectionGap: 8, padding: 4,
                                          cardPadding: 4, tileMinWidth: 42, tileHeight: 36, tileGap: 8, iconButtonWidth: 30)
@@ -18,10 +18,11 @@ import Testing
         LayoutItem(id: LayoutItemID(id), ref: .url(id), showsLabel: label)
     }
 
-    /// Settings at the leading edge, the avatar (icon only) at the trailing
-    /// edge (the bottom line before the rail defaults, which users may keep).
-    @Test func preRailBottomLineIsSettingsLeadingAndTheIconsTrailing() throws {
-        let bottom = try #require(SidebarLayoutDocument.preRailDefaults.section(SidebarLayoutDocument.bottomSectionID))
+    /// An inline bottom line (the default before R53, which users may
+    /// keep): Settings at the leading edge, the avatar (icon only) at the
+    /// trailing edge.
+    @Test func inlineBottomLineIsSettingsLeadingAndTheIconsTrailing() throws {
+        let bottom = try #require(SidebarLayoutDocument.inlineBottomDefaults.section(SidebarLayoutDocument.bottomSectionID))
         #expect(bottom.arrangement == SectionArrangement(layout: .inline, align: .fill))
         #expect(bottom.items.map(\.showsLabel) == [true, false])
         let layout = SidebarRegionLayout.make(sections: [bottom], width: 260, look: .quiet, collapsed: [], metrics: m,
@@ -146,7 +147,7 @@ import Testing
     }
 
     @Test func neverScrollGivesFullHeightUntilTheListMinimum() {
-        let off = SidebarSectionsPreferences(stickyBandsScroll: false)
+        let off = SidebarSectionsPreferences(pinnedBandsScroll: false)
         let full = SidebarBandHeights.resolve(above: band(height: 250), below: band(height: 100), available: 600, preferences: off, minimumList: 84)
         #expect(full.above == 250 && full.below == 100)
         let squeezed = SidebarBandHeights.resolve(above: band(height: 400), below: band(height: 400), available: 600, preferences: off, minimumList: 84)

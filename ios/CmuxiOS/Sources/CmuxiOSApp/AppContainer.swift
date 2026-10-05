@@ -24,6 +24,12 @@ final class AppContainer {
     private let notificationDelegate: NotificationDelegate
     private(set) var home: HomeStore?
     private var homeAccount: String?
+    /// Set while the API Worker refuses this app version (enterprise P17,
+    /// `client.too_old`); Home shows it as an update-required banner.
+    private(set) var updateRequired: HomeUpdateRequired? {
+        didSet { if updateRequired != oldValue { onUpdateRequiredChange?(updateRequired) } }
+    }
+    var onUpdateRequiredChange: ((HomeUpdateRequired?) -> Void)?
 
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         let composition = MobileAuthComposition(
@@ -57,6 +63,13 @@ final class AppContainer {
         // A banner answer can arrive before auth restores (background launch):
         // bind the last user now; minting needs only its record and the key.
         if let madeIdentity { accountChanges = Task { await madeIdentity.restoreLast() } }
+        // P17: a too-old refusal from the API Worker becomes Home's banner.
+        if let madeIdentity {
+            let report: @Sendable (ClientUpdateRequired?) async -> Void = { [weak self] required in
+                await self?.setUpdateRequired(required.map { HomeUpdateRequired(minimumVersion: $0.minimumVersion) })
+            }
+            Task { await madeIdentity.observeUpdateRequired(report) }
+        }
         // L14-2: a user sign-out removes the push target and revokes the
         // install while the Stack session still works. A passive sign-out
         // (expired session) cannot revoke; it still removes the push target.
@@ -72,6 +85,10 @@ final class AppContainer {
             // The feed list is not on iPhone yet; Home stays in front.
             Logger(subsystem: "dev.cmux.ios", category: "push").info("open feed item \(item, privacy: .public)")
         }
+    }
+
+    func setUpdateRequired(_ requirement: HomeUpdateRequired?) {
+        updateRequired = requirement
     }
 
     /// `CMUXCloudAPIBaseURL` from Info.plist (set per configuration in the

@@ -29,10 +29,6 @@ public final class SidebarModel {
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
-    /// The sticky destination selected in this window, if any. This is kept
-    /// separate from the workspace selection so the rail can paint its
-    /// active tile immediately after a click.
-    public var activeLayoutItemID: LayoutItemID?
     /// Apps whose sections and items draw nothing (installed but hidden or
     /// disabled, D55); the App fills it from its one presence rule
     /// (`AppsService.presence`). The layout keeps their places.
@@ -41,6 +37,12 @@ public final class SidebarModel {
     public var collapsedLayoutSections: Set<LayoutSectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
+    /// The card stack above the bottom band (R114): update, what's new, announcements.
+    public var cards: [SidebarCard] = []
+    /// A card's click, button or dismiss.
+    @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
+    /// Whether each workspace expands to show its intra-workspace tabs.
+    public var showWorkspaceTabs = false
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -64,6 +66,9 @@ public final class SidebarModel {
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
+    /// The sections another space shows (R99: the page beside the current
+    /// one during a horizontal swipe). Read when a swipe reaches that page.
+    @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
     /// Called on every presentation change (the App moves focus out of a
     /// hiding sidebar and persists the window state).
     @ObservationIgnored public var onPresentationChange: ((SidebarPresentation) -> Void)?
@@ -121,9 +126,10 @@ public final class SidebarModel {
     public func apply(_ intent: SidebarIntent) {
         switch intent {
         case let .select(id):
-            activeLayoutItemID = nil
             activeWorkspaceID = id
             if !selection.contains(id) { selection = [id] }
+        case .selectTab, .moveTab:
+            break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
             SidebarEdits.apply(intent, to: &sections)
@@ -133,8 +139,8 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case let .activateItem(id, _):
-            activeLayoutItemID = id
+        case .activateItem, .activateItemAccessory:
+            break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
         case let .toggleLayoutSection(id):

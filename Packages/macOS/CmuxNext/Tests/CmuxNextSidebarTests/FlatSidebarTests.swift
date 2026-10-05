@@ -48,8 +48,11 @@ import Testing
         let h = MinimalChromeTests.Harness(sections: fixture())
         let header = try #require(h.sidebar.list.rowViews[.group(g1)] as? GroupHeaderRowView)
         header.layoutSubtreeIfNeeded()
-        // The name aligns with workspace titles; the chevron trails.
-        #expect(header.titleFrame.minX == SidebarStyle.horizontalInset)
+        // The name aligns with workspace titles (a loose row's title, both
+        // in their row's coordinates); the chevron trails.
+        let row = try #require(h.sidebar.list.rowViews[.workspace(id("b"))] as? WorkspaceRowView)
+        row.layoutSubtreeIfNeeded()
+        #expect(abs(header.titleFrame.minX - row.titleFrame.minX) < 0.5, "header \(header.titleFrame.minX) row \(row.titleFrame.minX)")
         #expect(header.disclosureFrame.midX > header.bounds.midX)
         #expect(header.titleFont == SidebarStyle.headerFont)
     }

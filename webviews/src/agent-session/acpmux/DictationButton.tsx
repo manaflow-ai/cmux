@@ -3,10 +3,11 @@ import React from "react";
 import { MicIcon } from "./ComposerPickers";
 import { DictationLevelMeter } from "./DictationLevelMeter";
 import { isActive, type Dictation } from "./dictation";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "./shortcuts";
 
 export function DictationButton({ dictation }: { dictation: Dictation }) {
+  const t = useT();
   const { state } = dictation;
   const listening = state === "listening" || state === "finalizing";
   const label = isActive(state) ? t("dictation.stop") : t("dictation.start");

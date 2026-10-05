@@ -33,6 +33,13 @@ final class TabContentCache {
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
+    /// Browser pages' hover card thumbnails, captured when a page leaves the
+    /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
+    /// apart from `previews`, whose full-size page images hibernation shows.
+    let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    /// Pages revealed since their last hide: the next hide captures their
+    /// thumbnail (`TabContentCache+Lifecycle`).
+    var shownPages: Set<String> = []
     let webKit = WebKitEngine()
     let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
@@ -60,9 +67,8 @@ final class TabContentCache {
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
-    /// Tabs an agent drove (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
-    var agentDrivenTabs: Set<String> = []
-    var agentDrivenSurfaces: Set<SurfaceID> = []
+    /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
+    var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
@@ -301,6 +307,7 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
         entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
@@ -354,27 +361,15 @@ final class TabContentCache {
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil
         hibernation?.forget(key)
-        agentDrivenTabs.remove(key)
+        agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
+        pageThumbnails.remove(key)
+        shownPages.remove(key)
         onPresentationChange?()
-    }
-
-    // MARK: Previews
-
-    func previewImage(for key: String, maxPixelSize: CGSize) async -> CGImage? {
-        if let entry = terminals[key],
-           let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
-            previews.insert(image, for: key)
-            return image
-        }
-        if let entry = browsers[key], let image = try? await entry.tab.snapshot() {
-            return image
-        }
-        return previews.image(for: key)
     }
 }
 

@@ -6,7 +6,7 @@ import Testing
 
 /// Sidebar section actions through the registry (plans/cmux-next/sidebar-sections.md 6):
 /// refused until the store serves `sidebar-layout-v1`; with the DEV local
-/// prototype they add and remove Home, add, move, restyle and remove
+/// prototype they remove and re-add Home, add, move, restyle and remove
 /// sections, and the right-click menus list them for their target.
 @MainActor @Suite(.serialized) struct SidebarSectionActionTests {
     private func withPrototype(_ on: Bool, _ body: () throws -> Void) rethrows {
@@ -25,54 +25,24 @@ import Testing
         return (registry, services.sidebarLayout)
     }
 
-    /// A pinned Home item is selected while the window shows the home
-    /// workspace, and Notifications carries the unread count (the rail dots
-    /// it). The defaults hold no Home, so this pins one.
-    @Test func homeIsActiveAndNotificationsCarryTheUnreadCount() throws {
-        let home = LayoutItemID("itm_home"), notifications = LayoutItemID("itm_notifications")
-        let pinned = try SidebarLayoutReducer.reduce(.defaults, .itemAdd(LayoutItem(id: home, ref: .builtIn(.home)),
-                                                                         section: SidebarLayoutDocument.topSectionID, index: 0)).get()
-        let live = SidebarBridge.itemInfo(for: pinned, registered: { _ in true }, homeShown: true, unread: 4)
-        #expect(live[home]?.isActive == true)
-        #expect(live[notifications]?.badge == 4)
-        let quiet = SidebarBridge.itemInfo(for: pinned, registered: { _ in true }, homeShown: false, unread: 0)
-        #expect(quiet[home]?.isActive == false)
-        #expect(quiet[notifications]?.badge == nil)
-    }
-
-    /// The rail's top slots run New Workspace and the import menu: each
-    /// draws live once its action is registered, dimmed before.
-    @Test func theTopSlotsRunNewWorkspaceAndImportAndSync() {
-        let newWorkspace = LayoutItemID("itm_new_workspace"), importSync = LayoutItemID("itm_import_sync")
-        let infos = SidebarBridge.itemInfo(for: .defaults, registered: { $0 == "newTab" || $0 == "importAndSync.show" })
-        #expect(infos[newWorkspace]?.isMissing == false)
-        #expect(infos[newWorkspace]?.title == SidebarBuiltIn.newWorkspace.title)
-        #expect(infos[importSync]?.isMissing == false)
-        #expect(infos[importSync]?.symbol == SidebarBuiltIn.importSync.symbol)
-        #expect(infos[LayoutItemID("itm_history")]?.isMissing == true)
-    }
-
     @Test func editsAreRefusedWithoutTheStoreCapability() {
         withPrototype(false) {
             let (registry, layout) = make()
-            #expect(!registry.canPerform("sidebar.home.add"))
-            _ = registry.perform("sidebar.home.add")
+            #expect(!registry.canPerform("sidebar.home.remove"))
+            _ = registry.perform("sidebar.home.remove")
             #expect(layout.document == .defaults)
         }
     }
 
-    /// Home is not in the defaults; a person can still pin it and take it
-    /// out again.
-    @Test func addAndRemoveHome() {
+    @Test func removeAndReAddHome() {
         withPrototype(true) {
             let (registry, layout) = make()
-            #expect(layout.document.firstItem(with: .builtIn(.home)) == nil)
-            #expect(!registry.canPerform("sidebar.home.remove"))
-            #expect(registry.perform("sidebar.home.add"))
-            #expect(layout.document.firstTopItem(room: nil)?.ref == .builtIn(.home))
             #expect(!registry.canPerform("sidebar.home.add"))
             #expect(registry.perform("sidebar.home.remove"))
-            #expect(layout.document.firstItem(with: .builtIn(.home)) == nil)
+            #expect(layout.document.firstItem(with: .app("cmux/home")) == nil)
+            #expect(!registry.canPerform("sidebar.home.remove"))
+            #expect(registry.perform("sidebar.home.add"))
+            #expect(layout.document.firstTopItem(room: nil)?.ref == .app("cmux/home"))
         }
     }
 
@@ -82,9 +52,9 @@ import Testing
             let target = ActionTargetRef(kind: .sidebarItem, id: "itm_settings")
             #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: target)))
             #expect(layout.document.item(LayoutItemID("itm_settings")) == nil)
-            // A built-in name also names the item (`cmux sidebar item remove history`).
-            #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "history"))))
-            #expect(layout.document.firstItem(with: .builtIn(.history)) == nil)
+            // A built-in name also names the item (`cmux sidebar item remove home`).
+            #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "home"))))
+            #expect(layout.document.firstItem(with: .app("cmux/home")) == nil)
         }
     }
 
@@ -111,13 +81,13 @@ import Testing
     @Test func removeFromSidebarTakesEveryCopyRemoveFromSectionOne() {
         withPrototype(true) {
             let (registry, layout) = make()
-            #expect(registry.perform("sidebar.item.add", invocation: ActionInvocation(arguments: ["item": .string("history"), "section": .string("sec_bottom")])))
-            #expect(layout.document.sections.flatMap(\.items).filter { $0.ref == .builtIn(.history) }.count == 2)
-            #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "itm_history"))))
-            #expect(layout.document.sections.flatMap(\.items).filter { $0.ref == .builtIn(.history) }.count == 1)
-            #expect(registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "history"))))
-            #expect(layout.document.firstItem(with: .builtIn(.history)) == nil)
-            #expect(layout.document.firstTopItem(room: nil)?.ref == .builtIn(.newWorkspace))
+            #expect(registry.perform("sidebar.item.add", invocation: ActionInvocation(arguments: ["item": .string("home"), "section": .string("sec_bottom")])))
+            #expect(layout.document.sections.flatMap(\.items).filter { $0.ref == .app("cmux/home") }.count == 2)
+            #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "itm_home"))))
+            #expect(layout.document.sections.flatMap(\.items).filter { $0.ref == .app("cmux/home") }.count == 1)
+            #expect(registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "home"))))
+            #expect(layout.document.firstItem(with: .app("cmux/home")) == nil)
+            #expect(layout.document.firstTopItem(room: nil)?.ref == .app("cmux/app-store"))
         }
     }
 

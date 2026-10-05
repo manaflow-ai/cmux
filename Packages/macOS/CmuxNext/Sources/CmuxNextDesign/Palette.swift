@@ -30,6 +30,15 @@ public struct Palette {
     /// (`NSWindow.install(kind:content:scope:)`), sidebar, panes and strip,
     /// page tabs, titlebar and docks (plans/cmux-next/windows.md).
     public static var surfaceBackground: NSColor { color(\.surfaceBackground, dynamic: PaletteDynamic.surfaceBackground) }
+    /// What a page or tab view (Home, Feed, History, Tasks, Bookmarks)
+    /// gives a background it must paint: the surface background, opaque,
+    /// in an opaque window, and clear over a see-through one, where the
+    /// window's one backdrop is the background (`WindowBackdrop`). A page
+    /// host's own layer paints nothing: the pane paints under it.
+    public static var paneFill: NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
+    }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
@@ -38,8 +47,8 @@ public struct Palette {
     public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
     /// The sidebar's tonal step over the window backdrop.
     public static var sidebarStep: NSColor { color(\.sidebarStep, dynamic: PaletteDynamic.sidebarStep) }
-    /// The strip's tonal step: a translucent shade derived from the terminal
-    /// theme, used to distinguish the rail from the shared window surface.
+    /// The strip's tonal step: a translucent shade that darkens the window
+    /// backdrop to `stripBackground` (the inset sidebar panel beside the rail).
     public static var stripStep: NSColor { color(\.stripStep, dynamic: PaletteDynamic.stripStep) }
 
     /// Primary text.

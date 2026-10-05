@@ -116,7 +116,7 @@ export const validToken = (token: string): boolean => {
  * `user_<id>` or `agent_<name>`, where the suffix is 1 to 64 characters of
  * ASCII letters, digits, `_`, `.` or `-` (the Rust rule; mentions use it too).
  */
-export const validParticipantId = (id: string): boolean => /^(user|agent)_[A-Za-z0-9_.-]{1,64}$/.test(id)
+export const validParticipantId = (id: string): boolean => /^(user|agent|remote)_[A-Za-z0-9_.-]{1,64}$/.test(id)
 
 /** Cloud: `addr_<26 Crockford base32>`. */
 export const validAddressId = (id: string): boolean => id.startsWith("addr_") && isCrockford(id.slice(5), 26)

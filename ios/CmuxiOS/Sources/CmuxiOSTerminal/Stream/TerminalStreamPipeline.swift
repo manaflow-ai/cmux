@@ -10,6 +10,10 @@ enum TerminalStreamControl: Sendable, Hashable {
     case retryAfter(milliseconds: Int)
     /// The host's snapshot version differs: bytes are now a replay (badge only).
     case versionMismatch(host: UInt16)
+    /// Call `readyDeadline(epoch)` after this delay (waiting for a READY).
+    case armReadyDeadline(epoch: UInt64, milliseconds: Int)
+    /// No READY came in time: detach and attach again.
+    case reattach
 }
 
 /// Counters for DEBUG diagnostics, copied to the main actor with each update.
@@ -23,7 +27,6 @@ struct TerminalStreamStats: Sendable, Hashable {
     var fedBytes = 0
     var snapshotRequests = 0
     var digestChecks = 0
-    var scrollbackTrims = 0
     var restoredGeneration: UInt32?
     var grid: TerminalGrid?
 }
@@ -39,35 +42,27 @@ struct TerminalStreamStats: Sendable, Hashable {
 /// only enqueues; it never waits for the queue. Controls go back to the main
 /// actor through the main queue, so they arrive in order.
 ///
-/// Memory: a READY restore gives the terminal the host's scrollback limit,
-/// so the phone bounds its local history itself. It never asks for HISTORY
-/// (history comes on demand from the host, ghostty-next section 7), and when
-/// the bytes parsed since the last READY pass `scrollbackBudget` it re-encodes
-/// its own READY and restores it, which drops the local scrollback and keeps
-/// the screen. Fed bytes over-count scrollback (escape sequences, redraws), so
-/// the bound is conservative.
+/// Memory: the terminal's own config caps local scrollback
+/// (`scrollback-limit-bytes`, set in GhosttyNextApp). Since ghostty-next
+/// ios-v5 every restore applies that cap, not the host's limit, and trims the
+/// oldest history pages only; screens and on-screen images stay. The viewer
+/// restores READY only and never asks for HISTORY (history comes from the host
+/// on demand, ghostty-next section 7).
 ///
 /// `@unchecked Sendable`: the mutable state is confined to the output queue
 /// (work items) and the main actor (`renderer`, `deliver` callers).
 final class TerminalStreamPipeline: @unchecked Sendable {
-    /// `ios.terminal.scrollbackBytes` default (ghostty-next section 7).
-    static let defaultScrollbackBudget = 8 * 1024 * 1024
-
     private weak var renderer: (any TerminalRenderer)?
     private let deliver: @MainActor @Sendable ([TerminalStreamControl], TerminalStreamStats) -> Void
-    private let scrollbackBudget: Int
     // Output queue only.
     private var viewer: TerminalViewer
     private var stats = TerminalStreamStats()
-    private var bytesSinceReady = 0
 
     @MainActor
     init(renderer: any TerminalRenderer, terminal: String,
-         scrollbackBudget: Int = TerminalStreamPipeline.defaultScrollbackBudget,
          deliver: @escaping @MainActor @Sendable ([TerminalStreamControl], TerminalStreamStats) -> Void) {
         self.renderer = renderer
         self.deliver = deliver
-        self.scrollbackBudget = scrollbackBudget
         viewer = TerminalViewer(terminal: terminal, snapshotVersion: renderer.snapshotVersion)
     }
 
@@ -92,7 +87,18 @@ final class TerminalStreamPipeline: @unchecked Sendable {
         run { pipeline, _ in pipeline.viewer.retryDue() }
     }
 
-    /// Detach or a new connection: forget the in-flight request, wait for READY.
+    /// A new connection starts: forget the in-flight request and wait for the
+    /// host's first READY under the viewer's deadline.
+    @MainActor func attachStarted() {
+        run { pipeline, _ in pipeline.viewer.attachStarted() }
+    }
+
+    /// The READY deadline armed for `epoch` ended.
+    @MainActor func readyDeadline(_ epoch: UInt64) {
+        run { pipeline, _ in pipeline.viewer.readyDeadline(epoch) }
+    }
+
+    /// Detach: forget the in-flight request, wait for READY.
     @MainActor func connectionReset() {
         run { pipeline, _ in
             pipeline.viewer.connectionReset()
@@ -142,20 +148,15 @@ final class TerminalStreamPipeline: @unchecked Sendable {
                 if surface.restore(snapshot, phase: .ready) {
                     stats.restores += 1
                     stats.restoredGeneration = generation
-                    bytesSinceReady = 0
                 } else {
                     // The terminal is unchanged; the next digest or gap resyncs.
                     stats.refusedRestores += 1
                 }
             case .prependHistory(let pages):
                 if surface.restore(pages, phase: .history) { stats.historyPages += 1 }
-                bytesSinceReady += pages.count
-                trimIfOverBudget(surface)
             case .feed(let bytes):
                 surface.feed(bytes)
                 stats.fedBytes += bytes.count
-                bytesSinceReady += bytes.count
-                trimIfOverBudget(surface)
             case .requestSnapshot(let request):
                 stats.snapshotRequests += 1
                 controls.append(.send(request))
@@ -163,18 +164,12 @@ final class TerminalStreamPipeline: @unchecked Sendable {
                 controls.append(.retryAfter(milliseconds: milliseconds))
             case .versionMismatch(let host):
                 controls.append(.versionMismatch(host: host))
+            case .armReadyDeadline(let epoch, let milliseconds):
+                controls.append(.armReadyDeadline(epoch: epoch, milliseconds: milliseconds))
+            case .reattach:
+                controls.append(.reattach)
             }
         }
         return controls
-    }
-
-    /// Drops local scrollback once the parsed bytes pass the budget: the
-    /// terminal's own READY keeps the screens and modes, not the history.
-    private func trimIfOverBudget(_ surface: any TerminalOutputSurface) {
-        guard bytesSinceReady > scrollbackBudget else { return }
-        // Reset first: a failed encode retries after the next budget, not on every feed.
-        bytesSinceReady = 0
-        guard let ready = surface.encode(.ready), surface.restore(ready, phase: .ready) else { return }
-        stats.scrollbackTrims += 1
     }
 }

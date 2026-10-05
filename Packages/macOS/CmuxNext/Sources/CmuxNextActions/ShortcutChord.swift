@@ -79,7 +79,7 @@ extension ActionRegistry {
 
     /// The shortcuts a key-down may mean: its characters, then the unshifted
     /// key ("}" or "]" for Shift-]), with its modifiers.
-    static func shortcuts(for event: NSEvent) -> [Shortcut] {
+    public static func shortcuts(for event: NSEvent) -> [Shortcut] {
         guard event.type == .keyDown else { return [] }
         let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
         var keys: [String] = []

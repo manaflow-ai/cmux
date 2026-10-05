@@ -79,6 +79,12 @@ on:
 
 permissions: {}
 
+env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
+
 jobs:
   plan-build:
     name: select binary targets
@@ -178,6 +184,8 @@ jobs:
           PY
 
   build:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     name: build ${{ matrix.target }}
     needs: plan-build
     runs-on: ${{ github.run_attempt > 1 && inputs.macos_retry_runner != '' && endsWith(matrix.target, '-apple-darwin') && inputs.macos_retry_runner || matrix.runner }}
@@ -195,7 +203,7 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -239,13 +247,16 @@ jobs:
           # independent of any self-hosted runner source override.
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          # The app host runs each app's JS next to the daemon, which finds it
+          # beside its own executable (cmux-tui-core::apps). Unix only.
+          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
@@ -262,13 +273,14 @@ jobs:
           # independent of any self-hosted runner source override.
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          cargo zigbuild -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
@@ -285,16 +297,41 @@ jobs:
           # cargo-zigbuild cannot resolve SDK frameworks when the host is arm64.
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          # The app host runs each app's JS next to the daemon, which finds it
+          # beside its own executable (cmux-tui-core::apps). Unix only.
+          cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo build -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+
+      - name: Build cmux-cloud app server
+        # The first-party Cloud app server (cmux/cloud) is its own Cargo
+        # workspace with the same toolchain. The app supervisor runs it from
+        # beside cmux-app-host. macOS only for now (the Mac app bundles it);
+        # Linux targets are a follow-up with the CI lead.
+        if: runner.os == 'macOS'
+        env:
+          CLOUD_SERVER_CROSS: ${{ matrix.cross }}
+          CLOUD_SERVER_TARGET: ${{ matrix.build_target }}
+          RUNNER_OS: ${{ runner.os }}
+        working-directory: first-party-apps/cloud/server
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The common target directory gives staging one predictable path.
+          export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
+          if [[ "$CLOUD_SERVER_CROSS" == "true" && "$RUNNER_OS" == "Linux" ]]; then
+            cargo zigbuild --bin cmux-cloud --release --locked --target "$CLOUD_SERVER_TARGET"
+          else
+            cargo build --bin cmux-cloud --release --locked --target "$CLOUD_SERVER_TARGET"
+          fi
 
       - name: Build agent screen-detection plugin
         if: inputs.build_agent_plugin && runner.os != 'Windows'
@@ -330,8 +367,20 @@ jobs:
           binary="dist/cmux-tui-${{ matrix.target }}${{ matrix.ext }}"
           hook_binary="dist/cmux-tui-hook-${{ matrix.target }}${{ matrix.ext }}"
           relay_binary="dist/cmux-relay-${{ matrix.target }}${{ matrix.ext }}"
+          # Published as cmux-tui-app-host-<target> so it rides the cmux-tui
+          # artifact, checksums and manifest; install it as cmux-app-host next
+          # to cmux-tui.
+          app_host_binary="dist/cmux-tui-app-host-${{ matrix.target }}${{ matrix.ext }}"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui${{ matrix.ext }}" "$binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-hook${{ matrix.ext }}" "$hook_binary"
+          cp "cmux-tui/target/${{ matrix.target }}/release/cmux-app-host${{ matrix.ext }}" "$app_host_binary"
+          # The Cloud app server rides the same way as cmux-tui-cloud-server-<target>
+          # and installs as cmux-cloud beside cmux-app-host. macOS only for now.
+          cloud_server_binary=""
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            cloud_server_binary="dist/cmux-tui-cloud-server-${{ matrix.target }}"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-cloud" "$cloud_server_binary"
+          fi
           cp "cmux-tui/target/${{ matrix.target }}/release/cmux-relay${{ matrix.ext }}" "$relay_binary"
           cp "cmux-tui/target/${{ matrix.target }}/release/chatmux-relay${{ matrix.ext }}" "dist/chatmux-relay-${{ matrix.target }}${{ matrix.ext }}"
           # acpmux rides in the cmux-tui artifact group (like cmux-tui-hook) so
@@ -346,6 +395,10 @@ jobs:
             cp "$binary" "dist/cmux-tui-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$hook_binary" "dist/cmux-tui-hook-${{ matrix.compatibility_target }}${{ matrix.ext }}"
             cp "$acpmux_binary" "dist/cmux-tui-acpmux-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+            cp "$app_host_binary" "dist/cmux-tui-app-host-${{ matrix.compatibility_target }}${{ matrix.ext }}"
+            if [[ -n "$cloud_server_binary" ]]; then
+              cp "$cloud_server_binary" "dist/cmux-tui-cloud-server-${{ matrix.compatibility_target }}"
+            fi
             cp "$relay_binary" "dist/cmux-relay-${{ matrix.compatibility_target }}${{ matrix.ext }}"
           fi
           ls -la dist
@@ -423,6 +476,7 @@ jobs:
     runs-on: ${{ inputs.windows_runner != '' && inputs.windows_runner || vars.WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 60
     env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
       CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
     permissions:
       contents: read
@@ -434,7 +488,7 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -471,14 +525,17 @@ jobs:
           # checked-out Ghostty source whose revision is stamped below.
           unset CMUX_GHOSTTY_SRC
           CMUX_TUI_BUILD_COMMIT="$(git rev-parse HEAD)"
-          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ghostty-next rev-parse HEAD)"
           export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT CMUX_TUI_DISTRIBUTION_VERSION
           if [[ "$PACKAGE_NPM" == "true" ]]; then
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cd ghostty
-          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
+          cd ghostty-next
+          # ghostty-next tags release commits; an explicit version keeps
+          # Ghostty's build from reading a non-vX.Y.Z tag (as ghostty-vt-sys does).
+          version="$(sed -nE 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' build.zig.zon | head -1)"
+          zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu -Dversion-string="$version" --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
           cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu

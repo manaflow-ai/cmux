@@ -98,11 +98,16 @@ fn public_viewport_node(
         .iter()
         .map(|column| {
             anyhow::ensure!(column.width.is_finite(), "viewport column width is not finite");
-            Ok(json!({
+            let mut value = json!({
                 "column_id": column.id,
                 "width": f64::from(column.width),
                 "root": public_layout_node(&column.layout, tabs_by_pane, panes_by_id)?,
-            }))
+            });
+            // `dock-columns-v1`: omitted while the column scrolls.
+            if let Some(dock) = column.dock {
+                value["dock"] = serde_json::to_value(dock)?;
+            }
+            Ok(value)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(json!({

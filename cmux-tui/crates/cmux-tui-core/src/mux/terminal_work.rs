@@ -20,6 +20,9 @@
 
 use super::*;
 
+#[cfg(unix)]
+mod standby_host;
+
 /// Upper bound on concurrent terminal starts and reaps. A start is mostly
 /// process creation and a host handshake, so a few workers overlap them
 /// without starving the rest of the machine.
@@ -43,6 +46,9 @@ struct TerminalWorkState {
 #[derive(Default)]
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
+    /// The host process started ahead of the next new tab (R81, cap one).
+    #[cfg(unix)]
+    standby: Arc<standby_host::StandbyHostSlot>,
 }
 
 impl TerminalWorkPool {
@@ -170,6 +176,7 @@ impl Mux {
     pub(crate) fn prelaunch_tab_terminal(
         self: &Arc<Self>,
         pane: Option<PaneId>,
+        terminal_id: Option<TerminalId>,
         cwd: Option<String>,
         command: Option<Vec<String>>,
         env: Vec<(String, String)>,
@@ -188,26 +195,49 @@ impl Mux {
                 }
             };
             let Some(target) = target else { return Ok(None) };
+            crate::debug_spans::mark("prelaunch.target");
             let cwd = cwd.or_else(|| self.pane_cwd(target));
             let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
             if launch_opts.terminal_host_root.is_none() {
                 return Ok(None);
             }
             let workspace_key = self.workspace_key_for_pane(target);
-            let terminal_id = TerminalId::random()?;
-            let mut host = Surface::prelaunch_hosted(
-                self.next_id(),
-                launch_opts.clone(),
-                Arc::downgrade(self),
-                terminal_id,
-                cell_pixels,
-            )?;
+            let terminal_id = match terminal_id {
+                Some(terminal_id) => terminal_id,
+                None => TerminalId::random()?,
+            };
+            // The spare host process, when one is ready (R81); the next one
+            // starts in the background after this launch.
+            let standby = self.terminal_work.standby.take();
+            let used_spare = standby.is_some();
+            crate::debug_spans::mark(if used_spare { "spare.taken" } else { "spare.none" });
+            let launch = |standby| {
+                Surface::prelaunch_hosted(
+                    self.next_id(),
+                    launch_opts.clone(),
+                    Arc::downgrade(self),
+                    terminal_id,
+                    cell_pixels,
+                    standby,
+                )
+            };
+            let mut launched = launch(standby);
+            // A spare that died after its liveness check fails before
+            // bootstrap: launch on a fresh process, so the tab never fails
+            // or slows down because of the spare.
+            if launched.is_err() && used_spare {
+                launched = launch(None);
+            }
+            crate::debug_spans::mark("host.launched");
+            self.terminal_work.standby.refill(&self.terminal_work);
+            let mut host = launched?;
             debug_assert!(host.terminal_id() == terminal_id);
             // The deprecated recovery mirror syncs a file twice; do it here,
             // in parallel, instead of under the creation lock. A tab that
             // lands in another workspace rewrites it there.
             if let Some(workspace_key) = workspace_key.as_deref() {
                 let _ = host.persist_workspace(workspace_key);
+                crate::debug_spans::mark("host.workspace_persisted");
             }
             let terminal_hex = terminal_id.to_hex();
             self.prelaunched_terminals
@@ -218,7 +248,7 @@ impl Mux {
         }
         #[cfg(not(unix))]
         {
-            let _ = (pane, cwd, env, size);
+            let _ = (pane, terminal_id, cwd, env, size);
             Ok(None)
         }
     }
@@ -258,6 +288,7 @@ impl Mux {
 
     /// Spawn options and cell size for a new terminal: the owner's options
     /// with `cwd`, `command` and `env` applied, sized to the latest client.
+    /// Every terminal spawn that takes a caller `env` comes through here.
     pub(super) fn terminal_spawn_options(
         &self,
         cwd: Option<String>,
@@ -272,7 +303,18 @@ impl Mux {
         if command.is_some() {
             opts.command = command;
         }
-        opts.extra_env.extend(env.iter().cloned());
+        // The daemon owns some keys (its socket, the terminal identity, the
+        // hook helper...): a caller value for one of them is dropped, so the
+        // daemon value always wins. The warning names the key, never the value.
+        let dropped = crate::daemon_env::merge_caller_env(&mut opts.extra_env, env);
+        crate::daemon_env::warn_dropped(&dropped);
+        // After the merge: a caller PATH (the app's login-shell PATH) may
+        // replace the daemon PATH, but the `claude` shim directory stays first
+        // on it, so `claude` still starts with the session's agent hooks.
+        crate::daemon_env::keep_shim_first_on_path(
+            &mut opts.extra_env,
+            opts.claude_shim_dir.as_deref(),
+        );
         // Spawn at the latest client-owned size: starting at the default
         // 80x24 and resizing a frame later makes shells emit artifacts
         // (e.g. zsh's reverse-video %% partial-line marker).

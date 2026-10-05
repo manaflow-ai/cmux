@@ -36,6 +36,7 @@
     "main": "dist/main.js"
   },
   "catalog": "catalog/caffeinate-catalog.json",
+  "cli": { "name": "caffeinate" },
   "implements": {
     "cmux.status/1": {
       "export": "renderStatus",

@@ -105,13 +105,16 @@ fi
 
 command -v cargo >/dev/null 2>&1 || { echo "error: cargo is required to build acpmux" >&2; exit 1; }
 command -v rustup >/dev/null 2>&1 || { echo "error: rustup is required to provision acpmux targets" >&2; exit 1; }
+# Install the targets into the toolchain cargo actually uses: cmux-tui pins its
+# own channel in rust-toolchain.toml, so rustup must run from that directory
+# (from the repo root it would provision the default toolchain instead, and the
+# x86_64 slice would fail with "can't find crate for core"). Idempotent.
+rust_targets=()
 for arch in $archs; do
-  target="$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"
-  if ! rustup target list --installed | grep -Fxq "$target"; then
-    echo "==> installing Rust target $target"
-    rustup target add "$target"
-  fi
+  rust_targets+=("$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin")
 done
+echo "==> ensuring Rust targets ${rust_targets[*]} for the cmux-tui toolchain"
+(cd "$source_root/cmux-tui" && rustup target add "${rust_targets[@]}")
 
 build_root="$(mktemp -d "${TMPDIR:-/tmp}/cmux-acpmux-build.XXXXXX")"
 mkdir -p "$cache_dir"

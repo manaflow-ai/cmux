@@ -29,6 +29,10 @@
     return wrapped;
   })();
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
+  // The page-agent methods frame.observe allows (browser lead contract v1).
+  // hitTarget, scrollIntoViewIfNeeded, clickPoint and the other acts are not
+  // among them.
+  const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
   const DEFAULT_TIMEOUT = 30000;
   const UNDEFINED_MARK = "__cmuxUndefined__";
 
@@ -534,6 +538,17 @@
   // ---------------------------------------------------------------------------
   // Events
 
+  // Page events whose listeners a session reports to the driver.
+  const HANDLED_EVENTS = ["dialog", "filechooser", "download"];
+  // How long a call on a tab waits for that tab's pending tab.handleEvents.
+  const HANDLED_SYNC_TIMEOUT = 5000;
+  // What the bounded wait resolves with when the update did not settle.
+  const HANDLED_SYNC_LATE = Symbol("handled sync late");
+  // A key no listener set has: the next _syncHandledEvents always sends,
+  // even an empty set (a lost update may have been the one removing the
+  // last listener).
+  const HANDLED_KEY_RESEND = Symbol("handled key resend");
+
   class EventEmitter {
     constructor() {
       this._listeners = new Map();
@@ -778,12 +793,18 @@
       route("tab.created", (p) => this._onTabCreated(p));
       route("tab.closed", (p) => this._page(p.targetId, false) && this._page(p.targetId)._onClosed());
       route("tab.crashed", (p) => this._forward(p, "_onCrashed"));
+      route("tab.replaced", (p) => this._forward(p, "_onReplaced"));
       route("tab.navigated", (p) => this._forward(p, "_onNavigated"));
       route("tab.loadState", (p) => this._forward(p, "_onLoadState"));
       route("dialog.opened", (p) => this._forward(p, "_onDialog"));
       route("filechooser.opened", (p) => this._forward(p, "_onFileChooser"));
       route("download.started", (p) => this._forward(p, "_onDownload"));
       route("download.finished", (p) => this._forward(p, "_onDownloadFinished"));
+      // The driver cancelled a navigation the domain policy blocks. Main's
+      // agent-tools.js logs it and fails the action that caused it; in
+      // cmux-next the host blocks it before the request and keeps the log
+      // (policy op "log").
+      route("navigation.blocked", () => {});
       route("console", (p) => this._forward(p, "_onConsole"));
       route("pageerror", (p) => this._forward(p, "_onPageError"));
       for (const event of ["request", "response", "requestfailed", "requestfinished"]) {
@@ -797,6 +818,7 @@
         throw new Error(`${method}: Target page, context or browser has been closed`);
       }
       const crashed = params && typeof params.targetId === "string" && this.pages.get(params.targetId);
+      if (crashed && crashed._handledSync) await this._awaitHandledSync(crashed);
       if (crashed && crashed._crashed) {
         // A crashed page answers only what starts a new web process.
         if (["tab.navigate", "tab.reload", "tab.history"].includes(method)) crashed._crashed = false;
@@ -809,6 +831,34 @@
       if (!this.agentTools) return this.driver.call(method, params);
       await this.agentTools.beforeCall(method, params);
       return this.agentTools.afterCall(method, params, this.driver.call(method, params));
+    }
+    // Waits for a tab's pending tab.handleEvents update, at most
+    // HANDLED_SYNC_TIMEOUT: an update whose job was dropped (a cell
+    // terminated by the app's watchdog mid-drain) never settles, and no call
+    // on the tab may wait for it forever. The next listener change sends the
+    // state again.
+    async _awaitHandledSync(page) {
+      const pending = page._handledSync;
+      let timer;
+      const late = new Promise((resolve) => (timer = this.host.setTimeout(() => resolve(HANDLED_SYNC_LATE), HANDLED_SYNC_TIMEOUT)));
+      const r = await Promise.race([pending, late]);
+      if (this.host.clearTimeout) this.host.clearTimeout(timer);
+      if (r === HANDLED_SYNC_LATE && page._handledSync === pending) {
+        page._handledSync = null;
+        page._handledKey = HANDLED_KEY_RESEND;
+        page._syncHandledEvents();
+      }
+    }
+    // After a cell is cancelled (the app's timeout, maybe a terminated
+    // script), promise jobs that were queued may never run; drop every tab's
+    // pending update and send the listener state again.
+    _resetPendingState() {
+      for (const page of this.pages.values()) {
+        if (!page._handledSync) continue;
+        page._handledSync = null;
+        page._handledKey = HANDLED_KEY_RESEND;
+        page._syncHandledEvents();
+      }
     }
     lazyPage() {
       const page = new Page(this, `lazy:${++this._lazyCounter}`);
@@ -863,8 +913,10 @@
       this.emitTabCreated(page, p);
     }
     emitTabCreated() {}
-    async newPage(url, { background } = {}) {
-      const { targetId } = await this.call("tabs.open", { url, background: !!background });
+    // `dataStore` (from `tabs.dataStore` or `tabs.list`) opens the tab in
+    // that data store instead of the session's default one.
+    async newPage(url, { background, dataStore } = {}) {
+      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }) });
       const page = this._page(targetId);
       if (url) page._url = url;
       return page;
@@ -964,8 +1016,31 @@
       const r = await this._call("page", wrapped, args, handles);
       return r && typeof r === "object" && !Array.isArray(r) && r[UNDEFINED_MARK] === 1 && Object.keys(r).length === 1 ? undefined : r;
     }
+    // Page-agent calls. Reads go through frame.observe, the host's read-only
+    // allowlist, so a lease never counts them as acts; acts and every other
+    // method stay frame.evaluate in the agent world. A host without
+    // frame.observe answers `unsupported` once and the session uses
+    // frame.evaluate from then on; any other error (a refusal included) is
+    // the call's error.
     _agent(method, ...args) {
+      if (OBSERVE_METHODS.has(method) && !this._session._observeUnsupported) return this._observe(method, args);
       return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+    }
+    async _observe(method, args) {
+      const blocked = this._page._blockedError();
+      if (blocked) throw blocked;
+      try {
+        return await this._page._raceDialog(this._session.call("frame.observe", {
+          targetId: this._page._targetId,
+          frameId: this._id || undefined,
+          method,
+          args,
+        }), true);
+      } catch (e) {
+        if (!e || e.code !== "unsupported") throw e;
+        this._session._observeUnsupported = true;
+        return this._call("agent", `(m, ...a) => ${AGENT}[m](...a)`, [method, ...args]);
+      }
     }
     async _contentFrame(handle) {
       try {
@@ -975,14 +1050,9 @@
       } catch (e) {
         if (driverErrorCode(e) !== "unsupported") throw e;
       }
-      // Fallback for drivers without frame.contentFrame: match the iframe's
-      // content box against each child frame's owner box.
-      const box = await this._agent("contentBox", handle);
-      await this._page._refreshFrames();
-      for (const child of this.childFrames()) {
-        const owner = await this._session.call("frame.ownerBox", { targetId: this._page._targetId, frameId: child._id });
-        if (owner && Math.abs(owner.x - box.x) < 1 && Math.abs(owner.y - box.y) < 1 && Math.abs(owner.width - box.width) < 1) return child;
-      }
+      // A driver without frame.contentFrame cannot say which frame the
+      // iframe holds. Matching boxes would guess (overlapping iframes share
+      // one) and could read or act in the wrong frame, so there is none.
       return null;
     }
     // Offset of this frame's viewport inside the tab viewport.
@@ -1373,6 +1443,15 @@
     async fill(value, options = {}) {
       if (typeof value !== "string" && !this._page._isSecret(value)) throw new Error(`locator.fill: value: expected string, got ${typeof value}`);
       await this._withElement(options, "locator.fill", ["visible", "enabled", "editable"], async (frame, handle) => {
+        if (this._page._isSecretName(value)) {
+          // Select the field's text with a stand-in value that passes the
+          // field checks, then let the host type the secret over it.
+          const r = await frame._agent("fill", handle, "0");
+          if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
+          if (r !== "needsinput") throw new Error("locator.fill: a secret can only be typed into a text field");
+          await this._page._insertSecret(value, "locator.fill");
+          return;
+        }
         value = await this._page._inputText(frame, value, "locator.fill");
         const r = await frame._agent("fill", handle, value);
         if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
@@ -1400,6 +1479,7 @@
     // that receives it.
     async _typeInto(text, options, title) {
       if (typeof text !== "string" && !this._page._isSecret(text)) throw new Error(`${title}: text: expected string, got ${typeof text}`);
+      if (this._page._isSecretName(text)) return this._focusThen(options, title, () => this._page._insertSecret(text, title));
       return this._focusThen(options, title, async (frame) => {
         const value = await this._page._inputText(frame, text, title);
         // A secret handle goes to the host whole; it resolves the value for
@@ -1917,7 +1997,8 @@
     constructor(page, payload) {
       this._page = page;
       this._p = payload;
-      this._handled = false;
+      // A dialog that opened during Copy, Cut or Paste arrives answered.
+      this._handled = !!payload.dismissedDuring;
     }
     type() {
       return this._p.type;
@@ -1932,6 +2013,8 @@
       return this._page;
     }
     async _respond(accept, promptText) {
+      // cmux already answered it; a listener's answer has nothing to do.
+      if (this._p.dismissedDuring) return;
       if (this._handled) throw new Error("Cannot accept dialog which is already handled!");
       // Validate before answering: a rejected answer must leave the dialog
       // open and known, or the page stays blocked with no dialog to answer.
@@ -2140,6 +2223,9 @@
   // ---------------------------------------------------------------------------
   // Page
 
+  // Unfinished requests a page keeps to pair with their later events.
+  const MAX_OPEN_REQUESTS = 1000;
+
   class Page extends EventEmitter {
     constructor(session, targetId) {
       super();
@@ -2160,6 +2246,7 @@
       this._refMax = new Map();
       this._heldDialog = null;
       this._listenedDialog = null;
+      this._dismissedDialogs = [];
       this._heldChooser = null;
       this._dialogWatchers = new Set();
       this._consoleHistory = [];
@@ -2174,6 +2261,58 @@
     }
     get id() {
       return this._targetId;
+    }
+    // Listeners for the events a session can take over from the user's UI
+    // are reported to the driver (`tab.handleEvents`): in a user's tab the
+    // session only drives, an event reaches the session only while it has
+    // a listener here (plans/cmux-next/browser-repl/README.md, Sessions and tabs).
+    on(event, handler) {
+      super.on(event, handler);
+      this._syncHandledEvents(event);
+      return this;
+    }
+    once(event, handler) {
+      super.once(event, handler);
+      this._syncHandledEvents(event);
+      return this;
+    }
+    off(event, handler) {
+      super.off(event, handler);
+      this._syncHandledEvents(event);
+      return this;
+    }
+    removeAllListeners(event) {
+      super.removeAllListeners(event);
+      this._syncHandledEvents(event);
+      return this;
+    }
+    emit(event, ...args) {
+      const r = super.emit(event, ...args);
+      // A `once` listener is gone after it ran.
+      this._syncHandledEvents(event);
+      return r;
+    }
+    _syncHandledEvents(event) {
+      if (event !== undefined && !HANDLED_EVENTS.includes(event)) return;
+      // A tab not opened yet will be one this session opened; those route
+      // every event to the session anyway.
+      if (this._closed || this._targetId.startsWith("lazy:")) return;
+      const events = HANDLED_EVENTS.filter((e) => this.listenerCount(e) > 0);
+      const key = events.join(",");
+      if (key === (this._handledKey === undefined || this._handledKey === null ? "" : this._handledKey)) return;
+      this._handledKey = key;
+      // Updates go out in order, and the session's next call on this tab
+      // waits for them (Session.call), so a listener added right before an
+      // action is in place when the action's event fires.
+      const targetId = this._targetId;
+      const driver = this._session.driver;
+      const p = (this._handledSync || Promise.resolve())
+        .then(() => driver.call("tab.handleEvents", { targetId, events }))
+        .catch(() => {})
+        .finally(() => {
+          if (this._handledSync === p) this._handledSync = null;
+        });
+      this._handledSync = p;
     }
     _normalizeSelector(selector) {
       if (typeof selector === "string" && REF_PATTERN.test(selector.trim())) return `aria-ref=${selector.trim()}`;
@@ -2327,6 +2466,24 @@
     _isSecret(value) {
       return !!(this._session.agentTools && this._session.agentTools.isSecret(value));
     }
+    // main's secret(name): a name only, no handle object, typed by the host
+    // from `input.insertText { secret }` (hosts with the "secret.insert"
+    // capability). Other hosts get a {__secret: name} handle (below).
+    _isSecretName(value) {
+      return this._isSecret(value) && typeof value.__secret !== "string";
+    }
+    // Types a secret(name) into the focused element. The value never enters
+    // this context: the host substitutes it and types it only when the
+    // focused frame's own origin matches the secret's domains, checked again
+    // on every call (so on every retry).
+    async _insertSecret(secret, title) {
+      try {
+        await this._input("input.insertText", { targetId: this._targetId, secret: secret.name });
+      } catch (e) {
+        if (e && /^secret /.test(e.message || "")) throw new Error(`${title}: ${e.message}`);
+        throw e;
+      }
+    }
     // A secret(name) value stays a {__secret: name} handle: the host resolves
     // it for the frame that receives it, after its domain check.
     async _inputText(frame, value) {
@@ -2390,6 +2547,13 @@
       this._frames.clear();
       this.emit("crash", this);
     }
+    // cmux replaced the tab's web view (it restored a page it had unloaded
+    // to save memory, or recovered a crashed one): frames have new ids.
+    _onReplaced() {
+      this._mainFrame._id = null;
+      for (const [, frame] of this._frames) frame._detached = true;
+      this._frames.clear();
+    }
     _onClosed() {
       if (this._closed) return;
       this._closed = true;
@@ -2410,9 +2574,18 @@
     }
     // With a "dialog" listener the listener answers, as in Playwright.
     // Without one the dialog stays open, shows in the snapshot and is answered
-    // through page.dialog(); nothing is dismissed silently.
+    // through page.dialog(); nothing is dismissed silently. A dialog that
+    // opened during Copy, Cut or Paste was already dismissed so it could not
+    // hold the command: listeners still get it, and the next snapshot
+    // reports it once.
     _onDialog(p) {
       const dialog = new Dialog(this, p);
+      if (p.dismissedDuring) {
+        this._dismissedDialogs.push(dialog);
+        if (this._dismissedDialogs.length > 20) this._dismissedDialogs.shift();
+        this.emit("dialog", dialog);
+        return;
+      }
       if (this.listenerCount("dialog")) {
         this._listenedDialog = dialog;
         this.emit("dialog", dialog);
@@ -2458,6 +2631,10 @@
       if (event === "request") {
         const req = new Request(this, p);
         this._requests.set(p.requestId, req);
+        // Requests that never finish (streams, long polls, a page that
+        // opens them without end) keep only the newest; a later event for
+        // an evicted one builds its Request from the event.
+        if (this._requests.size > MAX_OPEN_REQUESTS) this._requests.delete(this._requests.keys().next().value);
         this.emit("request", req);
         return;
       }
@@ -2568,14 +2745,69 @@
       const opts = typeof nameOrOptions === "string" ? { name: nameOrOptions } : nameOrOptions || {};
       return this.frames().find((f) => (opts.name === undefined || f.name() === opts.name) && (opts.url === undefined || urlMatches("", f.url(), opts.url))) || null;
     }
+    // The tab's cookie calls name it: its cookies live in its own data store
+    // (a private tab's, or the session's proxy store, is not the user's
+    // profile). A lazy page has no tab yet, and a closed page none any
+    // more (Playwright's context outlives its pages); their store is the
+    // session's default one.
+    _cookieScope() {
+      return this._closed || String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
+    }
     context() {
       const session = this._session;
       return {
         pages: () => [...session.pages.values()],
-        cookies: (urls) => session.call("cookies.get", { urls: urls === undefined ? undefined : [].concat(urls) }),
-        addCookies: (cookies) => session.call("cookies.set", { cookies }),
-        clearCookies: () => session.call("cookies.clear", {}),
+        cookies: (urls) => session.call("cookies.get", { ...this._cookieScope(), urls: urls === undefined ? undefined : [].concat(urls) }),
+        addCookies: (cookies) => session.call("cookies.set", { ...this._cookieScope(), cookies }),
+        clearCookies: (options) => this._clearCookies(options),
       };
+    }
+    // Playwright's clearCookies({ name, domain, path }), scoped like
+    // session.storageState: driven tabs use the user's profile, so the driver
+    // clears only the cookies of this tab's site (its registrable domain,
+    // which the driver decides from the tab) and refuses { all: true } there;
+    // a private or proxy store may be cleared whole. The driver matches
+    // strings exactly; RegExp filters are matched here and each match is
+    // cleared by its exact name, domain and path.
+    async _clearCookies(options = {}) {
+      const title = "browserContext.clearCookies";
+      if (options === null || typeof options !== "object") throw new Error(`${title}: options: expected an object, got ${JSON.stringify(options)}`);
+      const filters = {};
+      for (const key of ["name", "domain", "path"]) {
+        const v = options[key];
+        if (v === undefined || v === null || v === "") continue;
+        if (typeof v !== "string" && !isRegExp(v)) throw new Error(`${title}: ${key}: expected a string or a RegExp, got ${JSON.stringify(v)}`);
+        filters[key] = v;
+      }
+      const scope = this._cookieScope();
+      if (options.all) scope.all = true;
+      // The driver refuses a tab with no site, and { all: true }, on the
+      // user's profile, and knows which store this is.
+      const clear = async (params) => {
+        try {
+          await this._session.call("cookies.clear", params);
+        } catch (e) {
+          if (driverErrorCode(e) !== "invalid") throw e;
+          const message = String(e.message || "").replace(/^cookies\.clear: /, "");
+          throw new Error(`${title}: ${message}`);
+        }
+      };
+      if (!Object.values(filters).some(isRegExp)) {
+        await clear({ ...scope, ...filters });
+        return;
+      }
+      const matches = (cookie, key) => {
+        const v = filters[key];
+        if (v === undefined) return true;
+        if (!isRegExp(v)) return cookie[key] === v;
+        v.lastIndex = 0;
+        return v.test(String(cookie[key]));
+      };
+      const cookies = await this._session.call("cookies.get", scope.targetId ? { targetId: scope.targetId } : {});
+      for (const cookie of cookies) {
+        if (!["name", "domain", "path"].every((key) => matches(cookie, key))) continue;
+        await clear({ ...scope, name: cookie.name, domain: cookie.domain, path: cookie.path });
+      }
     }
     opener() {
       return Promise.resolve(this._opener);

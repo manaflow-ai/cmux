@@ -17,7 +17,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/finder open",
+        "path": "open",
         "visible": true
       },
       "mcp": {
@@ -46,7 +46,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/finder add-folder",
+        "path": "add-folder",
         "visible": true
       },
       "mcp": {
@@ -76,7 +76,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/finder connect-host",
+        "path": "connect-host",
         "visible": true
       },
       "mcp": {
@@ -106,7 +106,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/finder cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

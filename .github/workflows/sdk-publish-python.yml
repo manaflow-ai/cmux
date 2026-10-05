@@ -24,6 +24,10 @@ on:
 permissions: {}
 
 env:
+  # libghostty-vt always builds from the ghostty-next gitlink: an empty
+  # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
+  # as unset).
+  CMUX_GHOSTTY_SRC: ""
   RUST_TOOLCHAIN: "1.95.0"
 
 concurrency:
@@ -94,6 +98,8 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-python:
+    env:
+      GHOSTTY_ZIG_SOURCE: ghostty-next
     needs: version
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
@@ -109,7 +115,7 @@ jobs:
           python-version: "3.12.8"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install Linux build dependencies
         run: |

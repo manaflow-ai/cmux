@@ -21,7 +21,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
-    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil)
+    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true)
+    /// The command typed after `!` so far, whole each time, while the
+    /// terminal that replaces the page is being made (`tab.typeAhead`).
+    case typeAhead(String)
+    /// The agent picked on the new tab screen, to remember for the next
+    /// new tab (`newTab.remember`).
+    case rememberNewTab(agent: String)
+    /// The new tab page got its first user input (`newTab.touched`); a
+    /// touched page is never recycled into the prewarm pool.
+    case touched
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
@@ -102,7 +111,24 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
                 let cwd = (params?["cwd"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumOpenTabText)) }
-                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil)
+                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
+                                search: kind == .browser && params?["search"] as? Bool == true,
+                                run: kind != .terminal || params?["run"] as? Bool != false)
+            } else {
+                self = .unsupported(method)
+            }
+        case "tab.typeAhead":
+            if let text = params?["text"] as? String {
+                self = .typeAhead(String(text.prefix(Self.maximumOpenTabText)))
+            } else {
+                self = .unsupported(method)
+            }
+        case "newTab.touched":
+            self = .touched
+        case "newTab.remember":
+            // One input (R86): only the agent pick is remembered.
+            if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
+                self = .rememberNewTab(agent: agent)
             } else {
                 self = .unsupported(method)
             }

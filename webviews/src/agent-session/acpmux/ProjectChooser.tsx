@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 
 export type Project = { cwd: string; label: string };
 
@@ -22,6 +22,7 @@ export function ProjectChooser({
   onPick(cwd: string): void;
   onBrowse?(): void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   // The highlighted project, by folder: the list re-sorts as chats update while the menu is open.

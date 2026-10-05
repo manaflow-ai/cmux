@@ -157,15 +157,26 @@ impl Hub {
                 f(v);
             }
         };
-        let child = self.child_for(session).await?;
-        let agent_sid = session
-            .meta()
-            .agent_session_id
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
+        // A prompt that cannot reach any agent (none running, and its harness is gone) is
+        // refused before it is recorded, so a caller may send it again (handoff start).
+        let live = match session.child.lock().await.as_ref() {
+            Some(child) => child.is_alive().await,
+            None => false,
+        };
+        let harness = session.meta().harness;
+        if !live && self.config.read().await.profile(&harness).is_none() {
+            return Err(RpcError::invalid_params(format!("unknown harness {harness:?}")));
+        }
         let text = prompt_text(&blocks);
         let running = session.turn();
         let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
         if steer_now {
+            // A running turn has a live agent.
+            let child = self.child_for(session).await?;
+            let agent_sid = session
+                .meta()
+                .agent_session_id
+                .ok_or_else(|| RpcError::internal("no agent session"))?;
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             self.append(
                 session,
@@ -218,20 +229,6 @@ impl Hub {
                 json!({"promptId": prompt_id, "turnId": turn_id, "queued": session.queued()}),
             );
         }
-        // The child may have died while we waited.
-        let child = self.child_for(session).await?;
-        let agent_sid = session
-            .meta()
-            .agent_session_id
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
-        if session.rehydrate.swap(false, Ordering::SeqCst)
-            && let Some(transcript) = self.transcript(session, 24_000)
-        {
-            blocks.insert(
-                    0,
-                    json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
-                );
-        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -263,6 +260,32 @@ impl Hub {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
             );
+        }
+        // The prompt is recorded and acknowledged above before the agent is started again (it
+        // died, or the daemon restarted), so a client hears prompt_accepted at once.
+        let started = match self.child_for(session).await {
+            Ok(child) => session
+                .meta()
+                .agent_session_id
+                .map(|sid| (child, sid))
+                .ok_or_else(|| RpcError::internal("no agent session")),
+            Err(e) => Err(e),
+        };
+        let (child, agent_sid) = match started {
+            Ok(started) => started,
+            Err(e) => {
+                self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e);
+                drop(guard);
+                return Err(e);
+            }
+        };
+        if session.rehydrate.swap(false, Ordering::SeqCst)
+            && let Some(transcript) = self.transcript(session, 24_000)
+        {
+            blocks.insert(
+                    0,
+                    json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
+                );
         }
         session.stderr_tail.lock().unwrap().clear();
         let turn_seq = self
@@ -317,7 +340,33 @@ impl Hub {
                 }
             }
         }
+        let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
+        let mut result =
+            self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        drop(guard);
+        if let Ok(v) = &mut result {
+            merge_mux_meta(v, ids);
+        }
+        result
+    }
+
+    /// Settle a turn once its `session/prompt` answered (or failed): record
+    /// `turn_end`/`turn_error` and `turn_result`, and the session status.
+    /// Also settles a turn recovered from an adopted agent host.
+    pub(super) async fn finish_turn(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        mut result: Result<Value, RpcError>,
+        prompt_id: &str,
+        turn_id: &str,
+        turn_seq: u64,
+    ) -> Result<Value, RpcError> {
         *session.turn.lock().unwrap() = None;
+        // Quit Everything already recorded this turn as cancelled.
+        if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
+            return result;
+        }
         // A process that died without answering: say what it printed last.
         if let Err(e) = &mut result {
             let bare = e.message == "agent process closed"
@@ -355,9 +404,9 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
-        let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         match &result {
             Ok(v) => {
+                self.note_reply_refusal(session);
                 let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
                 self.append(
                     session,
@@ -381,6 +430,7 @@ impl Hub {
                     "turn_error",
                     json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
+                self.note_model_refusal(session, &e.message);
                 let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     let agent_error =
@@ -404,11 +454,33 @@ impl Hub {
             );
         }
         self.save_meta(session);
-        drop(guard);
-        if let Ok(v) = &mut result {
-            merge_mux_meta(v, ids);
-        }
         result
+    }
+
+    /// A recorded prompt whose agent could not start: the turn ends failed, so every client
+    /// sees the prompt settle instead of a turn that never starts.
+    fn fail_unstarted_turn(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        turn_id: &str,
+        e: &RpcError,
+    ) {
+        *session.turn.lock().unwrap() = None;
+        self.append(
+            session,
+            "mux",
+            "turn_error",
+            json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
+        );
+        let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        self.record_last_turn(session, &msg);
+        self.append(session, "mux", "turn_result", msg);
+        self.reset_stream(session);
+        if session.status() != SessionStatus::Closed {
+            self.set_status(session, SessionStatus::Disconnected);
+        }
+        self.save_meta(session);
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
@@ -618,7 +690,7 @@ impl Hub {
                     .preset
                     .as_ref()
                     .and_then(|n| cfg.presets.get(n))
-                    .map(|p| in_env(&p.env))
+                    .map(|p| in_env(&p.env) || p.args.iter().any(|a| a.contains("${model}")))
                     .unwrap_or(false)
         };
         if at_spawn {
@@ -735,6 +807,8 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             last_turn: None,
+            // A fork of a remote-origin session stays remote-origin.
+            remote_origin: parent_meta.remote_origin,
         };
         let new = self.make_session(meta);
         if is_claude {
@@ -811,7 +885,16 @@ impl Hub {
                 )
                 .await;
             }
+            let link_lost = child.host_record().is_some() && !child.is_alive().await;
             child.kill().await;
+            // A host whose link was lost cannot take a Terminate frame.
+            if link_lost {
+                self.end_unadopted_host(session).await;
+            }
+        } else {
+            // A host this daemon could not adopt keeps running until the user
+            // ends the session: end it without its protocol (frozen path).
+            self.end_unadopted_host(session).await;
         }
         *session.turn.lock().unwrap() = None;
         self.set_status(session, SessionStatus::Closed);
@@ -827,6 +910,7 @@ impl Hub {
                     dir: "mux".into(),
                     kind: "purged".into(),
                     msg: json!({"sessionId": session.id}),
+                    host_seq: None,
                 },
                 remote: None,
             });
@@ -847,47 +931,7 @@ impl Hub {
             self.set_status(session, SessionStatus::Idle);
         }
     }
-
-    /// Stop every agent at once and save. Each agent's process group gets
-    /// SIGTERM, then SIGKILL after `SHUTDOWN_GRACE`; every wait here has a
-    /// deadline, so this returns within about `SHUTDOWN_GRACE` + 1 s.
-    pub async fn shutdown_all(&self) {
-        const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
-        let sessions = self.sessions();
-        let mut children = Vec::new();
-        for s in &sessions {
-            self.revoke_permission_chat(s);
-            self.cancel_pending_permissions(s);
-            if let Ok(mut slot) = tokio::time::timeout(LOCK, s.child.lock()).await
-                && let Some(child) = slot.take()
-            {
-                children.push(child);
-            }
-            *s.turn.lock().unwrap() = None;
-            if s.status() != SessionStatus::Closed {
-                self.set_status(s, SessionStatus::Idle);
-            }
-        }
-        let stop = futures::future::join_all(children.iter().map(|c| c.terminate(SHUTDOWN_GRACE)));
-        if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, stop).await.is_err() {
-            tracing::warn!("agents did not stop within {SHUTDOWN_GRACE:?}");
-        }
-        self.flush();
-    }
-
-    /// Save every session's meta and sync the event log to disk.
-    pub fn flush(&self) {
-        for s in self.sessions() {
-            self.save_meta(&s);
-        }
-        if let Err(e) = self.store.flush() {
-            tracing::warn!("store flush failed: {e}");
-        }
-    }
 }
-
-/// How long agents get between SIGTERM and SIGKILL when the daemon stops.
-pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
 /// agent sent.

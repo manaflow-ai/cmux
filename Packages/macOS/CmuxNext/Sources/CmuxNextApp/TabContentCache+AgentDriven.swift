@@ -43,3 +43,37 @@ extension TabContentCache {
         agentDrivenTabs.insert(key)
     }
 }
+
+/// Per-tab agent state the cache owns: tabs an agent drove, surfaces an
+/// agent opened (claimed when their tab arrives), and tabs where the person
+/// allowed agents despite extension access (plans/cmux-next/passwords.md,
+/// section 3.4). Everything for a tab ends when the tab closes.
+struct TabAgentMarks {
+    var tabs: Set<String> = []
+    var surfaces: Set<SurfaceID> = []
+    var extensionOverrides: Set<String> = []
+
+    mutating func forget(_ key: String) {
+        tabs.remove(key)
+        extensionOverrides.remove(key)
+    }
+}
+
+extension TabContentCache {
+    var agentDrivenTabs: Set<String> {
+        get { agentMarks.tabs }
+        set { agentMarks.tabs = newValue }
+    }
+
+    var agentDrivenSurfaces: Set<SurfaceID> {
+        get { agentMarks.surfaces }
+        set { agentMarks.surfaces = newValue }
+    }
+
+    /// The person allowed agents in tab `key` although an enabled extension
+    /// of its profile can reach its page (plans/cmux-next/passwords.md,
+    /// section 3.4). Only a native confirmation calls this; the mark ends
+    /// with the tab.
+    func allowAgentWithExtensions(_ key: String) { agentMarks.extensionOverrides.insert(key) }
+    func agentMayUseExtensionTab(_ key: String) -> Bool { agentMarks.extensionOverrides.contains(key) }
+}

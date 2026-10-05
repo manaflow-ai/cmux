@@ -1,8 +1,8 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
-import enum CmuxNextLayout.StickyEdge
-import enum CmuxNextLayout.StickyMode
+import enum CmuxNextLayout.DockEdge
+import enum CmuxNextLayout.DockMode
 import Foundation
 
 /// Daemon commands for tab moves. With `tab-drag-v1` every outcome is one
@@ -18,7 +18,7 @@ enum TabMoves {
                      transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
-        guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, target = pane.handle
         let current = pane.tabs.firstIndex { $0.surface == surface }
@@ -40,7 +40,8 @@ enum TabMoves {
     /// Tab page with the dragged tab's engine and profile. Nil when the
     /// kind cannot respawn: remote-terminal references, daemon-rendered
     /// browser tabs, incognito tabs (their URL must stay out of the daemon),
-    /// and app-local tabs (agent chats), which are not daemon tabs.
+    /// conversation tabs (Home and agent chats, whose source is one
+    /// conversation or session), and app-local tabs, which are not daemon tabs.
     @MainActor
     static func respawn(for tab: TabModel, in pane: PaneModel, services: AppServices) -> SplitRespawn? {
         switch tab.kind {
@@ -56,16 +57,19 @@ enum TabMoves {
         }
     }
 
-    /// New pane on `edge` of `pane` holding the tab.
+    /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
+    /// caller already chose a split over a new column with the same room
+    /// rule (a drag's preview did, with the emptied source pane removed),
+    /// so the move runs that choice instead of deciding again.
     static func toNewSplit(_ tab: TabModel, pane: PaneModel, edge: PaneEdge, services: AppServices,
-                           respawn: SplitRespawn? = nil,
+                           respawn: SplitRespawn? = nil, roomDecided: Bool = false,
                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
-        guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         // With a respawn the source pane stays (it gets the new tab).
-        switch services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil) {
+        switch roomDecided ? SplitRoomDecision.split : services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil) {
         case .split:
             break
         case .newColumn(let afterColumn, _):
@@ -99,7 +103,7 @@ enum TabMoves {
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
-        guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
@@ -122,21 +126,23 @@ enum TabMoves {
     }
 
     /// Moves the tab into a new column pinned to `edge` on `anchor`'s screen,
-    /// in one daemon commit (move-tab-to-column with `sticky`,
-    /// edge-docks-v1). The column that held the edge scrolls again. Top and
-    /// bottom are edge docks; `mode` nil uses `layout.stickyColumnMode`, and
+    /// in one daemon commit (move-tab-to-column with `dock`: dock-columns-v1,
+    /// and edge-docks-v1 for top and bottom; an older daemon would ignore
+    /// `dock` and make a plain column, so it is refused here). The column that held the edge scrolls again. Top and
+    /// bottom are edge docks; `mode` nil uses `layout.dockColumnMode`, and
     /// `width` nil a third of the height for a band or the width of a new
     /// column beside the anchor for a side.
-    static func toNewStickyColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.StickyEdge,
-                                  mode: CmuxNextLayout.StickyMode? = nil, width: Double? = nil, respawn: SplitRespawn? = nil,
+    static func toNewDockColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.DockEdge,
+                                  mode: CmuxNextLayout.DockMode? = nil, width: Double? = nil, respawn: SplitRespawn? = nil,
                                   services: AppServices,
                                   transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
-        guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.edgeDocks),
+        guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.dockColumns),
+              !edge.isBand || daemon.supports(DaemonCapabilities.shared.edgeDocks),
               !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
-        let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.stickyColumnMode == .overlay)
-        let pin = StickySnapshot(edge: StickySnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked)
+        let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)
+        let pin = DockSnapshot(edge: DockSnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked)
         // A band's size is a share of the screen height; a side column takes
         // the width a new column next to the anchor would take.
         let spawn = edge.isBand || width != nil ? nil
@@ -145,11 +151,11 @@ enum TabMoves {
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 if let respawn {
-                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, sticky: pin,
+                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin,
                                                       transaction: transaction)
                     try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
                 } else {
-                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, sticky: pin,
+                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, dock: pin,
                                                              transaction: transaction)
                 }
             } != nil
@@ -170,8 +176,11 @@ enum TabMoves {
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
         let name = newWorkspaceName(for: tab, services: services)
+        // The daemon names the workspace in the move's commit when it can.
+        let inCommit = daemon.supports(DaemonCapabilities.shared.tabWorkspaceName)
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
-            let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, transaction: echoes ? transaction : nil)
+            let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, name: inCommit ? name : nil,
+                                                                    transaction: echoes ? transaction : nil)
             let created: WorkspaceKey?
             if let resultKey = result.key {
                 created = resultKey
@@ -179,11 +188,10 @@ enum TabMoves {
                 created = try await connection.listWorkspaces().workspaces.compactMap(\.key).first { !before.contains($0) }
             }
             if !echoes, let created, let index { _ = try await connection.moveWorkspace(created, to: index) }
-            // The workspace takes the moved tab's name (R15). A second
-            // command until move-tab-to-new-workspace carries a name; the
+            // A daemon without `tab-workspace-name-v1`: a second command. The
             // move already happened, so a failed rename leaves the default
             // name and does not fail the move.
-            if let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
+            if !inCommit, let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
             return created
         }
         return key ?? nil
@@ -236,6 +244,12 @@ enum TabMoves {
             completion(ok)
             return ok ? nil : "move-tab-to-workspace failed (see the app log)"
         })
+    }
+
+    /// Workspaces never mix machines: says so and fails the move.
+    static func refuseOtherMachine(_ services: AppServices, _ completion: Completion) {
+        services.registry.refuse(TabDropStrings.otherMachine)
+        completion(false)
     }
 
     /// True (and refused with a message) when `tab` would move between an

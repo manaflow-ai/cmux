@@ -125,7 +125,7 @@ struct WindowKeyTableTests {
                 && !WindowKeyTable.appLevel.contains($0.id)
         }
         if let content {
-            #expect(table.behavior(for: content.id, in: .settings) == .disabled(reason: MiscHandlerStrings.noPane))
+            #expect(table.behavior(for: content.id, in: .settings) == .disabled(reason: MiscHandlerStrings.notInThisWindow))
             #expect(table.behavior(for: content.id, in: .main) == .run)
         }
         #expect(table.behavior(for: "closeTab", in: .settings) == .closeWindow)
@@ -146,7 +146,7 @@ struct WindowKeyTableTests {
             #expect(!target.validateMenuItem(item), "\(content.id) is off while a standalone window is key")
         }
         let refusal = registry.capturingRefusal { registry.perform(content.id, invocation: ActionInvocation()) }
-        #expect(refusal == MiscHandlerStrings.noPane)
+        #expect(refusal == MiscHandlerStrings.notInThisWindow)
         #expect(spy.runs[content.id.rawValue] == nil)
         if let other = registry.descriptors.first(where: { $0.isDestructive && WindowKeyTable.contentTargets.isDisjoint(with: $0.targets) }) {
             #expect(!table.destroysContent(other.id), "\(other.id) is not main window content")
@@ -183,7 +183,9 @@ struct WindowKeyTableTests {
         #expect(services.keyWindowRole?.close == .contentFirst)
         let borderless = NSPanel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
         services.keyWindowSource = { borderless }
-        #expect(services.keyWindowRole == nil)
+        // A kind-less window no main window owns is a window of its own
+        // (PopupAndKindlessKeyTests), never main window content.
+        #expect(services.keyWindowRole?.close == .window)
     }
 
     /// Every kind but main, installed through the window kit: Cmd-W closes

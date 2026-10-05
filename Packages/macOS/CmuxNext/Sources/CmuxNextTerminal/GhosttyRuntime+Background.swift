@@ -10,6 +10,13 @@ extension GhosttyRuntime {
     /// and blur on every config load. Empty (the default) keeps them.
     public static var backgroundOverride = WindowBackgroundOverride()
 
+    /// Whether cmux.json overrides the terminal's background
+    /// (`appearance.surfaces.terminal`): the surfaces then draw a
+    /// transparent default background in every window and the terminal
+    /// host paints the override (`GhosttyRuntimeSurfacePolicy`). Set, then
+    /// call `reloadConfig()`.
+    public static var terminalBackgroundOverridden = false
+
     /// Config lines that turn the config's `background-opacity` and
     /// `background-blur` into what `background` resolves them to; empty
     /// when nothing changes.

@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 import os
 import Synchronization
 
@@ -92,7 +92,6 @@ public final class GhosttyRuntime {
         runtime.confirm_read_clipboard_cb = ghosttyConfirmReadClipboard
         runtime.write_clipboard_cb = ghosttyWriteClipboard
         runtime.close_surface_cb = ghosttyCloseSurface
-        runtime.tmux_control_cb = ghosttyTmuxControl
         app = ghostty_app_new(&runtime, config)
         guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
@@ -197,7 +196,8 @@ public final class GhosttyRuntime {
         var opacityCells = false
         _ = configGet(config, &opacityCells, key: "background-opacity-cells")
         opacity = min(max(configured, 0), 1)
-        if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells) {
+        if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
+                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
@@ -222,6 +222,16 @@ public final class GhosttyRuntime {
             return .black
         }
         guard backgroundOpacity >= 1 else { return .clear }
+        return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
+    }
+
+    /// The copy-mode cursor box color: `cursor-color` when set, else the
+    /// configured foreground (Ghostty colors, never a fixed accent).
+    var copyCursorColor: NSColor {
+        var color = ghostty_config_color_s()
+        guard let config,
+              Self.configGet(config, &color, key: "cursor-color") || Self.configGet(config, &color, key: "foreground")
+        else { return .textColor }
         return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
     }
 
@@ -345,9 +355,12 @@ nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
 /// root's sheet (`background` at `background-opacity`) is the only layer
 /// behind the cells, as the single surface layer is in Ghostty.app. With
 /// `background-opacity-cells` explicit cell colors take the opacity, and a
-/// 0 would erase them, so the config stays as it is.
+/// 0 would erase them, so the config stays as it is. A terminal background
+/// override (`appearance.surfaces.terminal`) makes the surfaces transparent
+/// in an opaque window too: the terminal host paints the override behind
+/// the cells (`ownerPaintsBackground`).
 nonisolated enum GhosttyRuntimeSurfacePolicy {
-    static func override(configuredOpacity: Double, opacityCells: Bool) -> String? {
-        configuredOpacity < 1 && !opacityCells ? "background-opacity = 0" : nil
+    static func override(configuredOpacity: Double, opacityCells: Bool, ownerPaintsBackground: Bool = false) -> String? {
+        (configuredOpacity < 1 || ownerPaintsBackground) && !opacityCells ? "background-opacity = 0" : nil
     }
 }

@@ -1,11 +1,12 @@
 import React from "react";
 import { Keycap } from "./Keycap";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 
 /// The Quick Composer's keys, always in view: Return sends, ⌘Return opens the chat in a window,
 /// Escape hides the panel. The keys are the composer's own (Composer, useEscapeToDismiss), not
 /// app shortcuts the user rebinds, so they are drawn as they are.
 export function QuickKeyHints() {
+  const t = useT();
   const hints: [key: string, label: string][] = [
     ["↩", t("quick.send")],
     ["⌘↩", t("quick.openInWindow")],

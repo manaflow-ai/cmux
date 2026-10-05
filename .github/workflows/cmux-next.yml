@@ -13,6 +13,7 @@ on:
       - App/**
       - cmux.xcodeproj/**
       - scripts/cmux-next/bundle-*.sh
+      - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -22,22 +23,20 @@ on:
       - cmuxCLITestSupport/**
       - Resources/Localizable.xcstrings
       - web/**
-      - scripts/ghosttykit-checksums.txt
-      - ghostty
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/compile-string-catalogs.sh
-      - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - scripts/cmux-next/tests/**
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
-      - scripts/download-prebuilt-ghosttykit.sh
+      - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
   push:
@@ -51,6 +50,7 @@ on:
       - Packages/Shared/**
       - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
+      - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -60,22 +60,20 @@ on:
       - cmuxCLITestSupport/**
       - Resources/Localizable.xcstrings
       - web/**
-      - scripts/ghosttykit-checksums.txt
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/compile-string-catalogs.sh
-      - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/cef-manifest.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - scripts/cmux-next/tests/**
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
+      - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
   workflow_dispatch:
@@ -111,6 +109,47 @@ concurrency:
 # queued or refuses. The second attempt stays on the side label; a later bot
 # attempt is the measured overflow.
 jobs:
+  # A push can sit in the owned-pool queue after newer commits have landed.
+  # Resolve the branch head on Linux before any macOS job requests a runner.
+  # The lookup fails open so the current head still gets its compile and
+  # nightly-next promotion. Keep the run-id concurrency group below: rescue
+  # reruns of an older push must not cancel the newest pending run.
+  push-head-preflight:
+    name: cmux-next push head preflight
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      current: ${{ steps.head.outputs.current }}
+    steps:
+      - name: Check whether this push is still the branch head
+        id: head
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current=true
+          if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/feat-cmux-next ]]; then
+            authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+            remote_sha="$(timeout 15 git -c "http.extraHeader=Authorization: Basic $authorization" \
+              ls-remote "${SERVER_URL}/${REPOSITORY}.git" "$REF" 2>/dev/null | awk 'NR==1{print $1}')" || remote_sha=""
+            if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
+              current=false
+              echo "Superseded feat-cmux-next push $SHA; current branch head is $remote_sha."
+            elif [[ -z "$remote_sha" ]]; then
+              echo "::warning::could not resolve the current feat-cmux-next head; keeping macOS work enabled"
+            else
+              echo "Current feat-cmux-next head is $SHA."
+            fi
+          fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+
   # Web and documentation changes still get the Linux checks and web workflow,
   # but do not spend a Mac runner on an unrelated Swift package sweep. Webview
   # sources are the narrow exception: they become native resources, so keep one
@@ -176,7 +215,7 @@ jobs:
           echo "native=$native webview=$webview macos=$macos"
 
   macos-placement:
-    needs: path_route
+    needs: [path_route, push-head-preflight]
     # Attempt 1's macOS jobs stay on the owned side label while the fleet
     # drains. The placement step records idle runners but never falls back on
     # an instantaneous busy result.
@@ -188,7 +227,7 @@ jobs:
     # Mac jobs (needs plus !cancelled()) take their route without it. A re-run
     # needs no marker of its own: its Mac jobs take the fallback, and the
     # rescue's watch of a side lane ends at attempt 2.
-    if: ${{ needs.path_route.outputs.macos == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
+    if: ${{ needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
@@ -301,6 +340,24 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # Behavior tests of the build scripts: pin-cmux-tui.sh fetch on a stale
+      # --ref mirror and on a reused runner workspace, embed-cef.sh reaching
+      # ensure-cef.sh under set -u, and ensure-cef.sh's controller artifact
+      # store source.
+      - name: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
+        id: script-tests
+        continue-on-error: true
+        run: |
+          bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
+          bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
+          bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/check-action-surfaces-fleet-only.test.sh
+          bash scripts/ci/tests/cmux-tui-rust-check.test.sh
+          bash scripts/cmux-next/tests/cef-credits.test.sh
+          bash scripts/cmux-next/tests/cef-license.test.sh
+          bash scripts/cmux-next/tests/ensure-cef-store.test.sh
+          bash scripts/cmux-next/tests/cef-build-flags.test.sh
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -318,6 +375,7 @@ jobs:
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
+            ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
@@ -340,8 +398,8 @@ jobs:
           exit 1
 
   swift-test:
-    needs: [path_route, macos-placement]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    needs: [path_route, macos-placement, push-head-preflight]
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next swift test
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
@@ -364,23 +422,42 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # The package graph reads no submodule; the GhosttyKit download only
-          # needs the ghostty commit recorded in this tree.
+          # The package graph reads no submodule; GhosttyNextKit comes from
+          # SwiftPM (Packages/Shared/CmuxGhosttyKit).
           submodules: false
+          fetch-depth: 2
+
+      # A mini reuses its workspace: drop the submodule checkouts a previous
+      # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Download pre-built GhosttyKit.xcframework
-        run: |
-          set -euo pipefail
-          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
+      - name: Install Rust (sidebar layout reducer)
+        run: ./scripts/install-rust-ci.sh
 
-      # SwiftPM links a binary target's static archive only when its name
-      # starts with `lib`; the prebuilt one is `ghostty-internal.a`, so
-      # CmuxNextAppTests (through CmuxNextTerminal) failed to link.
-      - name: Give GhosttyKit's archives the lib prefix SwiftPM links
-        run: scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
+      - name: Test sidebar layout reducer
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
+
+      # macOS-only script behavior tests (PlistBuddy, plutil): the "Bundle
+      # server helper" phase writes the server helper and agent plists without
+      # the app's processed Info.plist, and release signing signs every
+      # libexec helper and restamps the plists from the final bundle id.
+      - name: Script tests (bundle-server-helper)
+        run: |
+          bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+          bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
 
       - name: Build package and tests
         id: build-tests
@@ -418,10 +495,11 @@ jobs:
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
         env:
-          # A pull request checks its merge commit, whose cmux-tui tree only
-          # exists once the base and branch match: fail at once with the
-          # steps instead of holding the runner for an unpublished tree.
-          CMUX_TUI_TREE_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '2700' }}
+          # A pull request whose merge tree has the same cmux-tui inputs as its
+          # base waits for the base branch publication. A changed cmux-tui tree
+          # waits for its own source-addressed publication. pin-cmux-tui.sh
+          # reports which key it is waiting for.
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Check the same-tree cmux-tui serves the app's daemon capabilities
@@ -437,13 +515,13 @@ jobs:
 
       # Like the steps below, runs whenever the build succeeded, even after a
       # failed test step, so one red step does not hide the others.
-      - name: Run control package tests
+      - name: Run control package tests and callback regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests --skip CLISurfaceParityTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests|MobileReadinessRelayTests' --skip CLISurfaceParityTests
 
       # These socket/readiness and CLI parity tests assert routing, not scheduler
       # throughput. Concurrent app/catalog setup can occupy the main actor longer
@@ -484,8 +562,8 @@ jobs:
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
 
   release-compile:
-    needs: [path_route, macos-placement]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    needs: [path_route, macos-placement, push-head-preflight]
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next Release compile (Xcode 26)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # One-architecture Release (-O, whole-module) xcodebuild of CmuxNextApp
@@ -508,14 +586,26 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          fetch-depth: 2
+
+      # A mini reuses its workspace: drop the submodule checkouts a previous
+      # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Download pre-built GhosttyKit.xcframework
-        run: |
-          set -euo pipefail
-          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
+      - name: Install Rust (sidebar layout reducer)
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
 
       - name: Release compile
         run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
@@ -563,7 +653,7 @@ jobs:
   request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -578,8 +668,8 @@ jobs:
         run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA" -f promote_nightly_next_debounce=true
 
   cmux-scheme-compile:
-    needs: [path_route, macos-placement]
-    if: ${{ !cancelled() && needs.path_route.outputs.macos == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    needs: [path_route, macos-placement, push-head-preflight]
+    if: ${{ !cancelled() && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux app scheme compile (Debug)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # Debug arm64 xcodebuild of the cmux app scheme: the app host and every
@@ -606,27 +696,34 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # A mini reuses its workspace: drop the submodule checkouts a previous
+      # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
-
-      - name: Download pre-built GhosttyKit.xcframework
-        run: |
-          set -euo pipefail
-          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
 
       # The Bundle cmux-tui phase bundles this commit's same-tree cmux-tui
       # and runs check-daemon-capabilities.sh on it (Debug builds).
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
         env:
-          # A pull request checks its merge commit, whose cmux-tui tree only
-          # exists once the base and branch match: fail at once with the
-          # steps instead of holding the runner for an unpublished tree.
-          CMUX_TUI_TREE_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '2700' }}
+          # See the package test job above. The helper compares the merge tree
+          # with its first parent and waits for the base artifact when equal.
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Install Rust (diff sidecar)
         run: ./scripts/install-rust-ci.sh
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
 
       - name: Build in-tree acpmux for the app bundle
         env:

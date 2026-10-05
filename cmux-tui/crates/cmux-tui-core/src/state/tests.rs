@@ -44,7 +44,7 @@ impl Drop for Session {
     }
 }
 
-fn send(
+pub(super) fn send(
     mux: &Arc<Mux>,
     operation: &str,
     params: Value,
@@ -72,24 +72,24 @@ fn send(
 }
 
 /// A committed mutation's value.
-fn mutate(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Value {
+pub(super) fn mutate(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Value {
     let result = send(mux, operation, params, Some(key))
         .unwrap_or_else(|error| panic!("{operation} failed: {error:?}"));
     assert_eq!(result["replayed"], false, "{operation} unexpectedly replayed");
     result["value"].clone()
 }
 
-fn read(mux: &Arc<Mux>, operation: &str, params: Value) -> Value {
+pub(super) fn read(mux: &Arc<Mux>, operation: &str, params: Value) -> Value {
     send(mux, operation, params, None)
         .unwrap_or_else(|error| panic!("{operation} failed: {error:?}"))
 }
 
-fn error_code(result: Result<Value, ResourceError>) -> String {
+pub(super) fn error_code(result: Result<Value, ResourceError>) -> String {
     result.expect_err("request unexpectedly succeeded").code
 }
 
 /// Every change of every resource batch after `revision`.
-fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
+pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
     mux.resource_events_after(revision)
         .unwrap()
         .batches
@@ -98,15 +98,15 @@ fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
         .collect()
 }
 
-fn revision(mux: &Mux) -> u64 {
+pub(super) fn revision(mux: &Mux) -> u64 {
     mux.with_state(|state| state.resource_revision)
 }
 
-fn snapshot(mux: &Mux) -> Value {
+pub(super) fn snapshot(mux: &Mux) -> Value {
     crate::resource_api::public_session_snapshot(mux).unwrap()
 }
 
-fn empty_workspace(mux: &Arc<Mux>, name: &str) -> String {
+pub(super) fn empty_workspace(mux: &Arc<Mux>, name: &str) -> String {
     let created = mutate(
         mux,
         "workspace.create",
@@ -116,18 +116,18 @@ fn empty_workspace(mux: &Arc<Mux>, name: &str) -> String {
     created["workspace_id"].as_str().unwrap().to_string()
 }
 
-fn tab_id(mux: &Mux, surface: SurfaceId) -> String {
+pub(super) fn tab_id(mux: &Mux, surface: SurfaceId) -> String {
     mux.with_state(|state| state.resource_indexes.tab_ids[&surface].to_string())
 }
 
-fn pane_id(mux: &Mux, surface: SurfaceId) -> String {
+pub(super) fn pane_id(mux: &Mux, surface: SurfaceId) -> String {
     mux.with_state(|state| {
         let pane = state.pane_of(surface).unwrap();
         state.resource_indexes.pane_ids[&pane].to_string()
     })
 }
 
-fn pane_tab_ids(mux: &Mux, surface: SurfaceId) -> Vec<String> {
+pub(super) fn pane_tab_ids(mux: &Mux, surface: SurfaceId) -> Vec<String> {
     mux.with_state(|state| {
         let pane = state.pane_of(surface).unwrap();
         state.panes[&pane]
@@ -139,7 +139,7 @@ fn pane_tab_ids(mux: &Mux, surface: SurfaceId) -> Vec<String> {
 }
 
 /// One workspace with one pane holding `count` terminal tabs.
-fn terminal_tabs(mux: &Arc<Mux>, count: usize) -> Vec<SurfaceId> {
+pub(super) fn terminal_tabs(mux: &Arc<Mux>, count: usize) -> Vec<SurfaceId> {
     let first = mux.new_workspace(None, None).unwrap().id;
     let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
     let mut tabs = vec![first];
@@ -807,17 +807,22 @@ fn closed_history_records_explicit_closes_but_not_process_exits() {
     mux.shutdown();
 }
 
+/// Closed history keeps every group (ARCHIVE-1: retention forever); a
+/// list returns the newest `limit` groups (default 100).
 #[test]
-fn closed_history_keeps_the_newest_fifty_items() {
+fn closed_history_keeps_every_group_and_lists_the_newest_limit() {
     let mux = Mux::new_for_test("state-closed-bound", SurfaceOptions::default());
     for index in 0..52 {
         let workspace = empty_workspace(&mux, &format!("w{index}"));
         mutate(&mux, "workspace.close", json!({"workspace": workspace}), &format!("close-{index}"));
     }
     let closed = read(&mux, "closed.list", json!({}));
-    assert_eq!(closed.as_array().unwrap().len(), 50);
+    assert_eq!(closed.as_array().unwrap().len(), 52);
     assert_eq!(closed[0]["name"], "w51");
-    assert_eq!(closed[49]["name"], "w2");
+    assert_eq!(closed[51]["name"], "w0");
+    let newest = read(&mux, "closed.list", json!({"limit": 10}));
+    assert_eq!(newest.as_array().unwrap().len(), 10);
+    assert_eq!(newest[9]["name"], "w42");
 }
 
 #[test]

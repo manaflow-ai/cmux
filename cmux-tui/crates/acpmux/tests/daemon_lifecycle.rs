@@ -106,7 +106,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     let listen = ready["listen"].as_str().unwrap().to_owned();
     assert!(listen.starts_with("127.0.0.1:") && !listen.ends_with(":0"), "{listen}");
     let mut tcp = std::net::TcpStream::connect(&listen).unwrap();
-    tcp.write_all(b"GET /health HTTP/1.1\r\nhost: x\r\n\r\n").unwrap();
+    tcp.write_all(b"GET /health HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").unwrap();
     let mut body = String::new();
     tcp.read_to_string(&mut body).unwrap();
     assert!(body.starts_with("HTTP/1.1 200") && body.ends_with("ok"), "{body}");

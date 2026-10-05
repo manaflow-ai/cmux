@@ -57,6 +57,14 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
         options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      # PlanetScale MySQL (Vitess) projection during the Postgres to MySQL move (state-placement.md 4.4).
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: scratch
+          MYSQL_DATABASE: cmux_next
+        ports: ["3306:3306"]
+        options: --health-cmd "mysqladmin ping -h 127.0.0.1 -pscratch" --health-interval 5s --health-timeout 5s --health-retries 20
     defaults:
       run:
         working-directory: backend
@@ -92,6 +100,15 @@ jobs:
         env:
           SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: bun test test-pg
+      - name: MySQL migration lint (Vitess rules)
+        working-directory: backend/db
+        run: bun migrate-mysql.ts --lint
+      - name: MySQL migrations apply from zero, projection, search and Postgres/MySQL parity
+        working-directory: backend/db
+        env:
+          SCRATCH_URL: postgres://postgres:postgres@localhost:5432/postgres
+          MYSQL_URL: mysql://root:scratch@127.0.0.1:3306/cmux_next
+        run: bun migrate-mysql.ts --url-env MYSQL_URL && bun migrate-mysql.ts --url-env MYSQL_URL --verify && bun test test-mysql
       - name: Ownership invariants (OwnershipConvergence model + mutants)
         working-directory: backend/packages/ownership
         env:
@@ -115,6 +132,29 @@ jobs:
 
   # Development is shared by previews and holds no real data, so the PR's own runner may
   # apply there; staging and production only through backend-migrations.yml.
+  # Vitess parses SQL more strictly than the mysql:8.4 service (`SAVEPOINT row` passed there and failed
+  # on PlanetScale, 2026-10-04): every projection kind and the drain batch run against the PlanetScale
+  # development branch on test-only keys. Pushes to feat-cmux-next only (environment branch policy).
+  vitess-development:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-vitess-ci
+    defaults:
+      run:
+        working-directory: backend/db
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+        working-directory: backend
+      - name: Projection SQL on PlanetScale Vitess (development branch, test-only keys)
+        env:
+          VITESS_URL: ${{ secrets.CMUX_NEXT_VITESS_DEV_URL }}
+        run: test -n "$VITESS_URL" && bun test test-vitess
+
   migrations-development:
     needs: test
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository

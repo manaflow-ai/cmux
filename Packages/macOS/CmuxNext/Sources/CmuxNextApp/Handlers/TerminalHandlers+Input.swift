@@ -24,7 +24,7 @@ extension TerminalHandlers {
                 let seed = invocation["text"]?.stringValue ?? (find.query.isEmpty ? selection(of: entry) : nil)
                 // A socket or CLI run shows the bar without taking the keyboard.
                 find.open(seed: seed, takeFocus: invocation.allowsViewChange)
-            case .placeholder:
+            case .placeholder, .notice:
                 return
             }
         })
@@ -56,7 +56,7 @@ extension TerminalHandlers {
             guard entry.session.find.navigate(direction, takeFocus: invocation.allowsViewChange) else {
                 return ctx.refuse(RefusalStrings.noActiveFind)
             }
-        case .placeholder:
+        case .placeholder, .notice:
             return
         }
     }

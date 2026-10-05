@@ -11,10 +11,10 @@
 //! (undo never closes the tab). Other drags fence that screen's undo history
 //! and report `undoable: false`.
 
-use super::sticky_columns::reduce_column_sticky;
+use super::dock_columns::reduce_column_dock;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
-use crate::model::{ColumnSticky, LayoutColumn, LayoutUndoTabRestore};
+use crate::model::{ColumnDock, LayoutColumn, LayoutUndoTabRestore};
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 
 /// The fresh tab a split of a pane's only tab leaves there (`respawn`,
@@ -47,13 +47,13 @@ impl SourceGuard {
 }
 
 /// Where `move-tab-to-column` puts the tab: a new column after `after_column`
-/// (default: right of `pane`'s), `width` a viewport fraction, pinned at `sticky`.
+/// (default: right of `pane`'s), `width` a viewport fraction, pinned at `dock`.
 #[derive(Debug, Clone, Copy)]
 pub struct ColumnMove {
     pub pane: PaneId,
     pub after_column: Option<SplitId>,
     pub width: Option<f32>,
-    pub sticky: Option<ColumnSticky>,
+    pub dock: Option<ColumnDock>,
 }
 
 fn validated_column_width(width: Option<f32>) -> anyhow::Result<f32> {
@@ -113,9 +113,9 @@ pub enum TabDragDestination {
     /// A new pane beside `pane` on `edge`, `ratio` of the split (default 1/2).
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
     /// A new strip column on `pane`'s screen after `after_column` (default:
-    /// last), `width` a viewport fraction, pinned to an edge with `sticky` (a
-    /// screen-edge drop: a sticky column or a top or bottom dock).
-    Column { pane: PaneId, after_column: Option<SplitId>, width: f32, sticky: Option<ColumnSticky> },
+    /// last), `width` a viewport fraction, pinned to an edge with `dock` (a
+    /// screen-edge drop: a docked column or a top or bottom dock).
+    Column { pane: PaneId, after_column: Option<SplitId>, width: f32, dock: Option<ColumnDock> },
 }
 
 impl From<TabDropEdge> for Edge {
@@ -146,8 +146,8 @@ impl TabDragDestination {
                 new_pane: ids.pane,
                 respawn: None,
             },
-            // The reducer models column structure, not pins: `sticky` is
-            // checked by `reduce_column_sticky` in `apply_tab_drag`.
+            // The reducer models column structure, not pins: `dock` is
+            // checked by `reduce_column_dock` in `apply_tab_drag`.
             Self::Column { pane, after_column, width, .. } => LayoutOpKind::MoveTabToColumn {
                 tab,
                 anchor: pane,
@@ -169,12 +169,12 @@ impl TabDragDestination {
                 "edge": format!("{edge:?}"),
                 "ratio": ratio,
             }),
-            Self::Column { pane, after_column, width, sticky } => serde_json::json!({
+            Self::Column { pane, after_column, width, dock } => serde_json::json!({
                 "kind": "column",
                 "pane": pane,
                 "after_column": after_column,
                 "width": width,
-                "sticky": sticky,
+                "dock": dock,
             }),
         }
     }
@@ -269,7 +269,7 @@ impl Mux {
     }
 
     /// `move-tab-to-column` with `respawn` (`tab-column-respawn-v1`): move a
-    /// pane's only tab into a new (optionally sticky) column and leave a fresh
+    /// pane's only tab into a new (optionally docked) column and leave a fresh
     /// tab in its pane, guarded like [`Self::move_tab_to_split_respawning`].
     /// Docking a screen's only tab uses it, so the strip keeps a column.
     pub fn move_tab_to_column_respawning(
@@ -279,7 +279,7 @@ impl Mux {
         respawn: SplitRespawn,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        let ColumnMove { pane, after_column, width, sticky } = destination;
+        let ColumnMove { pane, after_column, width, dock } = destination;
         let width = validated_column_width(width)?;
         let source = self.with_state(|state| state.pane_of(surface));
         let source = source.context("tab has no pane")?;
@@ -290,7 +290,7 @@ impl Mux {
             );
             Ok(())
         })?;
-        let destination = TabDragDestination::Column { pane, after_column, width, sticky };
+        let destination = TabDragDestination::Column { pane, after_column, width, dock };
         self.commit_tab_drag_respawning(surface, source, destination, respawn, transaction)
     }
 
@@ -336,13 +336,13 @@ impl Mux {
         pane: PaneId,
         after_column: Option<SplitId>,
         width: Option<f32>,
-        sticky: Option<ColumnSticky>,
+        dock: Option<ColumnDock>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
         let width = validated_column_width(width)?;
         self.commit_tab_drag(
             surface,
-            TabDragDestination::Column { pane, after_column, width, sticky },
+            TabDragDestination::Column { pane, after_column, width, dock },
             transaction,
         )
     }
@@ -611,13 +611,7 @@ pub(crate) fn apply_tab_drag(
                     screen.insert_layout_column_after(
                         anchor,
                         ids.base_column,
-                        LayoutColumn {
-                            id: ids.split,
-                            width,
-                            root: Node::Leaf(ids.pane),
-                            zellij_auto_layout: Some(vec![ids.pane]),
-                            sticky: None,
-                        },
+                        LayoutColumn::single(ids.split, width, ids.pane),
                     ),
                     "column anchor disappeared from its layout"
                 );
@@ -640,18 +634,18 @@ pub(crate) fn apply_tab_drag(
     stamp_pane_focus(mux, state, ids.pane);
     let (target_wi, target_si) =
         screen_location(state, target_screen).context("drag destination screen disappeared")?;
-    if let TabDragDestination::Column { sticky: Some(sticky), .. } = destination {
+    if let TabDragDestination::Column { dock: Some(dock), .. } = destination {
         // Pinned after the move: the move may close the source column, and
-        // the same rules as `set-column-sticky` must hold on the result (one
+        // the same rules as `set-column-dock` must hold on the result (one
         // column per edge, the old holder scrolls again; one column scrolls).
         // A refusal fails the whole drag on this projected copy.
         let screen = &mut state.workspaces[target_wi].screens[target_si];
         let index = screen.layout_columns.iter().position(|c| c.id == ids.split);
         let index = index.context("new column disappeared")?;
-        let flags: Vec<_> = screen.layout_columns.iter().map(|c| c.sticky).collect();
-        let flags = reduce_column_sticky(&flags, index, Some(sticky))?;
+        let flags: Vec<_> = screen.layout_columns.iter().map(|c| c.dock).collect();
+        let flags = reduce_column_dock(&flags, index, Some(dock))?;
         for (column, flag) in screen.layout_columns.iter_mut().zip(flags) {
-            column.sticky = flag;
+            column.dock = flag;
         }
     }
     if undoable {
@@ -979,8 +973,9 @@ mod tests {
             &WorkspaceMutation::local("tab-drag-test"),
         )
         .unwrap();
-        assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None).is_err());
-        let workspace = mux.move_tab_to_new_workspace(second, Some("g".into()), Some(0)).unwrap();
+        assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None, None).is_err());
+        let workspace =
+            mux.move_tab_to_new_workspace(second, Some("g".into()), Some(0), None).unwrap();
         let (order, key) = mux.with_state(|state| {
             (
                 state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),

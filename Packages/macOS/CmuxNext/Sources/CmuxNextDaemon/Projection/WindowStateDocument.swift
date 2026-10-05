@@ -6,21 +6,36 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
     public var windows: [WindowRecord]
     /// Sidebar group collapse state (group key -> collapsed).
     public var collapsedGroups: [String: Bool]
+    /// Agent chat tabs an older build recorded per pane (pane key -> tabs, in strip order). Agent
+    /// tabs are store tabs now (cmux-tui/spec/commands.md, new-conversation-tab): the app imports these once
+    /// into the store and empties the field; it is written only while it holds records.
+    public var legacyAgentTabs: [String: [AgentTabRecord]]
 
-    public init(windows: [WindowRecord] = [], collapsedGroups: [String: Bool] = [:]) {
+    public init(windows: [WindowRecord] = [], collapsedGroups: [String: Bool] = [:],
+                legacyAgentTabs: [String: [AgentTabRecord]] = [:]) {
         self.windows = windows
         self.collapsedGroups = collapsedGroups
+        self.legacyAgentTabs = legacyAgentTabs
     }
 
     enum CodingKeys: String, CodingKey {
         case windows
         case collapsedGroups = "collapsed_groups"
+        case legacyAgentTabs = "agent_tabs"
     }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         windows = try c.decodeIfPresent([WindowRecord].self, forKey: .windows) ?? []
         collapsedGroups = try c.decodeIfPresent([String: Bool].self, forKey: .collapsedGroups) ?? [:]
+        legacyAgentTabs = try c.decodeIfPresent([String: [AgentTabRecord]].self, forKey: .legacyAgentTabs) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(windows, forKey: .windows)
+        try c.encode(collapsedGroups, forKey: .collapsedGroups)
+        if !legacyAgentTabs.isEmpty { try c.encode(legacyAgentTabs, forKey: .legacyAgentTabs) }
     }
 
     /// Replaces or appends one window by id.
@@ -55,5 +70,17 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
 
     init(jsonValue: JSONValue) throws {
         self = try JSONDecoder().decode(WindowStateDocument.self, from: JSONEncoder().encode(jsonValue))
+    }
+}
+
+/// One agent chat tab an older build recorded: its client tab id and the acpmux session it
+/// shows (nil for a new chat that had none yet). Read only by the one-time store import.
+public struct AgentTabRecord: Codable, Sendable, Hashable {
+    public var id: String
+    public var session: String?
+
+    public init(id: String, session: String?) {
+        self.id = id
+        self.session = session
     }
 }

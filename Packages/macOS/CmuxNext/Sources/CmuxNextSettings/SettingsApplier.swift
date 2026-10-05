@@ -42,18 +42,23 @@ public final class SettingsApplier {
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.splitSizing != snapshot.splitSizing { design.splitSizing = snapshot.splitSizing }
         if design.newColumnWidth != snapshot.newColumnWidth { design.newColumnWidth = snapshot.newColumnWidth }
-        if design.stickyColumnEdge != snapshot.stickyColumnEdge { design.stickyColumnEdge = snapshot.stickyColumnEdge }
-        if design.stickyColumnMode != snapshot.stickyColumnMode { design.stickyColumnMode = snapshot.stickyColumnMode }
+        if design.dockColumnEdge != snapshot.dockColumnEdge { design.dockColumnEdge = snapshot.dockColumnEdge }
+        if design.dockColumnMode != snapshot.dockColumnMode { design.dockColumnMode = snapshot.dockColumnMode }
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
+        if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
+        if design.sidebarBorder != snapshot.sidebarBorder { design.sidebarBorder = snapshot.sidebarBorder }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
         if design.statusIndicator != snapshot.statusIndicator { design.statusIndicator = snapshot.statusIndicator }
         if design.statusBehavior != snapshot.statusBehavior { design.statusBehavior = snapshot.statusBehavior }
-        if design.titlebar != snapshot.titlebar { design.titlebar = snapshot.titlebar }
-        if design.rail != snapshot.rail { design.rail = snapshot.rail }
+        let titlebar = ChromePlacementSetting.effectiveTitlebar(snapshot)
+        if design.titlebar != titlebar { design.titlebar = titlebar }
+        if design.titlebarButtons != snapshot.titlebarButtons { design.titlebarButtons = snapshot.titlebarButtons }
+        if design.plusButton != snapshot.plusButton { design.plusButton = snapshot.plusButton }
+        Self.applyPlacement(snapshot, to: design)
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }

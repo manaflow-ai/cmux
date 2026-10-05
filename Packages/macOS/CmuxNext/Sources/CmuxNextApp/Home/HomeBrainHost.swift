@@ -51,6 +51,9 @@ nonisolated struct HomeBrainHost: Sendable {
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
+            // The host's chief create request must equal the app's (the owner
+            // refuses a different request under the same key).
+            "MUX_USER_NAME": HomeChiefName.localUserName,
         ]
         if let acpmux {
             variables.merge(acpmux.childEnvironment) { $1 }

@@ -35,7 +35,8 @@ nonisolated enum InputInvariants {
              .addressBar where selectedKind != .browser,
              .findBar where selectedKind != .browser,
              .agentPage where selectedKind != .agent,
-             .page where selectedKind != .page:
+             .page where selectedKind != .page,
+             .conversation where selectedKind != .conversation:
             fail(.targetKind, "\(resolved.kind) on a \(selectedKind?.rawValue ?? "missing") tab")
         default:
             break

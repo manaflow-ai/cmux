@@ -4,6 +4,7 @@
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
   "slow"       -> streams three chunks with delays, honours session/cancel
+  "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
 """
 import json
@@ -17,6 +18,8 @@ cancelled = set()
 failed_once = set()
 next_id = 100
 pending = {}
+# Sessions this process created or finished loading.
+known = set()
 
 
 def send(obj):
@@ -75,6 +78,15 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
         return
+    # "gate: PATH" streams "before-gate", blocks until the test writes to
+    # the FIFO at PATH (no timers), then streams "after-gate" and ends.
+    if text.startswith("gate:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text[5:].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
@@ -106,6 +118,11 @@ def handle_prompt(rid, params):
     if text.startswith("env:"):
         name = text[4:].strip()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "argv" replies with this process's arguments as JSON, for spawn-time checks.
+    if text == "argv":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(sys.argv[1:])}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "fswrite: PATH" and "fsread: PATH" delegate the file operation to the
@@ -172,6 +189,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
         return
+    # "refuse": the backend refuses the request; the agent streams its error object as the reply.
+    if text == "refuse":
+        err = {"type": "error", "error": {"message": "Image web search is not supported by the backend.", "code": "unsupported_parameter"}, "status": 400}
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(err)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
@@ -192,6 +215,12 @@ def main():
     if os.environ.get("FAKE_IGNORE_TERM") == "1":
         import signal
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    # FAKE_START_GATE=<path>: start (read stdin) only once that file exists: a slow agent start.
+    gate = os.environ.get("FAKE_START_GATE")
+    if gate:
+        import time
+        while not os.path.exists(gate):
+            time.sleep(0.02)
     sessions = 0
     for line in sys.stdin:
         line = line.strip()
@@ -208,6 +237,11 @@ def main():
         rid = msg.get("id")
         params = msg.get("params") or {}
         if m == "initialize":
+            # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
+            # session start that take time (MCP servers), for pool latency.
+            if os.environ.get("FAKE_INIT_DELAY_MS"):
+                import time as pause  # main() binds `time` locally
+                pause.sleep(int(os.environ["FAKE_INIT_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
                 "agentInfo": {"name": "fake", "version": "0"},
@@ -215,13 +249,31 @@ def main():
                 "authMethods": [],
             }})
         elif m == "session/new":
+            if os.environ.get("FAKE_NEW_DELAY_MS"):
+                import time as pause  # main() binds `time` locally
+                pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
+            known.add(f"fake-{sessions}")
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "sessionId": f"fake-{sessions}",
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }})
         elif m == "session/load":
+            # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
+            # its own thread, and until then the session is unknown: a prompt
+            # for it fails "Session not found", as real adapters answer.
+            load_gate = os.environ.get("FAKE_LOAD_GATE")
+            if load_gate:
+                def finish_load(rid=rid, sid=params["sessionId"]):
+                    import time as clock  # main() imports `time` locally
+                    while not os.path.exists(load_gate):
+                        clock.sleep(0.01)
+                    update(sid, {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
+                    known.add(sid)
+                    send({"jsonrpc": "2.0", "id": rid, "result": None})
+                threading.Thread(target=finish_load, daemon=True).start()
+                continue
             update(params["sessionId"], {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
@@ -233,6 +285,9 @@ def main():
             v = params.get("value")
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
         elif m == "session/prompt":
+            if os.environ.get("FAKE_LOAD_GATE") and params.get("sessionId") not in known:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
+                continue
             threading.Thread(target=handle_prompt, args=(rid, params), daemon=True).start()
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))

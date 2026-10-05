@@ -10,10 +10,15 @@ public final class TerminalViewController: UIViewController {
     let terminal: TerminalRef
     let terminalView = GhosttyTerminalView(frame: .zero)
     let badge = UILabel()
+    /// Invisible; its bottom is the keyboard's top. A view, so a keyboard
+    /// move runs `viewDidLayoutSubviews` inside the keyboard's animation.
+    private let keyboardTop = UIView()
     /// Throttle retries sleep on this clock (injected; tests use a manual one).
     let clock: any Clock<Duration>
     var stream: Task<Void, Never>?
     var retry: Task<Void, Never>?
+    /// The pending READY deadline (cancelled by a newer one or detach).
+    var readyDeadline: Task<Void, Never>?
     var pipeline: TerminalStreamPipeline?
     var pathText: String?
     var notice: String?
@@ -48,6 +53,19 @@ public final class TerminalViewController: UIViewController {
             // the view keeps its height and the keyboard covers the bottom.
             terminalView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
+        keyboardTop.isHidden = true
+        keyboardTop.isUserInteractionEnabled = false
+        keyboardTop.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(keyboardTop)
+        NSLayoutConstraint.activate([
+            keyboardTop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            keyboardTop.widthAnchor.constraint(equalToConstant: 1),
+            keyboardTop.heightAnchor.constraint(equalToConstant: 1),
+            keyboardTop.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+        ])
+        // A tap shows the keyboard (a user action; nothing else focuses the terminal).
+        terminalView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        terminalView.onDraw = { [weak self] in self?.panToCursor() }
         let source = self.source
         let terminal = self.terminal
         terminalView.onInput = { data in
@@ -72,6 +90,30 @@ public final class TerminalViewController: UIViewController {
 
     /// Shows the keyboard (user action only).
     public func focusInput() { terminalView.becomeFirstResponder() }
+
+    @objc private func tapped() { focusInput() }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        panToCursor()
+    }
+
+    /// The keyboard never changes the grid (D8): while it covers the cursor
+    /// row, the terminal moves up just enough to show that row above the
+    /// keyboard and its key bar. Inside the keyboard's animation the move
+    /// rides its curve; after output it is immediate.
+    private func panToCursor() {
+        let cursor = terminalView.cursorRect
+        guard cursor.height > 0 else { return }
+        // The resting top (center and bounds ignore the transform).
+        let restingTop = terminalView.center.y - terminalView.bounds.height / 2
+        let cursorBottom = restingTop + cursor.maxY + Self.cursorMargin
+        let shift = max(0, cursorBottom - keyboardTop.frame.maxY)
+        let transform = CGAffineTransform(translationX: 0, y: -shift)
+        if terminalView.transform != transform { terminalView.transform = transform }
+    }
+
+    static let cursorMargin: CGFloat = 4
 }
 
 extension TerminalPath {

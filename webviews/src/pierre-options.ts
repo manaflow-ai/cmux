@@ -1,6 +1,7 @@
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import { appearanceBackgroundColor, readableColor, type DiffViewerAppearance } from "./appearance";
+import { syntaxPaletteColor } from "./syntax-colors";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
@@ -13,9 +14,13 @@ export type DiffViewerOptions = {
   wordWrap: boolean;
 };
 
+/** Height of a file header row; also the virtualizer's header metric. */
+export const DIFF_FILE_HEADER_HEIGHT = 38;
+
 export function codeViewOptions(options: DiffViewerOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
+    itemMetrics: { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
@@ -52,14 +57,15 @@ export function workerHighlighterOptions(
 export function codeViewUnsafeCSS(): string {
   return `
     :host {
+      /* Code rows and separators are clear over the page's one backdrop
+         (only html paints it, so a translucent backdrop never stacks). */
       --diffs-light-bg: transparent;
       --diffs-dark-bg: transparent;
       --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
       --diffs-bg-context-override: transparent;
       --diffs-bg-context-gutter-override: transparent;
-      --cmux-diff-surface-bg: transparent;
-      --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-bg) 42%, transparent);
-      --diffs-bg-separator-override: var(--cmux-diff-surface-bg);
+      --diffs-bg-separator-override: transparent;
+      background-color: transparent;
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
@@ -69,18 +75,30 @@ export function codeViewUnsafeCSS(): string {
       --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--diffs-addition-base) 30%, transparent);
       --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--diffs-deletion-base) 30%, transparent);
     }
-    :host,
     pre,
     code {
       background-color: transparent;
     }
+    /* R139: the page selects nothing by default (pages/shared/desktop.css) and the shadow
+       root inherits that; the code text of each line is content, so it opts back in. Line
+       numbers, separators and buffers stay chrome (Pierre keeps them user-select: none). */
+    [data-line] {
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
+    }
+    /* The file header is never transparent (Lawrence): it paints the
+       backdrop composited onto the theme color at full alpha, so scrolled
+       code never shows through it, even over a see-through window. Its
+       content is the slotted FileHeader (renderCustomHeader), so the row's
+       height is fixed to the virtualizer's diffHeaderHeight metric. */
     [data-diffs-header] {
-      container-type: scroll-state;
-      container-name: sticky-header;
-      min-height: 30px;
-      background-color: var(--cmux-diff-header-bg) !important;
-      -webkit-backdrop-filter: blur(8px) saturate(1.08);
-      backdrop-filter: blur(8px) saturate(1.08);
+      height: var(--cmux-diff-file-header-height, ${DIFF_FILE_HEADER_HEIGHT}px);
+      min-height: 0;
+      display: flex;
+      align-items: stretch;
+      background-color: var(--cmux-diff-solid-bg);
+      border-bottom: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
@@ -130,9 +148,7 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] [data-expand-button] {
       background-color: transparent;
     }
-    [data-diffs-header=default],
-    [data-diffs-header=default] [data-additions-count],
-    [data-diffs-header=default] [data-deletions-count],
+    [data-diffs-header],
     [data-separator-wrapper],
     [data-separator-content],
     [data-unmodified-lines],
@@ -142,46 +158,52 @@ export function codeViewUnsafeCSS(): string {
   `;
 }
 
+/**
+ * Narrow tree overrides the CSS-variable surface cannot express (see the
+ * `#file-list` host variables in styles.css for colors, weights and spacing).
+ */
 export function fileTreeUnsafeCSS(): string {
   return `
     :host {
       display: block;
       height: 100%;
       min-height: 0;
-      --cmux-diff-tree-sticky-bg: var(--cmux-diff-bg);
-      background-color: var(--cmux-diff-sidebar-bg);
-    }
-    [data-file-tree-search-container][data-open='false'] {
-      display: none;
-    }
-    [data-file-tree-search-container] {
-      margin: 0 4px 8px 0;
-      padding: 0 5px 8px 1px;
-      border-bottom: 1px solid var(--trees-border-color);
+      background-color: var(--cmux-diff-solid-bg);
     }
     [data-file-tree-virtualized-scroll='true'] {
       height: 100%;
       min-height: 0;
       overflow: auto;
-      background-color: var(--cmux-diff-sidebar-bg);
+      background-color: var(--cmux-diff-solid-bg);
       padding-inline-start: 0;
-      padding-inline-end: 2px;
-      margin-inline-end: 2px;
+      padding-inline-end: 0;
       scrollbar-gutter: stable;
     }
     [data-item-section='content'] {
       flex: 1 1 auto;
       min-width: 0;
     }
-    [data-item-section='git'] {
-      opacity: 0.75;
+    /* R139: rows are chrome, an arrow cursor like a native source list. */
+    [data-type='item'] {
+      cursor: default;
     }
-    [data-item-type='folder'] {
-      color: color-mix(in lab, var(--trees-fg) 85%, var(--trees-bg));
-      font-weight: 500;
+    /* Folder names are bright, file names dim (the selected row is bright
+       through --trees-selected-fg). The tree has no folder color variable. */
+    [data-item-type='folder'] > [data-item-section='content'] {
+      color: var(--trees-selected-fg);
+    }
+    /* "+N -N" (the row decoration, file-tree-stats.ts), right-aligned. */
+    [data-item-section='decoration'] {
+      flex: 0 0 auto;
+      padding-inline-end: 1.5px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    [data-item-section='decoration'] svg {
+      display: block;
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-tree-sticky-bg) !important;
+      background-color: var(--cmux-diff-solid-bg) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
   `;
@@ -228,58 +250,89 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       "editor.selectionBackground": theme.selectionBackground,
       "editor.selectionForeground": theme.selectionForeground,
     },
-    tokenColors: [
-      { settings: { foreground, background: renderedBackground } },
-      {
-        scope: ["comment", "punctuation.definition.comment"],
-        settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" },
-      },
-      { scope: ["string", "constant.other.symbol"], settings: { foreground: tokenColor(palette["2"]) } },
-      {
-        scope: ["constant.numeric", "constant.language", "support.constant"],
-        settings: { foreground: tokenColor(palette["3"]) },
-      },
-      { scope: ["keyword", "storage", "storage.type"], settings: { foreground: tokenColor(palette["5"]) } },
-      { scope: ["entity.name.function", "support.function"], settings: { foreground: tokenColor(palette["4"]) } },
-      {
-        scope: ["entity.name.type", "entity.name.class", "support.type"],
-        settings: { foreground: tokenColor(palette["6"]) },
-      },
-      {
-        scope: ["markup.heading", "punctuation.definition.heading"],
-        settings: { foreground: tokenColor(palette["12"], tokenColor(palette["4"])), fontStyle: "bold" },
-      },
-      {
-        scope: ["markup.bold", "punctuation.definition.bold"],
-        settings: { foreground: tokenColor(palette["11"], tokenColor(palette["3"])), fontStyle: "bold" },
-      },
-      {
-        scope: ["markup.italic", "punctuation.definition.italic"],
-        settings: { foreground: tokenColor(palette["13"], tokenColor(palette["5"])), fontStyle: "italic" },
-      },
-      {
-        scope: ["markup.inline.raw", "markup.raw", "markup.fenced_code", "markup.raw.block"],
-        settings: { foreground: tokenColor(palette["10"], tokenColor(palette["2"])) },
-      },
-      {
-        scope: ["markup.underline.link", "string.other.link", "markup.link"],
-        settings: { foreground: tokenColor(palette["14"], tokenColor(palette["6"])) },
-      },
-      {
-        scope: ["markup.quote", "punctuation.definition.quote"],
-        settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" },
-      },
-      {
-        scope: ["markup.list", "punctuation.definition.list", "markup.table"],
-        settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) },
-      },
-      { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
-      {
-        scope: ["invalid", "message.error"],
-        settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) },
-      },
-    ],
+    tokenColors: syntaxTokenColors(theme, foreground, renderedBackground, contrastBackground),
   };
+}
+
+/// Shiki token rules colored from the terminal's ANSI palette. A palette slot the host did not
+/// send uses the default terminal palette for the theme's type, and a slot too close to the
+/// background is blended toward the foreground until it reads, keeping its hue; mapping it to
+/// the foreground instead would make the token indistinguishable from plain text.
+function syntaxTokenColors(theme: any, foreground: string, renderedBackground: string, contrastBackground: string) {
+  const type = theme.type === "light" ? "light" : "dark";
+  const color = (...slots: number[]) =>
+    syntaxPaletteColor(theme.palette ?? {}, slots, type, contrastBackground, foreground);
+  return [
+    { settings: { foreground, background: renderedBackground } },
+    {
+      scope: ["comment", "punctuation.definition.comment", "string.comment"],
+      settings: { foreground: color(8), fontStyle: "italic" },
+    },
+    { scope: ["string", "constant.other.symbol", "string.regexp"], settings: { foreground: color(2) } },
+    {
+      scope: [
+        "constant.numeric",
+        "constant.language",
+        "constant.character",
+        "support.constant",
+        "variable.other.enummember",
+      ],
+      settings: { foreground: color(3) },
+    },
+    {
+      scope: ["keyword", "storage", "storage.type", "storage.modifier", "keyword.operator.new", "keyword.control"],
+      settings: { foreground: color(5) },
+    },
+    {
+      scope: ["entity.name.function", "support.function", "meta.function-call entity.name.function"],
+      settings: { foreground: color(4) },
+    },
+    {
+      scope: ["entity.name.type", "entity.name.class", "entity.other.inherited-class", "support.type", "support.class"],
+      settings: { foreground: color(6) },
+    },
+    {
+      scope: ["entity.name.tag", "meta.tag.sgml", "entity.name.section"],
+      settings: { foreground: color(1) },
+    },
+    { scope: ["entity.other.attribute-name"], settings: { foreground: color(3) } },
+    {
+      scope: ["markup.heading", "punctuation.definition.heading"],
+      settings: { foreground: color(12, 4), fontStyle: "bold" },
+    },
+    {
+      scope: ["markup.bold", "punctuation.definition.bold"],
+      settings: { foreground: color(11, 3), fontStyle: "bold" },
+    },
+    {
+      scope: ["markup.italic", "punctuation.definition.italic"],
+      settings: { foreground: color(13, 5), fontStyle: "italic" },
+    },
+    {
+      scope: ["markup.inline.raw", "markup.raw", "markup.fenced_code", "markup.raw.block"],
+      settings: { foreground: color(10, 2) },
+    },
+    {
+      scope: ["markup.underline.link", "string.other.link", "markup.link"],
+      settings: { foreground: color(14, 6) },
+    },
+    {
+      scope: ["markup.quote", "punctuation.definition.quote"],
+      settings: { foreground: color(8), fontStyle: "italic" },
+    },
+    {
+      // The bullet only: `markup.list` spans the whole item, which would color every list line.
+      scope: ["punctuation.definition.list", "markup.table"],
+      settings: { foreground: color(9, 1) },
+    },
+    { scope: ["markup.inserted", "punctuation.definition.inserted"], settings: { foreground: color(2) } },
+    { scope: ["markup.deleted", "punctuation.definition.deleted"], settings: { foreground: color(1) } },
+    { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
+    {
+      scope: ["invalid", "message.error"],
+      settings: { foreground: color(9, 1) },
+    },
+  ];
 }
 
 function themeBackgroundForContrast(theme: any): string {

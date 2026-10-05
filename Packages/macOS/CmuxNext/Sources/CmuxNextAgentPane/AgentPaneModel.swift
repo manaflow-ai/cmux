@@ -24,7 +24,11 @@ public final class AgentPaneModel {
     /// plain chat. Cleared once the page reports a session.
     public private(set) var newTab: AgentPaneNewTab?
     /// The new tab page chose a terminal or browser (`tab.open`).
-    @ObservationIgnored public var onOpenTab: ((AgentPaneTabKind, String, String?) -> Void)?
+    @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
+    /// What the user typed after `!` so far (`tab.typeAhead`).
+    @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
+    /// The agent picked on the new tab screen, to remember (`newTab.remember`).
+    @ObservationIgnored public var onRememberNewTab: ((String) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
@@ -80,8 +84,30 @@ public final class AgentPaneModel {
         self.newTab = sessionId == nil ? newTab : nil
     }
 
+    /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
+    /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
+    /// already became a chat keeps its chat.
+    /// User input reached the page, or it ran any op beyond boot (the
+    /// handshake, frame pacing, render rate, capabilities). A touched page is
+    /// never recycled into the prewarm pool (coordinator: strictly untouched).
+    public private(set) var userTouched = false
+    /// The request that first touched the page, its case name only (diagnostics).
+    public private(set) var touchedBy: String?
+
+    public func adoptNewTab(_ page: AgentPaneNewTab) {
+        guard newTab != nil else { return }
+        newTab = page
+    }
+
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
+        switch request {
+        // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported: break
+        default:
+            if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
+            userTouched = true
+        }
         switch request {
         case .ready, .reconnect:
             setCheckpointAvailable(false)
@@ -94,6 +120,7 @@ public final class AgentPaneModel {
                     handshake.cwd = seed.cwd
                     handshake.draft = seed.draft
                     handshake.prompt = seed.prompt
+                    handshake.harness = seed.harness
                     handshake.adopt = seed.adopt
                 }
                 // The surface holds after the chat has a session (a reload
@@ -133,9 +160,19 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
-        case .openTab(let kind, let text, let cwd):
+        case .openTab(let kind, let text, let cwd, let search, let run):
             guard newTab != nil, let onOpenTab else { return Self.unsupported("tab.open") }
-            onOpenTab(kind, text, cwd)
+            onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
+            return AgentPaneReply.success()
+        case .typeAhead(let text):
+            guard newTab != nil, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
+            onTypeAhead(text)
+            return AgentPaneReply.success()
+        case .touched:
+            return AgentPaneReply.success()
+        case .rememberNewTab(let agent):
+            guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
+            onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
             guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }

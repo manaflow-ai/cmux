@@ -155,9 +155,9 @@ export const reduceCertsRevoked = <S extends TeamSshState & AuditState>(state: S
   return audited(next, team, ctx, "team_vm.ssh_certs_revoked", { revoked: serials, krl_version: version }, `revoked ${serials.length} SSH certificate(s)`, { serials, by: p.by, reason: p.reason })
 }
 
-export const reduceAccountAllocated = <S extends TeamSshState & { readonly members: Readonly<Record<string, { readonly display_name: string }>> }>(state: S, params: unknown): Out<S> => {
+export const reduceAccountAllocated = <S extends TeamSshState>(state: S, params: unknown, memberOf: (user: string) => { readonly display_name: string } | undefined): Out<S> => {
   const user = (params as { user: string }).user
-  const member = state.members[user]
+  const member = memberOf(user)
   if (!member) return reject("auth.forbidden", "not a member of this team")
   const existing = state.vm_accounts?.[user]
   if (existing) return { ok: true, state, value: existing, changed: false }

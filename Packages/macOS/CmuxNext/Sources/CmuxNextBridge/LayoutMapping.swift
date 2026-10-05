@@ -38,40 +38,60 @@ public struct LayoutMapping {
             return .splits(.leaf(id))
         }
         if !screen.columns.isEmpty {
-            let columns = screen.columns.compactMap { column -> LayoutColumn? in
-                guard let root = node(column.layout, paneIDs: paneIDs, handles: &handles) else { return nil }
-                let id = LayoutHandleMap.columnID(column.id)
-                handles.columns[id] = column.id
-                let width = min(max(column.width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
-                return LayoutColumn(id: id, width: width, root: root, sticky: column.sticky.map(Self.sticky))
-            }
+            let columns = screen.columns.compactMap { self.column($0, paneIDs: paneIDs, handles: &handles) }
             return columns.isEmpty ? nil : .columns(columns)
         }
         return node(screen.layout, paneIDs: paneIDs, handles: &handles).map(ScreenLayout.splits)
     }
 
-    /// Daemon `columns[].sticky` or `columns[].dock` as the layout's dock.
-    public nonisolated static func sticky(_ snapshot: StickySnapshot) -> StickyColumn {
-        let edge: StickyEdge = switch snapshot.edge {
+    /// One daemon column. Its rows (`rows-v1`) map with their trees; a row
+    /// with nothing to show drops out, and one row left is a column
+    /// without rows. `root` stays the compat chain.
+    public func column(_ column: ColumnSnapshot, paneIDs: [DaemonPaneID: LayoutPaneID],
+                       handles: inout LayoutHandleMap) -> LayoutColumn? {
+        guard let root = node(column.layout, paneIDs: paneIDs, handles: &handles) else { return nil }
+        let id = LayoutHandleMap.columnID(column.id)
+        handles.columns[id] = column.id
+        let width = min(max(column.width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
+        var rows: [LayoutRow] = []
+        var rowHandles: [LayoutRowID: DaemonRowID] = [:]
+        for row in column.rows {
+            guard let tree = node(row.layout, paneIDs: paneIDs, handles: &handles) else { continue }
+            let rowID = LayoutHandleMap.rowID(row.id)
+            rowHandles[rowID] = row.id
+            let height = min(max(row.height, LayoutRow.heightRange.lowerBound), LayoutRow.heightRange.upperBound)
+            rows.append(LayoutRow(id: rowID, height: height, root: tree))
+        }
+        if rows.count < 2 {
+            rows = []
+        } else {
+            handles.rows.merge(rowHandles) { _, new in new }
+        }
+        return LayoutColumn(id: id, width: width, root: root, dock: column.dock.map(Self.dock), rows: rows)
+    }
+
+    /// Daemon `columns[].dock` as the layout's dock.
+    public nonisolated static func dock(_ snapshot: DockSnapshot) -> DockColumn {
+        let edge: DockEdge = switch snapshot.edge {
         case .left: .left
         case .right: .right
         case .top: .top
         case .bottom: .bottom
         }
-        return StickyColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked)
+        return DockColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked)
     }
 
     /// The layout's dock as the daemon's value. Top and bottom need a daemon
-    /// that serves `edge-docks-v1`; `StickyColumnHandlers.apply` and the
+    /// that serves `edge-docks-v1`; `ColumnDocking.apply` and the
     /// intent sender check that before sending.
-    public nonisolated static func snapshot(_ sticky: StickyColumn) -> StickySnapshot {
-        let edge: StickySnapshot.Edge = switch sticky.edge {
+    public nonisolated static func snapshot(_ dock: DockColumn) -> DockSnapshot {
+        let edge: DockSnapshot.Edge = switch dock.edge {
         case .left: .left
         case .right: .right
         case .top: .top
         case .bottom: .bottom
         }
-        return StickySnapshot(edge: edge, mode: sticky.mode == .overlay ? .overlay : .docked)
+        return DockSnapshot(edge: edge, mode: dock.mode == .overlay ? .overlay : .docked)
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown.

@@ -141,11 +141,16 @@ async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function stackHeaders(env: AuthEnv, accessToken: string): Record<string, string> {
+/** Headers for Stack's client API. Exported for tests. */
+export function stackHeaders(env: AuthEnv, accessToken: string): Record<string, string> {
+  // No key header when none is configured: Stack accepts a request without
+  // one for a project that does not require keys, but rejects an empty or
+  // revoked key.
+  const publishableKey = env.STACK_PUBLISHABLE_CLIENT_KEY?.trim();
   return {
     "x-stack-access-type": "client",
     "x-stack-project-id": env.STACK_PROJECT_ID ?? "",
-    "x-stack-publishable-client-key": env.STACK_PUBLISHABLE_CLIENT_KEY ?? "",
+    ...(publishableKey ? { "x-stack-publishable-client-key": publishableKey } : {}),
     "x-stack-access-token": accessToken,
   };
 }

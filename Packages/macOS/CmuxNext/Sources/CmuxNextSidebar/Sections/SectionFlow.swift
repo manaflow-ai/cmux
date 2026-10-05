@@ -54,6 +54,10 @@ nonisolated enum SectionFlow {
         let align = section.arrangement.align
         switch mode {
         case let .grid(columns):
+            if let columns, items.contains(where: { $0.span != nil }) {
+                return placeSpans(section, columns: columns, x: x, y: y, width: width, gap: gap,
+                                  labelWidths: labelWidths, metrics: m)
+            }
             let fit = max(1, Int((width + gap) / (m.tileMinWidth + gap)))
             let count = min(max(columns ?? fit, 1), fit)
             // Fitted columns (or fill) stretch the tiles to the width;
@@ -78,6 +82,34 @@ nonisolated enum SectionFlow {
             return lay(chunk(items, perLine), kind: { .tile($0, section: section.id) }, widths: { _ in icon }, x: x, y: y,
                        width: width, gap: gap, align: align, lineHeight: m.rowHeight)
         }
+    }
+
+    /// A grid with spans (R53): lines of `columns` equal columns; an item
+    /// takes `span` of them (one when nil) and moves to the next line when
+    /// it does not fit. A labeled item draws icon and label, others icon
+    /// only; lines are row height.
+    private static func placeSpans(_ section: LayoutSection, columns: Int, x: CGFloat, y: CGFloat, width: CGFloat, gap: CGFloat,
+                                   labelWidths: [LayoutItemID: CGFloat], metrics m: SidebarRegionMetrics) -> Result {
+        let unit = max(0, (width - CGFloat(columns - 1) * gap) / CGFloat(columns))
+        var rows: [SidebarRegionRow] = []
+        var line = 0, column = 0
+        for item in section.items {
+            let span = min(max(item.span ?? 1, 1), columns)
+            if column + span > columns {
+                line += 1
+                column = 0
+            }
+            let itemX = x + CGFloat(column) * (unit + gap)
+            let itemWidth = CGFloat(span) * unit + CGFloat(span - 1) * gap
+            let kind: SidebarRegionRow.Kind = item.showsLabel && labelWidths[item.id] != nil
+                ? .chip(item.id, section: section.id) : .tile(item.id, section: section.id)
+            rows.append(SidebarRegionRow(kind: kind, frame: CGRect(x: itemX, y: y + CGFloat(line) * (m.rowHeight + gap),
+                                                                   width: itemWidth, height: m.rowHeight)))
+            column += span
+        }
+        let lines = section.items.isEmpty ? 0 : line + 1
+        let height = CGFloat(lines) * m.rowHeight + CGFloat(max(0, lines - 1)) * gap
+        return Result(rows: rows, height: height, lines: lines, lineHeight: m.rowHeight)
     }
 
     private static func chunk(_ items: [LayoutItem], _ size: Int) -> [[LayoutItem]] {

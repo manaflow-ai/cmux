@@ -29,6 +29,19 @@ pub struct Participant {
     pub agent_class: Option<AgentClass>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acp_session: Option<String>,
+    /// The person a `remote_<install>` device participant belongs to
+    /// (`user_local`): a paired device is the same human as the server's own
+    /// user (server-remote-conversations.md section 5, decisions D-B, D-C).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
+}
+
+/// Where a message came from. Absent for local messages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Origin {
+    /// Sent by a paired install through the remote relay.
+    Remote { install: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +133,9 @@ pub struct Message {
     pub retracted_at: Option<String>,
     #[serde(default)]
     pub reactions: Vec<Reaction>,
+    /// Set by the owner for a message a paired install sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
 }
 
 /// The conversation state every op validates against: everything in a

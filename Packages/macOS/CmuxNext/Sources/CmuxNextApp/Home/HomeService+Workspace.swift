@@ -9,10 +9,10 @@ import Foundation
 /// idempotent in the store, so two windows or a reconnect never duplicate.
 extension HomeService {
     /// The idempotency key of the chief conversation's creation.
-    static let chiefKey = "home-chief"
-    /// The key of the chief conversation tab's creation (`origin` + `mutation_id`).
+    static let chiefKey = HomeChiefName.createKey
+    /// The origin of the chief conversation tab's creation key; the
+    /// `mutation_id` comes from `chiefTabKey` (one per creation).
     static let tabOrigin = "cmux-next-home"
-    static let chiefTabKey = "home-chief-tab"
 
     /// The home workspace in the local store, once the store reported it:
     /// the one `ensure_home` named, else the one the tree marks `home` (a
@@ -47,14 +47,16 @@ extension HomeService {
     /// else one created under a fixed key.
     private func chiefConversation(_ connection: DaemonConnection) async throws -> String {
         let client = ConversationClient(connection)
-        if let existing = try await client.list().first(where: { summary in
-            summary.participants.contains { $0.id == Self.mux.id }
-        }) {
+        if let existing = HomeChiefName.select(from: try await client.list()) {
+            // One-time rename to the chief's name (N1); a failure keeps the old title.
+            if let rename = HomeChiefName.migration(for: existing) {
+                do { _ = try await client.op(rename) } catch {
+                    logger.error("chief rename: \(String(describing: error), privacy: .public)")
+                }
+            }
             return existing.id
         }
-        let request = CreateConversationRequest(idempotencyKey: Self.chiefKey, title: HomeStrings.title,
-                                                participants: [Self.localUser, Self.mux])
-        return try await client.create(request).conversation.id
+        return try await client.create(HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)).conversation.id
     }
 
     private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID) async throws {
@@ -73,23 +75,24 @@ extension HomeService {
             if let workspace { found = workspace; break }
         }
         guard !Task.isCancelled, let workspace = found else { return }
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        if tabs.contains(where: { $0.kind == .conversation && $0.snapshot.conversation?.conversation == chief }) {
-            homeWorkspaceStep = "chief tab present"
-            return
-        }
+        // The chief tab anywhere in the local tree counts (moved out of the home too).
+        let open = HomeChiefTabKey.isOpen(chief: chief, in: local.store.workspaces)
         // A pane when the home has one. An empty home needs `workspace`, which
         // daemons with the raw `Workspace.kind` field accept; an older one
         // would put the tab in the focused pane, so it waits for that pin.
         let pane = workspace.screens.first?.panes.first?.handle
-        guard pane != nil || workspace.kind != nil else {
+        guard open || pane != nil || workspace.kind != nil else {
             homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
             return
         }
-        let request = NewConversationTabRequest(conversation: chief, pane: pane, workspace: pane == nil ? workspace.handle : nil,
-                                                origin: Self.tabOrigin, mutationID: Self.chiefTabKey)
-        _ = try await connection.request(request)
-        homeWorkspaceStep = "chief tab requested"
+        // The key lives on the service (shared by overlapping connects); a
+        // lost reply keeps it pending for the next connect.
+        let created = try await chiefTabKey.ensure(chiefTabOpen: open) { mutationID in
+            let request = NewConversationTabRequest(conversation: chief, pane: pane, workspace: pane == nil ? workspace.handle : nil,
+                                                    origin: Self.tabOrigin, mutationID: mutationID)
+            _ = try await connection.request(request)
+        }
+        homeWorkspaceStep = created ? "chief tab requested" : "chief tab present"
     }
 
     // MARK: Tab content

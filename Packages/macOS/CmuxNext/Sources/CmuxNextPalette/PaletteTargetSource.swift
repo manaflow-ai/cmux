@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextDesign
 
 /// One pickable object for a target argument.
 public struct PaletteTargetOption: Identifiable, Sendable, Hashable {
@@ -6,12 +7,15 @@ public struct PaletteTargetOption: Identifiable, Sendable, Hashable {
     public var title: String
     public var subtitle: String?
     public var symbol: String?
+    /// Real colors drawn in the icon place (a theme's strip, R98).
+    public var swatches: [ThemeRGB]
 
-    public init(id: String, title: String, subtitle: String? = nil, symbol: String? = nil) {
+    public init(id: String, title: String, subtitle: String? = nil, symbol: String? = nil, swatches: [ThemeRGB] = []) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.symbol = symbol
+        self.swatches = swatches
     }
 }
 

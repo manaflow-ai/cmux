@@ -39,6 +39,13 @@ extension SidebarBridge {
             guard !model.isPlaceholder(id) else { return }
             model.apply(intent)
             services.windows.show(workspaceID: id.rawValue, in: state)
+        case let .selectTab(_, tab):
+            _ = services.revealTab(tab.rawValue)
+        case .moveTab:
+            // Tab drags are committed by TabDragSession. Keep this intent
+            // conservative until a sidebar-only tab move has a daemon
+            // transaction path of its own.
+            resync()
         case .reorder(let ids, let position):
             let before = model.sections
             model.apply(intent)
@@ -96,6 +103,11 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
+        case .activateItemAccessory(let id):
+            // One click on the update badge installs the staged update (R114).
+            if model.itemInfo[id]?.accessory == .update || model.layout.item(id)?.ref == .builtIn(.settings) {
+                services.updater.installClicked()
+            }
         case .layout(let op):
             applyLayoutOp(op)
         case .toggleLayoutSection:
@@ -179,8 +191,8 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.sections = Self.sections(services.machines,
-                                       members: services.windows.registry.members(of: state.id), profile: state.profileID)
+        model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
+                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document))
         model.profiles = Self.profiles(services.machines.local.store)
     }
 

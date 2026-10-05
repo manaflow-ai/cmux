@@ -88,19 +88,28 @@ struct RawAcpmuxEvent {
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
 /// A count on the acpmux wire (seq, at, log id): a non-negative safe
-/// integer, else `None` (a float, a negative number, a string).
-pub(crate) fn lenient_count_value(value: &Value) -> Option<u64> {
+/// integer, else `None` (a fraction, a negative number, a string).
+pub fn lenient_count_value(value: &Value) -> Option<u64> {
     count(Some(value.clone())).ok().flatten()
 }
 
 /// An absent or null count is `Ok(None)`; a non-negative safe integer is
-/// `Ok(Some)`; anything else is `Err`.
+/// `Ok(Some)`; anything else is `Err`. JSON has one number type, so an
+/// integer-valued float (`1.0`, `3e0`, `-0`) is that integer, as JavaScript's
+/// `Number.isSafeInteger` reads it after `JSON.parse`.
 fn count(value: Option<Value>) -> Result<Option<u64>, ()> {
     match value {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(number)) => {
-            number.as_u64().filter(|n| *n <= MAX_SAFE_INTEGER).map(Some).ok_or(())
-        }
+        Some(Value::Number(number)) => match (number.as_u64(), number.as_f64()) {
+            (Some(n), _) => Some(n).filter(|n| *n <= MAX_SAFE_INTEGER).map(Some).ok_or(()),
+            // In range and integral (`-0.0` included), so the cast is exact.
+            (None, Some(float))
+                if float.fract() == 0.0 && (0.0..=MAX_SAFE_INTEGER as f64).contains(&float) =>
+            {
+                Ok(Some(float as u64))
+            }
+            _ => Err(()),
+        },
         Some(_) => Err(()),
     }
 }
@@ -391,6 +400,23 @@ mod tests {
         assert!(
             matches!(&ended[..], [TurnOutput::Ended { turn, error: Some(e), .. }] if turn.prompt_id.as_deref() == Some("a") && e == "boom")
         );
+    }
+
+    #[test]
+    fn an_integer_valued_float_count_is_that_integer() {
+        // JSON has one number type: JavaScript's JSON.parse reads 1.0 as 1.
+        let read = |text: &str| serde_json::from_str::<AcpmuxEvent>(text).expect("event");
+        let event = read(r#"{"seq": 1.0, "at": 1790985600002.0, "dir": "mux", "kind": "x"}"#);
+        assert!(event.valid);
+        assert_eq!((event.seq, event.at), (1, Some(1_790_985_600_002)));
+        assert_eq!(read(r#"{"seq": 3e0, "kind": "x"}"#).seq, 3);
+        assert_eq!(read(r#"{"seq": -0.0, "kind": "x"}"#).seq, 0, "-0 is 0, as in JavaScript");
+        assert_eq!(read(r#"{"seq": 9007199254740991.0, "kind": "x"}"#).seq, MAX_SAFE_INTEGER);
+        for bad in ["2.5", "-1", "-1.0", "9007199254740992.0", "1e300", "\"1\""] {
+            let event = read(&format!(r#"{{"seq": {bad}, "kind": "x"}}"#));
+            assert!(!event.valid, "seq {bad} is not a count");
+        }
+        assert_eq!(lenient_count_value(&json!(5.0)), Some(5));
     }
 
     #[test]

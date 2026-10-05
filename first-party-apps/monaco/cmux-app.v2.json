@@ -39,6 +39,7 @@
     }
   },
   "catalog": "catalog/monaco-catalog.json",
+  "cli": { "name": "monaco" },
   "implements": {
     "cmux.editor/1": {
       "web": "web/index.html",

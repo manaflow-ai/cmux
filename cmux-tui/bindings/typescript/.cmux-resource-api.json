@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "303b663214e5e6e4d8c10ba26c88c408e5343be878e93406163b12f6c1f419df",
+  "catalog_sha256": "cbb2ac697ea7f7eb2d7431fdf8f7265d5569e43e77efc74fdc9bb430b7b569d0",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -132,6 +132,9 @@
     },
     "notification.list": {
       "class": "read"
+    },
+    "origin.confirmation.issue": {
+      "class": "connection_control"
     },
     "pairing_request.list": {
       "class": "read"

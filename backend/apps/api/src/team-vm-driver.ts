@@ -11,6 +11,12 @@ import type { ProviderState } from "./domains/team-vm.ts"
 export interface TeamVmDriver {
   ensureVm(slug: string, team: string, epoch: number): Promise<{ readonly id: string; readonly state: ProviderState }>
   ensureRunning(id: string): Promise<{ readonly state: ProviderState }>
+  /** Reads the VM with this EXACT name (slug): its id and team tag, or null when the provider has none. Never lists. */
+  lookup(name: string): Promise<{ readonly id: string; readonly team: string | null } | null>
+  /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
+  deleteVm(id: string): Promise<void>
+  /** One page of the provider account's VMs (report-only callers; never used to adopt or delete). */
+  listPage(limit: number, offset: number): Promise<{ readonly vms: ReadonlyArray<{ readonly id: string; readonly slug: string | null }>; readonly size: number; readonly total: number | null }>
 }
 
 export class DriverError extends Error {
@@ -109,16 +115,41 @@ export class FreestyleDriver implements TeamVmDriver {
     if (started.status < 200 || started.status >= 300) this.fail(started.status, started.json, "start VM")
     return { state: started.json.state === undefined ? ("running" as const) : asState(started.json.state) }
   }
+
+  async lookup(name: string) {
+    const got = await this.call("GET", `/v5/vms/${encodeURIComponent(name)}`)
+    if (got.status === 404) return null
+    if (got.status !== 200 || !nonEmpty(got.json.id)) this.fail(got.status, got.json, "read VM by name")
+    const tag = (got.json.metadata ?? {}) as Record<string, unknown>
+    return { id: got.json.id, team: typeof tag.cmux_team === "string" ? tag.cmux_team : null }
+  }
+
+  async deleteVm(id: string) {
+    const gone = await this.call("DELETE", `/v5/vms/${encodeURIComponent(id)}`)
+    if (gone.status === 404 || (gone.status >= 200 && gone.status < 300)) return
+    this.fail(gone.status, gone.json, "delete VM")
+  }
+
+  /** GET /v5/vms?limit&offset answers { vms: VmData[], totalCount } (freestyle SDK 0.2.16, ListVmsOptions / ListVmsResult). */
+  async listPage(limit: number, offset: number) {
+    const got = await this.call("GET", `/v5/vms?limit=${limit}&offset=${offset}`)
+    if (got.status !== 200 || !Array.isArray(got.json.vms)) this.fail(got.status, got.json, "list VMs")
+    const raw = got.json.vms as Array<Record<string, unknown>>
+    const vms = raw.filter((v) => nonEmpty(v.id)).map((v) => ({ id: v.id as string, slug: typeof v.slug === "string" ? v.slug : null }))
+    // `size` is the raw page length (paging stops on a short page); a missing totalCount is unknown.
+    return { vms, size: raw.length, total: typeof got.json.totalCount === "number" ? got.json.totalCount : null }
+  }
 }
 
 /**
  * Test driver (ENVIRONMENT=test only): VMs live in the DO's own SQLite, so tests see exactly what
- * the object did. `fake_ctl.fail_next` makes the next calls fail (retryable) to test backoff; deleting a `fake_vm` row stands for a VM deleted outside cmux.
+ * the object did. `fake_ctl.fail_next` makes the next calls fail (retryable) to test backoff; `lose_next_create`
+ * makes the next create happen but answer with a retryable failure (a lost answer); deleting a `fake_vm` row stands for a VM deleted outside cmux.
  */
 export class FakeDriver implements TeamVmDriver {
   constructor(private readonly sql: SqlStore) {
-    sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL, team TEXT)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT, lose_next_create INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO fake_ctl (id) VALUES (1)`)
   }
 
@@ -130,13 +161,22 @@ export class FakeDriver implements TeamVmDriver {
     }
   }
 
-  async ensureVm(slug: string, _team: string, _epoch: number) {
+  /** Test only: the slug prefix a test set to stand for a configuration change (null = the env's). */
+  slugPrefix(): string | null {
+    return this.sql.exec<{ slug_prefix: string | null }>(`SELECT slug_prefix FROM fake_ctl WHERE id = 1`)[0]?.slug_prefix ?? null
+  }
+
+  async ensureVm(slug: string, team: string, _epoch: number) {
     this.maybeFail()
     const row = this.sql.exec<{ id: string; state: string }>(`SELECT id, state FROM fake_vm WHERE slug = ?`, slug)[0]
     if (row) return { id: row.id, state: asState(row.state) }
     const id = `fakevm-${slug}`
-    this.sql.exec(`INSERT INTO fake_vm (slug, id, state) VALUES (?, ?, 'running')`, slug, id)
+    this.sql.exec(`INSERT INTO fake_vm (slug, id, state, team) VALUES (?, ?, 'running', ?)`, slug, id, team)
     this.sql.exec(`UPDATE fake_ctl SET creates = creates + 1 WHERE id = 1`)
+    if (this.sql.exec<{ n: number }>(`SELECT lose_next_create AS n FROM fake_ctl WHERE id = 1`)[0]!.n > 0) {
+      this.sql.exec(`UPDATE fake_ctl SET lose_next_create = lose_next_create - 1 WHERE id = 1`)
+      throw new DriverError("team_vm.provider_failed", "create VM: no answer TIMEOUT", false)
+    }
     return { id, state: "running" as const }
   }
 
@@ -149,6 +189,24 @@ export class FakeDriver implements TeamVmDriver {
       this.sql.exec(`UPDATE fake_ctl SET starts = starts + 1 WHERE id = 1`)
     }
     return { state: "running" as const }
+  }
+
+  async lookup(name: string) {
+    this.maybeFail()
+    const row = this.sql.exec<{ id: string; team: string | null }>(`SELECT id, team FROM fake_vm WHERE slug = ?`, name)[0]
+    return row ? { id: row.id, team: row.team } : null
+  }
+
+  async deleteVm(id: string) {
+    this.maybeFail()
+    this.sql.exec(`DELETE FROM fake_vm WHERE id = ?`, id)
+  }
+
+  async listPage(limit: number, offset: number) {
+    this.maybeFail()
+    const vms = this.sql.exec<{ id: string; slug: string }>(`SELECT id, slug FROM fake_vm ORDER BY slug LIMIT ? OFFSET ?`, limit, offset)
+    const total = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM fake_vm`)[0]!.n
+    return { vms, size: vms.length, total }
   }
 }
 
@@ -163,12 +221,20 @@ export const PRODUCTION_PLAN_GATE_LANDED = false
 export const providerRefusal = (env: Pick<Env, "ENVIRONMENT">, gateLanded = PRODUCTION_PLAN_GATE_LANDED): string | null =>
   env.ENVIRONMENT === "production" && !gateLanded ? "team_vm.plan_gate_missing" : null
 
-/** The configured driver, or null: without a key, a snapshot and a slug prefix (cmuxnp-dev- outside production) nothing is created. */
+/**
+ * The prefix a non-production environment's new team VM names must start with (decision
+ * FREESTYLE-NAMES: `cmuxnp-<env>-<lane>-<rest>`): staging `cmuxnp-stg-`, everything else `cmuxnp-dev-`.
+ * The prefix only names NEW VMs. Nothing lists provider VMs or matches them by prefix: a team's VM
+ * is reached by the id in its TeamVmDO record, so a VM created under an older prefix keeps working.
+ */
+export const requiredSlugPrefix = (environment: string | undefined) => (environment === "staging" ? "cmuxnp-stg-" : "cmuxnp-dev-")
+
+/** The configured driver, or null: without a key, a snapshot and a slug prefix (requiredSlugPrefix outside production) nothing is created. */
 export const teamVmDriver = (env: Env, sql: SqlStore): TeamVmDriver | null => {
   if (env.ENVIRONMENT === "test" && env.TEAM_VM_DRIVER === "fake") return new FakeDriver(sql)
   if (!env.FREESTYLE_API_KEY || !env.TEAM_VM_SNAPSHOT || !env.TEAM_VM_SLUG_PREFIX) return null
   // Development and staging share the production provider account: their VMs must carry the
-  // prefix that marks agent-created resources, so nothing can mistake them for customer VMs.
-  if (env.ENVIRONMENT !== "production" && !env.TEAM_VM_SLUG_PREFIX.startsWith("cmuxnp-dev-")) return null
+  // prefix that marks agent-created resources of that environment, so nothing can mistake them for customer VMs.
+  if (env.ENVIRONMENT !== "production" && !env.TEAM_VM_SLUG_PREFIX.startsWith(requiredSlugPrefix(env.ENVIRONMENT))) return null
   return new FreestyleDriver(env.FREESTYLE_API_KEY, env.FREESTYLE_API_URL || "https://api.freestyle.sh", env.TEAM_VM_SNAPSHOT)
 }

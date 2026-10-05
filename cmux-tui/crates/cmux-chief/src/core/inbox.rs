@@ -3,7 +3,7 @@
 use cmux_conversation::{Message, Op, Summary};
 use std::collections::VecDeque;
 
-use super::{Core, Effect, Handling, InboxItem, Paging, Task};
+use super::{Core, Effect, Handling, InboxItem, MAX_AUTHORS, Paging, Task};
 use crate::rules::{AGENT_MUX, PAGE, inbox_prompt, wakes};
 use crate::state::OutstandingPrompt;
 
@@ -98,7 +98,7 @@ impl Core {
                 self.summaries.insert(conversation.clone(), summary.clone());
                 self.handled.insert(conversation, from);
                 for message in &messages {
-                    self.authors.insert(message.id.clone(), message.author.clone());
+                    self.authors.remember(&message.id, &message.author, MAX_AUTHORS);
                 }
                 let pending = messages.into_iter().filter(|m| m.seq > from).collect();
                 self.page(summary, from, pending);
@@ -179,7 +179,7 @@ impl Core {
                 self.task = Task::Idle;
                 return;
             };
-            self.authors.insert(message.id.clone(), message.author.clone());
+            self.authors.remember(&message.id, &message.author, MAX_AUTHORS);
             let Task::Handling(handling) = &self.task else { return };
             let conversation = handling.summary.id.clone();
             if message.seq <= self.handled.get(&conversation).copied().unwrap_or(0) {

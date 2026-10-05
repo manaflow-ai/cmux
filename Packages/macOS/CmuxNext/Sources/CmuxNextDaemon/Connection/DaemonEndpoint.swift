@@ -39,6 +39,9 @@ public struct DaemonCapabilities: Sendable {
     /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
     public let frontendBrowserHistory = "frontend-browser-history-v1"
     public let tabDrag = "tab-drag-v1"
+    /// `name` on `move-tab-to-new-workspace`: the new workspace takes the
+    /// moved tab's name in the same commit (else the app renames after).
+    public let tabWorkspaceName = "tab-workspace-name-v1"
     public let notificationAck = "notification-ack-v1"
     public let tabGroups = "tab-groups-v1"
     public let savedTabGroups = "saved-tab-groups-v1"
@@ -76,6 +79,8 @@ public struct DaemonCapabilities: Sendable {
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public let batchClose = "batch-close-v1"
+    /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
+    public let closeReason = "close-reason-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
@@ -86,6 +91,11 @@ public struct DaemonCapabilities: Sendable {
     /// `shell_args` on the terminal-creating commands, so bash and nushell
     /// get Ghostty's argv-based shell integration (`GhosttyShellIntegration`).
     public let terminalShellArgs = "terminal-shell-args-v1"
+    /// Echoed only by a connection whose terminals get Ghostty's shell
+    /// integration from this app (`DaemonConnectionConfiguration
+    /// .resolvesShellIntegration`): the daemon then starts the terminal's
+    /// `SHELL` as given and adds no integration of its own (R92 bug 2).
+    public let terminalFrontendShellIntegration = "terminal-frontend-shell-integration-v1"
     /// `launch_snapshot_path` in `identify`: the daemon's last settled tree
     /// and window records, read before connecting (`LaunchSnapshot`).
     public let launchSnapshot = "launch-snapshot-v1"
@@ -101,13 +111,16 @@ public struct DaemonCapabilities: Sendable {
     /// `remote-terminal` with `remote` (data-model.md 1.2b, 1.4, 1.5), and
     /// `terminal_resource_id` in the `set-terminal-keep` result.
     public let remoteTerminalTabs = "remote-terminal-tabs-v1"
-    /// Sticky columns: `set-column-sticky` and `columns[].sticky`
-    /// (plans/cmux-next/sticky-column.md).
-    public let stickyColumns = "sticky-columns-v1"
-    /// Top and bottom docks: `set-column-sticky` and `move-tab-to-column`
+    /// Docked columns: `set-column-dock` and `columns[].dock`
+    /// (plans/cmux-next/dock-column.md).
+    public let dockColumns = "dock-columns-v1"
+    /// Top and bottom docks: `set-column-dock` and `move-tab-to-column`
     /// accept edges `top` and `bottom`, sent back as `columns[].dock`
     /// (plans/cmux-next/layout-model.md).
     public let edgeDocks = "edge-docks-v1"
+    /// Rows: `new-row`, `set-row-heights` and `columns[].rows`
+    /// (plans/cmux-next/rows.md). Without it no row op is sent.
+    public let rows = "rows-v1"
     /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
@@ -130,6 +143,9 @@ public struct DaemonCapabilities: Sendable {
     /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
     /// Echoed so the daemon sends the canonical kind instead of `browser`.
     public let conversationTabs = "conversation-tabs-v1"
+    /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
+    /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
+    public let agentSessionTabs = "agent-session-tabs-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
@@ -158,6 +174,13 @@ public struct DaemonCapabilities: Sendable {
     public let creationReceipts = "creation-receipts-v1"
     public let creationAttemptKeys = "creation-attempt-keys-v1"
     public let terminalColorOverrides = "terminal-color-overrides-v1"
+    /// Snapshot attach with scrollback: READY snapshots followed by their
+    /// history as raw-DEFLATE `snapshot {phase: "history"}` chunks
+    /// (`TerminalAttachment`; plans/cmux-next/ghostty-next.md 2.2).
+    public let terminalSnapshotHistory = "terminal-snapshot-history-v1"
+    /// A READY cut exactly at a host resize, restored with the view's own
+    /// reflowed history (S2c; plans/cmux-next/ghostty-next.md 2.2).
+    public let terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -167,13 +190,14 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, batchClose, closeReason, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, stickyColumns, edgeDocks, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
+                                            terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, conversationSearch] }
+                                            workspaceKind, conversationTabs, agentSessionTabs, conversationSearch,
+                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -184,5 +208,14 @@ public struct DaemonCapabilities: Sendable {
     public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals, sidebarLayout] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
-    public var advertised: [String] { required + optional + unservedByBundledDaemon }
+    /// `terminalFrontendShellIntegration` is not in it: only a connection
+    /// that resolves the integration echoes it (`handshakeCapabilities`).
+    public var advertised: [String] {
+        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration }
+    }
+
+    /// What a connection echoes in `set-client-info`.
+    public func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool) -> [String] {
+        resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised
+    }
 }

@@ -1,5 +1,5 @@
 public import Foundation
-import GhosttyKit
+import GhosttyNextKit
 
 /// The shell-integration keys of the applied Ghostty config, raw as the C
 /// API returns them. The App maps them onto the daemon's

@@ -92,7 +92,10 @@ impl Core {
         // A permission prompt whose session is not waiting in this list was
         // answered meanwhile (or the session is gone): dropped, not resent.
         // (The `sessions` reply path keeps its rule: acpmux's event order
-        // there is not confirmed.)
+        // there is not confirmed.) The prompt of the turn that runs now is
+        // kept (its reply still posts) and not resent.
+        let running = self.folder.running().and_then(|turn| turn.prompt_id.clone());
+        let mut kept_running: Option<String> = None;
         let stale: Vec<String> = self
             .state
             .prompts
@@ -102,10 +105,18 @@ impl Core {
                     && !permission_session(id)
                         .is_some_and(|session| waiting.iter().any(|s| s.session_id == session))
             })
+            .filter(|id| {
+                let is_running = running.as_deref() == Some(id.as_str());
+                if is_running {
+                    kept_running = Some((*id).clone());
+                }
+                !is_running
+            })
             .cloned()
             .collect();
         for prompt_id in stale {
             self.state.prompts.remove(&prompt_id);
+            self.prompt_rejections.remove(&prompt_id);
             self.dirty = true;
             self.log(format!("dropping permission prompt {prompt_id}: its session is not waiting"));
         }
@@ -119,7 +130,9 @@ impl Core {
             .collect();
         outstanding.sort();
         for (_, prompt_id) in outstanding {
-            self.send_prompt(&prompt_id);
+            if kept_running.as_deref() != Some(prompt_id.as_str()) {
+                self.send_prompt(&prompt_id);
+            }
         }
         // Permissions that waited for a session list (a failed fetch, or the
         // last connection's loss).
@@ -152,7 +165,10 @@ impl Core {
         }
         for output in self.folder.apply(event) {
             match output {
-                TurnOutput::Accepted { prompt_id, .. } => self.accept(&prompt_id),
+                TurnOutput::Accepted { prompt_id, .. } => {
+                    self.prompt_rejections.remove(&prompt_id);
+                    self.accept(&prompt_id);
+                }
                 TurnOutput::Started { turn, .. } => {
                     if let Some(conversation) = self.turn_conversation(turn.prompt_id.as_deref()) {
                         self.set_typing(&conversation, true);
@@ -203,6 +219,7 @@ impl Core {
                     }
                     if let Some(prompt_id) = &turn.prompt_id {
                         self.state.mark_answered(prompt_id);
+                        self.prompt_rejections.remove(prompt_id);
                     }
                     self.state.acpmux_seq = self.state.acpmux_seq.max(seq);
                     self.dirty = true;

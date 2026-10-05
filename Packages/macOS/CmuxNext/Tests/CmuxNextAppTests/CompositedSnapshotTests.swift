@@ -14,7 +14,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CompositedSnapshotTests {
-    @Test func aGlassAreaAndAPopoverRenderNonBlank() throws {
+    @Test(.requiresGUISession) func aGlassAreaAndAPopoverRenderNonBlank() throws {
         _ = NSApplication.shared
         let services = ActionBindingCoverageTests.boundServices()
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-composited-\(UUID().uuidString)")

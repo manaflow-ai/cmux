@@ -8,6 +8,8 @@ mod dial;
 #[cfg(feature = "iroh-transport")]
 mod iroh;
 mod iroh_config;
+#[cfg(unix)]
+pub mod overlay;
 mod relay;
 pub(crate) mod socks;
 mod ssh;

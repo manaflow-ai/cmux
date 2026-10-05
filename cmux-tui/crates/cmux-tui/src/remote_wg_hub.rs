@@ -9,6 +9,7 @@ struct WgHubFlags {
     socket: PathBuf,
     control: Option<PathBuf>,
     probes: bool,
+    send_buffer: Option<usize>,
     exit_with_parent: bool,
 }
 
@@ -17,6 +18,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
     let mut socket = None;
     let mut control = None;
     let mut probes = false;
+    let mut send_buffer = None;
     let mut exit_with_parent = false;
     let mut index = 0;
     while index < args.len() {
@@ -47,6 +49,18 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
                 }
             }
             "--probes" => probes = true,
+            "--send-buffer" => {
+                let raw = value("--send-buffer")?;
+                let bytes = raw.to_str().and_then(|text| text.parse::<usize>().ok());
+                let Some(bytes) = bytes.filter(|bytes| SEND_BUFFER_RANGE.contains(bytes)) else {
+                    let message =
+                        catalog().remote_client.invalid_option_value("--send-buffer", "BYTES");
+                    return Err(anyhow!(message));
+                };
+                if send_buffer.replace(bytes).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--send-buffer")));
+                }
+            }
             "--exit-with-parent" => exit_with_parent = true,
             "-h" | "--help" => return Err(anyhow!(catalog().remote_client.help_invalid_options)),
             other => return Err(anyhow!(catalog().remote_client.unknown_option(other))),
@@ -59,12 +73,13 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
             .ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--socket")))?,
         control,
         probes,
+        send_buffer,
         exit_with_parent,
     })
 }
 
 /// `cmux-tui wg hub --config <wg-quick> --socket <unix path> [--control
-/// <unix path>]`: own one WireGuard tunnel and serve SOCKS5 CONNECT for
+/// <unix path>] [--probes] [--send-buffer <bytes>]`: own one WireGuard tunnel and serve SOCKS5 CONNECT for
 /// sidecars on a Unix socket, plus, with `--control`, path events and the
 /// datagram service (transport.md 12a).
 ///
@@ -83,7 +98,10 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     let (net, paths) = start_wireguard_hub_tunnel(
         &async_runtime,
         &flags.config,
-        flags.probes,
+        HubTunnel {
+            probes: flags.probes,
+            send_buffer: Some(flags.send_buffer.unwrap_or(cmux_wg::MIN_SEND_BUFFER)),
+        },
         WIREGUARD_HUB_START_TIMEOUT,
     )?;
     async_runtime.block_on(net.wait_for_handshake(WIREGUARD_HUB_HANDSHAKE_TIMEOUT)).map_err(
@@ -143,6 +161,21 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The `--send-buffer` values the hub accepts. Below the minimum, macOS
+/// would refuse full-size datagrams. Above the maximum, macOS refuses the
+/// option, and a bigger buffer only moves the queue back into the kernel.
+/// Linux silently limits the value to `net.core.wmem_max` (about 208 KiB by
+/// default), so there the effective upper bound is usually lower.
+const SEND_BUFFER_RANGE: std::ops::RangeInclusive<usize> =
+    cmux_wg::MIN_SEND_BUFFER..=4 * 1024 * 1024;
+
+/// How the hub's tunnel is started.
+#[derive(Clone, Copy, Default)]
+struct HubTunnel {
+    probes: bool,
+    send_buffer: Option<usize>,
+}
+
 /// Starts the hub's tunnel with a deadline around endpoint resolution and UDP
 /// setup. A DNS/network stall must produce a child error so the app can retry,
 /// rather than leaving the Unix socket absent until the app-side readiness
@@ -154,21 +187,28 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
 /// a peer that answers them (a cmux endpoint at the config's `PeerAddress`,
 /// or the base of its first allowed network); a plain WireGuard gateway does
 /// not, and unanswered probes would report a working path as lossy.
+///
+/// `send_buffer` shrinks the UDP socket's send buffer so a backlog forms in
+/// the engine's priority queues instead of the kernel. The hub uses the
+/// smallest buffer unless `--send-buffer` asks for more: under a 20 Mbit/s
+/// bottleneck it cut media's wait during a bulk upload from about 33 ms to
+/// about 8 ms (p50) without changing upload throughput (fs round 6).
 fn start_wireguard_hub_tunnel(
     runtime: &tokio::runtime::Runtime,
     path: &Path,
-    probes: bool,
+    options: HubTunnel,
     timeout: Duration,
 ) -> anyhow::Result<(Arc<cmux_wg::WgNet>, cmux_wg::MultipathControl)> {
     let config = read_wireguard_config(path)?;
-    let probes = probes.then(cmux_wg::ProbeConfig::default);
+    let probes = options.probes.then(cmux_wg::ProbeConfig::default);
+    let send_buffer = options.send_buffer;
     let kind = cmux_wg::PathKind::ViaCloudRegion;
     // The timeout future must be built inside the runtime: `tokio::time::timeout`
     // registers its sleep with the current reactor at construction, and there is
     // none on this thread, so building it as `block_on`'s argument panics.
     let (net, paths) = runtime
         .block_on(async move {
-            let start = cmux_wg::WgNet::start_single_path(config, kind, probes);
+            let start = cmux_wg::WgNet::start_single_path(config, kind, probes, send_buffer);
             tokio::time::timeout(timeout, start).await
         })
         .map_err(|_| anyhow!("WireGuard startup timed out after {timeout:?}"))?
@@ -198,6 +238,19 @@ mod tests {
             ["--config", "c", "--socket", "s", "--control", "k", "--probes"].map(str::to_string);
         let measured = parse_wg_hub_flags(&measured).unwrap();
         assert!(measured.probes);
+        let sized =
+            ["--config", "c", "--socket", "s", "--send-buffer", "32768"].map(str::to_string);
+        assert_eq!(parse_wg_hub_flags(&sized).unwrap().send_buffer, Some(32 * 1024));
+        let bad = ["--config", "c", "--socket", "s", "--send-buffer", "lots"].map(str::to_string);
+        assert!(parse_wg_hub_flags(&bad).is_err());
+        let huge =
+            ["--config", "c", "--socket", "s", "--send-buffer", "8388608"].map(str::to_string);
+        assert!(parse_wg_hub_flags(&huge).is_err(), "above 4 MiB is refused");
+        let tiny = ["--config", "c", "--socket", "s", "--send-buffer", "1"].map(str::to_string);
+        assert!(parse_wg_hub_flags(&tiny).is_err(), "below 16 KiB is refused");
+        let floor =
+            ["--config", "c", "--socket", "s", "--send-buffer", "16384"].map(str::to_string);
+        assert_eq!(parse_wg_hub_flags(&floor).unwrap().send_buffer, Some(16 * 1024));
         assert_eq!(measured.control, Some(PathBuf::from("k")));
         let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
         assert!(parse_wg_hub_flags(&missing).is_err());
@@ -227,7 +280,12 @@ mod tests {
         .unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
         let runtime = tokio_runtime().unwrap();
-        let started = start_wireguard_hub_tunnel(&runtime, &config, false, Duration::from_secs(5));
+        let started = start_wireguard_hub_tunnel(
+            &runtime,
+            &config,
+            HubTunnel::default(),
+            Duration::from_secs(5),
+        );
         drop(started);
     }
 }

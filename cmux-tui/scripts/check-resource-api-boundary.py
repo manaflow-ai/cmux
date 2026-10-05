@@ -2370,7 +2370,7 @@ def _operation_catalog(
                 "value": {"kind": "resource_id", "resource": "pane"},
             }
             or set(types.get("LayoutColumn", {}).get("fields", {}))
-            != {"column_id", "width", "root"}
+            != {"column_id", "width", "root", "dock"}
             or screen_layout != {"kind": "ref", "name": "LayoutDocument"}
             or (
                 "screen.create" in operations
@@ -3232,6 +3232,7 @@ def _is_test_or_example(path: Path) -> bool:
         or name.endswith("_test.go")
         or "_test." in name
         or name.startswith("test_")
+        or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
     )
 

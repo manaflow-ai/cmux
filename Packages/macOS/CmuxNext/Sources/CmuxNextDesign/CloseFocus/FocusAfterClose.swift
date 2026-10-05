@@ -33,8 +33,8 @@ public nonisolated enum FocusAfterClose {
     // MARK: Panes
 
     /// The pane to focus after `focused` closed. `before` holds the columns
-    /// of the screen that showed it, in visual order (left sticky, strip,
-    /// right sticky; a split screen is one column), each its panes in layout
+    /// of the screen that showed it, in visual order (left docked, strip,
+    /// right docked; a split screen is one column), each its panes in layout
     /// order. `after[i]` holds the panes of that same column (by column
     /// identity) after the change, empty when the column is gone; a pane
     /// that moved to another column is not in `after[i]` although it is
@@ -45,7 +45,7 @@ public nonisolated enum FocusAfterClose {
     /// that column, else the next one; else any pane now in the column
     /// (most recently focused first); when the column is empty or gone,
     /// the nearest non-empty column to the left, else to the right (the
-    /// sticky column's left neighbor is the strip's last column), entering
+    /// docked column's left neighbor is the strip's last column), entering
     /// that column at its most recently focused pane, else its first.
     /// mostRecent: the newest pane of `history` that is in `after`, else
     /// previousNeighbor.

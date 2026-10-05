@@ -44,6 +44,9 @@ type ChallengeResult = { ok: true; nonce: string; expires_at: number } | { ok: f
 
 const env = workerEnv as unknown as Env
 
+/** VM install at bind (review P1): a VM token reaches only the cloud.vm.* ops for its own machine. */
+const vmRefused = (p: Principal, op: string) => p.install_kind === "vm" && !op.startsWith("cloud.vm.")
+
 const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   kind: p.kind,
   identity: p.identity,
@@ -51,11 +54,13 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   team: p.team,
   ...(p.install ? { install: p.install } : {}),
   ...(p.grant ? { grant: p.grant } : {}),
+  ...(p.agent ? { agent: p.agent } : {}),
   stack_user_id: p.stack_user_id,
   ...(p.email !== undefined ? { email: p.email } : {}),
   ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
   ...(p.display_name ? { display_name: p.display_name } : {}),
-  ...(p.sso_team ? { sso_team: p.sso_team } : {})
+  ...(p.sso_team ? { sso_team: p.sso_team } : {}),
+  ...(p.install_kind ? { install_kind: p.install_kind } : {})
 })
 
 const userStub = (user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
@@ -86,6 +91,8 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
       return { stub: env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `usage:${p.team}` }
     case "cloud:TeamVmDO":
       return { stub: env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team_vm:${p.team}` }
+    case "cloud:CloudDO":
+      return { stub: env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `cloud:${p.team}` }
     case "cloud:ConnectionDO":
       return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `connections:${p.team}` }
     default:
@@ -96,6 +103,11 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
   op.startsWith("inbox.") ? `inbox:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+
+/** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
+const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token", "cloud.machine.pause", "cloud.machine.start", "cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"])
+const cloudNotLive = (owner: string, op: string) =>
+  owner === "cloud:CloudDO" && !CLOUD_LIVE_OPS.has(op) ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true }) : undefined
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
 
@@ -174,7 +186,7 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
     .handle("token", ({ payload }) =>
       Effect.gen(function* () {
         const r = yield* Effect.tryPromise({
-          try: () => rpc<RedeemResult>(userStub(payload.user).redeem(payload.user, payload.install, payload.nonce, payload.signature)),
+          try: () => rpc<RedeemResult>(userStub(payload.user).redeem(payload.user, payload.install, payload.nonce, payload.signature, payload.agent)),
           catch: () => new Forbidden({ code: "auth.forbidden", message: "token mint failed" })
         })
         if (!r.ok) return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
@@ -197,8 +209,24 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
       Effect.gen(function* () {
         const shape = yield* CurrentPrincipal
         const principal = toPrincipal(shape)
+        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
+        const notLive = cloudNotLive(def.owner, payload.op)
+        if (notLive) return yield* notLive
+        // LINK-TOKEN-OP: no client key and no replay; a fresh internal key names the request in the audit only.
+        if (def.idempotency === "none") {
+          if (payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} takes no idempotency_key` })
+          const p = yield* principalFor(def.owner, principal)
+          const request = crypto.randomUUID()
+          type Reply = Promise<{ ok: boolean; value?: unknown; code?: string; message?: string; details?: unknown }>
+          const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { mintLinkToken(e: string, q: Principal, params: unknown, request: string): Reply; vmOp(e: string, q: Principal, op: string, params: unknown): Reply }
+          // The VM daemon's own-machine ops (cloud-vm.ts) share this no-key path with link_token.
+          const call = () => (payload.op.startsWith("cloud.vm.") ? stub.vmOp(p.team!, p, payload.op, payload.params ?? {}) : stub.mintLinkToken(p.team!, p, payload.params ?? {}, request))
+          const r = yield* Effect.tryPromise({ try: call, catch: unreachable })
+          const outcome = r.ok ? { value: r.value } : { error: { code: r.code ?? "owner.unreachable", message: r.message ?? "", retryable: r.code === "owner.unreachable", ...(r.details === undefined ? {} : { details: r.details }) } }
+          return { ok: r.ok, op: payload.op, ...outcome, transaction: request, idempotency_key: "", replayed: false, stream: "", sequence: 0 }
+        }
         if (!payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: "mutations require idempotency_key" })
         const frame = {
           op: payload.op,
@@ -345,8 +373,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     .handle("read", ({ payload }) =>
       Effect.gen(function* () {
         const principal = toPrincipal(yield* CurrentPrincipal)
+        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
+        const notLive = cloudNotLive(def.owner, payload.op)
+        if (notLive) return yield* notLive
         // Reads honor the op's principal kinds too (automation.webhook.get is session-only: its secret starts runs).
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
         if (payload.op === "server.pair.preview") {
@@ -390,7 +421,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           catch: unreachable
         })
         if (!r.ok) {
-          if (r.code === "selector.not_found" || r.code === "validation.invalid") return yield* new BadRequest({ code: r.code, message: r.message })
+          if (r.code === "selector.not_found" || r.code === "validation.invalid" || r.code === "cloud.machine.not_found" || r.code === "cloud.machine.not_bound") return yield* new BadRequest({ code: r.code, message: r.message })
           return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
         }
         // A webhook trigger's secret is derived in the Worker, never stored in the DO.
@@ -437,12 +468,14 @@ const AuthorizationLive = Layer.succeed(Authorization)(
           team: authed.team,
           ...(p.install ? { install: p.install } : {}),
           ...(p.grant ? { grant: p.grant } : {}),
+          ...(p.agent ? { agent: p.agent } : {}),
           stack_user_id: p.stack_user_id ?? "",
           ...(p.email !== undefined ? { email: p.email } : {}),
           ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
           ...(p.display_name ? { display_name: p.display_name } : {}),
           ...(p.sso_team ? { sso_team: p.sso_team } : {}),
-          ...(p.stack_session ? { stack_session: p.stack_session } : {})
+          ...(p.stack_session ? { stack_session: p.stack_session } : {}),
+          ...(authed.install_kind === "vm" ? { install_kind: "vm" } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)
       })

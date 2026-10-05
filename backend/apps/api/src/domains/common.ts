@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -10,6 +10,9 @@ export const reject = (code: string, message: string, details?: unknown): { ok: 
 })
 
 /** Decodes params with the op's Effect Schema (pure; runs on owner and mirrors alike). */
+/** install.register_server params: install.register's plus the VM install's bound machine. */
+export const InstallRegisterServerParams = Schema.Struct({ ...InstallRegister.params.fields, bound_machine: Schema.optionalKey(MachineId) })
+
 export const decodeParams = <T>(op: CloudOpDef, params: unknown): { ok: true; value: T } | ({ ok: false } & Reject) => {
   const exit = Schema.decodeUnknownExit(op.params as Schema.Codec<T, unknown>)(params ?? {})
   return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : reject("validation.invalid", "invalid params", String(exit.cause))
@@ -39,7 +42,7 @@ export const admit = (
   if (!def.principals.includes(kind === "agent" ? "install" : kind)) {
     return { code: "auth.forbidden", message: `${opName} is not allowed for ${kind} principals` }
   }
-  // A system principal exists only inside its own DO and calls only internal ops (checked above).
+  // A system principal is built only by server code (a DO, or the Worker over DO RPC) and calls only internal ops (checked above).
   if (kind === "system") return undefined
   if (kind !== "session") {
     const grant = grantFor(principal)
@@ -225,6 +228,91 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       ] as const
   ),
   [
+    "user.team_index",
+    {
+      name: "user.team_index",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "user",
+      principals: ["system"],
+      params: Schema.Struct({ team: Schema.String, role: Schema.NullOr(Schema.String), kind: Schema.optionalKey(Schema.String) }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: a TeamDO records (or with role null removes) this user's membership in the UserDO team index ((f) step 5).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "team.rows_migrate",
+    {
+      name: "team.rows_migrate",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({}),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: moves an old head's members and hosts maps into rows ((f), DO audit F-1).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "team.policy.runs_synced",
+    {
+      name: "team.policy.runs_synced",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team_policy",
+      principals: ["system"],
+      params: Schema.Struct({ version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)), runs_allowed: Schema.Boolean }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: SchedulerDO acknowledged whether the team allows automation runs (agents.allowedClasses run).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "install.ios_cloud_link_migrate",
+    {
+      name: "install.ios_cloud_link_migrate",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({}),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: UserDO adds the narrow cloud-link class once to its iPhone grants (read, mutate-own) made before the cloud-link default, on bind, then marks the migration done (CLOUD-LINK-FOLLOWUPS decision 2).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "install.register_server",
+    {
+      name: "install.register_server",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: InstallRegisterServerParams,
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the server registers a server install (kind vm or daemon) for a user: pairing and the Cloud bind flow. A client never declares these kinds (CLOUD-LINK-FOLLOWUPS 4).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "install.revoke_by_team",
     {
       name: "install.revoke_by_team",
@@ -305,6 +393,7 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
   ...pushInternalOps.map((d) => [d.name, d] as const),
   ...userConfirmInternalOps.map((d) => [d.name, d] as const),
   ...teamVmInternalOps.map((d) => [d.name, d] as const),
+  ...cloudInternalOps.map((d) => [d.name, d] as const),
   ...teamSshInternalOps.map((d) => [d.name, d] as const)
 ])
 

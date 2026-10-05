@@ -11,6 +11,7 @@ import {
   AutomationUpdateParams,
   Run,
   RunDispatchedParams,
+  RunPolicyApplyParams,
   RunReportParams,
   RunsListParams
 } from "./automations.ts"
@@ -236,5 +237,6 @@ export const schedulerInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("automation.fire", AutomationFireParams, "Internal: a cron trigger fired for one scheduled instant."),
   internal("automation.deliver", AutomationDeliverParams, "Internal: a verified webhook delivery for one trigger."),
   internal("run.report", RunReportParams, "Internal: a run's Workflow reports progress."),
-  internal("run.dispatched", RunDispatchedParams, "Internal: the run's Workflow instance exists.")
+  internal("run.dispatched", RunDispatchedParams, "Internal: the run's Workflow instance exists."),
+  internal("scheduler.run_policy", RunPolicyApplyParams, "Internal: TeamDO pushed whether the team allows automation runs (agents.allowedClasses run).")
 ]

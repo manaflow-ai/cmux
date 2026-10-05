@@ -8,7 +8,7 @@ import Testing
         LayoutColumn(id: "a", width: 0.5, root: .leaf("pa")),
         LayoutColumn(id: "b", width: 0.3, root: .leaf("pb")),
         LayoutColumn(id: "c", width: 0.7, root: .leaf("pc")),
-        LayoutColumn(id: "s", width: 0.25, root: .leaf("ps"), sticky: StickyColumn()),
+        LayoutColumn(id: "s", width: 0.25, root: .leaf("ps"), dock: DockColumn()),
     ]
 
     @Test func matchCurrentTakesTheAnchorWidthAndResizesNothing() {
@@ -39,7 +39,7 @@ import Testing
         #expect(plan.resizes.allSatisfy { abs($0.width - 1.0 / 3.0) < 1e-9 })
     }
 
-    @Test func fitScreenCountsTheAnchorAndNeverResizesStickyColumns() {
+    @Test func fitScreenCountsTheAnchorAndNeverResizesDockColumns() {
         let plan = NewColumnWidth.plan(mode: .fitScreen, columns: columns, anchor: "c", visible: ["a", "s"], fixedWidth: 0.5)
         #expect(abs(plan.width - 1.0 / 3.0) < 1e-9)
         #expect(plan.resizes.map(\.column) == ["a", "c"])

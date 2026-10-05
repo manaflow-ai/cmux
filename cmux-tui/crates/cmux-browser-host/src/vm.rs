@@ -20,9 +20,24 @@ use std::time::{Duration, Instant};
 pub trait VmHost: Send + Sync {
     /// One driver protocol call, policy-checked. Blocks; runs on a worker thread.
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError>;
+    /// [`VmHost::driver_call`] with the result as JSON text where the engine
+    /// kept it (a page script's value, in the page's key order).
+    fn driver_call_reply(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<crate::driver::Reply, DriverError> {
+        self.driver_call(method, params).map(crate::driver::Reply::Value)
+    }
     /// A synchronous host function (`secretSet`, `secretList`, `secretDelete`,
     /// `policyNarrow`, `policyGet`). Errors become JS exceptions.
     fn native(&self, name: &str, args: Value) -> Result<Value, String>;
+    /// Masks bytes that cross the VM's file boundary (files the VM writes
+    /// and reads), so a secret value never lands in or comes back from a
+    /// file. The default masks nothing.
+    fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        bytes.to_vec()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -57,7 +72,7 @@ const TIMERS_PER_PASS: usize = 64;
 enum Input {
     Eval { code: String, options: String, timeout: Duration, reply: mpsc::Sender<EvalOutcome> },
     Stop,
-    Result { call_id: f64, outcome: Result<Value, DriverError> },
+    Result { call_id: f64, outcome: Result<crate::driver::Reply, DriverError> },
     Event { name: String, payload: Value },
 }
 
@@ -140,6 +155,9 @@ struct Shared {
     timers: BTreeMap<(Instant, u64), (f64, Option<Duration>)>,
     timer_keys: HashMap<u64, (Instant, u64)>,
     timer_seq: u64,
+    /// The runtime's entry points, kept by the host after it removed the
+    /// globals (install).
+    entry_points: HashMap<&'static str, Persistent<Function<'static>>>,
 }
 
 impl Shared {
@@ -247,12 +265,10 @@ fn run(
                 now.checked_add(timeout.min(Duration::from_secs(24 * 60 * 60))).unwrap_or(now);
             interrupt_at.store(deadline.duration_since(base).as_millis() as u64, Ordering::Relaxed);
             let started = context.with(|ctx| -> Result<Persistent<Promise<'static>>, String> {
-                let eval: Function = ctx
-                    .globals()
-                    .get("__cmuxReplEval")
-                    .map_err(|_| "the REPL runtime did not define __cmuxReplEval".to_owned())?;
+                let eval = entry(&ctx, &shared, "__cmuxReplEval")
+                    .ok_or_else(|| "the REPL runtime did not define __cmuxReplEval".to_owned())?;
                 let promise: Promise =
-                    eval.call((code, options)).map_err(|error| caught(&ctx, error))?;
+                    eval.call((code, options)).map_err(|error| caught_in(&ctx, &shared, error))?;
                 Ok(Persistent::save(&ctx, promise))
             });
             match started {
@@ -283,7 +299,7 @@ fn run(
         if !due.is_empty() {
             callback_deadline(&interrupt_at);
             context.with(|ctx| {
-                if let Ok(on_timer) = ctx.globals().get::<_, Function>("__cmuxHostOnTimer") {
+                if let Some(on_timer) = entry(&ctx, &shared, "__cmuxHostOnTimer") {
                     for id in due {
                         let _: rquickjs::Result<()> = on_timer.call((id,));
                     }
@@ -301,7 +317,7 @@ fn run(
                 let promise = current.promise.clone().restore(&ctx).ok()?;
                 match promise.result::<rquickjs::Value>()? {
                     Ok(_) => Some(None),
-                    Err(error) => Some(Some(caught(&ctx, error))),
+                    Err(error) => Some(Some(caught_in(&ctx, &shared, error))),
                 }
             });
             let timed_out = Instant::now() >= current.deadline;
@@ -352,7 +368,9 @@ fn run(
                     callback_deadline(&interrupt_at);
                 }
                 let (error, result) = match outcome {
-                    Ok(value) => (None, Some(value.to_string())),
+                    // A script's value is spliced in as the engine's JSON
+                    // text (a9 raw_value: the page's key order).
+                    Ok(reply) => (None, Some(reply.json_text())),
                     Err(error) => (Some(error.to_json().to_string()), None),
                 };
                 // The runtime checks `=== null`, so absent values are null, not undefined.
@@ -362,11 +380,9 @@ fn run(
                         None => Ok(rquickjs::Value::new_null(ctx.clone())),
                     }
                 };
-                if let (Ok(on_result), Ok(error), Ok(result)) = (
-                    ctx.globals().get::<_, Function>("__cmuxHostOnResult"),
-                    as_js(error),
-                    as_js(result),
-                ) {
+                if let (Some(on_result), Ok(error), Ok(result)) =
+                    (entry(&ctx, &shared, "__cmuxHostOnResult"), as_js(error), as_js(result))
+                {
                     let _: rquickjs::Result<()> = on_result.call((call_id, error, result));
                 }
                 if running.is_none() {
@@ -377,7 +393,7 @@ fn run(
                 if running.is_none() {
                     callback_deadline(&interrupt_at);
                 }
-                if let Ok(on_event) = ctx.globals().get::<_, Function>("__cmuxHostOnEvent") {
+                if let Some(on_event) = entry(&ctx, &shared, "__cmuxHostOnEvent") {
                     let _: rquickjs::Result<()> = on_event.call((name, payload.to_string()));
                 }
                 if running.is_none() {
@@ -387,6 +403,7 @@ fn run(
         }
     }
     // Persistent values must not outlive the runtime.
+    shared.borrow_mut().entry_points.clear();
     drop(running);
     drop(context);
 }
@@ -403,6 +420,25 @@ fn finish(
 }
 
 /// The pending exception as text.
+/// Like `caught`, with the runtime's own error formatter when it defined one.
+fn caught_in(ctx: &Ctx<'_>, shared: &Rc<RefCell<Shared>>, error: rquickjs::Error) -> String {
+    if !matches!(error, rquickjs::Error::Exception) {
+        return error.to_string();
+    }
+    let exception = ctx.catch();
+    let formatted = entry(ctx, shared, "__cmuxFormatError")
+        .map(|format| format.call::<_, String>((exception.clone(),)));
+    match formatted {
+        Some(Ok(text)) => text,
+        _ => {
+            let fallback: rquickjs::Result<Function> = ctx.eval(FORMAT_ERROR);
+            fallback
+                .and_then(|f| f.call::<_, String>((exception,)))
+                .unwrap_or_else(|e| e.to_string())
+        }
+    }
+}
+
 fn caught(ctx: &Ctx<'_>, error: rquickjs::Error) -> String {
     if !matches!(error, rquickjs::Error::Exception) {
         return error.to_string();
@@ -428,7 +464,7 @@ fn install(
     native.set("sessionId", config.session_id.clone()).map_err(js)?;
     native.set("cwd", config.cwd.clone()).map_err(js)?;
     native.set("capabilities", config.capabilities.clone()).map_err(js)?;
-    let sandbox = crate::fs_sandbox::FsSandbox::new(&config.cwd);
+    let sandbox = Arc::new(crate::fs_sandbox::FsSandbox::new(&config.cwd));
     native.set("tmpdir", sandbox.tmp().display().to_string()).map_err(js)?;
     native.set("homedir", std::env::var("HOME").unwrap_or_else(|_| "/".into())).map_err(js)?;
     let resources: HashMap<String, String> = config.resources.iter().cloned().collect();
@@ -444,27 +480,57 @@ fn install(
     native
         .set(
             "fs",
-            Function::new(ctx.clone(), move |op: String, args: String| -> String {
-                let args: Value = serde_json::from_str(&args).unwrap_or(json!({}));
-                sandbox.call(&op, &args).to_string()
+            Function::new(ctx.clone(), {
+                let sandbox = sandbox.clone();
+                let host = host.clone();
+                move |op: String, args: String| -> String {
+                    let mut args: Value = serde_json::from_str(&args).unwrap_or(json!({}));
+                    let masked = |text: &str| {
+                        crate::fs_sandbox::base64_decode(text)
+                            .map(|bytes| crate::fs_sandbox::base64_encode(&host.mask_bytes(&bytes)))
+                    };
+                    if op == "writeFile"
+                        && let Some(encoded) = args["base64"].as_str().and_then(masked)
+                    {
+                        args["base64"] = Value::String(encoded);
+                    }
+                    let mut result = sandbox.call(&op, &args);
+                    if op == "readFile"
+                        && let Some(encoded) = result["ok"].as_str().and_then(masked)
+                    {
+                        result["ok"] = Value::String(encoded);
+                    }
+                    result.to_string()
+                }
             })
             .map_err(js)?,
         )
         .map_err(js)?;
-    // Native fetch (tab cookies, policy per redirect hop) is not built yet:
-    // answer `unsupported` through the result callback, as an async call does.
+    // Native fetch: the gate's `net.fetch` (policy and range checks, every
+    // redirect hop, masking), run by the engine in the tab's context.
+    let fetch_host = host.clone();
     let fetch_results = tx.clone();
     native
         .set(
             "fetch",
-            Function::new(ctx.clone(), move |call_id: f64, _request: String| {
-                let _ = fetch_results.send(Input::Result {
-                    call_id,
-                    outcome: Err(DriverError::new(
-                        crate::protocol::ErrorCode::Unsupported,
-                        "fetch: the browser host does not fetch yet; use page.evaluate(() => fetch(...))",
-                    )),
-                });
+            Function::new(ctx.clone(), move |call_id: f64, request: String| {
+                let host = fetch_host.clone();
+                let results = fetch_results.clone();
+                let sender = results.clone();
+                let request: Value = serde_json::from_str(&request).unwrap_or(json!({}));
+                let spawned = std::thread::Builder::new()
+                    .name("cmux-browser-host-fetch".into())
+                    .spawn(move || {
+                        let outcome =
+                            host.driver_call("net.fetch", request).map(crate::driver::Reply::Value);
+                        let _ = sender.send(Input::Result { call_id, outcome });
+                    });
+                if spawned.is_err() {
+                    let _ = results.send(Input::Result {
+                        call_id,
+                        outcome: Err(DriverError::closed("could not start a fetch")),
+                    });
+                }
             })
             .map_err(js)?,
         )
@@ -517,7 +583,7 @@ fn install(
                 let spawned = std::thread::Builder::new()
                     .name("cmux-browser-host-driver-call".into())
                     .spawn(move || {
-                        let outcome = host.driver_call(&method, params);
+                        let outcome = host.driver_call_reply(&method, params);
                         let _ = sender.send(Input::Result { call_id, outcome });
                     });
                 if spawned.is_err() {
@@ -531,54 +597,44 @@ fn install(
         )
         .map_err(js)?;
 
-    for name in [
-        "secretSet",
-        "secretList",
-        "secretDelete",
-        "policyNarrow",
-        "policyGet",
-        "policyLog",
-        "policyCheck",
-    ] {
+    // Main's synchronous natives (port plan D1): secrets(op, argsJSON) and
+    // policy(op, argsJSON) answer {"ok": value} or {"error": {code, message}}.
+    for name in ["secrets", "policy"] {
         let host = host.clone();
-        let function = Function::new(
-            ctx.clone(),
-            move |ctx: Ctx<'_>,
-                  args: rquickjs::function::Rest<String>|
-                  -> rquickjs::Result<Option<String>> {
-                // Agreed ABI: secretSet(name, value, optionsJSON), policyNarrow(domainsJSON);
-                // other arguments are plain strings.
-                let json_at: &[usize] = match name {
-                    "secretSet" => &[2],
-                    "policyNarrow" => &[0],
-                    _ => &[],
+        let sandbox = sandbox.clone();
+        let function = Function::new(ctx.clone(), move |op: String, args: String| -> String {
+            let answer = |result: Result<Value, (&str, String)>| match result {
+                Ok(value) => json!({"ok": value}).to_string(),
+                Err((code, message)) => {
+                    json!({"error": {"code": code, "message": message}}).to_string()
+                }
+            };
+            let Ok(mut args) = serde_json::from_str::<Value>(&args) else {
+                return answer(Err(("invalid", format!("{name}: the arguments must be JSON"))));
+            };
+            // secrets.load {path}: the file is read here, through the
+            // session's fs sandbox, so its values never enter the VM.
+            if name == "secrets"
+                && op == "load"
+                && let Some(path) = args["path"].as_str()
+            {
+                let read = sandbox.call("readFile", &json!({"path": path}));
+                let Some(text) = read["ok"]
+                    .as_str()
+                    .and_then(crate::fs_sandbox::base64_decode)
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                else {
+                    let message =
+                        read["error"]["message"].as_str().unwrap_or("could not read the file");
+                    return answer(Err(("invalid", format!("secrets.load: {message}"))));
                 };
-                let mut parsed = Vec::with_capacity(args.0.len());
-                for (index, arg) in args.0.iter().enumerate() {
-                    if json_at.contains(&index) {
-                        let value = serde_json::from_str(arg).map_err(|_| {
-                            rquickjs::Exception::throw_message(
-                                &ctx,
-                                &format!("{name}: argument {index} must be JSON"),
-                            )
-                        })?;
-                        parsed.push(value);
-                    } else {
-                        parsed.push(Value::String(arg.clone()));
-                    }
-                }
-                let args = parsed;
-                match host.native(name, Value::Array(args)) {
-                    // policyCheck answers a message or null, not JSON.
-                    Ok(Value::Null) if name == "policyCheck" => Ok(None),
-                    Ok(Value::String(message)) if name == "policyCheck" => Ok(Some(message)),
-                    // secretDelete: the runtime reads `!!result`.
-                    Ok(Value::Bool(false)) if name == "secretDelete" => Ok(None),
-                    Ok(value) => Ok(Some(value.to_string())),
-                    Err(message) => Err(rquickjs::Exception::throw_message(&ctx, &message)),
-                }
-            },
-        )
+                let Ok(object) = serde_json::from_str::<Value>(&text) else {
+                    return answer(Err(("invalid", format!("secrets.load: {path} is not JSON"))));
+                };
+                args = json!({"object": object});
+            }
+            answer(host.native(name, json!({"op": op, "args": args})).map_err(|m| ("forbidden", m)))
+        })
         .map_err(js)?;
         native.set(name, function).map_err(js)?;
     }
@@ -590,7 +646,35 @@ fn install(
             return Err(format!("{file}: {}", caught(ctx, error)));
         }
     }
+    // The host keeps the entry points the runtime defined and removes them,
+    // with __cmuxNative, before any cell runs: agent code cannot forge a
+    // driver result, fire a timer or start a second evaluation.
+    let globals = ctx.globals();
+    let mut entries = shared.borrow_mut();
+    for name in ENTRY_POINTS {
+        if let Ok(function) = globals.get::<_, Function>(name) {
+            entries.entry_points.insert(name, Persistent::save(ctx, function));
+        }
+        let _ = globals.remove(name);
+    }
+    let _ = globals.remove("__cmuxNative");
     Ok(())
+}
+
+/// The functions the runtime defines for the host (driver-protocol.md,
+/// "Native host contract").
+const ENTRY_POINTS: [&str; 5] = [
+    "__cmuxReplEval",
+    "__cmuxHostOnResult",
+    "__cmuxHostOnTimer",
+    "__cmuxHostOnEvent",
+    "__cmuxFormatError",
+];
+
+/// A saved entry point, restored into `ctx`.
+fn entry<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>, name: &str) -> Option<Function<'js>> {
+    let saved = shared.borrow().entry_points.get(name).cloned()?;
+    saved.restore(ctx).ok()
 }
 
 #[cfg(test)]

@@ -13,8 +13,8 @@ public nonisolated enum SidebarContextTarget: Hashable, Sendable {
     case background
     /// A dot in the profile bar.
     case profile(ProfileKey)
-    /// An item of a sticky section.
+    /// An item of a pinned section.
     case layoutItem(LayoutItemID)
-    /// The header of a titled sticky section.
+    /// The header of a titled pinned section.
     case layoutSection(LayoutSectionID)
 }

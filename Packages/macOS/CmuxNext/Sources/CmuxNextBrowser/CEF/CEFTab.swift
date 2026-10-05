@@ -29,6 +29,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    @ObservationIgnored var passwordFill = PasswordFillState()
+    /// The browser host's raw DevTools relay of this page.
+    @ObservationIgnored public private(set) lazy var agentRelay = CEFAgentRelay(tab: self)
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -119,7 +122,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     var initialURLString: String {
         // An empty URL creates the browser without navigating, which
         // `cmux_tab_restore_navigation` needs.
-        pendingRestore != nil ? "" : pendingURL?.absoluteString ?? "about:blank"
+        pendingRestore != nil ? "" : CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
     }
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
@@ -127,8 +130,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
+        CEFAgentURLGuard.applyShimGuard(self)
         applyPageBackground()
         applyPasswordFill()
+        agentRelay.browserAttached()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -150,13 +155,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
-        if let state = pendingRestore {
-            pendingRestore = nil
-            let restored = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } == 1
-            host.lifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
-            if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
-        }
-        if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
         refreshExtensionActions()
     }
 
@@ -182,11 +180,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     private func applyPageBackground() {
         guard let browser = browserID, let shim = runtime.shim else { return }
         _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
-                                                                                 theme: PageBackground.themeARGB(in: container)))
+                                                                                 theme: PageBackground.themeARGB(in: container,
+                                                                                                                 surface: pastFirstRealPage ? nil : .newTabPage)))
     }
 
     func creationFailed() {
         isCreationPending = false
+        agentRelay.resumeWaiters(false)
         let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
         let id = makeNavigationID()
         machine.apply(.started(id, url: pendingURL))
@@ -198,6 +198,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        agentRelay.browserEnded()
         findContinuation?.resume(returning: .none)
         findContinuation = nil
         host.removed(self)
@@ -369,6 +370,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        agentRelay.resumeWaiters(false)
         faviconTask?.cancel()
         if let browserID {
             runtime.shim?.close(browserID)

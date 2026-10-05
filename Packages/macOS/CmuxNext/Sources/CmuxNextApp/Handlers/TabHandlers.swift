@@ -23,6 +23,7 @@ enum TabHandlers {
         registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
         registry.bind("newTab.sameKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind(NewTabPage.action, invoke: { ctx.paneController($0)?.newTabPage() })
+        registry.bind(NewTabSubmit.action, invoke: { NewTabSubmit.run($0, ctx) })
         registry.bind(NewTabPage.focusLocation, invoke: { ctx.paneController($0)?.focusLocation($0) })
         registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
@@ -53,7 +54,7 @@ enum TabHandlers {
                 pane.newBrowserTab(url: live ?? tab.url.flatMap(URL.init(string:)), inherited: tab.browserEngine)
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
-            } else if id.rawValue.hasPrefix(LocalAgentTab.prefix) {
+            } else if ctx.services.agentTabs.isAgentTab(id.rawValue) {
                 pane.duplicateAgentTab(id.rawValue)
             } else if id.rawValue.hasPrefix(LocalPageTab.prefix) {
                 // One tab per page per window: the page is already there.
@@ -69,7 +70,7 @@ enum TabHandlers {
             if let entry = DaemonClosedHistory.entries([.tab], in: ctx.services).first {
                 return DaemonClosedHistory.reopen(entry, services: ctx.services)
             }
-            guard let record = history.popLast() ?? ctx.refuse(RefusalStrings.noRecentlyClosedTab) else { return }
+            guard let record = history.popLast() ?? ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab) else { return }
             history.reopen(record, fallback: ctx.services.windows.active?.focusedPane)
         })
     }
@@ -81,7 +82,7 @@ enum TabHandlers {
             guard let pane = ctx.paneController(invocation) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             let ids = pane.orderedIDs
-            guard !ids.isEmpty else { return ctx.refuse(RefusalStrings.paneHasNoTabs) }
+            guard !ids.isEmpty else { return ctx.refuseQuietly(RefusalStrings.paneHasNoTabs) }
             // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
@@ -137,7 +138,7 @@ enum TabHandlers {
         let ids = pane.orderedIDs
         guard let index = ids.firstIndex(of: id) else { return }
         let target = min(max(index + offset, 0), ids.count - 1)
-        guard target != index else { return ctx.refuse(RefusalStrings.tabAtEdge) }
+        guard target != index else { return ctx.refuseQuietly(RefusalStrings.tabAtEdge) }
         pane.move(id, toPane: pane, index: target)
     }
 
@@ -147,7 +148,7 @@ enum TabHandlers {
         guard let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
         let order = screen.layout.panes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
-            return ctx.refuse(RefusalStrings.screenHasNoOtherPane)
+            return ctx.refuseQuietly(RefusalStrings.screenHasNoOtherPane)
         }
         let next = order[(index + offset + order.count) % order.count]
         guard let target = content.panes[next] else { return }
@@ -158,7 +159,7 @@ enum TabHandlers {
         guard let (pane, id) = ctx.tab(invocation), let content = pane.workspace else { return }
         guard let neighbor = PaneHandlers.neighbor(of: pane.layoutPaneID, direction: direction, in: content),
               let target = content.panes[neighbor] else {
-            return ctx.refuse(RefusalStrings.noPaneInDirectionOfTab(RefusalStrings.direction(direction)))
+            return ctx.refuseQuietly(RefusalStrings.noPaneInDirectionOfTab(RefusalStrings.direction(direction)))
         }
         pane.move(id, toPane: target, index: target.pane.tabs.count)
     }

@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextActions
+import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -14,8 +16,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
-    /// The rail's update circle.
-    let updateIndicator: WindowUpdateIndicator
     /// This window's focus state machine (plans/cmux-next/focus.md); it
     /// lives in the window's `WindowState`.
     var focus: FocusCoordinator { state.focus }
@@ -38,17 +38,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// Agent cursors on this window's cursor layer (made on the first input it draws).
+    private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
-        let rail = WindowRailView(model: sidebar.model, registry: services.registry)
-        // The rail's items take the sidebar's menus (pin, remove, reorder).
-        rail.column.contextMenuProvider = { [weak sidebar] target in sidebar?.contextMenu(for: target) }
-        updateIndicator = WindowUpdateIndicator(updater: services.updater, registry: services.registry, column: rail.column)
-        root = WindowRootView(sidebar: sidebar.container, rail: rail)
+        root = WindowRootView(sidebar: sidebar.container)
+        // The static toggle runs the same action as the shortcut, palette and menu (R68).
+        root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
+            _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
+        }
+        let registry = services.registry
+        root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
+                                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -64,6 +69,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         super.init(window: window)
+        installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope)
@@ -258,6 +264,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        // Hover cards in other windows show this window's pages (R131). The
+        // next key window is known on the next main-actor turn.
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window else { return }
+            WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
+                                              presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
+                                              cache: self.services.cache)
+        }
     }
 
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
@@ -303,6 +317,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         services.keyRouter.cancelChord()
+        removeHistoryObserver()
         services.windows.windowWillClose(self)
     }
 }
@@ -314,7 +329,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
-    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarBadgeFrame }
+    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
@@ -348,8 +363,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// frame with the page over the focus ring; the notifications that
     /// follow the page would come a frame late.
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
+        ChildWindowPolicy.check(childWin, parent: self)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
+        WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
     // MARK: OverlayPlaneHosting
@@ -362,7 +380,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     // MARK: BrowserWindowOcclusionProviding
 
-    var browserOcclusionRectsInWindow: [CGRect] { overlayLayer.interactiveRects }
+    /// Interactive overlays in the window, and occluders (the sidebar) that stay above pages.
+    var browserOcclusionRectsInWindow: [CGRect] {
+        overlayLayer.interactiveRects + (WindowOverlayHost.existingHost(for: self)?.occluderRects ?? [])
+    }
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)

@@ -103,13 +103,12 @@ public final class TabStripView: NSView {
     var newTabHoldOpenedMenu = false
     /// Trailing button under the mouse-down, while the press lasts.
     var pendingTrailingPress: Int?
-    /// Whether the trailing buttons show (pointer, open menu, VoiceOver).
+    /// Whether the trailing buttons and the plus show (pointer, open menu,
+    /// VoiceOver): the strip's inputs to `reveal` (HoverReveal, R120).
     var buttonReveal = TabStripButtonReveal() {
-        didSet {
-            guard buttonReveal.isRevealed != oldValue.isRevealed else { return }
-            buttonGroup.setRevealed(buttonReveal.isRevealed, animated: window != nil)
-        }
+        didSet { reveal.sync(buttonReveal, from: oldValue) }
     }
+    private(set) lazy var reveal = TabStripRevealController(strip: self)
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
@@ -160,6 +159,7 @@ public final class TabStripView: NSView {
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
         contentView.addSubview(buttonGroup)
+        reveal.install()
         buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
         buttonGroup.onAccessibilityFocus = { [weak self] focused in self?.buttonReveal.accessibilityFocused = focused }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }

@@ -39,8 +39,19 @@ pub(super) struct Inner {
     /// that decides paused requests.
     pub(super) request_filter: Arc<Mutex<Option<crate::driver::RequestFilter>>>,
     /// Paused requests to decide: (session, request id, URL).
-    pub(super) paused: Mutex<mpsc::Sender<(String, String, String)>>,
+    pub(super) paused: Mutex<mpsc::Sender<super::requests::PausedRequest>>,
+    /// HOST-FETCH-CORS tokens of the host's fetches in flight.
+    pub(super) cors: Arc<Mutex<super::cors::Cors>>,
+    /// Headless Chromium: every tab gets the protocol's hidden-tab viewport
+    /// (new headless takes its window chrome out of --window-size). None
+    /// for an app tab, which keeps its real size.
+    pub(super) hidden_viewport: Option<(i64, i64)>,
+    /// Fetch shells that are open, and whether the session ended.
+    pub(super) shells: Mutex<super::fetch::Shells>,
 }
+
+/// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
+pub const HIDDEN_VIEWPORT: (i64, i64) = (1280, 800);
 
 impl CdpDriver {
     /// Takes over a browser-level CDP connection (headless Chromium over the
@@ -51,6 +62,49 @@ impl CdpDriver {
         agent_source: impl Into<Arc<str>>,
         events: EventSink,
     ) -> Result<CdpDriver, DriverError> {
+        let inner = Inner::start(conn.clone(), agent_source.into(), events, Some(HIDDEN_VIEWPORT))?;
+        Self::set_up_browser(&inner, &conn)?;
+        Ok(CdpDriver { inner })
+    }
+
+    /// Takes over a page-rooted connection (one in-app CEF tab's DevTools
+    /// relay, [`CdpConnection::page_rooted`]): the page is the driver's only
+    /// tab, under the connection's alias; its out-of-process frames attach
+    /// as flat child sessions. Returns the driver and the page's CDP target id.
+    pub fn attach_page(
+        conn: Arc<CdpConnection>,
+        agent_source: impl Into<Arc<str>>,
+        events: EventSink,
+    ) -> Result<(CdpDriver, String), DriverError> {
+        let alias = conn
+            .root_alias()
+            .map(str::to_owned)
+            .ok_or_else(|| DriverError::invalid("attach_page needs a page-rooted connection"))?;
+        let reply = conn.call(Some(&alias), "Target.getTargetInfo", json!({}), INTERNAL_TIMEOUT)?;
+        let info = reply["targetInfo"].clone();
+        let target_id = info
+            .get("targetId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| DriverError::invalid("Target.getTargetInfo returned no targetId"))?;
+        let inner = Inner::start(conn, agent_source.into(), events, None)?;
+        // The page is already attached: the relay is its session.
+        inner.handle_event(CdpEvent {
+            session_id: None,
+            method: "Target.attachedToTarget".into(),
+            params: json!({"sessionId": alias, "targetInfo": info, "waitingForDebugger": false}),
+        });
+        Ok((CdpDriver { inner }, target_id))
+    }
+}
+
+impl Inner {
+    fn start(
+        conn: Arc<CdpConnection>,
+        agent_source: Arc<str>,
+        events: EventSink,
+        hidden_viewport: Option<(i64, i64)>,
+    ) -> Result<Arc<Inner>, DriverError> {
         let (event_tx, event_rx) = mpsc::channel::<DriverEvent>();
         std::thread::Builder::new()
             .name("cmux-browser-host-cdp-events".into())
@@ -61,15 +115,20 @@ impl CdpDriver {
             })
             .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
         let request_filter = Arc::new(Mutex::new(None));
-        let paused = super::requests::start_worker(conn.clone(), request_filter.clone())?;
+        let cors: Arc<Mutex<super::cors::Cors>> = Arc::default();
+        let paused =
+            super::requests::start_worker(conn.clone(), request_filter.clone(), cors.clone())?;
         let inner = Arc::new(Inner {
             conn: conn.clone(),
-            agent_source: agent_source.into(),
+            agent_source,
             events: Mutex::new(event_tx),
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
             request_filter,
             paused: Mutex::new(paused),
+            cors,
+            hidden_viewport,
+            shells: Mutex::default(),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -85,6 +144,12 @@ impl CdpDriver {
                 inner.changed.notify_all();
             }
         }));
+        Ok(inner)
+    }
+}
+
+impl CdpDriver {
+    fn set_up_browser(inner: &Arc<Inner>, conn: &Arc<CdpConnection>) -> Result<(), DriverError> {
         conn.call(None, "Target.setDiscoverTargets", json!({"discover": true}), INTERNAL_TIMEOUT)?;
         conn.call(
             None,
@@ -102,6 +167,10 @@ impl CdpDriver {
                 continue;
             };
             if info.get("attached").and_then(Value::as_bool) == Some(true)
+                || info
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .is_some_and(crate::policy::is_browser_page)
                 || inner.lock().tabs.contains_key(target_id)
             {
                 continue;
@@ -113,13 +182,22 @@ impl CdpDriver {
                 INTERNAL_TIMEOUT,
             )?;
         }
-        Ok(CdpDriver { inner })
+        Ok(())
+    }
+}
+
+impl CdpDriver {
+    /// False once the connection closed (a relayed tab went away).
+    pub fn is_open(&self) -> bool {
+        self.inner.conn.closed_reason().is_none()
     }
 }
 
 impl Driver for CdpDriver {
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
         let inner = &self.inner;
+        inner.browser_page_refusal(method, params)?;
+        inner.shell_refusal(params)?;
         match method {
             "tabs.list" => Ok(inner.tabs_list()),
             "tabs.open" => inner.tabs_open(params),
@@ -132,6 +210,7 @@ impl Driver for CdpDriver {
             "tab.setViewport" => inner.set_viewport(params),
             "frames.list" => inner.frames_list(params),
             "frame.evaluate" => inner.evaluate(params),
+            "frame.observe" => inner.evaluate(&crate::observe::evaluate_params(params)?),
             "frame.contentFrame" => inner.content_frame(params),
             "frame.contentFrames" => inner.content_frames(params),
             "frame.ownerBox" => inner.owner_box(params),
@@ -139,10 +218,19 @@ impl Driver for CdpDriver {
             "input.key" => inner.key(params),
             "input.insertText" => inner.insert_text(params),
             "tab.screenshot" => inner.screenshot(params),
+            "tab.pdf" => inner.pdf(params),
+            // The host stops a load whose response came from a refused
+            // address (DNS rebinding).
+            "tab.stop" => {
+                let session = inner.session(params)?;
+                inner.send(&session, "Page.stopLoading", json!({}))?;
+                Ok(Value::Null)
+            }
+            "net.fetch" => inner.net_fetch(params),
             "dialog.respond" => inner.dialog_respond(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
-            "cookies.clear" => inner.cookies_clear(),
+            "cookies.clear" => inner.cookies_clear(params),
             "cdp" => inner.raw_cdp(params),
             _ => Err(DriverError::unsupported_method(method)),
         }
@@ -155,6 +243,27 @@ impl Driver for CdpDriver {
     fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
         self.inner.set_request_filter(filter);
         true
+    }
+
+    fn end_session(&self) {
+        self.inner.end_shells();
+    }
+
+    /// A script's value goes on as the JSON text Chromium sent (a9
+    /// raw_value); every other result is parsed.
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<crate::driver::Reply, DriverError> {
+        if method != "frame.evaluate" {
+            return self.call_announced(method, params, announce).map(crate::driver::Reply::Value);
+        }
+        announce();
+        self.inner.browser_page_refusal(method, params)?;
+        self.inner.shell_refusal(params)?;
+        self.inner.evaluate_raw(params).map(crate::driver::Reply::Json)
     }
 }
 
@@ -205,6 +314,22 @@ impl Inner {
                     .collect();
                 let _ = self.conn.call_batch(Some(&session_id), steps, INTERNAL_TIMEOUT);
             }
+            FollowUp::Release { session_id, waiting, parent } => {
+                if waiting {
+                    let _ = self.conn.call(
+                        Some(&session_id),
+                        "Runtime.runIfWaitingForDebugger",
+                        json!({}),
+                        INTERNAL_TIMEOUT,
+                    );
+                }
+                let _ = self.conn.call(
+                    parent.as_deref(),
+                    "Target.detachFromTarget",
+                    json!({"sessionId": session_id}),
+                    INTERNAL_TIMEOUT,
+                );
+            }
             FollowUp::SetUpFrame { target_id: _, session_id } => {
                 // Failures leave the frame unreachable; it must still run.
                 if self.set_up_frame(&session_id).is_err() {
@@ -241,6 +366,17 @@ impl Inner {
     fn set_up_page(&self, target_id: &str, session_id: &str) -> Result<(), DriverError> {
         let auto_attach =
             json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
+        // A fetch shell runs no page agent and needs no focus or viewport.
+        let shell = self.lock().is_hidden(target_id);
+        let agent = (!shell).then(|| {
+            [
+                (
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
+                ),
+                ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
+            ]
+        });
         let results = self.conn.call_batch(
             Some(session_id),
             vec![
@@ -248,15 +384,14 @@ impl Inner {
                 ("Page.getFrameTree", json!({})),
                 ("Page.setLifecycleEventsEnabled", json!({"enabled": true})),
                 ("Runtime.enable", json!({})),
-                (
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
-                ),
-                ("Emulation.setFocusEmulationEnabled", json!({"enabled": true})),
-                // Out-of-process iframes attach as child sessions of this page.
-                ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()
+            .chain(agent.into_iter().flatten())
+            // Request and response events (page.on("request"), ...).
+            .chain([("Network.enable", json!({}))])
+            .chain(self.hidden_viewport_step().filter(|_| !shell))
+            // Out-of-process iframes attach as child sessions of this page.
+            .chain([("Target.setAutoAttach", auto_attach)])
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),
@@ -276,6 +411,16 @@ impl Inner {
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 
+    /// Headless tabs get the protocol's hidden-tab viewport.
+    pub(super) fn hidden_viewport_step(&self) -> Option<(&'static str, Value)> {
+        self.hidden_viewport.map(|(width, height)| {
+            (
+                "Emulation.setDeviceMetricsOverride",
+                json!({"width": width, "height": height, "deviceScaleFactor": 0, "mobile": false}),
+            )
+        })
+    }
+
     fn set_up_frame(&self, session_id: &str) -> Result<(), DriverError> {
         let auto_attach =
             json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
@@ -289,6 +434,7 @@ impl Inner {
                     "Page.addScriptToEvaluateOnNewDocument",
                     json!({"source": &*self.agent_source, "worldName": AGENT_WORLD, "runImmediately": true}),
                 ),
+                ("Network.enable", json!({})),
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()
@@ -403,6 +549,7 @@ impl Inner {
             .order
             .iter()
             .filter_map(|id| state.tabs.get(id).map(|tab| (id, tab)))
+            .filter(|(_, tab)| !tab.hidden)
             .map(|(id, tab)| {
                 let mut entry = json!({
                     "targetId": id,
@@ -420,7 +567,7 @@ impl Inner {
         Value::Array(tabs)
     }
 
-    fn tabs_open(&self, params: &Value) -> Result<Value, DriverError> {
+    pub(super) fn tabs_open(&self, params: &Value) -> Result<Value, DriverError> {
         let deadline = Instant::now() + timeout_of(params);
         let background = params.get("background").and_then(Value::as_bool).unwrap_or(false);
         let created = self.conn.call(
@@ -469,7 +616,7 @@ impl Inner {
         Ok(json!({"targetId": target_id}))
     }
 
-    fn tabs_close(&self, params: &Value) -> Result<Value, DriverError> {
+    pub(super) fn tabs_close(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         let deadline = Instant::now() + timeout_of(params);
         if params.get("runBeforeUnload").and_then(Value::as_bool) == Some(true) {
@@ -561,11 +708,6 @@ impl Inner {
             json!({"cookies": cookies}),
             INTERNAL_TIMEOUT,
         )?;
-        Ok(Value::Null)
-    }
-
-    fn cookies_clear(&self) -> Result<Value, DriverError> {
-        self.conn.call(None, "Storage.clearCookies", json!({}), INTERNAL_TIMEOUT)?;
         Ok(Value::Null)
     }
 

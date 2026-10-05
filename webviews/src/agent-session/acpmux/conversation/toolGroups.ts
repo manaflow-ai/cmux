@@ -2,7 +2,7 @@
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
 // other agents as cards, and everything else as its own row.
 import type { AcpmuxActivity } from "../model";
-import { t } from "../i18n";
+import type { Translate } from "../i18n";
 import { agentMessage, type AgentMessage } from "./agentMessages";
 
 /// The kinds of call that group with their neighbors.
@@ -89,6 +89,7 @@ function readCount(items: readonly AcpmuxActivity[]): number {
 /// The group's line, without the edit counts its row draws in the diff colors. `files` are the
 /// paths an edit group changed: one names its file, more count them.
 export function toolGroupLabel(
+  t: Translate,
   kind: ToolGroupKind,
   items: readonly AcpmuxActivity[],
   files: readonly string[] = [],
@@ -114,7 +115,7 @@ export function toolGroupLabel(
 }
 
 /// A finished call's run time, from its first event to the one that ended it: "840ms", "4.2s", "2m 5s".
-export function toolDuration(tool: Tool): string | undefined {
+export function toolDuration(t: Translate, tool: Tool): string | undefined {
   if (tool.startedAt === undefined || tool.endedAt === undefined) return undefined;
   const ms = Math.max(0, tool.endedAt - tool.startedAt);
   if (ms < 1000) return t("duration.ms", { n: ms });

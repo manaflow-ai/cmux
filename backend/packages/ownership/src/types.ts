@@ -12,6 +12,8 @@ export interface Principal {
   readonly team?: string
   readonly install?: string
   readonly agent?: string
+  /** Automation principals only (built by the API Worker): the run that is calling. */
+  readonly run?: string
   readonly grant?: string
   /**
    * How the connection authenticated: a human session or an install token.
@@ -30,6 +32,8 @@ export interface Principal {
   readonly display_name?: string
   /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
   readonly install_kind?: string
+  /** A VM install's one machine (kind vm, made at bind), resolved by UserDO with the grant. */
+  readonly bound_machine?: string
   /**
    * Agents (chiefs) the user owns, resolved by the Worker from UserDO's chief records for ops
    * that add participants (Home). Owners trust it only because the Worker builds every
@@ -49,6 +53,21 @@ export interface Principal {
    */
   readonly email_domain?: string
   readonly owned_agents?: ReadonlyArray<{ readonly id: string; readonly display_name: string }>
+  /**
+   * Home reach facts (home-messaging.md section 16), one per human the op would add, resolved by
+   * the Worker from their owners (TeamDO membership, the caller's inbox and DMs, the target's
+   * UserDO settings). Same trust as `owned_agents`: built only by the Worker, never from frames
+   * or params; no entry means no link. A chief's facts are its owner's (owner's teams, owner's
+   * connections, the target's setting checked against the owner). Shape: home-core `HumanReach`.
+   */
+  readonly home_reach?: ReadonlyArray<{
+    readonly user: string
+    readonly display_name: string
+    readonly shared_team: boolean
+    readonly connected: boolean
+    readonly allow_requests_from: "anyone" | "teams" | "nobody"
+    readonly blocked?: boolean
+  }>
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
   readonly grant_classes?: ReadonlyArray<string>
   /** Token expiry (ms); long-lived connections close at this time. */
@@ -212,5 +231,6 @@ export interface Domain<S, P = unknown> {
   readonly initial: () => S
   readonly reduce: (state: S, op: string, params: P, ctx: ReduceContext) => ReduceResult<S>
   /** Authorization by grant and op class. A failure is not recorded in the ledger. */
-  readonly authorize?: (state: S, op: string, params: P, principal: Principal) => Reject | undefined
+  /** `rows`: a read-only reader of the owner's rows in row mode (members out of the head, (f)); EMPTY_ROWS otherwise. */
+  readonly authorize?: (state: S, op: string, params: P, principal: Principal, rows?: RowReader) => Reject | undefined
 }

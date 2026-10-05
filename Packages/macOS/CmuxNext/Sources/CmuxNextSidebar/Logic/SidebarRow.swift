@@ -8,6 +8,7 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case section(SectionID)
     case group(GroupID)
     case workspace(WorkspaceID)
+    case tab(WorkspaceID, TabID)
     /// Drop zone shown for an empty section while dragging (pinned area).
     case emptySection(SectionID)
 }
@@ -20,6 +21,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var section: SectionID
     /// Containing group for a workspace row; the group itself for a header.
     public var group: GroupID?
+    /// Workspace that owns a tab row, when this is a tab row.
+    public var workspace: WorkspaceID? = nil
     /// Index among the container's siblings, counting only rows not being
     /// dragged. For group headers this is the group's index in the section.
     public var siblingIndex: Int
@@ -31,6 +34,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var childCount: Int
     /// Color of the containing group, drawn as a rail beside grouped rows.
     public var groupColor: GroupColor?
+    /// Kind of tab represented by this row, when applicable.
+    public var tabKind: SidebarTabKind? = nil
 
     public var maxY: CGFloat { y + height }
 }

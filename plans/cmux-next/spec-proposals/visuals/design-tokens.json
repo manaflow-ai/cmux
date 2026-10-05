@@ -147,6 +147,10 @@
     "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1)",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:121 (ThemeTokens.derive)"
    },
+   "textPlaceholder": {
+    "value": "alpha(dark ? #FFFFFF : #000000, dark ? 0.549 : 0.498)",
+    "source": "AppKit NSColor.placeholderTextColor resolved to sRGB (macOS 27, standard contrast); used by the Chief composer placeholder"
+   },
    "hoverFill": {
     "value": "alpha(fg, dark ? 0.06 : 0.05)",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:114 (ThemeTokens.derive)"
@@ -1090,7 +1094,7 @@
   "overlay": {
    "select": "Reduce Transparency -> opaque; macOS >= 26 -> liquidGlass (NSGlassEffectView .regular, tint token:glassTint); else vibrancy (NSVisualEffectView .popover, withinWindow, tint view token:glassTint, 1/scale border token:separator)",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift (OverlayMaterial.select, ReduceTransparency); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Glass.swift (Glass.makeOverlayPanel)",
-   "appliesTo": "Every floating glass surface: palette, its actions menu and shortcut recorder, hover cards, browser find bar, prompt bar, notices and page info, tab group editor, restart notice (Glass.makeOverlayPanel), drop overlay, drop highlight, sticky column backdrop, refusal HUD (OverlaySurfaceView)",
+   "appliesTo": "Every floating glass surface: palette, its actions menu and shortcut recorder, hover cards, browser find bar, prompt bar, notices and page info, tab group editor, restart notice (Glass.makeOverlayPanel), drop overlay, drop highlight, pinned column backdrop, refusal HUD (OverlaySurfaceView)",
    "liveUpdate": "One NSWorkspace accessibility observer switches every live surface; a theme scope repaint recolors the fallback.",
    "olderMacOS": "The vibrancy branch cannot run in the macOS app today: Packages/macOS/CmuxNext/Package.swift requires macOS 26. Ports without Liquid Glass use vibrancy where the platform has a blur, else the opaque fallback."
   },
@@ -1422,7 +1426,7 @@
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/SidebarSectionsSetting.swift:6-22 (SidebarSectionsSetting.lookPath, parse); Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Sections/SidebarSectionTunables.swift:6-89 (SectionsLookVariant)"
   },
-  "sidebar.topBandMaxShare / bottomBandMaxShare / stickyBandsScroll": {
+  "sidebar.topBandMaxShare / bottomBandMaxShare / pinnedBandsScroll": {
    "value": {
     "topBandMaxShare": 0.3333,
     "bottomBandMaxShare": 0.25,
@@ -1430,9 +1434,9 @@
      0.1,
      0.9
     ],
-    "stickyBandsScroll": true
+    "pinnedBandsScroll": true
    },
-   "effect": "Share of the sidebar height the sticky band above (below) the list takes before it scrolls inside; with stickyBandsScroll false the bands never scroll and the list shrinks (to three rows minimum).",
+   "effect": "Share of the sidebar height the pinned band above (below) the list takes before it scrolls inside; with pinnedBandsScroll false the bands never scroll and the list shrinks (to three rows minimum).",
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SidebarSectionsPreferences.swift:4-26 (SidebarSectionsPreferences); Packages/macOS/CmuxNext/Sources/CmuxNextSettings/SidebarSectionsSetting.swift:7-9"
   },
   "notifications.attention.*": {
@@ -1705,7 +1709,7 @@
    }
   },
   "sidebar.sectionItem": {
-   "description": "Sticky section items (Home, Settings, Account). The look picks headers and lines; each section's arrangement (list, inline, grid) picks how items flow.",
+   "description": "Pinned section items (Home, Settings, Account). The look picks headers and lines; each section's arrangement (list, inline, grid) picks how items flow.",
    "sources": [
     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift:110-165 (SidebarItemRowView.configure)",
     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/Sections/SidebarRegionView.swift:72-160 (SidebarRegionView.apply, updateLayer)",

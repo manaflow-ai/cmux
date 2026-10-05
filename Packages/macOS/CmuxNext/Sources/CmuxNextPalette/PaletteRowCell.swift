@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import AppKit
 import CmuxNextDesign
 
@@ -77,6 +78,7 @@ final class PaletteRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("palette.row")
 
     private let icon = NSImageView()
+    private let swatch = PaletteSwatchView()
     private let title = PaletteText.label(Typography.body, tone: nil)
     private let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
     private let accessory = PaletteText.label(Typography.caption, tone: .tertiary)
@@ -91,7 +93,7 @@ final class PaletteRowCell: NSTableCellView {
         identifier = Self.identifier
         icon.imageScaling = .scaleProportionallyDown
         subtitle.lineBreakMode = .byTruncatingMiddle
-        [icon, title, subtitle, accessory, keycaps].forEach(addSubview)
+        [icon, swatch, title, subtitle, accessory, keycaps].forEach(addSubview)
     }
 
     @available(*, unavailable)
@@ -99,10 +101,16 @@ final class PaletteRowCell: NSTableCellView {
 
     func configure(_ row: PaletteRow, isSelected: Bool) {
         let item = row.item
-        if symbolName != item.symbol {
-            symbolName = item.symbol
-            icon.image = PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
+        let iconKey = item.brand.map { "brand:\($0)" } ?? item.symbol
+        if symbolName != iconKey {
+            symbolName = iconKey
+            // An agent row draws its brand mark as a template, tinted like the symbols.
+            icon.image = item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
+                ?? PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
+        swatch.colors = item.swatches
+        swatch.isHidden = item.swatches.isEmpty
+        icon.isHidden = !item.swatches.isEmpty
         self.isSelected = isSelected
         titleText = item.title
         highlights = row.highlights
@@ -146,6 +154,7 @@ final class PaletteRowCell: NSTableCellView {
         let midY = bounds.midY
         let box = PaletteLayout.iconBox
         icon.frame = NSRect(x: padding, y: midY - box / 2, width: box, height: box)
+        swatch.frame = icon.frame.insetBy(dx: 1, dy: 1)
         var right = bounds.maxX - padding
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize

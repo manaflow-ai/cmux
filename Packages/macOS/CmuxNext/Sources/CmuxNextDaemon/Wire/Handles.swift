@@ -35,6 +35,7 @@ public enum HandleKind {
     public enum Surface: DaemonHandleKind {}
     public enum Split: DaemonHandleKind {}
     public enum Column: DaemonHandleKind {}
+    public enum Row: DaemonHandleKind {}
     public enum Notification: DaemonHandleKind {}
     public enum Client: DaemonHandleKind {}
 }
@@ -50,5 +51,8 @@ public typealias SurfaceID = DaemonHandle<HandleKind.Surface>
 public typealias SplitID = DaemonHandle<HandleKind.Split>
 /// Horizontal viewport column id (`Screen.columns[].id`).
 public typealias ColumnID = DaemonHandle<HandleKind.Column>
+/// A row of a column (`Screen.columns[].rows[].id`, `rows-v1`). Never
+/// reused; the compat chain uses it as the split id of rows 2..n.
+public typealias RowID = DaemonHandle<HandleKind.Row>
 public typealias NotificationID = DaemonHandle<HandleKind.Notification>
 public typealias ClientID = DaemonHandle<HandleKind.Client>

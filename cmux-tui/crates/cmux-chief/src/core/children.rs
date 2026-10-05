@@ -9,7 +9,7 @@ use crate::rules::{
     MUX_SESSION_NAME, PARENT_TAG, child_finished_prompt, child_permission_prompt, excerpt,
     turn_ended, work_part, work_status,
 };
-use crate::state::{ChildRecord, OutboxEntry};
+use crate::state::{ChildRecord, MAX_CHILDREN, MAX_PRUNED, OutboxEntry};
 
 impl Core {
     pub(super) fn is_child(&self, session: &SessionSummary) -> bool {
@@ -69,6 +69,39 @@ impl Core {
         }
     }
 
+    /// Past `MAX_CHILDREN`: drops the oldest finished children that no
+    /// queued op names (order, absent as 0, then id), never `added` (the
+    /// child just recorded). Pruned ids are remembered (at most
+    /// `MAX_PRUNED`, oldest out).
+    fn prune_children(&mut self, added: &str) {
+        let count = self.state.children.len();
+        if count <= MAX_CHILDREN {
+            return;
+        }
+        let queued: std::collections::BTreeSet<&str> =
+            self.state.outbox.iter().filter_map(|entry| entry.child.as_deref()).collect();
+        let mut prunable: Vec<(u64, String)> = self
+            .state
+            .children
+            .iter()
+            .filter(|(id, child)| {
+                id.as_str() != added
+                    && matches!(child.status, WorkStatus::Done | WorkStatus::Failed)
+                    && !queued.contains(id.as_str())
+            })
+            .map(|(id, child)| (child.order.unwrap_or(0), id.clone()))
+            .collect();
+        prunable.sort();
+        for (_, id) in prunable.into_iter().take(count - MAX_CHILDREN) {
+            self.state.children.remove(&id);
+            self.state.pruned_children.retain(|known| *known != id);
+            self.state.pruned_children.push(id.clone());
+            let extra = self.state.pruned_children.len().saturating_sub(MAX_PRUNED);
+            self.state.pruned_children.drain(..extra);
+            self.log(format!("pruned child {id} (more than {MAX_CHILDREN} children)"));
+        }
+    }
+
     /// The child's record, registered (with a work card in the conversation
     /// the Chief is answering) when new.
     pub(super) fn child(&mut self, session: &SessionSummary) -> ChildRecord {
@@ -80,12 +113,17 @@ impl Core {
         // A child first seen ready or idle gets a done card (closed: failed,
         // waiting: waiting).
         let status = work_status(session.status);
+        let order = self.state.children.values().filter_map(|c| c.order).max().unwrap_or(0) + 1;
+        // A pruned child that comes back already has a card: it gets no second one.
+        let pruned = self.state.pruned_children.contains(&session.session_id);
+        let conversation = if pruned { String::new() } else { conversation };
         let child = ChildRecord {
             conversation: conversation.clone(),
             name: session.name.clone(),
             status,
             message_id: None,
             edits: 0,
+            order: Some(order),
         };
         self.state.children.insert(session.session_id.clone(), child.clone());
         if !conversation.is_empty() {
@@ -103,6 +141,7 @@ impl Core {
                 child: Some(session.session_id.clone()),
             });
         }
+        self.prune_children(&session.session_id);
         self.dirty = true;
         self.log(format!("child {} started ({})", session.name, session.session_id));
         child

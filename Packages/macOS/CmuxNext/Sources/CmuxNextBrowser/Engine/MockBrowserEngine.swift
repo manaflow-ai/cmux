@@ -70,6 +70,7 @@ public final class MockBrowserTab: BrowserTab {
         case hideExtensionPopups
         case showExtensionActionMenu(String)
         case markAgentDriven
+        case applyColorScheme(BrowserColorScheme)
     }
 
     public let id: BrowserTabID
@@ -83,6 +84,9 @@ public final class MockBrowserTab: BrowserTab {
     public private(set) var pendingPrompts: [BrowserPrompt] = []
     public private(set) var commands: [Command] = []
     public private(set) var isClosed = false
+    /// Engine page captures (`snapshot()`) so far; not a command, so it never
+    /// changes a test's command list.
+    @ObservationIgnored public private(set) var snapshotCount = 0
 
     /// Page text used by `find`.
     public var pageText = ""
@@ -202,6 +206,7 @@ public final class MockBrowserTab: BrowserTab {
 
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
+        snapshotCount += 1
         let size = 4
         let context = CGContext(
             data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
