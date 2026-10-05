@@ -24,18 +24,15 @@
 
   const document = global.document;
 
-  // Sealed against other code in this world. Until the driver gives each
-  // session its own world, every session that drives a tab shares this one
-  // and can run any script in it, so the agent keeps what binds refs and
-  // handles to elements out of that code's reach: the agent object and its
-  // global are frozen and permanent, the ref and handle tables are closures
-  // read through the built-ins as they were at install (a later
-  // `Map.prototype.get` or `WeakRef.prototype.deref` does not reach them),
-  // and the ref engine cannot be swapped. Code in this world can still
-  // patch the DOM and the built-ins the rest of the agent and Playwright's
-  // injected script call, so this narrows what another session can forge
-  // (docs/browser-repl/driver-protocol.md, Agent world); only a world per
-  // session closes it.
+  // Sealed against other code in this world. In the app each session has a
+  // world of its own (docs/browser-repl/driver-protocol.md, Agent world), so
+  // another session's code never runs here; the session's own code does,
+  // and in the dev driver every session shares the page's world. So the
+  // agent keeps what binds refs and handles to elements out of that code's
+  // reach: the agent object and its global are frozen and permanent, the
+  // ref and handle tables are closures read through the built-ins as they
+  // were at install (a later `Map.prototype.get` or `WeakRef.prototype.deref`
+  // does not reach them), and the ref engine cannot be swapped.
   const uncurry = (fn) => Function.prototype.call.bind(fn);
   const mapGet = uncurry(Map.prototype.get);
   const mapSet = uncurry(Map.prototype.set);

@@ -35,16 +35,20 @@ final class BrowserReplTabAttachments {
         return attachment
     }
 
-    /// Attaches `sessionID` to `panel`, creating the attachment on first use.
+    /// Attaches `sessionID`, whose page agent lives in `world`, to `panel`,
+    /// creating the attachment on first use.
+    /// - Throws: `limit` when the tab already has as many sessions as
+    ///   ``BrowserReplTabSessionLimit/standard`` allows.
     @discardableResult
     func attach(
         panel: BrowserPanel,
         sessionID: String,
+        world: WKContentWorld,
         sink: @escaping BrowserReplTabEventSink
-    ) -> BrowserReplTabAttachment {
+    ) throws -> BrowserReplTabAttachment {
         let attachment = attachments[panel.id] ?? BrowserReplTabAttachment(panel: panel)
+        try attachment.addSink(sessionID: sessionID, world: world, sink: sink)
         attachments[panel.id] = attachment
-        attachment.addSink(sessionID: sessionID, sink: sink)
         return attachment
     }
 
@@ -257,8 +261,10 @@ final class BrowserReplTabAttachment {
     /// Increments on every request start, so `networkidle` can tell a quiet
     /// period from one where requests started and finished.
     private(set) var requestGeneration = 0
-    /// The page agent's document-start user script in the tab's controller.
-    private let agentUserScript = BrowserReplAgentUserScript()
+    /// Each attached session's agent world (``BrowserReplSessionWorld``)
+    /// and its page agent's document-start user script in the tab's
+    /// controller.
+    private var agentWorlds: [String: (world: WKContentWorld, script: BrowserReplAgentUserScript)] = [:]
 
     init(panel: BrowserPanel) {
         panelID = panel.id
@@ -402,9 +408,15 @@ final class BrowserReplTabAttachment {
         return owner
     }
 
-    func addSink(sessionID: String, sink: @escaping BrowserReplTabEventSink) {
+    func addSink(sessionID: String, world: WKContentWorld, sink: @escaping BrowserReplTabEventSink) throws {
+        // Each session runs its own page agent in every frame the tab
+        // loads, so the sessions on one tab are capped.
+        try BrowserReplTabSessionLimit.standard.admit(sessionID, attached: sinks.keys)
         let wasAttached = isAttached
         sinks[sessionID] = sink
+        if agentWorlds[sessionID] == nil {
+            agentWorlds[sessionID] = (world, BrowserReplAgentUserScript())
+        }
         ownership.attach(sessionID: sessionID)
         syncClipboardOwner()
         instrumentCurrentWebView()
@@ -577,6 +589,10 @@ final class BrowserReplTabAttachment {
         for dialog in dialogs.removeAll(ownedBy: sessionID) { dialog.respond(false, nil) }
         for chooser in fileChoosers.removeAll(ownedBy: sessionID) { chooser.respond(nil) }
         sinks.removeValue(forKey: sessionID)
+        // The session's agent stops loading into the tab's documents; what
+        // it left in loaded ones stays in its world, which no later session
+        // gets (BrowserReplSessionWorld).
+        agentWorlds.removeValue(forKey: sessionID)?.script.release()
         httpCredentials.sessionLeft(sessionID)
         // What the creating session copied or wrote is its own; a session
         // that drives the kept tab later never reads it, and a Copy still
@@ -697,7 +713,8 @@ final class BrowserReplTabAttachment {
         for chooser in fileChoosers.removeAll() { chooser.respond(nil) }
         resetHeldInput()
         uninstrument()
-        agentUserScript.release()
+        for (_, agent) in agentWorlds { agent.script.release() }
+        agentWorlds.removeAll()
         applyContextToWebView()
         releaseRenderHost()
         if let webView = occlusionDisabledWebView {
@@ -957,11 +974,6 @@ final class BrowserReplTabAttachment {
             name: BrowserReplConsoleMessageHandler.name
         )
         consoleHandler = handler
-        webView.configuration.userContentController.add(
-            BrowserReplAgentPresenceHandler(),
-            contentWorld: BrowserReplAgentWorld.world,
-            name: BrowserReplAgentPresenceHandler.name
-        )
     }
 
     private func uninstrument() {
@@ -973,28 +985,27 @@ final class BrowserReplTabAttachment {
                 contentWorld: .page
             )
         }
-        if let webView = instrumentedWebView {
-            webView.configuration.userContentController.removeScriptMessageHandler(
-                forName: BrowserReplAgentPresenceHandler.name,
-                contentWorld: BrowserReplAgentWorld.world
-            )
-        }
         consoleHandler = nil
         instrumentedWebView = nil
     }
 
-    /// Adds the page agent as a document-start user script in every frame's
-    /// agent world, so documents loaded from now on have it before their own
-    /// scripts run. Frames already loaded get it on their first evaluation.
-    func installAgentUserScriptIfNeeded(source: String) {
-        guard let webView = panel?.webView else { return }
-        agentUserScript.install(
+    /// Adds `sessionID`'s page agent as a document-start user script in
+    /// every frame, in that session's agent world, so documents loaded from
+    /// now on have it before their own scripts run. Frames already loaded
+    /// get it on their first evaluation.
+    func installAgentUserScriptIfNeeded(source: String, sessionID: String) {
+        guard let webView = panel?.webView, let agent = agentWorlds[sessionID] else { return }
+        agent.script.install(
             source: source,
-            presenceHandlerName: BrowserReplAgentPresenceHandler.name,
-            world: BrowserReplAgentWorld.world,
+            presenceHandlerName: Self.agentPresenceHandlerName,
+            world: agent.world,
             in: webView.configuration.userContentController
         )
     }
+
+    /// The agent-world message handler whose presence lets an agent's
+    /// document-start script run.
+    private static let agentPresenceHandlerName = "cmuxReplAgent"
 
     /// Requests in flight, or `nil` when the resource load SPI is unavailable.
     var inflightRequestCount: Int? {
@@ -1115,8 +1126,11 @@ final class BrowserReplTabAttachment {
         let id = makeID("c")
         fileChoosers.add(id: id, owner: owner, respond: (respond, frame))
         let frameID = frame.isMainFrame ? nil : BrowserReplFrameTree.frameID(of: frame)
+        let world = agentWorlds[owner]?.world
         Task { @MainActor [weak self] in
-            let element = await self?.chooserElementHandle(in: frame)
+            // The handle is the owner's: its agent, in its own world, knows it.
+            var element: String?
+            if let world { element = await self?.chooserElementHandle(in: frame, world: world) }
             self?.emit(.fileChooserOpened, [
                 "chooserId": id,
                 "frameId": frameID ?? NSNull(),
@@ -1141,14 +1155,14 @@ final class BrowserReplTabAttachment {
     }
 
     /// The agent handle of the file input that opened the chooser.
-    private func chooserElementHandle(in frame: WKFrameInfo) async -> String? {
+    private func chooserElementHandle(in frame: WKFrameInfo, world: WKContentWorld) async -> String? {
         guard let webView = panel?.webView else { return nil }
         let source = "const a = globalThis[\(BrowserReplRuntimeBundle.agentGlobalKeyExpression)]; return a ? a.chooserHandle() : null;"
         let value = try? await webView.browserReplCallAsyncJavaScript(
             source,
             arguments: [:],
             in: frame,
-            contentWorld: BrowserReplAgentWorld.world,
+            contentWorld: world,
             userGesture: false
         )
         return value as? String
@@ -1243,7 +1257,11 @@ final class BrowserReplTabAttachment {
         let recipients = forInputSession.map { id in sinks.filter { $0.key == id } } ?? sinks
         var child: BrowserReplTabAttachment?
         for (sessionID, sink) in recipients {
-            child = BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, sink: sink)
+            // The popup gets the opener's sessions, each in its own agent
+            // world; they are no more than the opener has, so within the
+            // per-tab limit.
+            guard let world = agentWorlds[sessionID]?.world else { continue }
+            child = (try? BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, world: world, sink: sink)) ?? child
         }
         child?.openerTargetID = targetID
         // A popup of a tab a session created is that session's too.
@@ -1544,21 +1562,6 @@ final class BrowserReplDownloadClaimBox: NSObject, @unchecked Sendable {
     }
 }
 
-/// The isolated content world the REPL page agent lives in.
-///
-/// The world is configured to see closed shadow roots
-/// (`_WKContentWorldConfiguration.allowAccessToClosedShadowRoots`, the switch
-/// WebKit gives web extension worlds): in it `element.shadowRoot` returns a
-/// closed root too, so the snapshot, refs and Playwright's selector engines
-/// reach closed components the way an accessibility tree does. Page scripts
-/// in other worlds still see `null`. Without the SPI the world is a plain
-/// named world and closed roots stay hidden.
-enum BrowserReplAgentWorld {
-    static let name = "cmux-agent"
-
-    @MainActor static let world = WKContentWorld.browserReplWorld(seeingClosedShadowRoots: name)
-}
-
 /// Receives console and page error reports from the page telemetry script.
 @MainActor
 final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
@@ -1595,18 +1598,6 @@ final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
             break
         }
     }
-}
-
-/// Marks, in the agent world, that a REPL session is attached; the agent's
-/// document-start script installs itself only while this handler exists.
-@MainActor
-final class BrowserReplAgentPresenceHandler: NSObject, WKScriptMessageHandler {
-    static let name = "cmuxReplAgent"
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {}
 }
 
 /// Playwright browser-context options a REPL session applies to the tabs it

@@ -15,9 +15,9 @@ same way Playwright builds its API on a browser protocol. Drivers:
 In the app, calls are synchronous-looking JSON messages between the REPL's
 JavaScriptCore context and Swift; results are JSON. Errors are
 `{ code, message }`, with codes `not_found`, `stale`, `timeout`,
-`unsupported`, `invalid`, `closed`, `blocked`, `denied`, `hibernated` and `crashed`
-(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs), and
-[Tabs](#tabs) for `denied`).
+`unsupported`, `invalid`, `closed`, `blocked`, `denied`, `limit`, `hibernated` and `crashed`
+(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs),
+[Tabs](#tabs) for `denied`, and [Agent world](#agent-world) for `limit`).
 
 Coordinates are CSS pixels relative to the top-left of the tab's viewport
 (main frame), matching Playwright `page.mouse` and screenshots at scale 1.
@@ -202,7 +202,8 @@ ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<t
 | `frame.evaluate` | `{ targetId, frameId, world: "agent"\|"page", source, args, awaitPromise, timeoutMs }` | JSON-serializable return value |
 | `frame.ownerBox` | `{ targetId, frameId }` | owner `<iframe>` content box in parent-frame coordinates |
 
-`world: "agent"` runs in an isolated content world where the driver has
+`world: "agent"` runs in the session's own isolated content world (see
+[Agent world](#agent-world)) where the driver has
 already installed the page agent (`Resources/browser-repl/page-agent.js`) and
 Playwright's injected script. Cross-origin frames are reachable. `source` is a
 function expression called with `args`; text that is not one expression on
@@ -211,7 +212,7 @@ frame navigates; after navigation the driver reinstalls it before the next call.
 
 Input to an element in a child frame goes to the tab at the element's point
 plus each owner `<iframe>`'s content box, found in the parent frame's agent
-world through the `<iframe>` element that `frame.contentFrame` confirms shows
+world (the session's) through the `<iframe>` element that `frame.contentFrame` confirms shows
 the frame: the one a locator entered the frame through, else the one the
 frame's own place in the parent's `window.frames` names. A frame in a shadow
 tree is not listed there; its `<iframe>` is looked for in at most 250000
@@ -229,7 +230,8 @@ once more (the move before it, or the press before a second one, runs page
 handlers that can put another element or frame at the point): the
 runtime's `input.mouse` `down` names the target and each parent frame's
 `<iframe>` (`expect`), and the driver checks them in each frame's agent
-world in the web content process right before it sends the press, then
+world (the session's own, where its handles live and no other session's
+code runs) in the web content process right before it sends the press, then
 sends it as soon as the last check answers, without another suspension.
 When any changed it sends no press and fails with `stale` (`no press was
 sent: …`), and so does the click. Residual: WebKit runs no script between
@@ -966,26 +968,46 @@ when present.
 
 ### Agent world
 
-- The world is `WKContentWorld.world(name: "cmux-agent")`. Scripts are added to
-  a tab's `WKUserContentController` (document start, all frames) when a
-  session first touches the tab; frames that loaded earlier get the scripts on
-  the first `frame.evaluate`.
-- One world serves every session that drives the tab, and `frame.evaluate`
-  runs any `source` there, so one session's code shares it with another's
-  agent. The agent seals what it can against that code: the agent object
-  and `__cmuxPageAgent` are frozen and their globals permanent, the
-  `labels` and `shadowRoot` getters it installs cannot be replaced, the
-  ref and handle tables are closures read through the built-ins captured
-  at install (a later `Map.prototype.get` or `WeakRef.prototype.deref`
-  does not reach them), the `aria-ref` engine cannot be swapped, and
-  Playwright's injected script is not exported. This is narrowing, not
-  isolation: code there can still patch the DOM and the built-ins the
-  rest of the agent and the injected script call (a patched
-  `getBoundingClientRect` or `Array.prototype.filter` can still mislead
-  another session's read, locator or click point). Closing it needs a
-  world per session (`cmux-agent-<session>`, the agent installed in each)
-  and a private world for the driver's own guards, which no session's
-  `source` reaches.
+- Each session has a content world of its own, `cmux-agent-<random>`
+  (`BrowserReplSessionWorld`), in every tab it drives. Its page agent, refs
+  and handles live there, and `frame.evaluate` with `world: "agent"` runs
+  there; any other `world` value runs in the page's world. Two sessions that
+  drive one tab share nothing in the agent world: one session's code that
+  patches built-ins (`WeakRef.prototype.deref`, `Map.prototype.get`,
+  `Array.prototype.filter`), DOM prototypes (`getBoundingClientRect`,
+  `elementFromPoint`), `window.frames` or the agent object changes only its
+  own world, never another session's refs, handles, hit tests, press checks
+  or frame positions. The world sees closed shadow roots (see README,
+  Snapshot).
+- The driver's own scripts run in private worlds that no session's
+  `source` reaches: the frame gate's document, focus and frame-box probes,
+  frame binding's child reports, `tab.info`, frame names, load waits, the
+  screenshot's viewport read and the selection reads of the clipboard
+  fallback (`cmux-driver`), capture masks (`cmux-capture-mask`) and the
+  copy listener (`cmux-repl-copy-probe`). What reads the session's own
+  handles runs in the session's world: element actions, the press check,
+  `frame.contentFrame(s)`, `frame.ownerBox`, `input.setFiles`, the file
+  chooser's element and the rich-text check of `input.insertText` (that
+  world sees closed shadow roots); code there is the session's own.
+- A world's name is used once. WebKit hands a named world back by name while
+  anything holds it and has no call that clears what a world holds in a
+  loaded document, so a name is never pooled: a session never gets a world
+  an ended session used, nor what it left in a page.
+- Scripts are added to a tab's `WKUserContentController` (document start,
+  all frames), one per session world, when a session first touches the tab;
+  frames that loaded earlier get the scripts on the first `frame.evaluate`.
+  Each script runs only while its world has the `cmuxReplAgent` message
+  handler, added and removed with it; both leave the controller when the
+  session detaches from the tab. What a session's agent left in documents
+  already loaded stays in its world, which no later session gets, until
+  they navigate.
+- Each session runs its own agent (about 400 KB of script) in every frame
+  of every document the tab loads, so at most 4 sessions drive one tab at
+  once (`BrowserReplTabSessionLimit`, measured in
+  [performance.md](performance.md#agent-worlds)). A fifth session's call on
+  the tab fails with `limit` (`REPL session limit: sessions driving one tab
+  at most 4 at once (4 held, this needs 1 more); …`) and the tab is not
+  attached; it attaches once one of the four ends.
 - `frame.evaluate` sends `source` as `(<source>)(...args)` through
   `callAsyncJavaScript`, so `awaitPromise` is always true on WebKit.
 - `frameId` values are opaque strings. `null`/omitted means the main frame.

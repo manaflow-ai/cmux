@@ -119,11 +119,14 @@ console.log(JSON.stringify({ authorization: h.authorization || null, probe: h["x
   }
 });
 
-// Two sessions that drive one user's tab share its page agent (one agent
-// world per tab until the driver gives each session its own). Code of one
-// session in that world must not change what the agent answers the other:
-// its methods, its global, the ref engine, the handle resolver the driver
-// uses, and the tables that bind refs and handles to elements are sealed.
+// In the app two sessions that drive one user's tab each have an agent world
+// of their own, so one's code never reaches the other's agent, built-ins or
+// DOM wrappers (BrowserReplSessionWorldTests runs that in real WebKit). The
+// dev driver has no content worlds: every session's agent lives in the
+// page's main world, where a session's patched built-ins (deref, mapGet
+// below) do apply. Here the agent's own sealing must hold: its methods, its
+// global, the ref engine, the handle resolver the driver uses, and the
+// tables that bind refs and handles to elements.
 test("another session's code in the agent world cannot redirect a session's refs and actions", async () => {
   const servers = await startFixtureServers();
   const { primary } = servers.origins;

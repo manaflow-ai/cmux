@@ -411,6 +411,15 @@ rest. Measurements: [performance.md](performance.md).
 - A cell times out after 120 s by default; `--timeout <ms>` (the socket's
   `timeout_ms`) asks for at most 600000 (10 minutes), and a longer one is
   refused before the cell runs, since a running cell holds the session.
+- At most 4 sessions drive one tab at once. Each session's page agent,
+  refs and handles live in a content world of its own in every tab it
+  drives, so code one session runs in its agent world (patched built-ins,
+  DOM prototypes, the agent object) never changes another session's refs,
+  hit tests or clicks; the driver's own checks run in worlds no session's
+  code reaches ([Agent world](driver-protocol.md#agent-world)). Each world
+  runs its own agent in every frame the tab loads, so a fifth session's call
+  on the tab fails with `limit`, naming the limit, until one of the four
+  ends.
 - A session runs one cell at a time; cells sent meanwhile (callers that
   share a named session) wait in order. At most 64 wait, holding at most
   64 MiB of source together; one more fails at once with an error that
@@ -612,6 +621,7 @@ checks nothing stays reserved after the session ends.
 | A screenshot / PDF | 16,384 CSS pixels an edge and 33,554,432 pixels / 14,400-point edges | `invalid` |
 | An owner token / a working directory | 128 bytes / 1,024 bytes (`PATH_MAX`) | refused before a session is made |
 | Sessions in one cmux instance | 32 | the next is refused |
+| Sessions driving one tab | 4 at once | the next session's call on the tab fails with `limit` |
 | Secrets per session | 256, each at most 4 KiB with 64 domains | refused, naming the limit |
 | Domain policy | 1,024 patterns per list, 1,024 bytes a pattern | `invalid`, naming the limit |
 

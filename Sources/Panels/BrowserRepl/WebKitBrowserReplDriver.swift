@@ -59,6 +59,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }()
     /// Ties `<iframe>` elements to their child frames' ids.
     @MainActor private lazy var frameBinding = BrowserReplFrameBinding(world: BrowserReplDriverWorld.world)
+    /// This session's own agent world, in every tab it drives: its page
+    /// agent, refs and handles, and its `frame.evaluate` with
+    /// `world: "agent"`. No other session's code runs there, and none of
+    /// this session's code runs in the driver's guard worlds.
+    @MainActor private lazy var sessionWorld = BrowserReplSessionWorld()
 
     // Main-actor state.
     private var activeTargetID: String?
@@ -363,9 +368,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
            let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
            let panel = try? reachablePanel(id) {
             // Attaching keeps the tab rendering, which starts the restore of
-            // a hibernated page (BrowserReplTabAttachment.keepRendering).
-            attach(panel)
-            tabToPrepare = panel
+            // a hibernated page (BrowserReplTabAttachment.keepRendering). A
+            // tab with as many sessions as it allows is not prepared; the
+            // call fails with `limit` when it looks the tab up.
+            if (try? attach(panel)) != nil { tabToPrepare = panel }
         }
         defer {
             // A pane that shows a mirror of this tab gets the page's new look.
@@ -690,7 +696,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func panel(_ params: [String: Any]) throws -> BrowserPanel {
         let panel = try existingPanel(params)
-        attach(panel).keepRendering()
+        try attach(panel).keepRendering()
         return panel
     }
 
@@ -864,12 +870,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         )
     }
 
+    /// - Throws: `limit` when the tab already has as many sessions as it
+    ///   allows (``BrowserReplTabSessionLimit``).
     @MainActor
     @discardableResult
-    private func attach(_ panel: BrowserPanel) -> BrowserReplTabAttachment {
+    private func attach(_ panel: BrowserPanel) throws -> BrowserReplTabAttachment {
         // The tab carries this session's options only if this session
         // created it (BrowserReplTabAttachment.contextOptions).
-        BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID) { [weak self] name, payload in
+        try BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID, world: sessionWorld.agent) { [weak self] name, payload in
             self?.forward(name, payload)
         }
     }
@@ -979,7 +987,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func attachment(_ panel: BrowserPanel) -> BrowserReplTabAttachment {
-        BrowserReplTabAttachments.shared.attachment(for: panel.id) ?? attach(panel)
+        if let attachment = BrowserReplTabAttachments.shared.attachment(for: panel.id) { return attachment }
+        // No session drives the tab, so the per-tab limit admits this one;
+        // the unregistered attachment after it is never reached.
+        return (try? attach(panel)) ?? BrowserReplTabAttachment(panel: panel)
     }
 
     @MainActor
@@ -1127,7 +1138,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
               ) else {
             throw Self.error("invalid", "Could not open a browser tab")
         }
-        attach(panel).markCreated(by: sessionID)
+        try attach(panel).markCreated(by: sessionID)
         openedTargetIDs.append(panel.id)
         applySessionLabel(to: panel.id)
         if params["background"] as? Bool != true {
@@ -1442,7 +1453,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                         script,
                         arguments: [:],
                         in: nil,
-                        contentWorld: BrowserReplAgentWorld.world,
+                        contentWorld: BrowserReplDriverWorld.world,
                         userGesture: false
                     )
                     break
@@ -1510,7 +1521,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 arguments: [:],
                 in: webView,
                 frame: mainFrame,
-                contentWorld: BrowserReplAgentWorld.world
+                contentWorld: BrowserReplDriverWorld.world
             )
             return value as? [Any]
         } ?? nil
@@ -1618,7 +1629,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                         arguments: [:],
                         in: webView,
                         frame: frame,
-                        contentWorld: BrowserReplAgentWorld.world
+                        contentWorld: BrowserReplDriverWorld.world
                     )) as? String
                 } ?? nil
             }
@@ -1675,7 +1686,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let handles = params["handles"] as? [String] ?? []
         let timeout = (params["timeoutMs"] as? NSNumber)?.intValue ?? 0
         let run: @MainActor () async throws -> Any? = { [self] in
-            if world == "agent" {
+            if sessionWorld.evaluationWorld(world) === sessionWorld.agent {
                 return try await self.evaluateInAgentWorld(panel, frame, source: source, args: args, handles: handles)
             }
             return try await self.evaluateInPageWorld(panel, frame, source: source, args: args, handles: handles)
@@ -1708,7 +1719,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             requiresAgent: true,
             elementsExpression: "__handles.map((h) => __agent.element(h))"
         )
-        return try await runEvaluation(panel, frame, body: body, world: BrowserReplAgentWorld.world, args: args, handles: handles)
+        return try await runEvaluation(panel, frame, body: body, world: sessionWorld.agent, args: args, handles: handles)
     }
 
     /// Page-world evaluation. Element handles live in the agent world, so they
@@ -1761,7 +1772,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 panel,
                 frame,
                 body: "const __key = \(JSONSerialization.browserReplString(key) ?? "\"\"");\n" + dispatch,
-                world: BrowserReplAgentWorld.world,
+                world: sessionWorld.agent,
                 args: [],
                 handles: handles
             )
@@ -1843,11 +1854,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let source = bundle.agentInstallSource else {
             throw Self.error("unsupported", "The browser REPL page agent is not bundled")
         }
-        attachment(panel).installAgentUserScriptIfNeeded(source: source)
+        attachment(panel).installAgentUserScriptIfNeeded(source: source, sessionID: sessionID)
         do {
             // Without a user gesture: the agent's own code in that world may
             // have replaced what the install script calls.
-            _ = try await panel.webView.browserReplEvaluateJavaScriptWithoutGesture(source, in: frame.info, contentWorld: BrowserReplAgentWorld.world)
+            _ = try await panel.webView.browserReplEvaluateJavaScriptWithoutGesture(source, in: frame.info, contentWorld: sessionWorld.agent)
         } catch {
             // Scripts that end in an expression WebKit cannot serialize still
             // installed; the next evaluation tells whether the agent exists.
@@ -1917,13 +1928,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 parentID: parent.frameID,
                 in: webView,
                 readTree: { await BrowserReplFrameTree.frames(of: webView) },
-                body: { [frameGate] positions in
+                body: { [frameGate, world = sessionWorld.agent] positions in
+                    // The session's world sees closed shadow roots, where
+                    // the frame element may be.
                     let value = try await frameGate.callAsyncJavaScript(
                         script,
                         arguments: ["__index": positions[child.frameID] ?? -1],
                         in: webView,
                         frame: parent,
-                        contentWorld: BrowserReplAgentWorld.world
+                        contentWorld: world
                     ) as? [String: Any]
                     return (value?["box"], (value?["length"] as? NSNumber)?.intValue ?? -1)
                 }
@@ -1970,7 +1983,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             in: webView,
             readTree: { await BrowserReplFrameTree.frames(of: webView) },
             body: { [self] _ in
-                let raw = try await runEvaluation(panel, frame, body: body, world: BrowserReplAgentWorld.world, args: [], handles: elements)
+                let raw = try await runEvaluation(panel, frame, body: body, world: self.sessionWorld.agent, args: [], handles: elements)
                 guard let text = (raw as? BrowserReplRawJSON)?.text,
                       let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
                       let positions = object["positions"] as? [NSNumber],
@@ -2086,13 +2099,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 // suspension (BrowserReplPressTarget.verify).
                 let frames = await BrowserReplFrameTree.frames(of: webView)
                 do {
-                    try await pressTarget.verify(frames: frames) { [frameGate] body, arguments, frame in
+                    // In this session's world, where its handles live and
+                    // no other session's code runs.
+                    try await pressTarget.verify(frames: frames) { [frameGate, world = sessionWorld.agent] body, arguments, frame in
                         try await frameGate.callAsyncJavaScript(
                             body,
                             arguments: arguments,
                             in: webView,
                             frame: frame,
-                            contentWorld: BrowserReplAgentWorld.world
+                            contentWorld: world
                         )
                     }
                 } catch {
@@ -2298,7 +2313,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             """,
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world,
+            contentWorld: BrowserReplDriverWorld.world,
             userGesture: false
         )
         return (result as? Bool) ?? true
@@ -2325,7 +2340,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 """,
                 arguments: [:],
                 in: nil,
-                contentWorld: BrowserReplAgentWorld.world,
+                contentWorld: BrowserReplDriverWorld.world,
                 userGesture: false
             ) as? String
             let text = selection ?? ""
@@ -2339,7 +2354,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 .flatMap { ($0["base64"] as? String).flatMap { Data(base64Encoded: $0) } }
                 .map { String(decoding: $0, as: UTF8.self) }
             if let text, !text.isEmpty {
-                try? await BrowserReplNativeInput.insertText(text, into: webView)
+                // No session's world here (`cmux browser press` has none):
+                // the focus is read in the driver's own.
+                try? await BrowserReplNativeInput.insertText(text, into: webView, world: BrowserReplDriverWorld.world)
             }
             return nil
         }
@@ -2614,7 +2631,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             )
         }
         try await withWindow(panel) { webView, _ in
-            try await BrowserReplNativeInput.insertText(text, into: webView, checkTarget: checkTarget)
+            try await BrowserReplNativeInput.insertText(text, into: webView, world: sessionWorld.agent, checkTarget: checkTarget)
             await BrowserReplNativeInput.roundTrip(webView)
         }
         return nil
@@ -2709,7 +2726,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             requiresAgent: true,
             elementsExpression: "__handles.map((h) => __agent.element(h))"
         )
-        _ = try await runEvaluation(panel, frame, body: body, world: BrowserReplAgentWorld.world, args: [files], handles: [element])
+        _ = try await runEvaluation(panel, frame, body: body, world: sessionWorld.agent, args: [files], handles: [element])
         return nil
     }
 
