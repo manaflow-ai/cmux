@@ -133,7 +133,6 @@ extension AgentTabStore {
         if let value = newTabPages.removeValue(forKey: key) { newTabPages[real] = value }
         if let value = seeds.removeValue(forKey: key) { seeds[real] = value }
         if let value = pendingTurns.removeValue(forKey: key) { pendingTurns[real] = value }
-        if let value = sentSessions.removeValue(forKey: key) { sentSessions[real] = value }
         if linkedSessions.remove(key) != nil { linkedSessions.insert(real) }
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
         if let store = tabStores.removeValue(forKey: key) { tabStores[real] = store }
@@ -142,8 +141,9 @@ extension AgentTabStore {
     }
 
     /// The page of tab `key` reported `session` (a new chat started, or the user changed the chat
-    /// in this tab): a compare-and-swap from the session the store last had. A session changed
-    /// elsewhere meanwhile is refused with a reason; the next change expects the store's.
+    /// in this tab): a compare-and-swap from the session the tab shows, as a store intent
+    /// (`Intent.bindAgentSession`): the record shows the new session at once, and a refusal (a
+    /// change another device made first) removes it again with a reason.
     func sendSession(_ session: String, for key: String) {
         // Not created yet: the creation answer binds it (``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)``).
         guard !ProvisionalTab.isProvisional(key) else { return }
@@ -159,22 +159,23 @@ extension AgentTabStore {
             }
             return
         }
-        // A sent session the store now shows is settled.
-        if let sent = sentSessions[key], record.session == sent { sentSessions[key] = nil }
-        let expected = sentSessions[key] ?? record.session
-        guard expected != session else { return }
-        sentSessions[key] = session
-        bind(key, expected, session) { [weak self] outcome in
-            guard let self, sentSessions[key] == session else { return }
+        // The record the tab shows already holds every pending bind: the next one expects it.
+        let expected = record.session
+        guard expected != session, let store = lookup(key)?.store, let surface = store.tab(id: key)?.surface else { return }
+        let transaction = ClientTransactionID.generate()
+        store.intend(.bindAgentSession(surface: surface, session: session), transaction: transaction)
+        // task-owner: one compare-and-swap; its answer settles or rejects the intent
+        Task { [weak self] in
+            let (outcome, sequence) = await self?.bind(key, surface, expected, session) ?? (.failed, nil)
             switch outcome {
             case .taken:
-                break // kept until the store's record shows it, so the next change expects it
+                if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
             case .conflict:
-                sentSessions[key] = nil
-                actionRegistry?.refuse(RefusalStrings.agentTabSessionConflict)
+                store.rejectIntent(transaction)
+                self?.actionRegistry?.refuse(RefusalStrings.agentTabSessionConflict)
             case .failed:
-                sentSessions[key] = nil
-                actionRegistry?.refuse(RefusalStrings.agentTabSessionNotSaved)
+                store.rejectIntent(transaction)
+                self?.actionRegistry?.refuse(RefusalStrings.agentTabSessionNotSaved)
             }
         }
     }
@@ -223,7 +224,6 @@ extension AgentTabStore {
         notices[key] = nil
         pendingCloses[key] = nil
         sessions[key] = nil
-        sentSessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
         adoptions = adoptions.filter { $0.value != key }
