@@ -46,7 +46,11 @@ extension CloseTabWarningReading {
                 kinds.insert(.tab)
             }
         }
-        if source == .tabCloseButton && warnsBeforeClosingTabXButton {
+        // An active agent gets one agent-specific dialog. The ordinary
+        // tab-close-button warning still applies to idle agents and every
+        // non-agent tab, but must not stack another suppression choice onto
+        // the agent warning.
+        if !isAgentSession && source == .tabCloseButton && warnsBeforeClosingTabXButton {
             kinds.insert(.tabCloseButton)
         }
         return kinds

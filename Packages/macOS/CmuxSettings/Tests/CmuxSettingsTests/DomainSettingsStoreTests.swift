@@ -456,6 +456,29 @@ struct CloseTabConfirmationPolicyTests {
         #expect(agentOn.warningKindsIncludingSafety(requiresConfirmation: true, source: .shortcut, isAgentSession: true) == [.agentSession])
     }
 
+    @Test func activeAgentUsesOnlyAgentWarningOnTabCloseButton() {
+        let warnings = FixedWarnings(
+            warnsBeforeClosingTab: true,
+            warnsBeforeClosingTabXButton: true,
+            warnsBeforeClosingAgentSession: true
+        )
+
+        #expect(
+            warnings.warningKindsIncludingSafety(
+                requiresConfirmation: true,
+                source: .tabCloseButton,
+                isAgentSession: true
+            ) == [.agentSession]
+        )
+        #expect(
+            warnings.warningKindsIncludingSafety(
+                requiresConfirmation: true,
+                source: .tabCloseButton,
+                isAgentSession: false
+            ) == [.tabCloseButton, .safety]
+        )
+    }
+
     @Test func agentDontAskAgainDoesNotDisableOrdinaryTabWarning() {
         let defaults = makeScratchDefaults()
         let store = CloseTabWarningStore(defaults: defaults)
