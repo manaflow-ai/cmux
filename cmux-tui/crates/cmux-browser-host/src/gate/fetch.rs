@@ -47,10 +47,24 @@ pub(super) struct FetchSlots {
     live: std::collections::HashMap<String, u64>,
     /// Cells whose timeout cancelled their fetches.
     cancelled: std::collections::HashSet<u64>,
+    /// Fetches waiting for a slot, per cell.
+    waiting: std::collections::HashMap<u64, usize>,
     next_id: u64,
 }
 
 impl FetchSlots {
+    /// Cells kept as timed out (a test bound).
+    #[cfg(test)]
+    pub(super) fn cancelled_cells(&self) -> usize {
+        self.cancelled.len()
+    }
+
+    /// Fetches of `cell` that wait for a slot (tests).
+    #[cfg(test)]
+    pub(super) fn waiting(&self, cell: u64) -> usize {
+        self.waiting.get(&cell).copied().unwrap_or(0)
+    }
+
     /// Why a fetch of `cell` may not run, if it may not.
     fn refusal(&self, cell: u64) -> Option<DriverError> {
         if self.ended {
