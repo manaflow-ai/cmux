@@ -112,11 +112,9 @@ mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
+mod browser_host_command;
 mod browser_profiles;
-mod capabilities;
-#[cfg(test)]
-use capabilities::advertised_capabilities;
-use capabilities::identify_capabilities;
+pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_conversations;
 mod conversation_tabs_wire;
@@ -164,7 +162,11 @@ mod terminal_history;
 mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
+mod capabilities;
 mod url_open;
+#[cfg(test)]
+use capabilities::advertised_capabilities;
+use capabilities::identify_capabilities;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -843,7 +845,7 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
 }
 
 #[cfg(unix)]
-fn unix_socket_path_fits(path: &Path) -> bool {
+pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
     cmux_unix_socket::fits(path)
 }
 
@@ -1027,6 +1029,7 @@ fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> T
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    BrowserHostProvider,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
         terminal_ids: Vec<String>,
@@ -1041,6 +1044,13 @@ enum Command {
     UrlOpenResult {
         request_id: String,
         opened: bool,
+    },
+    TerminalClipboardSubscribe {
+        terminal_ids: Vec<String>,
+    },
+    TerminalClipboardReply {
+        request_id: String,
+        text: Option<String>,
     },
     PasteImage {
         surface: SurfaceId,
@@ -1407,7 +1417,6 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
-    /// `conversation-tabs-v1`, `agent-session-tabs-v1` (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
@@ -3643,12 +3652,6 @@ struct MessageWriter {
 }
 
 impl MessageWriter {
-    fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
-        self.send_control(&json!({
-            "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
-        }))
-    }
-
     #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
         Self::new_with_render_service(sink, Arc::new(RenderService::new()))
@@ -5197,11 +5200,13 @@ pub(crate) struct ClientRegistry {
     /// reaper starts that terminal's unattached period).
     detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
+    pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
     origin_clock: crate::request_origin::OriginClock,
+    pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     app_trust: app_trust::AppTrust,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
@@ -5215,10 +5220,12 @@ impl ClientRegistry {
             detach_waker: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
+            clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
             origin_clock: Default::default(),
+            browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
@@ -6262,6 +6269,7 @@ impl ClientRegistry {
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
+        self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
         self.apps.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
@@ -12698,15 +12706,12 @@ fn handle_command_with_cancellation(
         return remote;
     }
     match cmd {
-        Command::UrlOpenSubscribe { terminal_ids } => {
-            mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
-            Ok(json!({"url_open_ready": true}))
-        }
-        Command::UrlOpenClaim { request_id } => {
-            Ok(json!({"claimed": mux.control_clients.url_opens.claim(&request_id)}))
-        }
-        Command::UrlOpenResult { request_id, opened } => {
-            Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
+        cmd @ (Command::UrlOpenSubscribe { .. }
+        | Command::UrlOpenClaim { .. }
+        | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
+        cmd @ (Command::TerminalClipboardSubscribe { .. }
+        | Command::TerminalClipboardReply { .. }) => {
+            clipboard_read::handle(mux, client, cmd, writer)
         }
         Command::UrlOpen { .. } => {
             anyhow::bail!("URL opening requires the asynchronous request path")
@@ -12746,6 +12751,7 @@ fn handle_command_with_cancellation(
             }
             Ok(serde_json::to_value(server_stats(mux))?)
         }
+        Command::BrowserHostProvider => browser_host_command::run(mux, client),
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({

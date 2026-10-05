@@ -63,7 +63,7 @@ struct AgentTabStoreTests {
     @Test func aRefusedCreationRemovesTheTabShownAtOnce() async throws {
         let fixture = try AgentTabFixture()
         fixture.holdCreate = { }
-        fixture.tabs.create = { _, _, _, _ in throw DaemonError.notConnected }
+        fixture.tabs.create = { _, _, _, _, _ in throw DaemonError.notConnected }
         let pending = try fixture.tabs.open(in: 3, of: fixture.service, session: "s-1")
         #expect(fixture.shownAgentTabs.count == 1, "shown before the store answers")
         await #expect(throws: DaemonError.self) { _ = try await pending.value() }
@@ -149,6 +149,30 @@ struct AgentTabStoreTests {
 
 @MainActor
 struct AgentTabLifecycleTests {
+    @Test func aSettledBlankChatKeepsItsConversionAndProjectActions() async throws {
+        let fixture = try AgentTabFixture()
+        try AgentTabFixture.connect(fixture.daemon)
+        var opened: [String] = []
+        fixture.tabs.blankChatHandler = { [weak fixture] key in
+            guard fixture?.daemon.tab(id: key) != nil else { return nil }
+            return NewTabPageHandler(
+                open: { key, _ in opened.append(key) },
+                jump: { _, _ in }, editShortcut: { _ in }, setDefaultKind: { _ in },
+                listProjects: { _ in ["/project"] }
+            )
+        }
+        let pending = try fixture.tabs.open(in: 3, of: fixture.service)
+        let view = try #require(fixture.tabs.view(for: pending.key))
+        let created = try await pending.value()
+        fixture.tabs.releaseGoneTabs(in: fixture.daemon)
+
+        _ = await view.model.respond(to: .openTab(.terminal, text: "", cwd: nil, search: false, run: false))
+        #expect(opened == [created.key])
+        let reply = await view.model.respond(to: .listProjects(nil))
+        let projects = (reply["value"] as? [String: Any])?["projects"] as? [String]
+        #expect(projects == ["/project"])
+    }
+
     /// A tab closed out of sight (the CLI, another client, its pane closing) lets its page go
     /// once its tree is live without it; a tree from a daemon that is away is not trusted.
     @Test func aTabTheStoreNoLongerListsLetsItsViewGo() async throws {

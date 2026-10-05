@@ -41,7 +41,7 @@ public protocol OnboardingServices: AnyObject {
     func applyAppearance(themeName: String?, density: Density)
 
     // Projects
-    /// The folders the user's coding agents worked in, best first (`AgentProjectScan`).
+    /// Recent project folders, best first (`RecentProjectScan`).
     func scanAgentProjects() async -> [AgentProject]
     /// A folder from the open panel, or nil when the user cancels.
     func chooseFolder() async -> URL?

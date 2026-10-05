@@ -61,10 +61,12 @@ nonisolated extension OmnibarStep {
             return
         }
         if state.keyword != nil { return commitKeyword(keywordCommitText, disposition) }
+        if let row = chosenRow, row.kind == .switchToTab, let key = row.tabKey { return switchToTab(row, key: key, disposition) }
         guard let destination = commitDestination else {
             effects.append(.beep)
             return
         }
+        if let typed = typedDestination, typed == destination { effects.append(.typedNavigation(typed)) }
         commit(destination, disposition)
     }
 
@@ -199,6 +201,8 @@ nonisolated extension OmnibarStep {
             return
         }
         if state.keyword != nil { return commitKeyword(OmnibarRules.fillText(for: state.popup.rows[row]), disposition) }
-        commit(state.popup.rows[row].url, disposition)
+        let chosen = state.popup.rows[row]
+        if chosen.kind == .switchToTab, let key = chosen.tabKey { return switchToTab(chosen, key: key, disposition) }
+        commit(chosen.url, disposition)
     }
 }

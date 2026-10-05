@@ -68,7 +68,10 @@ struct AgentCursorSnapshotBuilder {
                 if let pane = pane(location.pane, target: target, content: content, space: space) { panes = [pane] }
             } else {
                 let sidebar = controller.sidebar.container.sidebarView
-                if let row = SidebarRowAnchor.workspaceRow(SidebarWorkspaceID(location.workspace), in: sidebar) {
+                // The home workspace has no list row while the Home item shows: that item is its row.
+                let isHome = services.home.homeWorkspace?.id == location.workspace
+                if let row = SidebarRowAnchor.workspaceRow(SidebarWorkspaceID(location.workspace), in: sidebar)
+                    ?? (isHome ? SidebarRowAnchor.layoutItem(SidebarLayoutDocument.homeRef, in: sidebar) : nil) {
                     rows[location.workspace] = AgentCursorRect(space.rect(row, from: sidebar))
                 }
             }

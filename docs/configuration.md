@@ -507,3 +507,44 @@ Behavior notes:
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux agent hook install claude`.
+
+## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
+
+The address bar's search engine and suggestions. Settings > Browser > Address Bar
+shows the same keys.
+
+```jsonc
+{
+  "browser": {
+    "searchEngine": "google",
+    "customSearchEngine": {
+      "search": "https://example.com/search?q=%s",
+      "suggest": "https://example.com/suggest?q=%s"
+    },
+    "omnibar": {
+      "remoteSuggestions": true,
+      "inlineAutocomplete": true,
+      "maxRows": 8
+    }
+  }
+}
+```
+
+- `searchEngine`: `google` (default), `duckduckgo`, `bing`, `brave`, `kagi` or `custom`.
+  Each built-in engine also gives search suggestions.
+- `customSearchEngine.search`: the search address used when `searchEngine` is `custom`.
+  Put `%s` or `{searchTerms}` where the typed text goes. Without one, cmux uses Google.
+- `customSearchEngine.suggest`: optional suggest address that answers in the OpenSearch
+  suggestions format (`["query", ["suggestion", ...]]`), with the same placeholder.
+- `omnibar.remoteSuggestions`: send what you type to the search engine for suggestions.
+  Default: `true`. cmux never sends text that reads as an address, a file path, an IP
+  address, `localhost` or a `host:port`, or text longer than 2,048 characters. Requests
+  start 40 ms after the last keystroke and stop after 800 ms. Private (incognito) windows
+  follow this setting over an ephemeral session that keeps no cookies or cache.
+- `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
+  when the text is the start of the host and you typed that address before or visited it
+  at least 4 times. Default: `true`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+
+Agents (MCP `settings_set`) may change `inlineAutocomplete` and `maxRows`; the search
+engine and remote suggestions decide what leaves the Mac, so only you change them.

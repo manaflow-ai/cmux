@@ -10,16 +10,25 @@ extension BrowserChromeView {
     /// draw above the chrome; the pill is one of their occlusion rects, so
     /// it shows over them too.
     public func showNotice(_ text: String) {
+        showNotice(text, action: nil)
+    }
+
+    /// Shows `text` with one action button (`title`, `run`), or none.
+    public func showNotice(_ text: String, action: (title: String, run: () -> Void)?) {
         let notice = currentNotice ?? makeNotice()
         notice.text = text
+        notice.action = action
         needsLayout = true
     }
+
+    /// The notice's action title on screen (tests, diagnostics).
+    public var noticeActionTitle: String? { currentNotice?.action?.title }
 
     /// Removes the notice, if any.
     public func hideNotice() {
         guard let notice = currentNotice else { return }
         notice.isDismissing = true
-        Motion.animate(.fadeOut, { notice.animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.animate(.fadeOut, in: notice, { notice.animator().alphaValue = 0 }, completion: { [weak self] in
             notice.removeFromSuperview()
             self?.needsLayout = true
         })
@@ -43,7 +52,7 @@ extension BrowserChromeView {
             notice.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: inset),
         ])
         notice.alphaValue = 0
-        Motion.animate(.fadeIn) { notice.animator().alphaValue = 1 }
+        Motion.animate(.fadeIn, in: notice) { notice.animator().alphaValue = 1 }
         return notice
     }
 }

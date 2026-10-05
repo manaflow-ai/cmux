@@ -1,0 +1,27 @@
+[package]
+name = "cmux-app-ffi"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core and the sidebar layout reducer"
+
+# Own workspace, like its members: built only for the app xcframework
+# (scripts/cmux-next/build-app-ffi.sh), so cmux-tui workspace builds and
+# cmux-tui/Cargo.lock do not change.
+[workspace]
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+cmux-rd-ffi = { path = "../cmux-rd-ffi" }
+cmux-layout-reducer-ffi = { path = "../cmux-layout-reducer-ffi" }
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+debug = false
+strip = "debuginfo"
+lto = "off"

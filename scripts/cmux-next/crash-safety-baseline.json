@@ -27,7 +27,7 @@
    "cmux-tasks-core": 25,
    "cmux-tui": 195,
    "cmux-tui-cdp": 3,
-   "cmux-tui-core": 300,
+   "cmux-tui-core": 299,
    "cmux-unix-socket": 1,
    "cmux-wg": 15,
    "ghostty-vt": 3
@@ -45,7 +45,7 @@
    "ghostty-vt": 1
   },
   "unwrap": {
-   "acpmux": 188,
+   "acpmux": 183,
    "chatmux-relay": 8,
    "cmux-link": 6,
    "cmux-pty": 12,
@@ -55,7 +55,7 @@
    "cmux-terminal-client": 27,
    "cmux-tui": 457,
    "cmux-tui-cdp": 30,
-   "cmux-tui-core": 1677,
+   "cmux-tui-core": 1676,
    "cmux-wg": 13,
    "ghostty-vt": 3
   }
@@ -69,7 +69,7 @@
   "assume_isolated": {
    "CmuxNextAgentActivity": 1,
    "CmuxNextAgentPane": 4,
-   "CmuxNextApp": 34,
+   "CmuxNextApp": 33,
    "CmuxNextApps": 9,
    "CmuxNextBrowser": 21,
    "CmuxNextBrowserAutomation": 2,
@@ -107,12 +107,11 @@
    "CmuxNextLayout": 6,
    "CmuxNextOnboarding": 22,
    "CmuxNextPages": 2,
-   "CmuxNextPalette": 2,
    "CmuxNextRemote": 2,
    "CmuxNextRemoteView": 1,
    "CmuxNextResources": 2,
    "CmuxNextSettings": 10,
-   "CmuxNextSidebar": 9,
+   "CmuxNextSidebar": 8,
    "CmuxNextTabs": 5,
    "CmuxNextTerminal": 1
   },

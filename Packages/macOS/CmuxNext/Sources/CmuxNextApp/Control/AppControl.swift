@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -174,6 +175,8 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(ExtensionControl.report(services))
             },
+            // Ghostty config keys and keybind actions cmux does not apply (R92).
+            GhosttyDiagnosticsControl().method,
         ])
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
@@ -244,6 +247,10 @@ final class AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugWindowSnapshot.captureAsync(call.params, services: services)
             },
+            .mainActor("debug.window.focus") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugKey.focusWindow(call.params, services: services))
+            },
             .mainActor("debug.window_frame") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.setWindowFrame(call.params, services: services))
@@ -298,6 +305,12 @@ final class AppControl {
             .mainActor("debug.extensions.popup") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
             },
+            // The file pages: tabs, recovery drafts, toasts, and the notice's Open.
+            .async("debug.filepages") { [weak services] call in
+                let services = await MainActor.run { services }
+                guard let services else { return .null }
+                return await DebugFilePages.run(call.params, services)
+            },
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
@@ -310,6 +323,14 @@ final class AppControl {
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.crash.app") { call in DebugCrashes.crashApp(call.params) },
+            // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
+            // macOS (no sudo needed), `enabled: null` follows macOS again.
+            .mainActor("debug.low_power_mode") { call in
+                let mode = LowPowerMode.system
+                if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
+                return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
+                               "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])
+            },
             .mainActor("debug.stall") { call in
                 let milliseconds = min(max(call.params["ms"]?.intValue ?? 100, 1), 1_000)
                 let end = ContinuousClock.now + .milliseconds(milliseconds)

@@ -7,6 +7,7 @@ import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentD
 import { isHighlighted } from "../shikiLanguages";
 import { copyText } from "./clipboard";
 import { CodeBrackets, Copy, WrapLines } from "./icons";
+import { translate, type Translate, useT } from "../i18n";
 
 /// Pierre paints its own lines; they are transparent so the card's fill shows through.
 const codeUnsafeCSS = `${diffUnsafeCSS}
@@ -21,10 +22,9 @@ const codeUnsafeCSS = `${diffUnsafeCSS}
 pre, code, [data-code], [data-content], [data-line] { background: transparent !important; --diffs-line-bg: transparent; }
 `;
 
-/// Header label shown for a fence language.
+/// Header label shown for a fence language: its name, which no language translates.
+// l10n-allow: programming language names
 const LANG_LABELS: Record<string, string> = {
-  text: "Plain text",
-  txt: "Plain text",
   python: "Python",
   py: "Python",
   json: "JSON",
@@ -38,8 +38,8 @@ const LANG_LABELS: Record<string, string> = {
   bash: "Shell",
 };
 
-export function languageLabel(lang: string) {
-  return LANG_LABELS[lang] ?? lang;
+export function languageLabel(lang: string, t: Translate = translate) {
+  return lang === "text" || lang === "txt" ? t("code.plainText") : (LANG_LABELS[lang] ?? lang);
 }
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
@@ -61,6 +61,7 @@ export type CodeBlockProps = {
  * (applyAgentTheme sets `data-theme`) changes its syntax colors in place.
  */
 export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
+  const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
   const [wrap, setWrap] = useState(false);
@@ -107,14 +108,14 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
     <div className="cv-codeblock">
       <div className="cv-codeblock__header">
         <CodeBrackets size={17} strokeWidth={1.2} />
-        <span>{label ?? languageLabel(lang)}</span>
+        <span>{label ?? languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
           <button
             type="button"
             className="cv-codeblock__action"
             aria-pressed={wrap}
-            aria-label="Wrap lines"
-            title="Wrap lines"
+            aria-label={t("changes.wrapLines")}
+            title={t("changes.wrapLines")}
             onClick={() => setWrap((value) => !value)}
           >
             <WrapLines />
@@ -122,8 +123,8 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
           <button
             type="button"
             className="cv-codeblock__action"
-            aria-label={copied ? "Copied" : "Copy code"}
-            title={copied ? "Copied" : "Copy code"}
+            aria-label={copied ? t("code.copied") : t("code.copy")}
+            title={copied ? t("code.copied") : t("code.copy")}
             onClick={() => void copyText(code).then(() => setCopied(true))}
           >
             <Copy />

@@ -57,6 +57,11 @@ public enum DaemonEvent: Sendable, Hashable {
     case conversationChanged(ConversationEvent)
     /// A participant started or stopped typing (ephemeral).
     case conversationTyping(ConversationTyping)
+    /// `terminal-clipboard-read` (targeted at this connection): a program asks
+    /// for the clipboard (`TerminalClipboardBroker`).
+    case terminalClipboardRead(TerminalClipboardRead)
+    /// `terminal-clipboard-read-cancelled`: that read ended unanswered.
+    case terminalClipboardReadCancelled(requestID: String)
     /// `client-attached/changed/detached/list-invalidated`.
     case client(name: String, payload: JSONValue)
     /// The subscription ended because this client fell behind. The connection
@@ -73,6 +78,8 @@ extension DaemonEvent {
     var outlivesSnapshot: Bool {
         switch self {
         case .connected, .disconnected, .daemonShutdown, .sessionState: true
+        // Transient questions to this connection; a snapshot never holds them.
+        case .terminalClipboardRead, .terminalClipboardReadCancelled: true
         default: false
         }
     }

@@ -15,7 +15,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public var state: BrowserTabState { machine.state }
     public internal(set) var favicon: NSImage?
-    public let pendingPrompts: [BrowserPrompt] = []
+    public internal(set) var pendingPrompts: [BrowserPrompt] = []
     public internal(set) var extensionActions: [CEFExtensionAction] = []
     public internal(set) var openExtensionPopup: String?
     @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
@@ -24,6 +24,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
     /// Permission use of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
+    /// Chrome's automatic-downloads rule for this page (CEFTab+Prompts).
+    @ObservationIgnored lazy var automaticDownloads = makeAutomaticDownloadGate()
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
@@ -131,6 +133,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         CEFAgentURLGuard.applyShimGuard(self)
         applyPageBackground()
         applyPasswordFill()
+        leaveAutomaticDownloadsToCmux(browser)
         agentRelay.browserAttached()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
@@ -198,6 +201,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         browserID = nil
         agentRelay.browserEnded()
         findRequests.cancel()
+        dismissPrompts()
         host.removed(self)
         if !isClosed {
             isClosed = true
@@ -249,6 +253,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        automaticDownloads.userGesture()
         let id = makeNavigationID()
         navigation = id
         machine.apply(.started(id, url: url))
@@ -368,6 +373,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isClosed = true
         agentRelay.resumeWaiters(false)
         faviconTask?.cancel()
+        dismissPrompts()
         if let browserID {
             runtime.shim?.close(browserID)
         } else {

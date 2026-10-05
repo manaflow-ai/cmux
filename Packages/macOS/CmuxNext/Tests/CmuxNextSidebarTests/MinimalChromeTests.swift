@@ -57,6 +57,17 @@ import Testing
         #expect(h.sidebar.model.filterText.isEmpty)
     }
 
+    @Test func f2StartsWorkspaceRenameForTheActiveRow() throws {
+        let h = Harness()
+        let key = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: h.window.windowNumber,
+            context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 120
+        ))
+        h.sidebar.list.keyDown(with: key)
+        #expect(h.sidebar.list.inlineRename.session?.key == .workspace(id("a")))
+        h.sidebar.list.inlineRename.end(commit: false)
+    }
+
     @Test func titlebarButtonsRevealOnHoverAndForTabDrags() {
         let h = Harness()
         #expect(!h.sidebar.isChromeRevealed)

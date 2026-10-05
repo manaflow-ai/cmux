@@ -149,6 +149,16 @@ class SplitDirection(str, Enum):
     RIGHT = 'right'
     DOWN = 'down'
 
+class TerminalClipboardHostKind(str, Enum):
+    LOCAL = 'local'
+    REMOTE = 'remote'
+    CLOUD = 'cloud'
+
+class TerminalClipboardLocation(str, Enum):
+    STANDARD = 'standard'
+    SELECTION = 'selection'
+    PRIMARY = 'primary'
+
 class TerminalKey(str, Enum):
     UNIDENTIFIED = 'unidentified'
     BACKQUOTE = 'backquote'
@@ -337,6 +347,15 @@ class BrowserFrame:
     height: int
     seq: int
     width: int
+
+
+@dataclass(frozen=True)
+class BrowserHostProviderResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BrowserHostProviderResult'
+    host_pid: int
+    listener_pid: int
+    secret: str
+    socket: str
 
 
 @dataclass(frozen=True)
@@ -1411,6 +1430,26 @@ class Tab:
 
 
 @dataclass(frozen=True)
+class TerminalClipboardHost:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalClipboardHost'
+    kind: TerminalClipboardHostKind
+    name: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalClipboardReplyResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalClipboardReplyResult'
+    accepted: bool
+    granted: bool
+
+
+@dataclass(frozen=True)
+class TerminalClipboardSubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalClipboardSubscribeResult'
+    clipboard_read_ready: bool
+
+
+@dataclass(frozen=True)
 class TerminalColorOverrides:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalColorOverrides'
     bg: Union[ColorHex, None]
@@ -1711,6 +1750,7 @@ class AttachSurfaceRequest:
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
+    snapshot_images: Union[bool, MissingType] = field(default=MISSING)
     snapshot_local_history: Union[bool, MissingType] = field(default=MISSING)
     snapshot_version: Union[int, None, MissingType] = field(default=MISSING)
     viewer_backlog_bytes: Union[int, None, MissingType] = field(default=MISSING)
@@ -1755,6 +1795,12 @@ class BrowserFramePresentedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/browser-frame-presented/request'
     surface: Id
     frame_seq: int
+
+
+@dataclass(frozen=True)
+class BrowserHostProviderRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/browser-host-provider/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -2754,6 +2800,7 @@ class NewConversationTabRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2764,6 +2811,7 @@ class NewConversationTabResult:
     conversation: ConversationTabRecord
     replayed: bool
     tab_resource_id: Union[str, None]
+    transaction: Union[str, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2772,6 +2820,7 @@ class NewFrontendBrowserTabRequest:
     engine: str
     url: str
     pane: Union[Id, None, MissingType] = field(default=MISSING)
+    activate: Union[bool, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
     idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
@@ -3468,6 +3517,19 @@ class SwapPaneRequest:
     pane: Id
     dir: Union[PaneDirection, None, MissingType] = field(default=MISSING)
     target: Union[Id, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalClipboardReplyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-clipboard-reply/request'
+    request_id: str
+    text: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalClipboardSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-clipboard-subscribe/request'
+    terminal_ids: List[str]
 
 
 @dataclass(frozen=True)
@@ -4247,6 +4309,25 @@ class TabRenamedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class TerminalClipboardReadEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/terminal-clipboard-read/payload'
+    terminal_id: str
+    event: Literal['terminal-clipboard-read']
+    host: TerminalClipboardHost
+    location: TerminalClipboardLocation
+    request_id: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class TerminalClipboardReadCancelledEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/terminal-clipboard-read-cancelled/payload'
+    event: Literal['terminal-clipboard-read-cancelled']
+    request_id: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class TerminalReapedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/terminal-reaped/payload'
     terminal_id: str
@@ -4404,7 +4485,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -4434,6 +4515,8 @@ __all__ = [
     'SizeMode',
     'SizeReason',
     'SplitDirection',
+    'TerminalClipboardHostKind',
+    'TerminalClipboardLocation',
     'TerminalKey',
     'TerminalKeyAction',
     'TerminalLifecycle',
@@ -4445,6 +4528,7 @@ __all__ = [
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
     'BrowserFrame',
+    'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
     'BrowserProviderTarget',
     'BrowserProviderUnregisterResult',
@@ -4555,6 +4639,9 @@ __all__ = [
     'SplitRespawn',
     'SurfaceResult',
     'Tab',
+    'TerminalClipboardHost',
+    'TerminalClipboardReplyResult',
+    'TerminalClipboardSubscribeResult',
     'TerminalColorOverrides',
     'TerminalColors',
     'TerminalCommandHistoryResult',
@@ -4592,6 +4679,7 @@ __all__ = [
     'BrowserBackRequest',
     'BrowserForwardRequest',
     'BrowserFramePresentedRequest',
+    'BrowserHostProviderRequest',
     'BrowserInsertTextRequest',
     'BrowserKeyRequest',
     'BrowserKeyPressRequest',
@@ -4794,6 +4882,8 @@ __all__ = [
     'SplitRequest',
     'SubscribeRequest',
     'SwapPaneRequest',
+    'TerminalClipboardReplyRequest',
+    'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
     'TerminalReadRangeRequest',
@@ -4872,6 +4962,8 @@ __all__ = [
     'TabChangedEvent',
     'TabClosedEvent',
     'TabRenamedEvent',
+    'TerminalClipboardReadEvent',
+    'TerminalClipboardReadCancelledEvent',
     'TerminalReapedEvent',
     'TerminalRegistryChangedEvent',
     'TitleChangedEvent',

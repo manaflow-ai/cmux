@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 85c12d35a3dfe000c082760b1ccbb6a8e3eb30a8387faac01c6cb1344e09b11b.
+// cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -81,6 +81,8 @@ pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub snapshot_images: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub snapshot_local_history: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot_version: Optional<u16>,
@@ -146,6 +148,11 @@ pub struct BrowserFramePresentedRequest {
 
 #[rustfmt::skip]
 pub type BrowserFramePresentedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BrowserHostProviderRequest {
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1646,6 +1653,9 @@ pub struct NewConversationTabRequest {
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -1658,11 +1668,16 @@ pub struct NewConversationTabResult {
     pub replayed: bool,
     pub surface: T::Id,
     pub tab_resource_id: Nullable<String>,
+    /// The request's transaction, when it sent one.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewFrontendBrowserTabRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub activate: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     pub engine: String,
@@ -2721,6 +2736,20 @@ pub struct SwapPaneRequest {
 pub type SwapPaneResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardReplyRequest {
+    pub request_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub text: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardSubscribeRequest {
+    pub terminal_ids: Vec<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct TerminalEventsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -3076,6 +3105,9 @@ impl CmuxClient {
         if !request.snapshot.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
+        if request.snapshot_images.is_some() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-images-v1")?;
+        }
         if request.snapshot_local_history.is_some() {
             self.require_capability_field("attach-surface", "terminal-snapshot-local-history-v1")?;
         }
@@ -3106,6 +3138,10 @@ impl CmuxClient {
 
     pub fn browser_frame_presented(&mut self, request: BrowserFramePresentedRequest) -> Result<BrowserFramePresentedResult> {
         self.execute(&BROWSER_FRAME_PRESENTED_METADATA, &request)
+    }
+
+    pub fn browser_host_provider(&mut self, request: BrowserHostProviderRequest) -> Result<T::BrowserHostProviderResult> {
+        self.execute(&BROWSER_HOST_PROVIDER_METADATA, &request)
     }
 
     pub fn browser_insert_text(&mut self, request: BrowserInsertTextRequest) -> Result<BrowserInsertTextResult> {
@@ -3664,6 +3700,9 @@ impl CmuxClient {
         if !request.agent_session.is_missing() {
             self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
         }
+        if !request.transaction.is_missing() {
+            self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;
+        }
         self.execute(&NEW_CONVERSATION_TAB_METADATA, &request)
     }
 
@@ -4191,6 +4230,14 @@ impl CmuxClient {
 
     pub fn swap_pane(&mut self, request: SwapPaneRequest) -> Result<SwapPaneResult> {
         self.execute(&SWAP_PANE_METADATA, &request)
+    }
+
+    pub fn terminal_clipboard_reply(&mut self, request: TerminalClipboardReplyRequest) -> Result<T::TerminalClipboardReplyResult> {
+        self.execute(&TERMINAL_CLIPBOARD_REPLY_METADATA, &request)
+    }
+
+    pub fn terminal_clipboard_subscribe(&mut self, request: TerminalClipboardSubscribeRequest) -> Result<CmuxStream> {
+        self.execute_stream(&TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, &request)
     }
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {

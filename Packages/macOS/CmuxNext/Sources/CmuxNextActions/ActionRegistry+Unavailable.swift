@@ -14,6 +14,7 @@ extension ActionRegistry {
         invoke: @escaping @MainActor (ActionInvocation) -> Void
     ) -> Bool {
         guard let descriptor = descriptor(for: id) else { return false }
+        noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,
             title: descriptor.title,
@@ -29,7 +30,10 @@ extension ActionRegistry {
     /// Binds an action that cannot run in this build, with the reason.
     @discardableResult
     public func bindUnavailable(_ id: ActionID, reason: String) -> Bool {
-        bind(id, unavailable: { reason }, invoke: { _ in })
+        guard let descriptor = descriptor(for: id) else { return false }
+        noteBinding(descriptor.id, placeholder: true)
+        register(Action(id: descriptor.id, title: descriptor.title, keywords: descriptor.keywords, isEnabled: { false },
+                        invoke: { _ in }, unavailableReason: { reason }, handler: {})); return true
     }
 
     /// The bound action's current unavailable reason, if any.

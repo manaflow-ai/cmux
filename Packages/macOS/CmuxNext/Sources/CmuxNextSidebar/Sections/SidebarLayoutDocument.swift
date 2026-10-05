@@ -94,9 +94,11 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
-    /// The default layout (plans/cmux-next/sidebar-sections.md): the
-    /// first-party apps Home, App Store and CodeRouter as app items (R63/R64:
-    /// apps like any other, from their manifests) on top, the workspaces, then one bottom
+    /// The default layout (plans/cmux-next/sidebar-sections.md): four large
+    /// tiles on top (the first-party apps Home and the App Store as app
+    /// items, R63/R64: apps like any other, from their manifests; then New
+    /// Workspace and Import and Sync) on a tonal card set apart from the
+    /// list, the workspaces, then one bottom
     /// row with Settings (icon and label) over 7/8 of the width and the
     /// account avatar (icon only) over the last 1/8 (a grid of 8 columns,
     /// R53). Pinned sections use
@@ -104,9 +106,9 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// (Leo, 2026-10-03) was removed by R52; stored layouts still equal to
     /// it move back (`sectionsMigrationOps`).
     public static let defaults = SidebarLayoutDocument(sections: [
-        LayoutSection(id: topSectionID, region: .top, look: .builtIn,
+        LayoutSection(id: topSectionID, region: .top, look: .builtIn, arrangement: tilesArrangement,
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
-                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))] + tileItems),
         // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,

@@ -62,8 +62,8 @@
     },
     {
       "path": "AttachSurfaceRequest.java",
-      "sha256": "0406b2083cd97f0189a21e836a892bb4bf45f99ecff566e5fd5fd9a324cf9f51",
-      "size": 8852
+      "sha256": "5de7f9d37230c43470be57863777a326f8f048564859f2e20653d8b193a951d9",
+      "size": 9606
     },
     {
       "path": "AttachSurfaceRequestMode.java",
@@ -134,6 +134,16 @@
       "path": "BrowserFramePresentedRequest.java",
       "sha256": "d13ea05e454932fb68c74f5b91c11865afdc781c60e1a7b68e1eeac289412004",
       "size": 2874
+    },
+    {
+      "path": "BrowserHostProviderRequest.java",
+      "sha256": "728df4fd03b197653219d7a39f10bd4595b58455fed8d32daabffd752e6aa45f",
+      "size": 1427
+    },
+    {
+      "path": "BrowserHostProviderResult.java",
+      "sha256": "c687027a4d49539011a7bde11df6219253f7093c5b0dd001f378cc796fcc2c19",
+      "size": 4123
     },
     {
       "path": "BrowserInsertTextRequest.java",
@@ -462,8 +472,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "2574ec03b72816108d54088fefc866d6ac30af23f702a1f04e7e7d3773edff18",
-      "size": 60272
+      "sha256": "2ba481b75c10f18f1a7a90370f7067cf46dc781b8c6e05eff8079cdf4d606a79",
+      "size": 61247
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -802,8 +812,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "b954eb2351cd8da74cf59b295fe418011e779215bb700addd51242ffad4356f6",
-      "size": 12925
+      "sha256": "ee2170099deadffdc97bd5b5f547ac86aec2a76e271f2ac145ba76700a18e6c3",
+      "size": 13449
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -882,8 +892,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "62d9fcfca18015576d96cd54b6acf90c09f038fc769ccfd7e3d6519122bc8d38",
-      "size": 52594
+      "sha256": "e5fb1afbb173f6783f1317e90ae14b71feba32b8f980d7a87ae1cfcc7a8749f9",
+      "size": 53336
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1282,18 +1292,18 @@
     },
     {
       "path": "NewConversationTabRequest.java",
-      "sha256": "19b7e821da49973b7c2c7705ea03ff53838f559de7d6f40dbe8c9a20cde8d1b9",
-      "size": 7412
+      "sha256": "e4fd74ec3da32f0a3f5a747e7c1b93bd0e6c0c4752cc30cc19f90a73779ac719",
+      "size": 8273
     },
     {
       "path": "NewConversationTabResult.java",
-      "sha256": "9a447b143722c8e03f78fcd2c408a94201413e2b41585aba6e1a89f8f15ef7b9",
-      "size": 5372
+      "sha256": "12c917523d22eeaa139cd3dca95b06ff5efe21735a0959c3a5b83a1077c60b2c",
+      "size": 6124
     },
     {
       "path": "NewFrontendBrowserTabRequest.java",
-      "sha256": "febc978c6c339a785413195a5d9d779d2a8bf8b1f03cf42403b7e626a49541df",
-      "size": 8008
+      "sha256": "ec56d8127ab0299e95c441fc3dce83434b67f850c064231ad1bddc0bbe5209a2",
+      "size": 8653
     },
     {
       "path": "NewPaneRequest.java",
@@ -1472,8 +1482,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "24ecfbfb312b62c24889a44efb8f3b262e24c7ebd9c719667e73429d98926a92",
-      "size": 5473
+      "sha256": "2318cca9f902b7bb68c54ed12d27e26183381ebcf6e846ecd087187646147edb",
+      "size": 5672
     },
     {
       "path": "ProtocolEvent.java",
@@ -2191,6 +2201,51 @@
       "size": 4943
     },
     {
+      "path": "TerminalClipboardHost.java",
+      "sha256": "504befee4e7aea3d5b13de22a1dbc283f566d430cda3670c00615fb416d1e7f1",
+      "size": 2551
+    },
+    {
+      "path": "TerminalClipboardHostKind.java",
+      "sha256": "5428f7fece15000d02ba00758c7a7f2997343cfb21fa4becd0a72b0c4b258c7a",
+      "size": 967
+    },
+    {
+      "path": "TerminalClipboardLocation.java",
+      "sha256": "d58aa3c038bf98147f95fefc99eff630420887cbb363797399e46d8785837881",
+      "size": 983
+    },
+    {
+      "path": "TerminalClipboardReadCancelledEvent.java",
+      "sha256": "332f062ac33f2c6f369ff1be4094a2c386240c2be3e93f6271ee2bda57e3a9c1",
+      "size": 2570
+    },
+    {
+      "path": "TerminalClipboardReadEvent.java",
+      "sha256": "8ea05e90127009f19cf930976004d5a53fa6701b2986fb6538ff0b35e668596b",
+      "size": 4687
+    },
+    {
+      "path": "TerminalClipboardReplyRequest.java",
+      "sha256": "109361cdc2ac73b01c466f500a9fed1c30f98fc7dcf4a77aee79d47f5a6971bf",
+      "size": 2801
+    },
+    {
+      "path": "TerminalClipboardReplyResult.java",
+      "sha256": "c6d863dbc59f2081da32759c22c1bb9ea1b3b1e5f31452af66ca3499cbafd68a",
+      "size": 2737
+    },
+    {
+      "path": "TerminalClipboardSubscribeRequest.java",
+      "sha256": "7718eaabd376aa2a5ffcf46c883853ab4edce4dbd603da67af5281e94342dd2b",
+      "size": 2404
+    },
+    {
+      "path": "TerminalClipboardSubscribeResult.java",
+      "sha256": "1bb7896caf1806336719b1d5b50ab1a87d1661f4da28f02f8fa46a2cf1dfecae",
+      "size": 2317
+    },
+    {
       "path": "TerminalColorOverrides.java",
       "sha256": "24c400ecfca88246b64e13df44b3660d8463d94af76a8382ca5753065e7ddd08",
       "size": 3158
@@ -2547,7 +2602,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "85c12d35a3dfe000c082760b1ccbb6a8e3eb30a8387faac01c6cb1344e09b11b",
+  "ir_sha256": "c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

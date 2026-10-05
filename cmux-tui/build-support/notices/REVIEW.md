@@ -113,6 +113,8 @@ commit that the crate's `.cargo_vcs_info.json` records for the release (fetch_re
 | vsimd 0.8.0 | `texts/Nugine-simd-d74c030d9dc4/LICENSE` | https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE | `71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d` |
 | vtparse 0.6.2 | `texts/wez-wezterm-edeae72b5fc5/LICENSE.md` | https://raw.githubusercontent.com/wez/wezterm/edeae72b5fc55c7fa4aa1d08bbefd08c5493f757/LICENSE.md | `37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca` |
 | wezterm-input-types 0.1.0 | `texts/wez-wezterm-d5ca5509b95e/LICENSE.md` | https://raw.githubusercontent.com/wez/wezterm/d5ca5509b95edc31291ba29bd1fcbf3f0b12c92d/LICENSE.md | `37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca` |
+| winapi-x86_64-pc-windows-gnu 0.4.0 | `texts/retep998-winapi-rs-9497609ef44c/LICENSE-APACHE` | https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-APACHE | `b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1` |
+| winapi-x86_64-pc-windows-gnu 0.4.0 | `texts/retep998-winapi-rs-9497609ef44c/LICENSE-MIT` | https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-MIT | `5b19674a1db628a475850a131956ed49521b744e3dda8f5a94141f9aba681219` |
 
 ## Ghostty dependencies: pinned upstream texts (`ghostty/pinned-licenses/MANIFEST.json`)
 

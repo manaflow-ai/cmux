@@ -40,9 +40,24 @@ import Testing
             chrome.layoutSubtreeIfNeeded()
         }
 
+        /// Waits until the bar shows the page the tab loaded. The chrome
+        /// renders tab state through `ObservationLoop`, a later main-actor
+        /// turn; a fixed number of yields lost that race on a loaded runner
+        /// (fleet job a6b1e3dc4f8ad234d8d8972b: the first click focused a
+        /// bar that had no page URL yet, so nothing was elided).
+        func pageShown() async {
+            guard !pageReady else { return }
+            let url = tab.state.url?.absoluteString
+            for _ in 0..<10_000 where bar.debugSnapshot.text != url { await Task.yield() }
+            pageReady = true
+            chrome.layoutSubtreeIfNeeded()
+        }
+        private var pageReady = false
+
         /// One click whose tracking selects `selection` in the text shown at
         /// the press; `word` is the word under the pointer then.
         func click(count: Int = 1, word: NSRange? = nil, selecting selection: NSRange) async {
+            await pageShown()
             await settle()
             if bar.fieldEditor?.window == nil || !bar.isEditing {
                 bar.pendingFocusSource = .mouse

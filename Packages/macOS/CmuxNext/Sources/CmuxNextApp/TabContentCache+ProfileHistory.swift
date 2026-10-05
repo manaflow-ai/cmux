@@ -28,8 +28,7 @@ extension TabContentCache {
         if let existing = profileHistories[profile] { return existing }
         let history = InMemoryBrowserHistory()
         onProfileHistoryCreated?(profile, history)
-        let providers: [any BrowserSuggestionProvider] = [HistorySuggestionProvider(store: history)] + (extraSuggestionProviders?(profile) ?? [])
-        let made = ProfileHistory(history: history, suggestions: OmniboxSuggestionEngine(providers: providers))
+        let made = ProfileHistory(history: history, suggestions: makeSuggestionEngine(history: history, profile: profile))
         profileHistories[profile] = made
         return made
     }

@@ -12,13 +12,14 @@ final class PageInstallCounter {
 }
 
 /// What incognito pages keep in memory for the omnibar: their own history
-/// and suggestions, never mixed with the normal ones.
+/// and suggestions, never mixed with the normal ones. The history has no
+/// persistence, so its index lives in memory only.
 struct IncognitoPageMemory {
     let history = InMemoryBrowserHistory()
     let suggestions: OmniboxSuggestionEngine
 
     init() {
-        suggestions = OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: history)])
+        suggestions = OmniboxSuggestionEngine(history: history)
     }
 }
 

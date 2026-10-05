@@ -12,6 +12,7 @@ mod agent_hooks;
 mod apps;
 pub mod backoff;
 mod browser;
+pub mod browser_host;
 mod browser_provider;
 pub mod cloud_conversations;
 mod conversation_search;
