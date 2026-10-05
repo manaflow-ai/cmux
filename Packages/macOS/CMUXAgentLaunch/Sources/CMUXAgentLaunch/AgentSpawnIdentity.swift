@@ -2,7 +2,7 @@ import Foundation
 
 /// Resolves the canonical workspace/surface identity to stamp into a spawned agent's environment.
 ///
-/// cmux's CLI agent launchers (the `claude-teams` / `oh-my-codex` / `codex-teams` family) run inside a
+/// cmux's CLI agent launchers (the `claude-teams` / `oh-my-pi` / `oh-my-codex` / `codex-teams` family) run inside a
 /// terminal surface and inherit that surface's own `CMUX_SURFACE_ID` / `CMUX_WORKSPACE_ID`. They also
 /// query the daemon for the operator's currently *focused* pane (for the tmux-compat shim). The agent's
 /// canonical identity must come from the launch surface, **not** the focused pane: stamping the focused

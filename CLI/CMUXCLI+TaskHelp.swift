@@ -212,6 +212,7 @@ extension CMUXCLI {
         codex-teams [codex-args...]
         omo [opencode-args...]
         omx [omx-args...]
+        omp [omp-args...]
         omc [omc-args...]
         hooks setup|uninstall [--agent <name>]
         hooks <agent> <install|uninstall|event> [options; opencode supports --project]

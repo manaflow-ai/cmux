@@ -1918,6 +1918,10 @@
     "class": "brand",
     "source": "oh-my-opencode"
   },
+  "menu.help.ohMyPi": {
+    "class": "brand",
+    "source": "oh-my-pi"
+  },
   "menu.help.skills": {
     "source": "Skills",
     "identityLocales": {

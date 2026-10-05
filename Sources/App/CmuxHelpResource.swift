@@ -14,6 +14,7 @@ enum CmuxHelpResource {
     case skills
     case claudeCodeTeams
     case ohMyOpenCode
+    case ohMyPi
     case ohMyCodex
     case ohMyClaudeCode
     case changelog
@@ -48,6 +49,8 @@ enum CmuxHelpResource {
             return String(localized: "menu.help.claudeCodeTeams", defaultValue: "Claude Code Teams")
         case .ohMyOpenCode:
             return String(localized: "menu.help.ohMyOpenCode", defaultValue: "oh-my-opencode")
+        case .ohMyPi:
+            return String(localized: "menu.help.ohMyPi", defaultValue: "oh-my-pi")
         case .ohMyCodex:
             return String(localized: "menu.help.ohMyCodex", defaultValue: "oh-my-codex")
         case .ohMyClaudeCode:
@@ -89,6 +92,8 @@ enum CmuxHelpResource {
             return URL(string: "https://cmux.com/docs/agent-integrations/claude-code-teams")!
         case .ohMyOpenCode:
             return URL(string: "https://cmux.com/docs/agent-integrations/oh-my-opencode")!
+        case .ohMyPi:
+            return URL(string: "https://cmux.com/docs/agent-integrations/oh-my-pi")!
         case .ohMyCodex:
             return URL(string: "https://cmux.com/docs/agent-integrations/oh-my-codex")!
         case .ohMyClaudeCode:
