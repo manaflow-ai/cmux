@@ -13,6 +13,7 @@ import Observation
 /// Which workspace that is, plus frame and sidebar width, persist in the
 /// daemon's personal projection through `WindowManager`.
 final class WindowController: NSWindowController, NSWindowDelegate {
+    var shortcutHints: WindowShortcutHints?
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
@@ -80,6 +81,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
+        startShortcutHints()
         observeWorkspace()
         observeRoom()
     }
@@ -88,6 +90,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
