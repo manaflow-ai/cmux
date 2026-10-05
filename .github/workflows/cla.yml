@@ -48,11 +48,17 @@ jobs:
           [[ "$PR_AUTHOR_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           ledger="$(mktemp)"
-          trap 'rm -f "$ledger"' EXIT
-          encoded="$(gh api --raw-field ref=cla-signatures "repos/$GH_REPO/contents/signatures/version2/cla.json" --jq .content)"
+          commits_file="$(mktemp)"
+          trap 'rm -f "$ledger" "$commits_file"' EXIT
+          encoded="$(gh api --method GET --raw-field ref=cla-signatures "repos/$GH_REPO/contents/signatures/version2/cla.json" --jq .content)"
+          [[ -n "$encoded" ]]
           printf '%s' "$encoded" | tr -d '[:space:]' | base64 --decode >"$ledger"
-          commits="$(gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/commits?per_page=100")"
-          jq -e --argjson author "$PR_AUTHOR_ID" --argjson commits "$commits" '
+          pr_commit_count="$(gh api --method GET "repos/$GH_REPO/pulls/$PR_NUMBER" --jq .commits)"
+          [[ "$pr_commit_count" =~ ^[0-9]+$ ]] && (( pr_commit_count <= 250 ))
+          gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/commits?per_page=100" >"$commits_file"
+          jq -e '[.[].[]?] | length <= 250' "$commits_file" >/dev/null
+          jq -e --argjson author "$PR_AUTHOR_ID" --slurpfile commit_pages "$commits_file" '
+            ($commit_pages[0]) as $commits |
             . as $ledger |
             ($ledger.signedContributors | type == "array") and
             ([ $author ] + [ $commits[].[]? | .author.id ] | all(.[]; type == "number")) and
@@ -76,8 +82,8 @@ jobs:
         github.event.issue.pull_request &&
         github.event.comment.user.type == 'User' &&
         (
-          github.event.comment.body == 'recheck' ||
-          github.event.comment.body == 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+          contains(github.event.comment.body, 'recheck') ||
+          contains(github.event.comment.body, 'I have read the CLA Document v2.2 and I hereby sign the CLA')
         )
       )
     runs-on: ubuntu-24.04
