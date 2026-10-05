@@ -259,6 +259,22 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "cmux-tui-cloud-server-aarch64-apple-darwin" in tree_publisher
 
 
+def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    assert "format('sha-{0}', github.sha)" in artifacts
+    assert "feat-cmux-next-push" not in artifacts
+    assert "cancel-in-progress: false" in artifacts
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "fetch --no-tags --depth=1" in preflight
+    assert "current_key" in preflight
+    assert '"$current_key" == "$key"' in preflight
+    assert "retaining publication for superseded tree" in preflight
+    for job, prefix in (("build", "cmux-tui-build-"), ("cmux-next-daemon-tests", "cmux-tui-daemon-")):
+        body = workflow_job(artifacts, job)
+        assert f"group: {prefix}" + "${{ needs.tree-preflight.outputs.key }}" in body
+        assert "cancel-in-progress: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}" in body
+
+
 def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
     input_file = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
     key_paths = []
