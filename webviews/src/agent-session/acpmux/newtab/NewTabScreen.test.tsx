@@ -185,3 +185,26 @@ test("a card opens its chat and All Chats opens the list", async () => {
   expect(calls).toEqual(["session:s1", "all"]);
   await act(async () => root.unmount());
 });
+
+test("Enter on an untouched new tab starts the preferred chat in its project", async () => {
+  const { root, key, calls } = await mount({ cwd: "/src/app", lastAgent: "codex" });
+  await key("Enter");
+  expect(calls).toEqual(["ask:codex::/src/app"]);
+  await act(async () => root.unmount());
+});
+
+test("new tab offers recent projects inline before Browse", async () => {
+  const { container, root, key, calls } = await mount({
+    cwd: "/src/old",
+    projects: [{ cwd: "/src/new", label: "new" }],
+  });
+  const trigger = container.querySelector<HTMLButtonElement>(".nt-project button")!;
+  expect(trigger).not.toBeNull();
+  await act(async () => trigger.click());
+  const option = container.querySelector<HTMLElement>('[data-project="/src/new"]')!;
+  expect(option).not.toBeNull();
+  await act(async () => option.click());
+  await key("Enter");
+  expect(calls).toEqual(["ask:claude::/src/new"]);
+  await act(async () => root.unmount());
+});
