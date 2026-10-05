@@ -174,8 +174,8 @@ public extension AgentPaneTransportPacer {
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
     /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).
     public var webModes: @MainActor (_ sessionId: String?, _ configId: String?, _ value: String?) async -> AcpmuxWebModes? = { _, _, _ in nil }
-    /// The daemon's mode fields for this connection (asked at open); nil when it did not answer,
-    /// which applies the fail-closed rule (``AcpmuxPaneMethods/knownParams``).
+    /// The daemon's mode fields for this connection (asked at open): an extra deny inside the
+    /// known-params rule (``AcpmuxPaneMethods/knownParams``), which applies on every path.
     public private(set) var modeFields: Set<String>?
     /// Shows the native sheet that confirms a mode which does not ask; Cancel answers false.
     public var requestModeConfirmation: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
@@ -408,8 +408,11 @@ public extension AgentPaneTransportPacer {
     private func prepare(_ frame: PageFrame) -> AcpmuxPaneMethods.Decision {
         let decision = AcpmuxPaneMethods.decide(frame.text, isFirst: !sentFirst, localAppToken: localAppToken)
         if case .send = decision, sentFirst, let refusal = sessionRefusal(frame) { return refusal }
-        // P1: only set_mode and set_config_option may name a mode (they meet the sheet).
-        if case .send = decision, AcpmuxPaneMethods.carriesModeField(frame.object, modeFields: modeFields) {
+        // P1: the method's known params, and no daemon mode field outside set_mode and set_config_option.
+        if case .send = decision, AcpmuxPaneMethods.breaksParamsRule(frame.object, modeFields: modeFields) {
+            // B2: a ticket in a refused frame is spent all the same.
+            let meta = (frame.object?["params"] as? [String: Any])?["_meta"] as? [String: Any]
+            if let ticket = meta?["cmuxGesture"] as? String { _ = gestures.redeem(ticket, connection: current, method: nil, params: [:]) }
             return .refuse(.intentInvalid, method: frame.method, requestID: frame.id)
         }
         return decision
