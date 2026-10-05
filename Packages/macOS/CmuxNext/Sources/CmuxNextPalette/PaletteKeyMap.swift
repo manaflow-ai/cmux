@@ -20,6 +20,12 @@ public struct PaletteKeyMap {
         "paletteKey.back": .back, "paletteKey.filterDeleteBackward": .actionsFilterDeleteBackward, "paletteKey.closeItem": .closeItem,
     ]
 
+    /// The `paletteKey.*` actions (the app binds each to its command).
+    public static var paletteKeyActions: [ActionID] { commands.keys.filter { $0.rawValue.hasPrefix("paletteKey.") }.sorted { $0.rawValue < $1.rawValue } }
+
+    /// The palette command an action runs (`paletteKey.*`, Palette Next/Previous, list navigation).
+    public static func command(forAction id: ActionID) -> PaletteKeyCommand? { commands[id] }
+
     /// Keys AppKit names by key code whatever characters the event carries
     /// (keypad Enter is Return).
     static let keysByCode: [UInt16: String] = [

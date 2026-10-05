@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 
@@ -43,6 +44,11 @@ enum WindowHandlers {
         })
         registry.bind("keepMacAwake", run: { _ in toggleKeepAwake(keepAwake) })
         registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
+        // The palette's own keys as actions (PaletteKeyActionCatalog): the open palette runs the command.
+        for id in PaletteKeyMap.paletteKeyActions {
+            guard let command = PaletteKeyMap.command(forAction: id) else { continue }
+            registry.bind(id, run: { _ in context.services.palette.model.handle(command) })
+        }
         registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })
 
         let unbuilt: [(ActionID, String)] = [
