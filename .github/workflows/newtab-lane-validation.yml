@@ -44,7 +44,7 @@ jobs:
         run: scripts/cmux-next/regenerate-web-bundles.sh
       - name: Localization audit
         run: |
-          git fetch --depth=1 origin feat-cmux-next:refs/remotes/origin/feat-cmux-next
+          git fetch --depth=200 origin feat-cmux-next:refs/remotes/origin/feat-cmux-next
           scripts/localize-changes --base origin/feat-cmux-next
           python3 scripts/localization_catalog.py check
       - name: Save generated changes

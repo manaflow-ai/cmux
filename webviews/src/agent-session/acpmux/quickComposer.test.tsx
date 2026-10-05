@@ -257,3 +257,17 @@ test("a direct blank pane chat converts with ! without a chooser page", async ()
   expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false }]);
   expect(methods()).not.toContain("chat.send");
 });
+
+test("a direct blank chat chooses a recent project inline without treating it as already selected", async () => {
+  const fresh = snapshot("s1");
+  fresh.sessions = [{ sessionId: "older", cwd: "/src/app", displayTitle: "App", updatedAt: 1 }];
+  await mount(undefined, fresh);
+  host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
+    calls.push(["chat.new", params]);
+  };
+  await act(async () => (container().querySelector(".acpmux-project-button") as HTMLButtonElement).click());
+  const project = container().querySelector(".acpmux-project-menu [role=option]") as HTMLButtonElement;
+  expect(project).not.toBeNull();
+  await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+  expect(calls).toContainEqual(["chat.new", { cwd: "/src/app" }]);
+});
