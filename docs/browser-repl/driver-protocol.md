@@ -404,8 +404,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   registrations named; a session holds at most 1,024 distinct
   values over its life, current and retired, and a new one past that is
   refused until a reset, and one value is registered for at most 1,024
-  domains over its life. Each masking pass tries,
-  at each position, only the values whose first byte can start there (the
+  domains over its life. One masking pass matches the session's own values
+  (current and retired), the values other sessions typed and the valid
+  TOTP codes together against the original input, so no value's mask can
+  replace part of another value before that value is looked for. It tries
+  every position, also one inside an earlier match, and masks
+  intersecting matches as their union (each distinct mask once), so a
+  value registered to overlap another never leaves the other's suffix
+  unmasked. At each position it tries
+  only the values whose first byte can start there (the
   byte, or the first byte of the character an escape there stands for),
   and stops after comparing 64 bytes per byte of its input past a 1 MiB
   allowance; text it stops on is withheld, as text masking would grow by
