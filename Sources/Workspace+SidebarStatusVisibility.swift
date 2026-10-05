@@ -196,3 +196,37 @@ extension Workspace {
         return lhs.key > rhs.key
     }
 }
+
+extension Workspace {
+    /// Returns the existing sidebar agent identity when this panel is in an
+    /// active turn. Close warnings use this same ownership and lifecycle
+    /// evidence rather than introducing another process detector.
+    func activeAgentCloseWarningInfo(panelId: UUID) -> (displayName: String)? {
+        guard panels[panelId] != nil else { return nil }
+        var statusKeys = Set<String>()
+        for key in agentPIDKeysByPanelId[panelId, default: []] {
+            statusKeys.insert(agentStatusKey(forAgentPIDKey: key))
+        }
+        statusKeys.formUnion(
+            agentLifecycleStatesByPanelId[panelId, default: [:]].keys
+                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0) }
+        )
+        for (key, entry) in agentStatusEntriesByPanelId[panelId, default: [:]]
+        where AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(key) {
+            statusKeys.insert(key)
+            if entry.workState == .running || entry.workState == .subagents {
+                return (SidebarCompactStatusGlyph.agentDisplayName(forStatusKey: key))
+            }
+        }
+        for key in statusKeys {
+            if agentLifecycleStatesByPanelId[panelId]?[key] == .running {
+                return (SidebarCompactStatusGlyph.agentDisplayName(forStatusKey: key))
+            }
+            if let entry = agentStatusEntriesByPanelId[panelId]?[key],
+               entry.workState == .running || entry.workState == .subagents {
+                return (SidebarCompactStatusGlyph.agentDisplayName(forStatusKey: key))
+            }
+        }
+        return nil
+    }
+}

@@ -15,9 +15,15 @@ public protocol CloseTabWarningReading: Sendable {
 
     /// Whether the tab close (X) button is hidden entirely.
     var hidesTabCloseButton: Bool { get }
+
+    /// Whether closing an agent session while it is mid-turn warns first.
+    var warnsBeforeClosingAgentSession: Bool { get }
 }
 
 extension CloseTabWarningReading {
+    /// Existing fakes and consumers default to the protected behavior while
+    /// they adopt the separate agent-session setting.
+    public var warnsBeforeClosingAgentSession: Bool { true }
     /// The warning toggles that make this close ask first; empty when it
     /// closes without a dialog. A dialog's "Don't ask again" checkbox turns
     /// off exactly these.
@@ -29,11 +35,16 @@ extension CloseTabWarningReading {
     /// warning is enabled, regardless of the tab's state.
     public func warningKinds(
         requiresConfirmation: Bool,
-        source: CloseTabCloseSource
+        source: CloseTabCloseSource,
+        isAgentSession: Bool = false
     ) -> CloseWarningKinds {
         var kinds: CloseWarningKinds = []
-        if requiresConfirmation && warnsBeforeClosingTab {
-            kinds.insert(.tab)
+        if requiresConfirmation {
+            if isAgentSession {
+                if warnsBeforeClosingAgentSession { kinds.insert(.agentSession) }
+            } else if warnsBeforeClosingTab {
+                kinds.insert(.tab)
+            }
         }
         if source == .tabCloseButton && warnsBeforeClosingTabXButton {
             kinds.insert(.tabCloseButton)
@@ -46,29 +57,37 @@ extension CloseTabWarningReading {
     /// toggles per ``CloseTabCloseSource``.
     public func shouldConfirmClose(
         requiresConfirmation: Bool,
-        source: CloseTabCloseSource
+        source: CloseTabCloseSource,
+        isAgentSession: Bool = false
     ) -> Bool {
-        !warningKinds(requiresConfirmation: requiresConfirmation, source: source).isEmpty
+        !warningKinds(requiresConfirmation: requiresConfirmation, source: source, isAgentSession: isAgentSession).isEmpty
     }
 
     /// Whether a close should be gated by either the user's warning setting or
     /// an active process that must never be killed silently.
     public func shouldConfirmCloseIncludingSafety(
         requiresConfirmation: Bool,
-        source: CloseTabCloseSource
+        source: CloseTabCloseSource,
+        isAgentSession: Bool = false
     ) -> Bool {
-        requiresConfirmation || shouldConfirmClose(
+        (!isAgentSession && requiresConfirmation) || shouldConfirmClose(
             requiresConfirmation: requiresConfirmation,
-            source: source
+            source: source,
+            isAgentSession: isAgentSession
         )
     }
 
     public func warningKindsIncludingSafety(
         requiresConfirmation: Bool,
-        source: CloseTabCloseSource
+        source: CloseTabCloseSource,
+        isAgentSession: Bool = false
     ) -> CloseWarningKinds {
-        var kinds = warningKinds(requiresConfirmation: requiresConfirmation, source: source)
-        if requiresConfirmation { kinds.insert(.safety) }
+        var kinds = warningKinds(
+            requiresConfirmation: requiresConfirmation,
+            source: source,
+            isAgentSession: isAgentSession
+        )
+        if requiresConfirmation && !isAgentSession { kinds.insert(.safety) }
         return kinds
     }
 }

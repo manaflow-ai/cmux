@@ -13643,6 +13643,7 @@ extension Workspace: BonsplitDelegate {
     private func confirmClosePanel(
         for tabId: TabID,
         nameOverride: String? = nil,
+        agentName: String? = nil,
         dontAskAgain: CloseWarningKinds
     ) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
@@ -13664,7 +13665,13 @@ extension Workspace: BonsplitDelegate {
         }()
 
         let message: String
-        if let panelName {
+        if let agentName {
+            let format = String(
+                localized: "dialog.closeTab.agentWorking",
+                defaultValue: "%@ is still working. This will close the current tab."
+            )
+            message = String(format: format, locale: .current, agentName)
+        } else if let panelName {
             message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
@@ -14368,9 +14375,11 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
+        let agentWarning = activeAgentCloseWarningInfo(panelId: panelId)
         let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-            source: confirmationSource
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId) || agentWarning != nil,
+            source: confirmationSource,
+            isAgentSession: agentWarning != nil
         )
         if !warningKinds.isEmpty {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
@@ -14399,7 +14408,11 @@ extension Workspace: BonsplitDelegate {
                     // If the tab disappeared while we were scheduling, do nothing.
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
-                    let confirmed = await self.confirmClosePanel(for: tabId, dontAskAgain: warningKinds)
+                    let confirmed = await self.confirmClosePanel(
+                        for: tabId,
+                        agentName: self.activeAgentCloseWarningInfo(panelId: panelId)?.displayName,
+                        dontAskAgain: warningKinds
+                    )
                     guard confirmed else {
                         self.clearCloseHistoryEligibility(tabId: tabId)
                         return

@@ -28,6 +28,10 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
         keys.warnBeforeClosingTabXButton.value(in: defaults)
     }
 
+    public var warnsBeforeClosingAgentSession: Bool {
+        keys.warnBeforeClosingAgentSession.value(in: defaults)
+    }
+
     public var hidesTabCloseButton: Bool {
         keys.hideTabCloseButton.value(in: defaults)
     }
@@ -58,6 +62,9 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
     public func disableWarnings(_ kinds: CloseWarningKinds) {
         if kinds.contains(.tab) {
             keys.warnBeforeClosingTab.set(false, in: defaults)
+        }
+        if kinds.contains(.agentSession) {
+            keys.warnBeforeClosingAgentSession.set(false, in: defaults)
         }
         if kinds.contains(.tabCloseButton) {
             keys.warnBeforeClosingTabXButton.set(false, in: defaults)

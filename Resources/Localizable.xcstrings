@@ -640102,6 +640102,183 @@
           }
         }
       }
+    },
+    "settings.app.warnBeforeClosingAgentSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing Active Agent Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなエージェント セッションを閉じる前に警告"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen einer aktiven Agentensitzung warnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer une session d’agent active"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل إغلاق جلسة وكيل نشطة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de cerrar una sesión de agente activa"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉作用中的代理工作階段前發出警告"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭活动代理会话前警告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 에이전트 세션을 닫기 전에 경고"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingAgentSession.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing an agent during a turn asks for confirmation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターン中にエージェントを閉じる前に確認します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Schließen eines Agenten während eines Durchlaufs wird zuerst nach einer Bestätigung gefragt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une confirmation est demandée avant de fermer un agent pendant un tour."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُطلب التأكيد قبل إغلاق وكيل أثناء دورة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se pide confirmación antes de cerrar un agente durante un turno."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在代理執行回合期間關閉代理前，會先要求確認。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理执行回合时关闭代理前会先要求确认。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 작업 중일 때 닫기 전에 확인을 요청합니다."
+          }
+        }
+      }
+    },
+    "dialog.closeTab.agentWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is still working. This will close the current tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はまだ作業中です。現在のタブを閉じます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ arbeitet noch. Dadurch wird der aktuelle Tab geschlossen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ travaille encore. L’onglet actuel sera fermé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال %@ يعمل. سيؤدي هذا إلى إغلاق علامة التبويب الحالية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ todavía está trabajando. Esto cerrará la pestaña actual."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 仍在工作。這會關閉目前的標籤頁。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 仍在工作。这将关闭当前标签页。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 아직 작업 중입니다. 현재 탭이 닫힙니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

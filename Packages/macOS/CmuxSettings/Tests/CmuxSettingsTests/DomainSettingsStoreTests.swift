@@ -425,6 +425,7 @@ struct CloseTabConfirmationPolicyTests {
         var warnsBeforeClosingTab: Bool
         var warnsBeforeClosingTabXButton: Bool
         var hidesTabCloseButton: Bool = false
+        var warnsBeforeClosingAgentSession: Bool = true
     }
 
     @Test func shortcutWarnsOnlyForConfirmationRequiringTabsWithWarningOn() {
@@ -435,6 +436,35 @@ struct CloseTabConfirmationPolicyTests {
         #expect(!warningOn.shouldConfirmClose(requiresConfirmation: false, source: .shortcut))
         #expect(!warningOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
         #expect(!warningOff.shouldConfirmClose(requiresConfirmation: false, source: .shortcut))
+    }
+
+    @Test func activeAgentUsesOnlyItsOwnWarningToggle() {
+        let agentOn = FixedWarnings(
+            warnsBeforeClosingTab: false,
+            warnsBeforeClosingTabXButton: false,
+            warnsBeforeClosingAgentSession: true
+        )
+        let agentOff = FixedWarnings(
+            warnsBeforeClosingTab: true,
+            warnsBeforeClosingTabXButton: false,
+            warnsBeforeClosingAgentSession: false
+        )
+
+        #expect(agentOn.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
+        #expect(!agentOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
+        #expect(agentOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(agentOn.warningKindsIncludingSafety(requiresConfirmation: true, source: .shortcut, isAgentSession: true) == [.agentSession])
+    }
+
+    @Test func agentDontAskAgainDoesNotDisableOrdinaryTabWarning() {
+        let defaults = makeScratchDefaults()
+        let store = CloseTabWarningStore(defaults: defaults)
+        store.disableWarnings(.agentSession)
+
+        #expect(!store.warnsBeforeClosingAgentSession)
+        #expect(store.warnsBeforeClosingTab)
+        #expect(store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(!store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
     }
 
     @Test func xButtonWarnsUnconditionallyWhenItsToggleIsOn() {
