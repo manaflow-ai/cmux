@@ -42,7 +42,8 @@ import Testing
     @Test func addPinsAtIndexAndClampsTheIndex() throws {
         let ws = LayoutItem(id: LayoutItemID("itm_ws"), ref: .workspace("local:ws_1"))
         let doc = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: 99))
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [home, LayoutItemID("itm_app_store"), ws.id])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id)
+            == [home, LayoutItemID("itm_app_store"), LayoutItemID("itm_new_workspace"), LayoutItemID("itm_import_sync"), ws.id])
         let front = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: -3))
         #expect(front.section(SidebarLayoutDocument.topSectionID)?.items.first?.id == ws.id)
     }
@@ -73,7 +74,8 @@ import Testing
     @Test func moveAcrossRegionsKeepsTheItem() throws {
         let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
         #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_account")])
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store")])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id)
+            == [LayoutItemID("itm_app_store"), LayoutItemID("itm_new_workspace"), LayoutItemID("itm_import_sync")])
         #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 
