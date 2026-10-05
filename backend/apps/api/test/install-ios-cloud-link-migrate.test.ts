@@ -1,6 +1,6 @@
 import type { ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
-import { iosGrantsToMigrate, userDomain, type UserState } from "../src/domains/user.ts"
+import { IOS_CLOUD_LINK_CUTOFF, iosGrantsToMigrate, userDomain, type UserState } from "../src/domains/user.ts"
 import { post, sessionToken } from "./cloud-bind-support.ts"
 
 /**
@@ -51,21 +51,34 @@ describe("old iPhone grants get cloud-link once", () => {
     expect(again.state).toEqual(s)
   })
 
+  it("runs once per user: the done flag stops it, and an iPhone install made after the cutoff keeps its own grant (review P2)", () => {
+    const r = userDomain.reduce(state, "install.ios_cloud_link_migrate", {}, sys)
+    if (!r.ok) throw new Error(r.message)
+    const done = r.state as UserState
+    expect(done.migrations?.ios_cloud_link).toBe(true)
+    const later = { ...done, grants: { ...done.grants, grant_a: grant("grant_a", "inst_ios_old_000000000000", ["read"]) } } as unknown as UserState
+    expect(iosGrantsToMigrate(later)).toEqual([])
+    const fresh = {
+      ...state,
+      installs: { ...state.installs, inst_ios_old_000000000000: { ...state.installs["inst_ios_old_000000000000"]!, created_at: IOS_CLOUD_LINK_CUTOFF } }
+    } as unknown as UserState
+    expect(iosGrantsToMigrate(fresh)).toEqual([])
+  })
+
   it("is refused for a non-system caller", () => {
     const session: ReduceContext = { ...sys, principal: { identity: `user:${OWNER}`, user: OWNER, kind: "session" } }
     expect(userDomain.reduce(state, "install.ios_cloud_link_migrate", {}, session)).toMatchObject({ ok: false })
   })
 
-  it("runs on the user's object: an old-style iPhone grant has cloud-link at the next request", { timeout: 60_000 }, async () => {
+  it("a new iPhone install that asks for a narrower grant keeps it at the next request (review P2)", { timeout: 60_000 }, async () => {
     const session = await sessionToken("ios-cloud-link-migrate")
     await post("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
     const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
     const j = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
-    // An iPhone grant as it was before cloud-link (read, mutate-own).
     const reg = await post("/v1/ops", session, { op: "install.register", params: { public_jwk: { kty: "EC", crv: "P-256", x: j.x, y: j.y }, kind: "ios", name: "p", device_name: "p", platform: "ios", op_classes: ["read", "mutate-own"] }, idempotency_key: crypto.randomUUID(), origin: "user" })
     expect(reg.body.ok, JSON.stringify(reg.body)).toBe(true)
     const list = await post("/v1/read", session, { op: "install.list", params: {} })
     const i = list.body.value.installs.find((x: any) => x.id === reg.body.value.id)
-    expect([...list.body.value.grants.find((g: any) => g.id === i.grant).op_classes].sort()).toEqual(["cloud-link", "mutate-own", "read"])
+    expect([...list.body.value.grants.find((g: any) => g.id === i.grant).op_classes].sort()).toEqual(["mutate-own", "read"])
   })
 })
