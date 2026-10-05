@@ -18,13 +18,14 @@ const vmDef = <P extends Schema.Top, R extends Schema.Top>(name: string, cls: "r
     owner: "cloud:CloudDO",
     class: cls,
     ...(cls === "mutation" ? { idempotency: "none" as const } : {}),
-    risk: cls === "read" ? "read" : "mutate-own",
+    // The no-key mutations keep the catalog rule for key-less ops (install only, execute, off MCP and CLI).
+    risk: cls === "read" ? "read" : "execute",
     target: "team",
     principals: ["install"],
     params,
     result,
     errors: VM_ERRORS,
-    docs: docs + " VM installs only (kind vm, grant vm-self, its own bound machine).",
+    docs: docs + (cls === "mutation" ? " No idempotency key: a report or event is a fresh fact and nothing replays." : "") + " VM installs only (kind vm, grant vm-self, its own bound machine).",
     cli: { path: "", visible: false },
     mcp: { expose: "never", group: "cloud" }
   })

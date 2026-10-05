@@ -547,7 +547,7 @@ interface CmuxGlobal {
     }
     vm: {
       event: {
-        /** `cloud.vm.event.emit` (mutation, scope `cloud:write`): Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. VM installs only (kind vm, grant vm-self, its own bound machine). */
+        /** `cloud.vm.event.emit` (mutation, scope `cloud:execute`): Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
         emit: CmuxOp<{ machine: Cmux.MachineId; kind: "agent.started" | "agent.finished" | "agent.needs_input" | "notification" | "browser.lease.changed" | "cua.session.started" | "cua.session.ended" | "service.port.opened" | "service.port.closed"; at: number; data: string }, Cmux.MutationResult<{ delivered: boolean }>>
       }
       self: {
@@ -555,7 +555,7 @@ interface CmuxGlobal {
         get: CmuxOp<{ machine: Cmux.MachineId }, { machine: Cmux.CloudMachine }>
       }
       status: {
-        /** `cloud.vm.status.report` (mutation, scope `cloud:write`): Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). VM installs only (kind vm, grant vm-self, its own bound machine). */
+        /** `cloud.vm.status.report` (mutation, scope `cloud:execute`): Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
         report: CmuxOp<{ machine: Cmux.MachineId; state: "running" | "degraded" | "stopping"; daemon: { version: string; capabilities: Array<string> }; health?: { disk_free_mb?: number; load?: unknown }; activity: { last_user_input_at?: number; last_agent_action_at?: number; active_sessions: number } }, Cmux.MutationResult<{ applied: boolean }>>
       }
     }

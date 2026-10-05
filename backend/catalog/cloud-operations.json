@@ -19553,7 +19553,7 @@
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
-      "risk": "mutate-own",
+      "risk": "execute",
       "principals": [
         "install"
       ],
@@ -19574,7 +19574,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "docs": "Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -20079,7 +20079,7 @@
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
-      "risk": "mutate-own",
+      "risk": "execute",
       "principals": [
         "install"
       ],
@@ -20100,7 +20100,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "docs": "Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

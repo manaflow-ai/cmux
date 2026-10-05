@@ -1480,7 +1480,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  /** Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.event.emit": {
     readonly params: {
       readonly machine: MachineId
@@ -1501,7 +1501,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). VM installs only (kind vm, grant vm-self, its own bound machine). */
+  /** Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.status.report": {
     readonly params: {
       readonly machine: MachineId
@@ -3002,9 +3002,9 @@ export const cloudOpMeta = {
   "cloud.snapshot.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
-  "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
+  "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
+  "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

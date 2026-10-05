@@ -326,7 +326,7 @@
       "class": "read"
     },
     "cloud.vm.event.emit": {
-      "scope": "cloud:write",
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.vm.self.get": {
@@ -334,7 +334,7 @@
       "class": "read"
     },
     "cloud.vm.status.report": {
-      "scope": "cloud:write",
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "codemirror.cycle_variant": {
