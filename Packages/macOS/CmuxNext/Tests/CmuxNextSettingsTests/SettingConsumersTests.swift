@@ -48,7 +48,7 @@ import Testing
         #expect((icons["default"] as? [String: Any])?.isEmpty == true)
         #expect(try row("browser.toolbar.home")["default"] as? Bool == false)
         #expect(try row("browser.toolbar.back")["default"] as? Bool == true)
-        #expect(try row("layout.stripMargin")["default"] as? Double == 8)
+        #expect(try row("layout.stripMargin")["default"] as? Double == 0)
         #expect(try row("window.trafficLightClearance")["default"] as? Double == 72)
     }
 

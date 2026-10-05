@@ -884,6 +884,7 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
       onHarness={(harness) => void callNative("chat.new", { harness })}
+      showModePlan={false}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
       onHarnessHint={(harness) => void window.cmuxAcpmuxActions?.["chat.harness.hint"]?.({ harness })}
     />
@@ -1577,10 +1578,16 @@ function AcpmuxPane() {
             return persistSession(await client.select(String(sessionId)));
           },
           // A pick of another harness is a switch: drawn now, started behind it.
-          "chat.new": async ({ harness, cwd }) => {
-            if (harness) return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined);
+          "chat.new": async ({ harness, cwd, peer }) => {
+            if (harness && !peer) return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined);
             harnessSwitch.cancel();
-            return persistSession(await client.create(undefined, cwd ? String(cwd) : undefined));
+            return persistSession(
+              await client.create(
+                harness ? String(harness) : undefined,
+                cwd ? String(cwd) : undefined,
+                peer ? String(peer) : undefined,
+              ),
+            );
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
@@ -1832,7 +1839,10 @@ function AcpmuxPane() {
           callNative("chat.send", { text, attachments }).then(() => promptLanded.current(), cancelOpenInWindow);
         }}
         onStop={() => void callNative("chat.cancel")}
-        onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+        onProject={(cwd, peer) =>
+          void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined)
+        }
+        onMode={(modeId) => void callNative("chat.mode", { modeId })}
         // Without a folder there is nothing to search; the + menu leaves the item out.
         searchFiles={fileRoot ? searchFiles : undefined}
         onOpenInWindow={quick ? openInWindow : undefined}

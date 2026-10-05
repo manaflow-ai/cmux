@@ -776,7 +776,7 @@
         "title_key" : "category.workspace",
         "title_table" : "Localizable"
       },
-      "title" : "Next Workspace",
+      "title" : "Next Sidebar Item",
       "title_key" : "action.nextSidebarTab",
       "title_table" : "ActionCatalog"
     },
@@ -805,7 +805,7 @@
         "title_key" : "category.workspace",
         "title_table" : "Localizable"
       },
-      "title" : "Previous Workspace",
+      "title" : "Previous Sidebar Item",
       "title_key" : "action.prevSidebarTab",
       "title_table" : "ActionCatalog"
     },
@@ -15748,6 +15748,75 @@
       },
       "title" : "Check for Updates…",
       "title_key" : "action.palette.checkForUpdates",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings whats-new",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "updates.whatsNew",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "What's New in cmux",
+      "title_key" : "action.updates.whatsNew",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings show-announcements",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "announcements.show",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Announcements",
+      "title_key" : "action.announcements.show",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings hide-announcements",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "announcements.hide",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Hide Announcements",
+      "title_key" : "action.announcements.hide",
       "title_table" : "ActionCatalog"
     },
     {

@@ -68,8 +68,8 @@ import Testing
     }
 
     private func placement(_ disposition: CEFDisposition, _ click: CEFLinkClickRecord? = nil, now: TimeInterval = 100.2,
-                           mapping: BrowserLinkClickMapping = .chrome) -> CEFLinkPlacement {
-        CEFLinkClicks.placement(for: disposition, click: click, now: now, mapping: mapping)
+                           mapping: BrowserLinkClickMapping = .chrome, userGesture: Bool = true) -> CEFLinkPlacement {
+        CEFLinkClicks.placement(for: disposition, userGesture: userGesture, click: click, now: now, mapping: mapping)
     }
 
     /// Chromium sends NEW_FOREGROUND_TAB for a plain target=_blank link and
@@ -106,19 +106,34 @@ import Testing
         let custom = Self.custom
         #expect(placement(.newWindow) == .tab(.newWindow))
         #expect(placement(.newWindow, mapping: custom) == .opener)
-        #expect(placement(.saveToDisk) == .chromium)
+        #expect(placement(.saveToDisk) == .download)
         #expect(placement(.saveToDisk, mapping: custom) == .tab(.backgroundTab))
     }
 
-    /// The shim cannot start a download for another gesture: Chrome's
-    /// default for that gesture.
-    @Test func downloadOnAnotherGestureKeepsChromesDefault() {
+    /// A gesture mapped to a download downloads the link in the opener
+    /// (the shim's StartDownload), whatever the gesture.
+    @Test func downloadOnAnyGestureDownloadsInTheOpener() {
         let downloads = BrowserLinkClickMapping(cmdClick: .download, cmdShiftClick: .download, shiftClick: .download,
                                                 optionClick: .download, middleClick: .download)
-        #expect(placement(.newBackgroundTab, mapping: downloads) == .tab(.backgroundTab))
-        #expect(placement(.newForegroundTab, click(.cmdShift), mapping: downloads) == .tab(.foregroundTab))
-        #expect(placement(.newWindow, mapping: downloads) == .tab(.newWindow))
-        #expect(placement(.saveToDisk, mapping: downloads) == .chromium)
+        #expect(placement(.newBackgroundTab, mapping: downloads) == .download)
+        #expect(placement(.newForegroundTab, click(.cmdShift), mapping: downloads) == .download)
+        #expect(placement(.newForegroundTab, click(.plain), mapping: downloads) == .tab(.foregroundTab))
+        #expect(placement(.newWindow, mapping: downloads) == .download)
+        #expect(placement(.saveToDisk, mapping: downloads) == .download)
+    }
+
+    /// A request no user gesture caused (a script's window.open, a
+    /// redirect) never follows a modified-click setting: Chrome's default
+    /// for its disposition, and the recorded click does not count.
+    @Test func aRequestWithoutAUserGestureIgnoresTheMapping() {
+        let custom = Self.custom
+        #expect(placement(.newBackgroundTab, mapping: custom, userGesture: false) == .tab(.backgroundTab))
+        #expect(placement(.newWindow, mapping: custom, userGesture: false) == .tab(.newWindow))
+        #expect(placement(.saveToDisk, mapping: custom, userGesture: false) == .download)
+        #expect(placement(.newForegroundTab, click(.cmdShift), mapping: custom, userGesture: false) == .tab(.foregroundTab))
+        let current = BrowserLinkClickMapping(cmdClick: .currentTab, shiftClick: .download)
+        #expect(placement(.newBackgroundTab, mapping: current, userGesture: false) == .tab(.backgroundTab))
+        #expect(placement(.newWindow, mapping: current, userGesture: false) == .tab(.newWindow))
     }
 
     @Test func nonLinkDispositionsIgnoreTheMapping() {
@@ -133,9 +148,10 @@ import Testing
 
     // MARK: Window requests
 
-    private func request(_ kind: CEFWindowRequest.Kind, _ disposition: CEFDisposition, source: Int32 = 4) -> CEFWindowRequest {
+    private func request(_ kind: CEFWindowRequest.Kind, _ disposition: CEFDisposition, source: Int32 = 4,
+                         userGesture: Bool = true) -> CEFWindowRequest {
         CEFWindowRequest(kind: kind, disposition: disposition, sourceBrowser: source, bounds: nil,
-                         url: "https://example.com/", profilePath: "/p")
+                         url: "https://example.com/", userGesture: userGesture, profilePath: "/p")
     }
 
     private let window = [CEFWindowCandidate(anchor: 9, profilePath: "/p", holdsSource: true, lastShown: true, visible: true)]
@@ -163,13 +179,41 @@ import Testing
             == .loadInSource(url: "https://example.com/"))
     }
 
+    /// A window request carries its user gesture (the fork's request): a
+    /// script's request ignores the mapping, a click mapped to a download
+    /// downloads in the source tab and Chromium opens nothing.
+    @Test func windowRequestsUseTheirUserGesture() {
+        let links = CEFLinkContext(mapping: Self.custom, clicks: [:], now: 0)
+        #expect(CEFWindowPolicy.decide(request(.window, .newWindow, userGesture: false), candidates: window, links: links)
+            == .insert(anchor: 9, disposition: .newWindow))
+        let downloads = CEFLinkContext(mapping: BrowserLinkClickMapping(cmdClick: .download), clicks: [:], now: 0)
+        #expect(CEFWindowPolicy.decide(request(.tab, .newBackgroundTab), candidates: window, links: downloads)
+            == .downloadInSource(url: "https://example.com/"))
+        #expect(CEFWindowPolicy.decide(request(.tab, .newBackgroundTab, source: 0), candidates: window, links: downloads)
+            == .insert(anchor: 9, disposition: .foregroundTab))
+        #expect(CEFWindowPolicy.decide(request(.tab, .newBackgroundTab, userGesture: false), candidates: window, links: downloads)
+            == .insert(anchor: 9, disposition: .backgroundTab))
+    }
+
+    /// The shim reports the opener's user gesture with each popup and with
+    /// the AFTER_CREATED of the tab Chromium made for it.
+    @Test func popupEventsCarryTheUserGesture() {
+        #expect(CEFShimEvent(kind: 17, browser: 3, request: 0, a: 4, b: 1, s1: "https://e.com/", s2: "")
+            == .popup(browser: 3, url: "https://e.com/", disposition: 4, userGesture: true))
+        #expect(CEFShimEvent(kind: 17, browser: 3, request: 0, a: 4, b: 0, s1: "https://e.com/", s2: "")
+            == .popup(browser: 3, url: "https://e.com/", disposition: 4, userGesture: false))
+        let created = CEFCreatedBy(packed: (Int64(7) << 32) | (1 << 16) | 4, features: "")
+        #expect(created == CEFCreatedBy(opener: 7, disposition: .newBackgroundTab, userGesture: true, features: nil))
+        #expect(CEFCreatedBy(packed: (Int64(7) << 32) | 4, features: "").userGesture == false)
+    }
+
     /// A click counts only for the page that received it: a Shift-Cmd-click
     /// on tab A never changes a NEW_FOREGROUND_TAB request from tab B.
     @Test func aClickOnAnotherPageDoesNotCount() {
         let links = CEFLinkContext(mapping: Self.custom, clicks: [7: click(.cmdShift, at: 10)], now: 10.1)
-        #expect(links.placement(for: .newForegroundTab, source: 7) == .tab(.newWindow))
-        #expect(links.placement(for: .newForegroundTab, source: 4) == .tab(.foregroundTab))
-        #expect(links.placement(for: .newForegroundTab, source: 0) == .tab(.foregroundTab))
+        #expect(links.placement(for: .newForegroundTab, source: 7, userGesture: true) == .tab(.newWindow))
+        #expect(links.placement(for: .newForegroundTab, source: 4, userGesture: true) == .tab(.foregroundTab))
+        #expect(links.placement(for: .newForegroundTab, source: 0, userGesture: true) == .tab(.foregroundTab))
         #expect(CEFWindowPolicy.decide(request(.tab, .newForegroundTab), candidates: window, links: links)
             == .insert(anchor: 9, disposition: .foregroundTab))
     }

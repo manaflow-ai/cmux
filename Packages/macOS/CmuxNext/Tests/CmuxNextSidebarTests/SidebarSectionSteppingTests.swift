@@ -20,7 +20,7 @@ struct SidebarSectionSteppingTests {
         ]),
     ])
     static func step(_ from: String, _ by: Int) -> String? {
-        SidebarSectionStepping.step(from: LayoutItemID(from), by: by, in: doc, skip: { $0.id == LayoutItemID("hidden") })?.rawValue
+        doc.sectionStep(from: LayoutItemID(from), by: by, skip: { $0.id == LayoutItemID("hidden") })?.rawValue
     }
 
     @Test func nextAndPreviousStayInTheSectionAndWrap() {

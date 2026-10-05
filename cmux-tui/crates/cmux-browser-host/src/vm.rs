@@ -20,6 +20,15 @@ use std::time::{Duration, Instant};
 pub trait VmHost: Send + Sync {
     /// One driver protocol call, policy-checked. Blocks; runs on a worker thread.
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError>;
+    /// [`VmHost::driver_call`] with the result as JSON text where the engine
+    /// kept it (a page script's value, in the page's key order).
+    fn driver_call_reply(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<crate::driver::Reply, DriverError> {
+        self.driver_call(method, params).map(crate::driver::Reply::Value)
+    }
     /// A synchronous host function (`secretSet`, `secretList`, `secretDelete`,
     /// `policyNarrow`, `policyGet`). Errors become JS exceptions.
     fn native(&self, name: &str, args: Value) -> Result<Value, String>;
@@ -63,7 +72,7 @@ const TIMERS_PER_PASS: usize = 64;
 enum Input {
     Eval { code: String, options: String, timeout: Duration, reply: mpsc::Sender<EvalOutcome> },
     Stop,
-    Result { call_id: f64, outcome: Result<Value, DriverError> },
+    Result { call_id: f64, outcome: Result<crate::driver::Reply, DriverError> },
     Event { name: String, payload: Value },
 }
 
@@ -359,7 +368,9 @@ fn run(
                     callback_deadline(&interrupt_at);
                 }
                 let (error, result) = match outcome {
-                    Ok(value) => (None, Some(value.to_string())),
+                    // A script's value is spliced in as the engine's JSON
+                    // text (a9 raw_value: the page's key order).
+                    Ok(reply) => (None, Some(reply.json_text())),
                     Err(error) => (Some(error.to_json().to_string()), None),
                 };
                 // The runtime checks `=== null`, so absent values are null, not undefined.
@@ -510,7 +521,8 @@ fn install(
                 let spawned = std::thread::Builder::new()
                     .name("cmux-browser-host-fetch".into())
                     .spawn(move || {
-                        let outcome = host.driver_call("net.fetch", request);
+                        let outcome =
+                            host.driver_call("net.fetch", request).map(crate::driver::Reply::Value);
                         let _ = sender.send(Input::Result { call_id, outcome });
                     });
                 if spawned.is_err() {
@@ -571,7 +583,7 @@ fn install(
                 let spawned = std::thread::Builder::new()
                     .name("cmux-browser-host-driver-call".into())
                     .spawn(move || {
-                        let outcome = host.driver_call(&method, params);
+                        let outcome = host.driver_call_reply(&method, params);
                         let _ = sender.send(Input::Result { call_id, outcome });
                     });
                 if spawned.is_err() {

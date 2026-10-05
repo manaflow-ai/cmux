@@ -108,7 +108,7 @@ describe("cloud ops through the Worker", { timeout: 60_000 }, () => {
 
   it("keeps answering owner.unreachable for the cloud ops that are not live yet", async () => {
     const { t } = await signedIn("cloud-route-2")
-    for (const name of ["cloud.machine.start", "cloud.machine.pause", "cloud.snapshot.create", "cloud.billing.checkout"]) {
+    for (const name of ["cloud.machine.resize", "cloud.snapshot.create", "cloud.billing.checkout"]) {
       const r = await op(t, name, {})
       expect([name, r.status, r.body.code]).toEqual([name, 503, "owner.unreachable"])
     }

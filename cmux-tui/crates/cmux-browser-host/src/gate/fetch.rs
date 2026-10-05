@@ -139,8 +139,12 @@ impl Gate {
         let mut call = params.clone();
         call["maxBytes"] = json!(MAX_BODY_BYTES);
         let result = {
+            // One deadline from the call: the wait for a slot spends it too,
+            // and the engine gets what is left.
             let deadline = Instant::now() + crate::protocol::timeout_of(params);
             let _fetching = Fetching::start(self, deadline)?;
+            let left = deadline.saturating_duration_since(Instant::now()).as_millis().max(1);
+            call["timeoutMs"] = json!(left as u64);
             self.driver.call("net.fetch", &call)
         };
         let mut value = match result {

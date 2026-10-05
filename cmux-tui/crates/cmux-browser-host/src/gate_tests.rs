@@ -96,6 +96,24 @@ impl Driver for FakeDriver {
         Vec::new()
     }
 
+    /// A script value as the engine sends it: JSON text in the page's key
+    /// order (a secret also behind a JSON escape).
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Reply, DriverError> {
+        if method == "frame.evaluate" && params["source"] == "ordered" {
+            announce();
+            self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
+            let raw = r#"{"z":"token s3cret-value here","a":[{"y":"s3cret\u002dvalue","b":1.50}],"s3cret-value":true}"#;
+            let raw = RawValue::from_string(raw.to_owned()).unwrap();
+            return Ok(Reply::Json(raw));
+        }
+        self.call_announced(method, params, announce).map(Reply::Value)
+    }
+
     fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
         *self.filter.lock().unwrap() = filter;
         true
@@ -767,6 +785,31 @@ fn a_session_runs_at_most_16_fetches_at_once() {
     fetch_x(&gate, 2_000).expect("the slots free when the fetches end");
 }
 
+/// a9 (lazy item b): a fetch's timeout covers its wait for a slot too. One
+/// deadline starts with the call; the engine gets what is left of it.
+#[test]
+fn a_fetch_timeout_covers_its_wait_for_a_slot() {
+    let (gate, driver) = blocked_fetch_gate();
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..16).map(|_| scope.spawn(|| fetch_x(&gate, 30_000))).collect();
+        wait_for_in_flight(&driver, 16);
+        let queued = scope.spawn(|| fetch_x(&gate, 2_000));
+        driver.release_fetches();
+        for fetch in running {
+            fetch.join().unwrap().expect("a running fetch completes");
+        }
+        queued.join().unwrap().expect("the queued fetch runs");
+    });
+    let calls = driver.calls.lock().unwrap();
+    let left = calls
+        .iter()
+        .filter(|(m, p)| m == "net.fetch" && p["timeoutMs"].as_u64().is_some_and(|t| t <= 2_000))
+        .map(|(_, p)| p["timeoutMs"].as_u64().unwrap_or(0))
+        .collect::<Vec<_>>();
+    assert_eq!(left.len(), 1, "{calls:?}");
+    assert!(left[0] < 2_000 && left[0] > 0, "the engine got the whole timeout again: {left:?}");
+}
+
 /// a9 shell-tab condition (d): a session that ended starts no fetch, also
 /// not one that waited for a slot.
 #[test]
@@ -882,5 +925,21 @@ fn request_kind_changes_logging_only() {
             ..fine
         })
         .is_none()
+    );
+}
+
+/// a9 raw_value: a script value stays JSON text in the page's key order,
+/// with secrets masked in that text (string values and keys, also behind
+/// JSON escapes) before it reaches the VM.
+#[test]
+fn script_values_are_masked_as_text_in_the_page_key_order() {
+    let (gate, _driver) = make_gate(Value::Null, false);
+    agent_secret(&gate, "a.test");
+    let reply = gate
+        .driver_call_reply("frame.evaluate", json!({"targetId": "T", "source": "ordered"}))
+        .unwrap();
+    assert_eq!(
+        reply.json_text(),
+        r#"{"z":"token <secret:pw> here","a":[{"y":"<secret:pw>","b":1.50}],"<secret:pw>":true}"#
     );
 }

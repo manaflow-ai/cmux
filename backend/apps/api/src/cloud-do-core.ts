@@ -9,14 +9,17 @@ import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
+import { idleFromReport, type ReportedActivity } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
 
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
-const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete"])
-const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
+const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start"])
+/** A cloud.machine.vm_status commit that applied the report (a held report from a replaced install is dropped). */
+export const statusApplied = (frames: ReadonlyArray<OwnerFrame>) => frames.some((f) => f.t === "result" && (f as { value?: { applied?: unknown } }).value?.applied === true)
+const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.idle_pause", "cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
 const forbidden = (entity: string, key: string): SubmitResult => ({
   frames: [
     { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "not this team's machines", retryable: false, replayed: false },
@@ -49,6 +52,29 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (at !== null) void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(Math.max(at, Date.now())) : undefined))
   }
 
+  /** The team's Cloud policy from its TeamDO (fail closed: a failed RPC fails the caller). */
+  protected teamCloudPolicy(entity: string): Promise<{ connect_services: ReadonlyArray<string>; idle_pause: boolean }> {
+    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { cloudPolicy(e: string): Promise<{ connect_services: ReadonlyArray<string>; idle_pause: boolean }> }
+    return stub.cloudPolicy(entity)
+  }
+
+  /**
+   * After a VM status report was applied: pause the machine when the report shows it idle past its
+   * idle policy and the team policy cloud.idlePause is on (cloud-idle.ts). The money-op path: the
+   * per-team limit, the ledger (cloud.machine.idle_pause), the guarded provider call.
+   */
+  protected async considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void> {
+    const engine = this.boundEngine
+    const row = engine?.rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
+    if (!engine || !idleFromReport(row, (report as { activity?: ReportedActivity } | null)?.activity, now)) return
+    if (!(await this.teamCloudPolicy(entity).catch(() => ({ idle_pause: false }))).idle_pause) return
+    const limit = this.env.CLOUD_MUTATION_LIMIT
+    // Per machine (review P3): a VM whose pauses keep failing cannot use up the team's create/delete budget.
+    if (limit && !(await limit.limit({ key: `cloud-idle:${machine}` })).success) return
+    const r = this.submitSystem("cloud.machine.idle_pause", { machine }, `idle-pause:${machine}:${engine.currentSeq}`)
+    if (r.frames.some((f) => f.t === "result")) await this.runMachine(machine, null)
+  }
+
   /** After every commit: a machine the commit left gone, failed or deleting loses its VM install (and a cleared ledger row's machine too). */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {
     const engine = this.boundEngine
@@ -60,16 +86,26 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   protected readonly config: CloudConfig
   protected readonly flights = new Map<string, Promise<void>>()
   /** Test only: moves the alarm's clock forward, and drops the next driver_result commits (a crash). */
-  protected skewMs = 0
+  /** Test only (fakeControl advance_ms): the object's clock offset, also the engine's clock (commits see the same time). */
+  private readonly clock: { skew: number }
+  protected get skewMs(): number {
+    return this.clock.skew
+  }
+  protected set skewMs(v: number) {
+    this.clock.skew = v
+  }
   protected dropResults = 0
 
   constructor(ctx: DurableObjectState, env: Env) {
+    const clock = { skew: 0 }
     super(ctx, env, cloudDomain(cloudConfig(env)) as Domain<CloudState>, "cloud", undefined, {
+      now: () => Date.now() + clock.skew,
       rowMode: { snapshotTable: TABLE_MACHINE, snapshotTail: 0 },
       // P3-8: internal ops carry ledger keys and provider error text; subscribers see neither.
       redact: { privateTables: CLOUD_PRIVATE_TABLES, state: headView, params: (op, params) => (INTERNAL_OPS.has(op) ? {} : params) }
     })
     this.config = cloudConfig(env)
+    this.clock = clock
   }
 
   /** P3-8: a member of the team this object is bound to, also while the head has no team yet. */
@@ -260,7 +296,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean }
       if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
-      else if (row.op === "create" && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
+      else if ((row.op === "create" || row.op === "start") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
       else if (row.op === "create" && !row.cancel && !this.bindFileConfig()) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "CLOUD_API_ORIGIN (https) or the environment tag is not configured" }, final: true }
       else {
@@ -278,6 +314,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token, ...cfg }))
             result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token) }
           }
+          else if (row.op === "pause" || row.op === "start") result = (await driver.power(row.provider_name, tag, row.op), { key: row.key, ok: true })
           else result = (await driver.remove(row.provider_name, tag), { key: row.key, ok: true })
         } catch (e) {
           const err = e instanceof DriverError ? e : new DriverError("cloud.provider.unavailable", String(e), false)
@@ -320,7 +357,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
-    for (const d of this.vmStatus.takeDue(now)) this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
+    for (const d of this.vmStatus.takeDue(now)) {
+      const r = this.submitSystem("cloud.machine.vm_status", { machine: d.machine, report: d.report, now }, `vm-status:${d.machine}:${now}`)
+      if (statusApplied(r.frames)) await this.considerIdlePause(engine.currentState.team ?? "", d.machine, d.report, now)
+    }
     const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team
     if (!driver || !team) return

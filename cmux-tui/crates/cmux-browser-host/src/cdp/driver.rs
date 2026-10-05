@@ -248,6 +248,23 @@ impl Driver for CdpDriver {
     fn end_session(&self) {
         self.inner.end_shells();
     }
+
+    /// A script's value goes on as the JSON text Chromium sent (a9
+    /// raw_value); every other result is parsed.
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<crate::driver::Reply, DriverError> {
+        if method != "frame.evaluate" {
+            return self.call_announced(method, params, announce).map(crate::driver::Reply::Value);
+        }
+        announce();
+        self.inner.browser_page_refusal(method, params)?;
+        self.inner.shell_refusal(params)?;
+        self.inner.evaluate_raw(params).map(crate::driver::Reply::Json)
+    }
 }
 
 /// A ready tab's session.
