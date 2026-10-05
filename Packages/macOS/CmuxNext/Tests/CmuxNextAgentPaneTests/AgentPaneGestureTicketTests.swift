@@ -123,6 +123,18 @@ import Testing
         let new = await rig.ticket(Self.mode)
         #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "default"], ticket: old) == .gestureRequired)
         #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "default"], ticket: new) == nil)
+        // Two held config picks in one switch (model and effort) do not revoke each other; a newer
+        // pick of the same config option does.
+        let model = ["method": "session/set_config_option", "params": ["configId": "model", "value": "gpt-6"]] as [String: Any]
+        let effortHigh = ["method": "session/set_config_option", "params": ["configId": "effort", "value": "high"]] as [String: Any]
+        let effortLow = ["method": "session/set_config_option", "params": ["configId": "effort", "value": "low"]] as [String: Any]
+        let modelTicket = await rig.ticket(model)
+        let highTicket = await rig.ticket(effortHigh)
+        let lowTicket = await rig.ticket(effortLow)
+        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "model", "value": "gpt-6"], ticket: modelTicket) == nil)
+        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "high"], ticket: highTicket)
+            == .gestureRequired, "revoked by the newer effort pick")
+        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "effort", "value": "low"], ticket: lowTicket) == nil)
         // A ticket from connection A on connection B (a reconnect).
         let fromA = await rig.ticket(Self.mode)
         try await rig.connect()
