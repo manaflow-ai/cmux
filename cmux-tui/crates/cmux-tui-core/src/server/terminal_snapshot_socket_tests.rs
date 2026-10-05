@@ -1064,3 +1064,79 @@ fn a_png_transmission_reaches_an_identity_attach_as_images() {
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
+
+// ---- golden contract fixture --------------------------------------------
+
+/// The checked-in host event lines that the Mac decoder test also reads.
+const DOGFOOD_PNG_FIXTURE: &str = "spec/fixtures/terminal-snapshot-dogfood-png.jsonl";
+
+/// One snapshot event as a fixture line. Volatile values become fixed
+/// placeholders: `surface` (a per-process surface counter) and
+/// `marker_epoch` (a process-wide counter) are `0`. Every other field is the
+/// host's real value.
+fn fixture_line(event: &Value) -> String {
+    let mut event = event.clone();
+    event["surface"] = json!(0);
+    if event.get("marker_epoch").is_some() {
+        event["marker_epoch"] = json!(0);
+    }
+    serde_json::to_string(&event).expect("fixture JSON")
+}
+
+/// Golden contract of the S3k dogfood flow: an 80x24 terminal with 40 short
+/// lines of scrollback and one 64x64 RGB PNG (`f=100,a=T,c=8,r=4`, no id, no
+/// `q`); a plain READY attach with `snapshot_images` and
+/// `snapshot_local_history` gets READY, history chunks and images chunks;
+/// then a resize to 60x20 gives one local READY. The lines must equal
+/// `spec/fixtures/terminal-snapshot-dogfood-png.jsonl`;
+/// `CMUX_UPDATE_SNAPSHOT_FIXTURE=1` rewrites the file.
+#[test]
+fn dogfood_png_snapshot_events_match_the_golden_fixture() {
+    let (mux, surface) = quiet_surface_with_scrollback("snapshot-images-fixture", 0);
+    for line in 0..40 {
+        surface.inject_output_for_test(format!("line {line}\r\n").as_bytes());
+    }
+    surface.inject_output_for_test(
+        format!("\x1b_Gf=100,a=T,c=8,r=4;{PNG_64_RGB_BASE64}\x1b\\\r\nafter\r\n").as_bytes(),
+    );
+    let (_writer, outbound, client) = attach_images_viewer(&mux, &surface, true);
+    let mut lines = Vec::new();
+    let ready = next_event(&outbound, Duration::from_secs(10)).expect("ready");
+    assert_eq!(ready["phase"], "ready", "{ready}");
+    lines.push(fixture_line(&ready));
+    loop {
+        let event = next_event(&outbound, Duration::from_secs(10)).expect("history or images");
+        if event["event"] != "snapshot" {
+            continue;
+        }
+        lines.push(fixture_line(&event));
+        if event["phase"] == "images" && event["done"] == true {
+            break;
+        }
+    }
+    surface.resize(60, 20).unwrap();
+    let local = loop {
+        let event = next_event(&outbound, Duration::from_secs(10)).expect("local ready");
+        if event["event"] == "snapshot" {
+            break event;
+        }
+    };
+    assert_eq!(local["history"], "local", "{local}");
+    lines.push(fixture_line(&local));
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+
+    let actual = lines.join("\n") + "\n";
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(DOGFOOD_PNG_FIXTURE);
+    if std::env::var_os("CMUX_UPDATE_SNAPSHOT_FIXTURE").is_some() {
+        std::fs::write(&path, &actual).expect("write the fixture");
+        return;
+    }
+    let expected = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        actual == expected,
+        "{DOGFOOD_PNG_FIXTURE} differs from the host's events; rerun with \
+         CMUX_UPDATE_SNAPSHOT_FIXTURE=1 and review the diff"
+    );
+}
