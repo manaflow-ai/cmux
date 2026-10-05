@@ -27,7 +27,9 @@ collected tree's SOURCE-MANIFEST.json: a `license_files` package or a
 `zig_packages` key). The vendored pkg/ and vendor/ directories of that commit
 must pass ghostty_vendored.py too. Exit 1 names every uncovered package.
 
---link-graph FILE (vt_link_graph.py's output, made on a Testbox from the
+--check-link-graph FILE checks only that the graph names the resolved source
+and commit (the notices CI runs it on every gitlink change, so a bump lands
+with a regenerated graph). --link-graph FILE (vt_link_graph.py's output, made on a Testbox from the
 DWARF of libghostty-vt.a built with -Dstrip=false) adds the linked set: the
 graph must be for the resolved source and commit, no DWARF path may be
 unattributed, and every linked package must be declared and covered. The
@@ -134,13 +136,26 @@ def covered_packages(manifests: list[Path]) -> set[str]:
     return covered
 
 
+REGENERATE = (
+    "regenerate it on a Testbox: `$HQ_TOOLS/scripts/testbox-warmup.sh --lane <lane>`, then "
+    "`blacksmith testbox run --id <tbx> 'python3 scripts/cmux-next/notices/vt_link_graph.py generate "
+    "--dwarfdump /usr/lib/llvm-18/bin/llvm-dwarfdump --out scripts/cmux-next/notices/vt-link-graph.json'` and "
+    "`blacksmith testbox download --id <tbx> scripts/cmux-next/notices/vt-link-graph.json "
+    "scripts/cmux-next/notices/vt-link-graph.json`; commit it with the gitlink change"
+)
+
+
+def stale_graph_problem(graph: dict, path: str, commit: str) -> str | None:
+    if graph.get("source") == path and graph.get("commit") == commit:
+        return None
+    return f"vt-link-graph.json is for {graph.get('source')} {graph.get('commit')}, but bin/cmux links {path} {commit}; {REGENERATE}"
+
+
 def link_graph_problems(graph: dict, path: str, commit: str, declared: list[Package], covered: set[str]) -> tuple[list[str], list[str]]:
     """(problems, report lines) for a vt_link_graph.py result."""
-    if graph.get("source") != path or graph.get("commit") != commit:
-        return [
-            f"link graph is for {graph.get('source')} {graph.get('commit')}, not {path} {commit}; "
-            "regenerate it on a Testbox with scripts/cmux-next/notices/vt_link_graph.py generate"
-        ], []
+    stale = stale_graph_problem(graph, path, commit)
+    if stale:
+        return [stale], []
     problems: list[str] = []
     by_hash = {package.package_hash: package for package in declared}
     linked: dict[str, list[str]] = {}
@@ -176,6 +191,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--license-manifest", type=Path, action="append", default=[], help="a collected SOURCE-MANIFEST.json (repeatable)")
     parser.add_argument("--print-source", action="store_true", help="print the resolved source and commit only")
     parser.add_argument("--link-graph", type=Path, help="vt_link_graph.py output: also check the packages the archive links")
+    parser.add_argument("--check-link-graph", type=Path, help="only check that this graph is for the resolved source and commit (no submodule needed)")
     override = parser.add_mutually_exclusive_group()
     override.add_argument("--ghostty-revision", help="product override: the Ghostty commit the product builds cmux-tui with")
     override.add_argument("--ghostty-revision-file", type=Path, help="product override: a pin file whose first line is that commit")
@@ -200,6 +216,13 @@ def main(argv: list[str]) -> int:
         print(f"libghostty-vt source: {path} {commit}")
         print(f"commit source: {origin}")
         if args.print_source:
+            return 0
+        if args.check_link_graph is not None:
+            problem = stale_graph_problem(json.loads(args.check_link_graph.read_text(encoding="utf-8")), path, commit)
+            if problem:
+                print(f"error: {problem}", file=sys.stderr)
+                return 1
+            print(f"check_ghostty_vt_notices: {args.check_link_graph} is for {path} {commit[:11]}")
             return 0
         if not args.license_manifest:
             parser.error("pass --license-manifest (or --print-source)")

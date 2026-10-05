@@ -55,9 +55,11 @@ libghostty-vt with `-Dstrip=false` and an empty Zig cache for aarch64/x86_64
 macOS and aarch64/x86_64 Linux musl, reads the archive's DWARF source paths and
 writes `vt-link-graph.json`. `check_ghostty_vt_notices.py --link-graph` checks
 it (the graph's commit is the resolved gitlink, nothing unattributed, linked
-packages declared and covered) and prints linked vs declared. The source
-archive dry run runs it non-blocking. Regenerate the graph after a ghostty-next
-bump.
+packages declared and covered) and prints linked vs declared. nightly-next and
+the source archive dry run run it blocking, with the declared-set check.
+`--check-link-graph` (notices CI, no submodule) fails a ghostty-next gitlink or
+build.rs change until the graph is regenerated on a Testbox for the new commit;
+its error gives the commands.
 
 Open item: the bundle check's scan for rustc std paths in a Mach-O without
 `rust-std` (Release merges Iroh's Rust code into the app binary) landed with
