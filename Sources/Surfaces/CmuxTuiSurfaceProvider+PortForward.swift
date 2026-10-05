@@ -242,22 +242,6 @@ extension CmuxTuiSurfaceProvider {
 
     /// Rebinds browser panes for the supplied resources, or all restored browser panes.
     func reprojectRestoredBrowserPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
-        // A restored forwarded-port projection can arrive before the first
-        // guest scan publishes its resource. Keep the saved port identity
-        // authoritative so the pane can connect as soon as the private route
-        // is available, instead of becoming a permanent unavailable card.
-        let projectedResources = catalog.projections.filter {
-            $0.resource.machine == machine
-                && $0.resource.isForwardedPort
-                && (resourceIDs == nil || resourceIDs!.contains($0.resource))
-        }
-        for projection in projectedResources where catalog.resources[projection.resource] == nil {
-            guard let port = projection.resource.forwardedPort else { continue }
-            catalog.upsert(
-                CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port),
-                from: self
-            )
-        }
         let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
         for resource in catalog.snapshot.resources(on: machine) where
             resource.kind != .terminal && (resourceIDs == nil || resourceIDs!.contains(resource.id)) {

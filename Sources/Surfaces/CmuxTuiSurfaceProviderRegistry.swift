@@ -810,13 +810,15 @@ final class CmuxTuiSurfaceProviderRegistry {
             await links.setPrivateAddresses([address].compactMap { $0 }, for: machineID)
             await links.setOwnerTeam(ownerTeamID, for: machineID)
             guard !isRetired, generation == refreshGeneration, providers[machineID] == nil else { continue }
-            let summary = fetchedSummary ?? VMSummary(
+            var summary = fetchedSummary ?? VMSummary(
                 id: machineID, provider: "freestyle", status: info?.status ?? "running",
                 image: info?.image ?? "", createdAt: 0,
                 kind: info?.hasDesktop == false ? .base : .desktop,
                 capabilities: .all, displayName: info?.name ?? "Cloud machine",
                 addressIPv4: address
             )
+            // A status read can omit the address; keep the restored route.
+            if summary.addressIPv4 == nil { summary.addressIPv4 = address }
             let provider = CmuxTuiSurfaceProvider(
                 summary: summary,
                 fileAccessTeamScope: AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope,
