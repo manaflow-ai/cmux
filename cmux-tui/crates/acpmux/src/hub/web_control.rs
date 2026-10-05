@@ -1,10 +1,21 @@
-//! Part of `Hub`; see `hub/mod.rs`. Web control of a session follows the
-//! asking-mode table (`web_modes.rs`): the merged table is built and logged
-//! once at start and at every config reload, and a session whose mode leaves
-//! the table (a harness update, also one the harness makes by itself, or a
-//! set) loses Web control at once. Web reads stay. Only the unix socket or
-//! the local app setting an asking mode again restores it; a harness that
-//! returns to an asking mode by itself does not.
+//! Part of `Hub`; see `hub/mod.rs`. Web control of a session (a prompt, a
+//! permission answer, a mode or option set) follows the asking-mode table
+//! (`web_modes.rs`), built and logged once at start and at every reload.
+//!
+//! The check is stateless on the mode: a Web connection controls a session
+//! only while its CURRENT mode is in the table, whatever wrote that mode (a
+//! load, a resume, a pool claim, a preset, a harness switch, the harness
+//! itself). It runs in the remote guard and again when a queued prompt is
+//! dispatched or an answer is applied, under the session's meta lock, the
+//! same lock every mode write takes (`write_mode_state`, the one setter).
+//! The sticky `web_control_ended` flag adds one rule: after a mode left
+//! the table, the harness's own return does not restore Web control; the
+//! unix socket or the local app setting an asking mode does.
+//!
+//! `Control::Peer` (a proven peer daemon of the same user,
+//! `server/peer_auth.rs`) has no mode rule, unless it forwards a request
+//! for its own Web client (`_meta.acpmux.via = "web"`): that request runs
+//! as `Control::Web`.
 
 use super::*;
 use crate::web_modes::WebModeTable;
@@ -43,39 +54,118 @@ impl Hub {
             (extra.clone(), Arc::new(table));
     }
 
-    /// A session's mode may have changed. Leaving the table ends Web control;
-    /// `restore` (the unix socket or the local app set it) and an asking
-    /// mode bring it back.
-    pub(crate) fn note_mode(&self, session: &Session, restore: bool) {
-        let meta = session.meta();
-        if self.web_modes().session_asks(&meta) {
-            if restore && session.web_control_ended.swap(false, Ordering::SeqCst) {
-                self.append(session, "mux", "remote_control_restored", json!({}));
+    /// The one setter for a session's mode state (`modes`, the current mode,
+    /// `configOptions`). Leaving the table (a known asking mode before the
+    /// write, one that does not ask after it) sets the sticky flag, under
+    /// the same meta lock as the write, so no write path skips it. A session
+    /// that starts in a mode that does not ask never left the table: the
+    /// stateless rule refuses it (`remote.mode_not_asking`).
+    pub(crate) fn write_mode_state(
+        &self,
+        session: &Session,
+        writes: impl IntoIterator<Item = ModeWrite>,
+    ) {
+        let table = self.web_modes();
+        let left = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let asked = crate::web_modes::mode_of(&m).is_some() && table.session_asks(&m);
+            for w in writes {
+                match w {
+                    ModeWrite::Modes(v) => m.modes = Some(v),
+                    ModeWrite::CurrentMode(v) => {
+                        if let Some(modes) = m.modes.as_mut() {
+                            modes["currentModeId"] = v;
+                        }
+                    }
+                    ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
+                }
             }
-            return;
-        }
-        if !session.web_control_ended.swap(true, Ordering::SeqCst) {
-            let mode = crate::web_modes::mode_of(&meta);
+            (asked
+                && !table.session_asks(&m)
+                && !session.web_control_ended.swap(true, Ordering::SeqCst))
+            .then(|| crate::web_modes::mode_of(&m))
+        };
+        if let Some(mode) = left {
             tracing::warn!(session = %session.id, ?mode, "the session left the asking-mode table: Web control ends");
             self.append(session, "mux", "remote_control_ended", json!({"mode": mode}));
         }
     }
 
-    /// Whether a Web connection may still control `session` (prompt, answer
-    /// a permission, change its mode or options).
-    pub(crate) fn web_control_check(&self, session: &Session) -> Result<(), RpcError> {
+    /// The unix socket or the local app set the mode (or the daemon moved a
+    /// new Web session to its asking default): an asking mode clears the
+    /// sticky flag.
+    pub(crate) fn restore_web_control(&self, session: &Session) {
+        let asks = self.web_modes().session_asks(&session.meta());
+        if asks && session.web_control_ended.swap(false, Ordering::SeqCst) {
+            self.append(session, "mux", "remote_control_restored", json!({}));
+        }
+    }
+
+    /// Whether `control` may control `session` now: for the Web, only
+    /// while the sticky flag is clear and the current mode asks.
+    pub(crate) fn web_control_check(
+        &self,
+        session: &Session,
+        control: Control,
+    ) -> Result<(), RpcError> {
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        self.web_control_verdict(session, &meta, control)
+    }
+
+    /// `web_control_check` for a caller that holds the meta lock (dispatch).
+    pub(crate) fn web_control_verdict(
+        &self,
+        session: &Session,
+        meta: &crate::store::SessionMeta,
+        control: Control,
+    ) -> Result<(), RpcError> {
+        if control != Control::Web {
+            return Ok(());
+        }
+        let mode = crate::web_modes::mode_of(meta);
+        let shown = mode.as_deref().unwrap_or("(unknown)").to_owned();
         if session.web_control_ended.load(Ordering::SeqCst) {
-            let meta = session.meta();
-            let mode = crate::web_modes::mode_of(&meta);
             return Err(RpcError::new(
                 -32000,
                 format!(
-                    "Web control of this session ended: its mode {} is not in the asking-mode table; the local user or the local app can set an asking mode again",
-                    mode.as_deref().unwrap_or("(unknown)")
+                    "Web control of this session ended: its mode left the asking-mode table (now {shown}); the local user or the local app can set an asking mode again"
                 ),
             )
             .with_data(json!({"reason": "remote.mode_left_asking_table", "mode": mode})));
         }
+        if !self.web_modes().session_asks(meta) {
+            return Err(RpcError::new(
+                -32000,
+                format!(
+                    "this session runs in mode {shown}, which does not ask before it acts; a paired device cannot prompt it or answer its permissions until the local user sets an asking mode"
+                ),
+            )
+            .with_data(json!({
+                "reason": "remote.mode_not_asking",
+                "mode": mode,
+                "harness": meta.harness,
+                "family": crate::web_modes::family_of(meta),
+            })));
+        }
         Ok(())
     }
+}
+
+/// One write of a session's mode state (`Hub::write_mode_state`).
+pub(crate) enum ModeWrite {
+    Modes(Value),
+    CurrentMode(Value),
+    ConfigOptions(Value),
+}
+
+/// The rules a request that controls a session runs under.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Control {
+    /// The unix socket or the local app: no mode rule.
+    #[default]
+    Local,
+    /// A Web connection, or a peer forwarding for its Web client.
+    Web,
+    /// A proven peer daemon acting for its own local user: no mode rule.
+    Peer,
 }

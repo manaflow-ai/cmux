@@ -12,6 +12,7 @@
 		8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */; };
 		8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */; };
 		8B8A10E02DF5000000A66F90 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */; };
+		5E771C0A2E8F000000A1C0DE /* Settings.bundle in Resources */ = {isa = PBXBuildFile; fileRef = 5E771C0B2E8F000000A1C0DE /* Settings.bundle */; };
 		D4E2A0090000000000000001 /* CmuxPhonePush in NotificationService Frameworks */ = {isa = PBXBuildFile; productRef = D4E2A00A0000000000000001 /* CmuxPhonePush */; };
 		C0105A010000000000000001 /* CmuxiOSApp in Frameworks */ = {isa = PBXBuildFile; productRef = C0105A020000000000000001 /* CmuxiOSApp */; };
 /* End PBXBuildFile section */
@@ -44,6 +45,7 @@
 		8B8A101A2DF5000000A66F90 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		8B8A101B2DF5000000A66F90 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		5E771C0B2E8F000000A1C0DE /* Settings.bundle */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.plug-in"; path = Settings.bundle; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 		E7B0A0000000000000000010 /* KeyboardUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardUITestSupport.swift; sourceTree = "<group>"; };
 		E7B0A0000000000000000011 /* KeyboardAuditUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardAuditUITests.swift; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 			children = (
 				8B8A10192DF5000000A66F90 /* Assets.xcassets */,
 				8B8A10E12DF5000000A66F90 /* PrivacyInfo.xcprivacy */,
+				5E771C0B2E8F000000A1C0DE /* Settings.bundle */,
 				8B8A10212DF5000000A66F90 /* Resources */,
 				8B8A10F12DF5000000A66F90 /* CmuxAppDelegate.swift */,
 				D4E2A0050000000000000001 /* NotificationService */,
@@ -229,6 +232,7 @@
 				8B8A10032DF5000000A66F90 /* InfoPlist.xcstrings in Resources */,
 				8B8A10042DF5000000A66F90 /* Localizable.xcstrings in Resources */,
 				8B8A10E02DF5000000A66F90 /* PrivacyInfo.xcprivacy in Resources */,
+				5E771C0A2E8F000000A1C0DE /* Settings.bundle in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

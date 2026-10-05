@@ -41,3 +41,10 @@ if (!("Element" in scope)) {
   const { JSDOM } = await import("jsdom");
   scope.Element = new JSDOM("<!doctype html>").window.Element;
 }
+
+// The agent pane reads its strings from window.__cmuxPaneStrings, which the shipped pane loads from
+// locales/<code>.js before its module runs (acpmux/i18n.ts). Tests get the whole table.
+{
+  const table = (await import("../src/agent-session/acpmux/generated/strings.json")).default;
+  (scope as { __cmuxPaneStrings?: unknown }).__cmuxPaneStrings ??= table;
+}

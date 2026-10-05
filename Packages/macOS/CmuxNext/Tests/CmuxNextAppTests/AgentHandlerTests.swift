@@ -27,7 +27,7 @@ import Testing
         let creations = HeldAgentTabCreations()
         services.agentTabs.localHost = AgentTabFixture.host
         services.agentTabs.holdsTabs = { _ in true }
-        services.agentTabs.create = { pane, _, _, _ in try await creations.hold(pane) }
+        services.agentTabs.create = { pane, _, _, _, _ in try await creations.hold(pane) }
         services.daemon.start(makeConnection: { daemon.connection() })
         defer {
             creations.release()

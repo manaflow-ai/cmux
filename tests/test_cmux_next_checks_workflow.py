@@ -236,7 +236,7 @@ class PushPreflightBehavior(unittest.TestCase):
     """Execute the workflow shell with bounded fake network and git responses."""
 
     def run_preflight(self, *, artifacts=False, event="push", ref="refs/heads/feat-cmux-next",
-                      remote="a" * 40, published=False, fork=False):
+                      remote="a" * 40, published=False, missing="", malformed=False, fork=False):
         filename = "cmux-tui-artifacts.yml" if artifacts else "cmux-next.yml"
         workflow = yaml.safe_load((WORKFLOW.parent / filename).read_text())
         job_id = "tree-preflight" if artifacts else "push-head-preflight"
@@ -256,14 +256,36 @@ esac
             curl = root / "curl"
             curl.write_text('''#!/bin/bash
 [[ "$PUBLISHED" == true ]] || exit 22
+for arg in "$@"; do
+  [[ "$arg" == https://* ]] && url="$arg"
+done
+[[ -z "$MISSING" || "$url" != *"$MISSING"* ]] || exit 22
+
+if [[ "$url" == *completion.json* ]]; then
+  args=("$@")
+  for ((index=0; index<${#args[@]}; index++)); do
+    arg="${args[index]}"
+    if [[ "$arg" == -o ]]; then
+      outfile="${args[index + 1]}"
+      cat > "$outfile" <<'JSON'
+{"key":"0000000000000000000000000000000000000002","binaries":{"cmux-tui-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000","cmux-tui-app-host-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000","cmux-tui-cloud-server-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000"}}
+JSON
+      exit 0
+    fi
+  done
+  exit 1
+fi
+
+[[ "$MALFORMED" != true ]] || { printf 'bad checksum\\n'; exit 0; }
 printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
 ''')
             curl.chmod(0o755)
             output = root / "output"
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
-                   "GITHUB_OUTPUT": str(output), "EVENT_NAME": event, "REF": ref,
+                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(root), "EVENT_NAME": event, "REF": ref,
                    "SHA": "a" * 40, "SOURCE_COMMIT": "a" * 40,
                    "REMOTE_SHA": remote, "PUBLISHED": str(published).lower(),
+                   "MISSING": missing, "MALFORMED": str(malformed).lower(),
                    "HEAD_REPOSITORY": "outside/fork" if fork else "manaflow-ai/cmux",
                    "REPOSITORY": "manaflow-ai/cmux", "SERVER_URL": "https://github.com",
                    "GH_TOKEN": "fixture", "RUN_ID": "123"}
@@ -290,6 +312,18 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
         output = self.run_preflight(artifacts=True, published=True)
         self.assertEqual(output["tree_ready"], "true")
         self.assertEqual(output["run_macos"], "false")
+
+    def test_partial_tree_requires_companion_repair(self):
+        for missing in ("app-host", "cloud-server", "app-host-aarch64-apple-darwin?", "cloud-server-aarch64-apple-darwin?"):
+            with self.subTest(missing=missing):
+                output = self.run_preflight(artifacts=True, published=True, missing=missing)
+                self.assertEqual(output["tree_ready"], "false")
+                self.assertEqual(output["run_macos"], "true")
+
+    def test_malformed_tree_checksum_requires_repair(self):
+        output = self.run_preflight(artifacts=True, published=True, malformed=True)
+        self.assertEqual(output["tree_ready"], "false")
+        self.assertEqual(output["run_macos"], "true")
 
     def test_new_tree_schedules_mac_build_and_daemon_tests(self):
         self.assertEqual(self.run_preflight(artifacts=True)["run_macos"], "true")

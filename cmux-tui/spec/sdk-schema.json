@@ -14361,6 +14361,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "conversation-tab-transaction-v1",
+      "description": "Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result."
      }
     },
     "additional_properties": false
@@ -14407,6 +14418,15 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "The request's transaction, when it sent one."
      }
     },
     "additional_properties": false

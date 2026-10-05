@@ -63,7 +63,7 @@ struct AgentTabStoreTests {
     @Test func aRefusedCreationRemovesTheTabShownAtOnce() async throws {
         let fixture = try AgentTabFixture()
         fixture.holdCreate = { }
-        fixture.tabs.create = { _, _, _, _ in throw DaemonError.notConnected }
+        fixture.tabs.create = { _, _, _, _, _ in throw DaemonError.notConnected }
         let pending = try fixture.tabs.open(in: 3, of: fixture.service, session: "s-1")
         #expect(fixture.shownAgentTabs.count == 1, "shown before the store answers")
         await #expect(throws: DaemonError.self) { _ = try await pending.value() }

@@ -14,6 +14,10 @@ git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=m
 git_q init "$TMP/src"
 mkdir -p "$TMP/src/cmux-tui" "$TMP/src/scripts/cmux-next"
 cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$TMP/src/scripts/cmux-next/"
+mkdir -p "$TMP/src/scripts/ci"
+cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$TMP/src/scripts/ci/"
+cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$TMP/src/scripts/cmux-next/"
+echo reducer > "$TMP/src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 echo one > "$TMP/src/cmux-tui/a"
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m one

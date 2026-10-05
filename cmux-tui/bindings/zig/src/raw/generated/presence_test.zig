@@ -40,6 +40,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MoveScreenRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.MoveScreenGroupRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.NewConversationTabResult, "transaction");
     try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
     try expectExplicitNullRejected(protocol.NewPaneRightRequest, "keep");
     try expectExplicitNullRejected(protocol.NewRowRequest, "keep");

@@ -393,7 +393,11 @@ impl MediaSession {
             DatagramKind::Input => {
                 let Ok(packet) = InputPacket::decode(payload) else { return };
                 if !table.may_inject_input(session, viewer) {
-                    self.applier.reset();
+                    // Discard and acknowledge, so a view-only viewer stops
+                    // repeating (releases repeat until acked) and a late
+                    // repeat is never injected once control is granted.
+                    self.applier.refuse(&packet);
+                    self.send_input_ack(stream);
                     return;
                 }
                 self.last_input_ns = now_ns();

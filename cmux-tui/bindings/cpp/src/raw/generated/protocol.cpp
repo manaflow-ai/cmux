@@ -17388,6 +17388,11 @@ Result<Json> Codec<NewConversationTabRequest>::encode(const NewConversationTabRe
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.transaction.is_absent()) {
+        auto encoded = encode_value(value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
+    }
     if (!value.workspace.is_absent()) {
         auto encoded = encode_value(value.workspace);
         if (!encoded) return std::move(encoded).error();
@@ -17480,6 +17485,16 @@ Result<NewConversationTabRequest> Codec<NewConversationTabRequest>::decode(const
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
         }
     }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        if (field_transaction->is_null()) {
+            result.transaction = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_transaction);
+            if (!decoded) return std::move(decoded).error();
+            result.transaction = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_workspace = value.find("workspace");
     if (field_workspace) {
         if (field_workspace->is_null()) {
@@ -17518,6 +17533,11 @@ Result<Json> Codec<NewConversationTabResult>::encode(const NewConversationTabRes
         object.emplace("tab_resource_id", std::move(encoded).value());
     } else {
         object.emplace("tab_resource_id", Json(nullptr));
+    }
+    if (value.transaction) {
+        auto encoded = encode_value(*value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
     }
     return Json(std::move(object));
 }
@@ -17578,6 +17598,12 @@ Result<NewConversationTabResult> Codec<NewConversationTabResult>::decode(const J
             if (!decoded) return std::move(decoded).error();
             result.tab_resource_id = std::move(decoded).value();
         }
+    }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        auto decoded = decode_value<std::string>(*field_transaction);
+        if (!decoded) return std::move(decoded).error();
+        result.transaction = std::move(decoded).value();
     }
     return result;
 }
@@ -30007,8 +30033,9 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand106FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand110FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand110FieldRequirements{{
     {"agent_session", 0U, "agent-session-tabs-v1"},
+    {"transaction", 0U, "conversation-tab-transaction-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 5> kCommand112FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
