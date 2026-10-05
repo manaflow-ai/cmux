@@ -149,7 +149,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     private enum HeldCallback {
         case timer(Int)
         /// `reserved`: what the event holds of the queued-event budget.
-        case event(name: String, payload: String, reserved: Int)
+        case event(name: String, payload: BrowserReplEgress, reserved: Int)
     }
 
     /// The most page events held back at once; past it the oldest go.
@@ -855,7 +855,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 watchdog.setCurrentEval(nil)
             }
         }
-        state.finish(error: error.map(boundary.redact))
+        state.finish(error: error.map { boundary.egress(.text($0)).text })
     }
 
     /// The evaluation timeout: the caller gets the timeout error now, from
@@ -893,8 +893,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         for task in tasks { task.cancel() }
         guard !droppedFetches.isEmpty || !droppedCalls.isEmpty else { return }
         thread.perform { [weak self] in
-            for callID in droppedFetches { self?.resolveCall(callID, .failure(Self.cancelledFetchError)) }
-            for callID in droppedCalls { self?.resolveCall(callID, .failure(Self.cancelledDriverCallError)) }
+            for callID in droppedFetches { self?.refuseCall(callID, Self.cancelledFetchError) }
+            for callID in droppedCalls { self?.refuseCall(callID, Self.cancelledDriverCallError) }
         }
     }
 
@@ -979,7 +979,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         _ answer: Result<String, BrowserReplDriverError>,
         of call: PendingDriverCall,
         taskID: Int
-    ) -> Result<String, BrowserReplDriverError> {
+    ) -> BrowserReplEgress {
         let method = call.method
         var answer = answer
         var reserved = Self.driverResultSize(answer)
@@ -988,12 +988,12 @@ public final class BrowserReplSession: @unchecked Sendable {
             reserved = Self.driverResultSize(answer)
             reserveDriverResult(bytes: reserved, replacing: 0, taskID: taskID, force: true)
         }
-        let result = boundary.redact(method: method, boundary.checkCaptureMasks(method: method, paramsJSON: call.paramsJSON, answer))
-        let size = Self.driverResultSize(result)
+        let result = boundary.egress(.driverResult(method: method, boundary.checkCaptureMasks(method: method, paramsJSON: call.paramsJSON, answer)))
+        let size = result.size
         guard size != reserved, let refusal = reserveDriverResult(bytes: size, replacing: reserved, taskID: taskID) else { return result }
-        let failure = refusal.driverError("\(method) (with secrets masked)")
-        reserveDriverResult(bytes: Self.driverResultSize(.failure(failure)), replacing: reserved, taskID: taskID, force: true)
-        return .failure(failure)
+        let refused = boundary.egress(.driverResult(method: method, .failure(refusal.driverError("\(method) (with secrets masked)"))))
+        reserveDriverResult(bytes: refused.size, replacing: reserved, taskID: taskID, force: true)
+        return refused
     }
 
     /// Reserves `bytes` for task `taskID`'s result in place of the
@@ -1078,7 +1078,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             let (raw, heldBytes) = await fetcher.fetchHoldingBody(requestJSON: fetch.requestJSON) { [weak self] in
                 self?.fetchReceivedHeaders(taskID)
             }
-            let result = boundary.redactFetch(raw)
+            let result = boundary.egress(.fetch(raw))
             guard let self else {
                 fetcher.bodyBudget.release(heldBytes)
                 return
@@ -1231,7 +1231,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             ledger.release(1, of: .heldEvents)
             releaseEvent(reserved)
             if let handler = entryPoints.onEvent {
-                enter(context) { _ = handler.call(withArguments: [name, payload]) }
+                enter(context) { _ = handler.call(withArguments: [name, payload.text]) }
             }
         }
         queueHeldRelease()
@@ -1516,7 +1516,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             guard let self, let state = self.stateLock.withLock({ self.currentEval }) else { return }
             state.append(BrowserReplOutputLine(
                 level: level?.toString() ?? "log",
-                text: self.boundary.redact(text?.toString() ?? "")
+                text: self.boundary.egress(.text(text?.toString() ?? "")).text
             ))
         }
         let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Bool = { [weak self] id, delay, repeating in
@@ -1538,7 +1538,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             let limit = methodName == "filechooser.respond" ? Self.maxFileChooserAnswerBytes : (self.ledger.limits.each(.requestBytes) ?? .max)
             guard raw.utf8.count <= limit else {
                 let refusal = BrowserReplResourceLimitError(resource: .requestBytes, limit: limit, isPerItem: true, held: self.ledger.held(.requestBytes), requested: raw.utf8.count)
-                self.resolveCall(Int(callID), .failure(refusal.driverError(methodName)))
+                self.refuseCall(Int(callID), refusal.driverError(methodName), method: methodName)
                 return
             }
             let boundary = self.boundary
@@ -1546,7 +1546,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             switch boundary.prepare(method: methodName, paramsJSON: raw) {
             case .success(let prepared): paramsJSON = prepared
             case .failure(let error):
-                self.resolveCall(Int(callID), .failure(boundary.redact(error)))
+                self.refuseCall(Int(callID), error, method: methodName)
                 return
             }
             // A file chooser answer's files are staged on disk until the
@@ -1555,15 +1555,15 @@ public final class BrowserReplSession: @unchecked Sendable {
                 do {
                     try self.writeBudget.takeFileChooserAnswer(JSONSerialization.browserReplObject(paramsJSON))
                 } catch let error as BrowserReplFileSystemError {
-                    self.resolveCall(Int(callID), .failure(BrowserReplDriverError(code: "invalid", message: "filechooser: \(error.message)")))
+                    self.refuseCall(Int(callID), BrowserReplDriverError(code: "invalid", message: "filechooser: \(error.message)"), method: methodName)
                     return
                 } catch {
-                    self.resolveCall(Int(callID), .failure(BrowserReplDriverError(code: "invalid", message: "filechooser: \(error)")))
+                    self.refuseCall(Int(callID), BrowserReplDriverError(code: "invalid", message: "filechooser: \(error)"), method: methodName)
                     return
                 }
             }
             if let refusal = self.startOrQueueDriverCall(callID: Int(callID), method: methodName, paramsJSON: paramsJSON) {
-                self.resolveCall(Int(callID), .failure(refusal))
+                self.refuseCall(Int(callID), refusal, method: methodName)
             }
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
@@ -1571,23 +1571,22 @@ public final class BrowserReplSession: @unchecked Sendable {
             let requestJSON = request?.toString() ?? "{}"
             // An oversized body is refused before it waits in the queue.
             if let refusal = BrowserReplFetcher.oversizedRequest(requestJSON) {
-                self.resolveCall(Int(callID), .failure(refusal))
+                self.refuseCall(Int(callID), refusal, method: "fetch")
                 return
             }
             if let refusal = self.startOrQueueFetch(callID: Int(callID), requestJSON: requestJSON) {
-                self.resolveCall(Int(callID), .failure(refusal))
+                self.refuseCall(Int(callID), refusal, method: "fetch")
             }
         }
-        let fs: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
-            guard let self else { return #"{"error":{"code":"EINVAL","message":"closed"}}"# }
+        let fs = hostFunction { [weak self] operation, arguments in
+            guard let self else { return nil }
             let op = operation?.toString() ?? ""
             var args = JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
-            // Text the runtime writes (output spill files, traces, any file)
-            // is redacted like output.
-            func failure(_ code: String, _ message: String) -> String {
-                JSONSerialization.browserReplString(["error": ["code": code, "message": message]])
-                    ?? #"{"error":{"code":"EIO","message":"error"}}"#
+            func failure(_ code: String, _ message: String) -> BrowserReplEgress {
+                self.boundary.egress(.fs(op: op, .failure(BrowserReplFileSystemError(code: code, message: message))))
             }
+            // Text the runtime writes (output spill files, traces, any file)
+            // is masked like output, by the gate's scan.
             if op == "writeFile", let base64 = args["base64"] as? String {
                 // Past one call's limit it is refused before it is decoded
                 // and scanned (the least it can decode to, less padding).
@@ -1598,34 +1597,22 @@ public final class BrowserReplSession: @unchecked Sendable {
                     let refusal = error as? BrowserReplFileSystemError
                     return failure(refusal?.code ?? "EFBIG", refusal?.message ?? "\(error)")
                 }
-                do {
-                    args["base64"] = try self.boundary.redactFileContents(base64)
-                } catch {
-                    return failure("EINVAL", "writeFile: \(BrowserReplSecretStore.limitMessage(Data(base64Encoded: base64)?.count ?? 0))")
+                if let mask = self.boundary.fileStoreRedaction(syscall: "write"), let data = Data(base64Encoded: base64) {
+                    do {
+                        let masked = try mask(data)
+                        if masked != data { args["base64"] = masked.base64EncodedString() }
+                    } catch {
+                        return failure("EINVAL", "writeFile: \(BrowserReplSecretStore.limitMessage(data.count))")
+                    }
                 }
             }
             // So is a copy: its source may be a file the session never
             // wrote (a page's download, a secrets file).
-            let copyContents = op == "copyFile" ? self.boundary.fileCopyRedaction() : nil
-            let result = self.fileSystem.perform(op, arguments: args, copyContents: copyContents)
-            switch result {
-            case .success(var value):
-                // So is a file read back (a secrets file, a page's download),
-                // text or binary.
-                if op == "readFile", let base64 = value as? String {
-                    do {
-                        value = try self.boundary.redactFileContents(base64)
-                    } catch {
-                        return failure("EINVAL", "readFile: \(BrowserReplSecretStore.limitMessage(Data(base64Encoded: base64)?.count ?? 0))")
-                    }
-                }
-                return JSONSerialization.browserReplString(["ok": value]) ?? #"{"ok":null}"#
-            case .failure(let error):
-                return failure(error.code, error.message)
-            }
+            let copyContents = op == "copyFile" ? self.boundary.fileStoreRedaction(syscall: "copyfile") : nil
+            return self.boundary.egress(.fs(op: op, self.fileSystem.perform(op, arguments: args, copyContents: copyContents)))
         }
-        let secrets: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
-            guard let self else { return #"{"error":{"code":"closed","message":"closed"}}"# }
+        let secrets = hostFunction { [weak self] operation, arguments in
+            guard let self else { return nil }
             let op = operation?.toString() ?? ""
             var args = JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
             // secrets.load(path) reads the file here, so its values never
@@ -1633,25 +1620,25 @@ public final class BrowserReplSession: @unchecked Sendable {
             if op == "load", let path = args["path"] as? String {
                 switch self.fileSystem.perform("readFile", arguments: ["path": path]) {
                 case .failure(let error):
-                    return Self.hostResult(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)")))
+                    return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))))
                 case .success(let base64):
                     guard let data = Data(base64Encoded: base64 as? String ?? ""),
                           let object = try? JSONSerialization.jsonObject(with: data) else {
-                        return Self.hostResult(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is not JSON")))
+                        return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is not JSON"))))
                     }
                     args["object"] = object
                 }
             }
-            return Self.hostResult(self.boundary.secretsOperation(op, args))
+            return self.boundary.egress(.host(self.boundary.secretsOperation(op, args)))
         }
-        let policy: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
-            guard let self else { return #"{"error":{"code":"closed","message":"closed"}}"# }
+        let policy = hostFunction { [weak self] operation, arguments in
+            guard let self else { return nil }
             let (result, updated) = self.boundary.policyOperation(
                 operation?.toString() ?? "",
                 JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
             )
             if let updated { self.driver.setDomainPolicy(updated) }
-            return Self.hostResult(result)
+            return self.boundary.egress(.host(result))
         }
         let readResource: @convention(block) (JSValue?) -> String? = { [weak self] path in
             guard let self, let path = path?.toString() else { return nil }
@@ -1673,15 +1660,14 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     private static let closedError = BrowserReplDriverError(code: "closed", message: "the REPL session was closed")
 
-    /// `{"ok": value}` or `{"error": {code, message}}`, as the host's
-    /// synchronous functions return.
-    private static func hostResult(_ result: Result<Any, BrowserReplDriverError>) -> String {
-        switch result {
-        case .success(let value):
-            return JSONSerialization.browserReplString(["ok": value]) ?? #"{"ok":null}"#
-        case .failure(let error):
-            return JSONSerialization.browserReplString(["error": ["code": error.code, "message": error.message]])
-                ?? #"{"error":{"code":"invalid","message":"error"}}"#
+    /// A synchronous host function (`fs`, `secrets`, `policy`): its answer
+    /// is whatever the egress gate gave `body`; `nil` (the session is
+    /// gone) answers that the session was closed.
+    private func hostFunction(
+        _ body: @escaping (_ operation: JSValue?, _ arguments: JSValue?) -> BrowserReplEgress?
+    ) -> @convention(block) (JSValue?, JSValue?) -> String {
+        { operation, arguments in
+            body(operation, arguments)?.text ?? #"{"error":{"code":"closed","message":"closed"}}"#
         }
     }
 
@@ -1697,10 +1683,17 @@ public final class BrowserReplSession: @unchecked Sendable {
         return delay >= Double(maxTimerDelayMilliseconds) ? maxTimerDelayMilliseconds : Int64(delay)
     }
 
-    private func resolveCall(_ callID: Int, _ result: Result<String, BrowserReplDriverError>) {
+    /// Refuses call `callID` with `error`, through the egress gate.
+    private func refuseCall(_ callID: Int, _ error: BrowserReplDriverError, method: String = "") {
+        resolveCall(callID, boundary.egress(.driverResult(method: method, .failure(error))))
+    }
+
+    /// Hands call `callID`'s answer to JavaScript: only what the egress gate
+    /// gave.
+    private func resolveCall(_ callID: Int, _ answer: BrowserReplEgress) {
         guard let context, !isClosedNow, let resolve = entryPoints?.onResult else { return }
         enter(context) {
-            switch result {
+            switch answer.result {
             case .success(let json):
                 resolve.call(withArguments: [callID, NSNull(), json])
             case .failure(let error):
@@ -1761,7 +1754,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                     return
                 }
                 self.releaseEvent(charged)
-                self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
+                self.enter(context) { _ = handler.call(withArguments: [name, payload.text]) }
             }
             if !queued { self.releaseEvent(charged) }
         }
@@ -1789,45 +1782,18 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// masking can make it longer than the raw bytes it was admitted with
     /// (`reserved`), and one that would pass the budget masked arrives
     /// withheld instead.
-    private func chargeMaskedEvent(name: String, raw: String, reserved: Int) -> (payload: String, reserved: Int) {
-        let masked = eventPayloadForJavaScript(name: name, raw)
-        let size = name.utf8.count + masked.utf8.count
+    private func chargeMaskedEvent(name: String, raw: String, reserved: Int) -> (payload: BrowserReplEgress, reserved: Int) {
+        let masked = boundary.egress(.event(name: name, payloadJSON: raw, maxBytes: ledger.limits.each(.queuedEventBytes) ?? .max))
+        let size = name.utf8.count + masked.size
         // The limit on one event applied to the raw payload, before masking.
         if ledger.resize(.queuedEventBytes, from: reserved, to: size, each: .max) == nil {
             return (masked, size)
         }
-        let reason = "this \(name) event is \(masked.utf8.count) bytes with secrets masked, and the page events waiting for the session's thread already hold close to \(BrowserReplResourceLimits.describe(ledger.limits[.queuedEventBytes], of: .queuedEventBytes)), so its content was withheld"
-        let withheld = withheldEventPayload(raw, reason: reason)
-        let withheldSize = name.utf8.count + withheld.utf8.count
+        let reason = "this \(name) event is \(masked.size) bytes with secrets masked, and the page events waiting for the session's thread already hold close to \(BrowserReplResourceLimits.describe(ledger.limits[.queuedEventBytes], of: .queuedEventBytes)), so its content was withheld"
+        let withheld = boundary.egress(.withheldEvent(payloadJSON: raw, reason: reason))
+        let withheldSize = name.utf8.count + withheld.size
         ledger.resize(.queuedEventBytes, from: reserved, to: withheldSize, force: true)
         return (withheld, withheldSize)
-    }
-
-    /// A page event's payload as JavaScript may see it, with secrets
-    /// masked. One past `maxEventPayloadBytes`, or that masking would grow
-    /// past the redaction limit, arrives as `{ targetId, withheld }`: the
-    /// tab it names (masked too), and why its content is not there.
-    private func eventPayloadForJavaScript(name: String, _ payloadJSON: String) -> String {
-        let size = payloadJSON.utf8.count
-        let reason: String
-        if let limit = ledger.limits.each(.queuedEventBytes), size > limit {
-            reason = "this \(name) event is \(size) bytes, past the \(BrowserReplResourceLimits.describe(limit, of: .queuedEventBytes)) a page event may carry, so its content was withheld"
-        } else if let redacted = try? boundary.redactJSON(payloadJSON) {
-            return redacted
-        } else {
-            reason = BrowserReplSecretStore.limitMessage(size)
-        }
-        return withheldEventPayload(payloadJSON, reason: reason)
-    }
-
-    /// `{ targetId, withheld }`: the tab the event names (masked), and why
-    /// its content is not there.
-    private func withheldEventPayload(_ payloadJSON: String, reason: String) -> String {
-        var withheld: [String: Any] = ["withheld": reason]
-        if let targetId = JSONSerialization.browserReplObject(payloadJSON)["targetId"] as? String, targetId.utf8.count <= 256 {
-            withheld["targetId"] = boundary.redact(targetId)
-        }
-        return JSONSerialization.browserReplString(withheld) ?? "{}"
     }
 
     /// An event left the queue (delivered or dropped): its budget is free.

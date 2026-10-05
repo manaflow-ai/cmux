@@ -72,18 +72,9 @@ extension Dictionary where Key == String, Value == Any {
             payload["url"] = url.redactingBrowserReplURLCredentials()
         }
         if let headers = payload["headers"] as? [String: String] {
-            var kept = headers.removingBrowserReplCredentialHeaders()
-            for (name, value) in kept where Self.urlValuedHeaderNames.contains(name.lowercased()) {
-                kept[name] = value.redactingBrowserReplURLCredentials()
-            }
-            payload["headers"] = kept
+            payload["headers"] = BrowserReplPageHeaders(headers, creator: nil).headers(for: "")
         }
         return payload
-    }
-
-    /// Headers whose value is, or holds, a URL.
-    private static var urlValuedHeaderNames: Set<String> {
-        ["location", "content-location", "referer", "refresh", "link"]
     }
 }
 

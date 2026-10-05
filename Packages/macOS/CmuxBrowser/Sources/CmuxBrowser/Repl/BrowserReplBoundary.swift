@@ -14,7 +14,8 @@ final class BrowserReplBoundary: @unchecked Sendable {
     private let lock = NSLock()
     private var policy = BrowserReplDomainPolicy()
     private let publicSuffixes: BrowserReplPublicSuffixList
-    private let typedSecrets: @Sendable () -> BrowserReplSecretStore?
+    /// Read only by the egress gate (``egress(_:)``).
+    let typedSecrets: @Sendable () -> BrowserReplSecretStore?
     /// The session's working and temporary directories, the only places a
     /// navigation may load a file from.
     private var fileRoots: [String] = []
@@ -32,55 +33,6 @@ final class BrowserReplBoundary: @unchecked Sendable {
         self.publicSuffixes = publicSuffixes
         self.secrets = BrowserReplSecretStore(publicSuffixes: publicSuffixes)
         self.typedSecrets = typedSecrets
-    }
-
-    // MARK: Redaction
-
-    /// The values JavaScript and output never see, taken together now:
-    /// the session's own secrets (current and retired), then the values
-    /// other sessions typed. One redaction matches all of them against the
-    /// original input, so a value the session registers can never mask
-    /// part of a typed value before that value is looked for. `nil` when
-    /// nothing is masked.
-    private func redaction() -> BrowserReplSecretStore.Redaction? {
-        var stores = [secrets]
-        if let typed = typedSecrets() { stores.append(typed) }
-        return BrowserReplSecretStore.Redaction(stores: stores, at: Date())
-    }
-
-    /// `text` as JavaScript or output may see it.
-    func redact(_ text: String) -> String {
-        redaction()?.redact(text) ?? text
-    }
-
-    /// A JSON document as JavaScript may see it, every string (keys too)
-    /// redacted; text that is not JSON is redacted as text.
-    /// - Throws: `invalid` when masking would grow it past the redaction
-    ///   limit (``BrowserReplSecretStore/maximumGrowth``).
-    func redactJSON(_ json: String) throws -> String {
-        try redaction()?.redactJSON(json) ?? json
-    }
-
-    /// Bytes as JavaScript may see them, text or binary.
-    /// - Throws: `invalid` when masking would grow them past the redaction
-    ///   limit (``BrowserReplSecretStore/maximumGrowth``).
-    func redact(_ data: Data) throws -> Data {
-        try redaction()?.redact(data) ?? data
-    }
-
-    /// What `fs.copyFile` writes in place of a file's bytes while any value
-    /// is masked (the session's secrets, or values other sessions typed):
-    /// the bytes redacted with the values held now, as written files are.
-    /// `nil` when nothing is masked, so the copy streams the bytes as they are.
-    func fileCopyRedaction() -> ((Data) throws -> Data)? {
-        guard let redaction = redaction() else { return nil }
-        return { data in
-            do {
-                return try redaction.redact(data)
-            } catch {
-                throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: copyfile: \(BrowserReplSecretStore.limitMessage(data.count))")
-            }
-        }
     }
 
     /// Methods whose results are images or documents; their pixels are
@@ -316,60 +268,5 @@ final class BrowserReplBoundary: @unchecked Sendable {
     private static func canonicalJSON(_ value: Any) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys]) else { return "" }
         return String(decoding: data, as: UTF8.self)
-    }
-
-    /// A driver result as JavaScript may see it.
-    func redact(method: String, _ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
-        switch result {
-        case .success(let json):
-            guard !Self.binaryMethods.contains(method) else { return result }
-            do {
-                return .success(try redactJSON(json))
-            } catch {
-                return .failure(BrowserReplDriverError(code: "invalid", message: "\(method): \(BrowserReplSecretStore.limitMessage(json.utf8.count))"))
-            }
-        case .failure(let error):
-            return .failure(redact(error))
-        }
-    }
-
-    func redact(_ error: BrowserReplDriverError) -> BrowserReplDriverError {
-        let message = redact(error.message)
-        return message == error.message ? error : BrowserReplDriverError(code: error.code, message: message, errorName: error.errorName)
-    }
-
-    /// A fetch result as JavaScript may see it: the URL, the headers and the
-    /// body, text or binary (its bytes go through the secret store's byte redaction),
-    /// are redacted.
-    func redactFetch(_ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
-        guard let redaction = redaction() else { return result }
-        guard case .success(let json) = result else { return redact(method: "fetch", result) }
-        var response = JSONSerialization.browserReplObject(json)
-        let body = response.removeValue(forKey: "bodyBase64") as? String
-        do {
-            var redacted = try redaction.redactedValue(response) as? [String: Any] ?? [:]
-            if let body {
-                guard let data = Data(base64Encoded: body) else {
-                    return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: the response body could not be checked for secrets"))
-                }
-                let masked = try redaction.redact(data)
-                redacted["bodyBase64"] = masked == data ? body : masked.base64EncodedString()
-            }
-            return .success(JSONSerialization.browserReplString(redacted) ?? "null")
-        } catch let error as BrowserReplDriverError {
-            return .failure(BrowserReplDriverError(code: error.code, message: "fetch: \(error.message)"))
-        } catch {
-            return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: \(error.localizedDescription)"))
-        }
-    }
-
-    /// File contents the session writes for JavaScript, or reads back for it
-    /// (`fs.readFile`), with secrets redacted, text or binary.
-    /// - Throws: `invalid` when masking would grow them past the redaction
-    ///   limit (``BrowserReplSecretStore/maximumGrowth``).
-    func redactFileContents(_ base64: String) throws -> String {
-        guard let redaction = redaction(), let data = Data(base64Encoded: base64) else { return base64 }
-        let redacted = try redaction.redact(data)
-        return redacted == data ? base64 : redacted.base64EncodedString()
     }
 }
