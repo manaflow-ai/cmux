@@ -73,6 +73,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportSend(connection: Int, frames: [String])
     /// `transport.close` with `{connection}`.
     case transportClose(connection: Int)
+    /// `transport.gesture`: reserve the user's current gesture for a frame sent later (a pick held
+    /// behind a harness switch); answers `{ticket}`.
+    case transportGesture
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -81,7 +84,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A transport request: frequent and carrying chat content, so never logged with its values.
     public var isTransport: Bool {
         switch self {
-        case .transportOpen, .transportSend, .transportClose: true
+        case .transportOpen, .transportSend, .transportClose, .transportGesture: true
         default: false
         }
     }
@@ -201,6 +204,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
                 self = .invalidGit(method)
             }
         case "transport.open": self = .transportOpen
+        case "transport.gesture": self = .transportGesture
         case "transport.send":
             if let connection = params?["connection"] as? Int, let frames = params?["frames"] as? [String],
                !frames.isEmpty, frames.count <= Self.maximumSendFrames {

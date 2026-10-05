@@ -4,8 +4,9 @@ import Synchronization
 /// The sessions this pane started or shows (b, ad349): `_acpmux/kill`, `permission_respond` and
 /// `permission_group_respond` are allowed only for them. A session is the pane's when it came back
 /// from the pane's own `session/new`, `acp.session.fork` or `_acpmux/handoff_start` (their replies
-/// are read off the main thread), when the pane attached it, or when the host persisted it as the
-/// tab's session. Attach and watch stay open, so "shows" follows the page's own attach.
+/// are read off the main thread), when the user opened it in this pane by a gesture (an attach made
+/// with one, a click in the session list), or when the host itself opened the tab on it (restore,
+/// a session link). An attach alone adds nothing; attach and watch stay open.
 public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// The requests whose reply names a session the pane started.
     public static let starting: Set<String> = ["session/new", "acp.session.fork", "_acpmux/handoff_start"]
@@ -26,7 +27,6 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
 
     /// The pane sent `method` with `params` and raw id `id`: track what it starts or shows.
     func sent(method: String, id: String?, params: [String: Any]) {
-        if method == "_acpmux/attach", let session = params["sessionId"] as? String { add(session) }
         if Self.starting.contains(method), let id { state.withLock { _ = $0.awaiting.insert(id) } }
     }
 

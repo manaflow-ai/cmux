@@ -137,6 +137,21 @@ public nonisolated enum AcpmuxPaneMethods {
         }
     }
 
+    /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
+    public static let gestureTicketKey = "cmuxGesture"
+
+    /// The frame's gesture ticket, and the frame without it (the daemon never sees it).
+    static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?) {
+        guard text.contains(gestureTicketKey),
+              var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              var params = object["params"] as? [String: Any], var meta = params["_meta"] as? [String: Any],
+              let value = meta.removeValue(forKey: gestureTicketKey) else { return (text, nil) }
+        if meta.isEmpty { params.removeValue(forKey: "_meta") } else { params["_meta"] = meta }
+        object["params"] = params
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else { return (text, nil) }
+        return (String(decoding: data, as: UTF8.self), value as? String ?? "")
+    }
+
     /// A frame's method and raw JSON-RPC id, for a refusal.
     static func identity(_ text: String) -> (method: String?, id: String?) {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return (nil, nil) }

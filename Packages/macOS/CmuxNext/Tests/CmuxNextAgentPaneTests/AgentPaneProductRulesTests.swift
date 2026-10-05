@@ -162,7 +162,11 @@ import Testing
         let deadline = ContinuousClock.now + .seconds(5)
         while ContinuousClock.now < deadline, !rig.transport.sessions.contains("s-new") { try await Task.sleep(for: .milliseconds(5)) }
         await rig.send("_acpmux/kill", ["sessionId": "s-new", "purge": true])
-        // A session this pane shows (it attached it).
+        // Flag 3: an attach alone does not bring a session in. Attach a foreign session, then kill it.
+        await rig.send("_acpmux/attach", ["sessionId": "s-foreign", "limit": 10])
+        await rig.send("_acpmux/kill", ["sessionId": "s-foreign", "purge": true], expect: .sessionNotInPane)
+        // A session the user opened in this pane (a click in the session list: an attach with a gesture).
+        rig.transport.gestures.record()
         await rig.send("_acpmux/attach", ["sessionId": "s-shown", "limit": 10])
         await rig.send("_acpmux/permission_group_respond", ["sessionId": "s-shown", "groupId": "g", "revision": 1, "decision": "deny"])
         // A session the host persisted for the tab.

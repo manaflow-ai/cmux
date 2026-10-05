@@ -26,6 +26,28 @@ import Synchronization
     }
 
     public var isAvailable: Bool { last.map { now() - $0 <= Self.lifetime } ?? false }
+
+    /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
+    public static let ticketLifetime: TimeInterval = 60
+    private var tickets: [String: TimeInterval] = [:]
+
+    /// Binds the current gesture to a frame the page sends later (a pick queued behind a harness
+    /// switch): consumes the gesture and returns a single-use ticket, nil when there is none.
+    public func reserve() -> String? {
+        if true { return nil } // RED STUB: no reservation
+        guard consume() else { return nil }
+        let at = now()
+        tickets = tickets.filter { at - $0.value <= Self.ticketLifetime }
+        let ticket = UUID().uuidString
+        tickets[ticket] = at
+        return ticket
+    }
+
+    /// Uses a ticket: true once, within its lifetime.
+    public func redeem(_ ticket: String) -> Bool {
+        guard let at = tickets.removeValue(forKey: ticket) else { return false }
+        return now() - at <= Self.ticketLifetime
+    }
 }
 
 /// The permission options the daemon sent this pane (`_acpmux/permission_pending` and attach

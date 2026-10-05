@@ -345,10 +345,15 @@ public extension AgentPaneTransportPacer {
     private func finish(connection id: Int, frame: PageFrame, decision start: AcpmuxPaneMethods.Decision, rootRequested: Bool) -> Step {
         guard id == current, let socket else { return .stop(.staleConnection) }
         var decision = start
-        // A frame that grants uses the user's gesture (one per grant).
-        if case .send(let text) = decision, sentFirst, AcpmuxPaneMethods.needsGesture(text, options: permissionOptions),
-           !gestures.consume() {
-            decision = .refuse(.gestureRequired, method: frame.method, requestID: frame.id)
+        // A frame that grants uses the user's gesture (one per grant): the one reserved at its pick
+        // (a ticket in the frame), else the live one. The ticket never reaches the daemon.
+        if case .send(let raw) = decision, sentFirst {
+            let (text, ticket) = AcpmuxPaneMethods.takeGestureTicket(raw)
+            decision = .send(text)
+            if AcpmuxPaneMethods.needsGesture(text, options: permissionOptions) {
+                let granted = ticket.map(gestures.redeem) ?? gestures.consume()
+                if !granted { decision = .refuse(.gestureRequired, method: frame.method, requestID: frame.id) }
+            }
         }
         switch decision {
         case .send(let text):
@@ -387,13 +392,21 @@ public extension AgentPaneTransportPacer {
         return nil
     }
 
-    /// Records what a sent frame starts or shows.
+    /// Records what a sent frame starts, or opens by the user's gesture. An attach alone adds
+    /// nothing: only an attach the user made (a click in the session list) brings a session in.
     private func noteSent(_ frame: PageFrame) {
-        guard let object = frame.object,
-              let method = object["method"] as? String,
-              method == "_acpmux/attach" || AcpmuxPaneSessions.starting.contains(method) else { return }
-        sessions.sent(method: method, id: object["id"].flatMap(AcpmuxPaneMethods.rawID), params: object["params"] as? [String: Any] ?? [:])
+        guard let object = frame.object, let method = object["method"] as? String else { return }
+        let params = object["params"] as? [String: Any] ?? [:]
+        if method == "_acpmux/attach", let session = params["sessionId"] as? String, !sessions.contains(session) { // RED STUB: any attach
+            sessions.add(session)
+        }
+        if AcpmuxPaneSessions.starting.contains(method) {
+            sessions.sent(method: method, id: object["id"].flatMap(AcpmuxPaneMethods.rawID), params: params)
+        }
     }
+
+    /// `transport.gesture`: reserves the current gesture for a frame the page sends later.
+    public func reserveGesture() -> String? { gestures.reserve() }
 
     /// Offers the user to add `folder` as a root: only after a real gesture (which the offer uses),
     /// one sheet at a time. True when the sheet is shown.

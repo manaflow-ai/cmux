@@ -99,4 +99,38 @@ import Testing
         #expect(sent.contains { $0.contains(#""id":8"#) } && sent.contains { $0.contains(#""id":9"#) })
         #expect(!sent.contains { $0.contains(#""id":7"#) || $0.contains(#""id":10"#) })
     }
+    /// Flag 2: a harness switch never refuses the user's prompt. The pick reserves its gesture at
+    /// the pick (transport.gesture gives a ticket the queued set_mode carries); the prompt uses the
+    /// send press. One gesture per grant; a ticket is single-use and never reaches the daemon.
+    @Test func aSwitchUsesThePickGestureForItsModeAndTheSendGestureForThePrompt() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        let transport = model.transport
+        transport.deliver = { _, done in done() }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        _ = await transport.send(connection: id, frames: [Self.initialize])
+        // The user picks a mode in the harness picker: the page reserves that gesture.
+        transport.gestures.record()
+        let reply = await model.respond(to: .transportGesture)
+        let ticket = try #require((reply["value"] as? [String: Any])?["ticket"] as? String)
+        // The user presses send (the switch still runs).
+        transport.gestures.record()
+        // The switch ends: its set_mode (with the pick's ticket), then the queued prompt.
+        let mode = frame(20, "session/set_mode", #"{"sessionId":"s","modeId":"plan","_meta":{"cmuxGesture":"\#(ticket)"}}"#)
+        let prompt = frame(21, "session/prompt", #"{"sessionId":"s","prompt":[]}"#)
+        #expect(await transport.send(connection: id, frames: [mode, prompt]) == nil)
+        #expect(await server.wait { $0.first?.frames.count == 3 })
+        #expect(server.peers.first?.frames.contains { $0.contains("cmuxGesture") } == false, "the ticket never reaches the daemon")
+        // A ticket is used once; a made-up one is nothing.
+        let again = frame(22, "session/set_mode", #"{"sessionId":"s","modeId":"plan","_meta":{"cmuxGesture":"\#(ticket)"}}"#)
+        #expect(await transport.send(connection: id, frames: [again]) == .gestureRequired)
+        transport.gestures.record()
+        let forged = frame(23, "session/set_mode", #"{"sessionId":"s","modeId":"plan","_meta":{"cmuxGesture":"forged"}}"#)
+        #expect(await transport.send(connection: id, frames: [forged]) == .gestureRequired, "a bad ticket does not fall back to the live gesture")
+        // Without a gesture, there is no ticket.
+        _ = transport.gestures.consume()
+        #expect(((await model.respond(to: .transportGesture))["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
+    }
 }
