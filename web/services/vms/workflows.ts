@@ -1824,6 +1824,7 @@ export function snapshotVm(input: {
   readonly name?: string;
   /** Idempotency-Key of the request: a retry with the same key returns the first snapshot. */
   readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1856,7 +1857,7 @@ export function snapshotVm(input: {
     const freeKey: Effect.Effect<void> = key && finish
       ? Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "failed" } }))
       : Effect.void;
-    const snapshot = yield* Effect.tapError(takeSnapshot, () => freeKey);
+    const snapshot = yield* measureVmEffect(input.timing, "provider_snapshot", Effect.tapError(takeSnapshot, () => freeKey));
     if (key && finish) {
       // The snapshot exists now. A failed write here leaves the row pending;
       // a retry then waits for the stale window instead of failing this call.
@@ -2573,6 +2574,7 @@ export function forkVm(input: {
       billingTeamId: source.billingTeamId,
       providerVmId: input.providerVmId,
       name: input.name,
+      timing: input.timing,
     });
     // Snapshotting establishes the copy point for providers without a native
     // fork. Read the source shape after that point so a concurrent grow cannot

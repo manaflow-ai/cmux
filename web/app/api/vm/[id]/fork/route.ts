@@ -38,6 +38,11 @@ export async function POST(
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
+        try {
+          response.headers.set("Server-Timing", timing.serverTimingHeader());
+        } catch {
+          // Immutable passthrough responses still retain the trace timings.
+        }
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "fork", response, span });
       });
       const parsedBody = await parseOptionalObjectBody(request, {
