@@ -491,6 +491,19 @@ extension AgentRestoreLiveOwnerAdmissionTests {
         #expect(input == "tmux attach-session -t 'work session'\n")
     }
 
+    @Test("A canonical local-tmux restore command remains attachable")
+    func canonicalLocalTmuxOwnerGetsAttachInput() {
+        let command = "/usr/bin/env TMUX= CMUX_LOCAL_TMUX=1 '/opt/homebrew/bin/tmux' -S '/tmp/cmux/server.sock' if-shell -F '#{==:#{@cmux_local_server_id},01234567-89ab-cdef-0123-456789abcdef}' 'attach-session -t $1' 'run-shell false'"
+        let input = AgentRestoreAttachCommand.startupInput(
+            kind: "terminal",
+            sessionID: "unused",
+            launchCommand: nil,
+            tmuxStartCommand: command,
+            workingDirectory: nil
+        )
+        #expect(input == "\(command)\n")
+    }
+
     @Test("Unknown live owners keep the placeholder path")
     func unknownLiveOwnerHasNoUnsafeAttachCommand() {
         #expect(

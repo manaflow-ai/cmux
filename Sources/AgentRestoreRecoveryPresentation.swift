@@ -8,7 +8,7 @@ import Observation
 final class AgentRestoreRecoveryPresentation {
     enum State: Equatable {
         case checking
-        case liveOwner(kind: String, processID: Int, attachInput: String?)
+        case liveOwner(kind: String, processID: Int, attachInput: String?, attachAvailable: Bool)
         case writerLock(candidates: [CodexWriterProcessInspector.Candidate])
     }
 

@@ -88,10 +88,43 @@ enum AgentRestoreAttachCommand {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(raw).map(\.value)
-        guard words.first.map({ URL(fileURLWithPath: $0).lastPathComponent == "tmux" }) == true,
-              words.contains(where: { $0 == "attach" || $0 == "attach-session" }) else {
-            return nil
+        if words.count == 11 {
+            let isCanonicalPrefix = words[0] == "/usr/bin/env"
+                && words[1] == "TMUX="
+                && words[2] == "CMUX_LOCAL_TMUX=1"
+            let isLegacyPrefix = words[0] == "TMUX="
+                && words[1] == "CMUX_LOCAL_TMUX=1"
+                && words[2] == "exec"
+            let conditionPrefix = "#{==:#{@cmux_local_server_id},"
+            let hasValidatedIdentity = words[8].hasPrefix(conditionPrefix)
+                && words[8].hasSuffix("}")
+                && UUID(
+                    uuidString: String(
+                        words[8].dropFirst(conditionPrefix.count).dropLast()
+                    )
+                ) != nil
+            let actionWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(words[9])
+                .map(\.value)
+            let hasValidatedTarget = actionWords.count == 3
+                && actionWords[0] == "attach-session"
+                && actionWords[1] == "-t"
+                && actionWords[2].range(of: "^\\$[0-9]+$", options: .regularExpression) != nil
+            if (isCanonicalPrefix || isLegacyPrefix),
+               URL(fileURLWithPath: words[3]).lastPathComponent == "tmux",
+               words[4] == "-S",
+               (words[5] as NSString).lastPathComponent == "server.sock",
+               words[6] == "if-shell",
+               words[7] == "-F",
+               hasValidatedIdentity,
+               hasValidatedTarget,
+               words[10] == "run-shell false" {
+                return raw
+            }
         }
+        guard words.count >= 4,
+              words[0].map({ URL(fileURLWithPath: $0).lastPathComponent == "tmux" }) == true,
+              words[1] == "attach" || words[1] == "attach-session",
+              words[2] == "-t" else { return nil }
         return raw
     }
 

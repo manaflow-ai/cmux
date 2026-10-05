@@ -79,13 +79,14 @@ extension DockSplitStore {
                 terminal.restoreRecovery.state = .liveOwner(
                     kind: liveSessionOwner.kind,
                     processID: liveSessionOwner.processID,
-                    attachInput: attachInput
+                    attachInput: attachInput,
+                    attachAvailable: false
                 )
                 let attachOrNoticeInput = attachInput ?? AgentRestoreLiveOwnerNotice(
                     processID: liveSessionOwner.processID
                 ).startupInput(dialect: restore.noticeDialect)
                 restoredAgentLifecycle.setResumeState(
-                    .manualResumeAvailable,
+                    attachInput == nil ? .manualResumeAvailable : .awaitingAutoResumeCommand,
                     panelId: panelId
                 )
                 restoredAgentLifecycle.registerStartupInput(attachOrNoticeInput, panelId: panelId)
