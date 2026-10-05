@@ -5,10 +5,9 @@ import Synchronization
 /// an id the relay owns (a counter per connection), so a page cannot make two requests share an
 /// id at the daemon. The reply's id is mapped back to the page's, and a reply to a filtered method
 /// (``AcpmuxPaneMethods/replyShapes``) is cut to its shape. A page id (JSON value and type) is used
-/// by one request at a time. A daemon reply with an id the relay did not send is dropped, and a
-/// daemon request or notification passes to the page as it is. A reply is parsed in full and
-/// serialized again; so is every page frame (in the transport): one parser, and no page bytes
-/// reach the daemon as they are.
+/// by one request at a time. A daemon reply with an id the relay did not send is dropped. Every
+/// daemon frame passes the duplicate-key check and reaches the page as a fresh serialization, as
+/// every page frame reaches the daemon (in the transport).
 nonisolated final class AcpmuxRequestIds: Sendable {
     private nonisolated struct Entry {
         var pageID: String
@@ -42,23 +41,42 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         }
     }
 
-    /// A daemon frame for the page; nil drops it. One full parse (the same parser that reads every
-    /// page frame): no second parser on this path to read a duplicate or escaped key differently.
-    func toPage(_ text: String) -> String? {
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return nil }
-        if object["method"] != nil { return text }
+    /// What the socket does with one daemon frame.
+    nonisolated enum Inbound {
+        /// To the page: the fresh serialization, the parsed frame (its id the page's) for the
+        /// observers, and the request a reply answers.
+        case page(String, object: [String: Any], replyTo: String?)
+        case drop
+        /// A duplicate key: two parsers could read the frame differently, so the socket closes.
+        case close
+    }
+
+    /// One daemon frame (ad349, round 8): the duplicate-key check, one full parse, then a fresh
+    /// serialization; a reply gets the page's id (or its filtered shape). A reply to no request the
+    /// relay sent is dropped.
+    func toPage(_ text: String) -> Inbound {
+        switch AcpmuxJSONKeys.verdict(text) {
+        case .clean: break
+        case .malformed: return .drop
+        case .duplicate: return .close
+        }
+        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
+        if object["method"] != nil {
+            guard let fresh = Self.encode(object) else { return .drop }
+            return .page(fresh, object: object, replyTo: nil)
+        }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }),
               let entry = state.withLock({ state -> Entry? in
                   guard let entry = state.entries.removeValue(forKey: relayID) else { return nil }
                   state.inFlight.remove(entry.pageID)
                   return entry
-              }) else { return nil }
-        if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
-            return AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID)
-        }
-        guard let id = Self.value(entry.pageID) else { return nil }
+              }), let id = Self.value(entry.pageID) else { return .drop }
         object["id"] = id
-        return Self.encode(object)
+        if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
+            return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)
+        }
+        guard let fresh = Self.encode(object) else { return .drop }
+        return .page(fresh, object: object, replyTo: entry.method)
     }
 
     /// A raw JSON id back to its value.

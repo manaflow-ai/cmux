@@ -33,9 +33,14 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// A daemon frame: when it answers a starting request, its sessions are the pane's.
     public func observe(_ text: String) {
         guard state.withLock({ !$0.awaiting.isEmpty }), text.contains("\"result\""),
-              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              let id = object["id"].flatMap(AcpmuxPaneMethods.rawID) else { return }
-        let result = object["result"] as? [String: Any] ?? [:]
+              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
+        observe(object)
+    }
+
+    /// The same for a parsed daemon frame (its id already the page's).
+    public func observe(_ object: [String: Any]) {
+        guard object["method"] == nil, let result = object["result"] as? [String: Any],
+              let id = object["id"].flatMap(AcpmuxPaneMethods.rawID), state.withLock({ !$0.awaiting.isEmpty }) else { return }
         let named = ["sessionId", "targetSessionId"].compactMap { result[$0] as? String }
         state.withLock { state in
             guard state.awaiting.remove(id) != nil else { return }

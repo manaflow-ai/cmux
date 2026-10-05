@@ -766,9 +766,20 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// A frame for the page: from the daemon (its ids mapped back, unknown replies dropped), or
     /// the relay's own answer to a refused request (`fromDaemon` false).
     private func arrived(_ received: String, fromDaemon: Bool = true) {
-        guard let text = fromDaemon ? ids.toPage(received) : received else { return }
-        options.observe(text)
-        sessions.observe(text)
+        let text: String
+        if fromDaemon {
+            switch ids.toPage(received) {
+            case .drop: return
+            case .close: return close(code: 1008, reason: "duplicate key", error: .duplicateKey)
+            case .page(let fresh, let object, let method):
+                // The observers read the same parse the page gets.
+                options.observe(object, replyTo: method)
+                sessions.observe(object)
+                text = fresh
+            }
+        } else {
+            text = received
+        }
         let bytes = text.utf8.count
         let (wake, overflow) = state.withLock { state -> (Bool, Bool) in
             guard state.closed == nil else { return (false, false) }

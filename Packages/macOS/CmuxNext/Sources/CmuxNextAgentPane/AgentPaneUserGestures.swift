@@ -73,50 +73,65 @@ import Synchronization
     private(set) var lastTicket: String?
 }
 
-/// The permission options the daemon sent this pane (`_acpmux/permission_pending` and attach
-/// history), so the relay knows whether an answer allows or denies. Fed off the main thread.
+/// The permission options the daemon sent this pane, so the relay knows whether an answer allows or
+/// denies. Fed off the main thread, from one parse of each daemon frame (ad349, round 8): options are
+/// read only from their fixed places, never by walking the frame, so model content (a tool call's
+/// raw input, a transcript update) can never make an option a deny:
+/// - `_acpmux/permission_pending`: `params.permissionId`, `params.request.options`;
+/// - a `permission_request` event the daemon recorded (`dir` "mux") in the `_acpmux/event` stream,
+///   or in `result.events` of a reply to `_acpmux/attach` or `_acpmux/events`: `msg.permissionId`,
+///   `msg.request.options`.
+/// An option id seen with two kinds counts as allow (it needs a gesture).
 public nonisolated final class AcpmuxPermissionOptions: Sendable {
-    /// permissionId -> the option ids whose kind denies (`reject_*`).
-    private let denies = Mutex<[String: Set<String>]>([:])
+    /// permissionId -> optionId -> whether every kind seen for it denies (`reject_*`).
+    private let denies = Mutex<[String: [String: Bool]]>([:])
+
+    /// The replies whose `result.events` hold the daemon's history.
+    public static let historyReplies: Set<String> = ["_acpmux/attach", "_acpmux/events"]
 
     public init() {}
 
-    /// Records the options of every permission request in `text` (a daemon frame).
+    /// Records the options of every permission request in `text` (a daemon frame, not a reply).
     public func observe(_ text: String) {
-        guard text.contains("optionId"),
-              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) else { return }
-        var found: [String: Set<String>] = [:]
-        Self.collect(object, permissionId: nil, into: &found)
-        guard !found.isEmpty else { return }
-        denies.withLock { $0.merge(found) { $0.union($1) } }
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return }
+        observe(object, replyTo: nil)
     }
 
     /// The same for a parsed daemon frame; `method` is the request a reply answers.
     public func observe(_ object: [String: Any], replyTo method: String?) {
-        var found: [String: Set<String>] = [:]
-        Self.collect(object, permissionId: nil, into: &found)
+        var found: [(permission: String, option: String, denies: Bool)] = []
+        func request(_ record: [String: Any]?) {
+            guard let record, let permission = record["permissionId"] as? String,
+                  let options = (record["request"] as? [String: Any])?["options"] as? [Any] else { return }
+            for case let option as [String: Any] in options {
+                guard let id = option["optionId"] as? String, let kind = option["kind"] as? String else { continue }
+                found.append((permission, id, kind.hasPrefix("reject")))
+            }
+        }
+        func event(_ value: Any?) {
+            guard let event = value as? [String: Any], event["kind"] as? String == "permission_request",
+                  event["dir"] as? String == "mux" else { return }
+            request(event["msg"] as? [String: Any])
+        }
+        switch object["method"] as? String {
+        case "_acpmux/permission_pending": request(object["params"] as? [String: Any])
+        case "_acpmux/event": event(object["params"])
+        case nil:
+            guard let method, Self.historyReplies.contains(method),
+                  let events = (object["result"] as? [String: Any])?["events"] as? [Any] else { return }
+            events.forEach(event)
+        default: return
+        }
         guard !found.isEmpty else { return }
-        denies.withLock { $0.merge(found) { $0.union($1) } }
+        denies.withLock { denies in
+            for entry in found {
+                denies[entry.permission, default: [:]][entry.option] = (denies[entry.permission]?[entry.option] ?? true) && entry.denies
+            }
+        }
     }
 
     /// True only when `optionId` is a known deny of `permissionId`; an unknown option counts as allow.
     public func isDeny(permissionId: String, optionId: String) -> Bool {
-        denies.withLock { $0[permissionId]?.contains(optionId) ?? false }
-    }
-
-    private static func collect(_ value: Any, permissionId: String?, into found: inout [String: Set<String>]) {
-        if let object = value as? [String: Any] {
-            let id = (object["permissionId"] as? String) ?? permissionId
-            if let id, let options = object["options"] as? [[String: Any]] {
-                for option in options {
-                    guard let optionId = (option["optionId"] ?? option["id"]) as? String,
-                          let kind = option["kind"] as? String, kind.hasPrefix("reject") else { continue }
-                    found[id, default: []].insert(optionId)
-                }
-            }
-            for inner in object.values { collect(inner, permissionId: id, into: &found) }
-        } else if let list = value as? [Any] {
-            for inner in list { collect(inner, permissionId: permissionId, into: &found) }
-        }
+        denies.withLock { $0[permissionId]?[optionId] == true }
     }
 }
