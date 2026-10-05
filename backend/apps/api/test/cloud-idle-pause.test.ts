@@ -63,4 +63,19 @@ describe("idle pause", { timeout: 60_000 }, () => {
     await fireAlarm(s.stub)
     expect(await s.status()).toBe("running")
   })
+
+  it("a machine started after an idle pause waits a full idle period before it can pause again (review P2)", async () => {
+    const s = await vmSetup("cloud-bind-4")
+    expect((await s.policy(true, 0)).body.ok).toBe(true)
+    const old = { active_sessions: 0, last_user_input_at: hoursAgo(5) }
+    await s.report(old)
+    expect(await s.status()).toBe("paused")
+    expect((await op(s.a.session, "cloud.machine.start", { machine: s.machine }, crypto.randomUUID())).body.ok).toBe(true)
+    expect(await s.status()).toBe("running")
+    // The resumed VM still reports its old times (memory was kept): not idle until a full period after the start.
+    await s.stub.fakeControl({ advance_ms: 11_000 } as never)
+    await s.report(old)
+    expect(await s.status()).toBe("running")
+    expect(((await s.stub.fakeControl({})) as unknown as { pauses: number }).pauses).toBe(1)
+  })
 })
