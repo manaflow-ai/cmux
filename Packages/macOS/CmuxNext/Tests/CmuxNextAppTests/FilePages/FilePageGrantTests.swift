@@ -69,6 +69,41 @@ struct FilePageGrantTests {
         #expect(host.confirmations.isEmpty)
     }
 
+    /// A document an agent or script opened (`cmux file open`) is still the tab's document: its
+    /// sibling links open in place and without asking, as the user's own would (live check,
+    /// 2026-10-05). It is not writable outside a root the user chose.
+    @Test func aDocumentAnAgentOpenedFollowsItsSiblingLinksButIsNotWritable() async throws {
+        let (_, host, folder, images) = try FilePageProviderTests.world(.markdown)
+        host.roots = FileWorkspaceRoots(folders: [], home: "/nonexistent-home")
+        let file = folder.appending(path: "README.md")
+        let provider = FilePageProvider(kind: .markdown, file: file, userChose: false, host: host, clock: ManualClock(),
+                                        libraries: nil, images: images)
+        let config = try await FilePageProviderTests.call(provider, "cmux.markdown.config")
+        _ = try await FilePageProviderTests.call(provider, "cmux.markdown.resolveLinks", ["from": .string(file.path), "paths": ["other.md"]])
+        #expect(try await Self.open(provider, folder.appending(path: "other.md").path)["text"]?.stringValue == "# Other\n")
+        try await Self.link(provider, from: folder.appending(path: "other.md"), href: "main.swift", target: folder.appending(path: "main.swift").path)
+        #expect(host.confirmations.isEmpty)
+        let readme = try await Self.open(provider, file.path)
+        #expect(await Self.code {
+            _ = try await FilePageProviderTests.call(provider, "cmux.markdown.save",
+                                                     ["path": .string(file.path), "text": "x", "baseHash": readme["hash"] ?? config["hash"] ?? .null])
+        } == "cmux.markdown.read_only")
+    }
+
+    /// The user opens a file a tab already shows (Open File..., the picker): that tab's document is
+    /// now the user's choice and writable.
+    @Test func aUserOpenOfTheTabsDocumentMakesItWritable() async throws {
+        let (_, host, folder, images) = try FilePageProviderTests.world(.markdown)
+        host.roots = FileWorkspaceRoots(folders: [], home: "/nonexistent-home")
+        let file = folder.appending(path: "README.md")
+        let provider = FilePageProvider(kind: .markdown, file: file, userChose: false, host: host, clock: ManualClock(),
+                                        libraries: nil, images: images)
+        provider.userChose(file)
+        let config = try await Self.open(provider, file.path)
+        _ = try await FilePageProviderTests.call(provider, "cmux.markdown.save", ["path": .string(file.path), "text": "# Mine\n", "baseHash": config["hash"] ?? .null])
+        #expect(try String(contentsOf: file, encoding: .utf8) == "# Mine\n")
+    }
+
     @Test func aLinkOutsideTheDocumentsFolderAsksWithItsResolvedPath() async throws {
         let (provider, host, project, key) = try Self.world()
         let readme = project.appending(path: "README.md")
