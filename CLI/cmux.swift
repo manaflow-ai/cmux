@@ -6276,12 +6276,33 @@ struct CMUXCLI {
                 } else {
                     nil
                 }
+                // Same store-based idempotency as `vm new`: a retry of a fork whose
+                // outcome is unknown (timeout, dropped transport, still running) joins
+                // the first attempt instead of copying the source a second time. The
+                // reserved workspace scopes the key, so separate Fork clicks differ.
+                let idempotency = try Self.activeVMCreateIdempotency(
+                    image: "fork=\(vmId)" + (nameOpt.map { " name=\($0)" } ?? ""),
+                    provider: nil,
+                    workspace: targetWorkspace
+                )
                 var params: [String: Any] = [
                     "id": vmId,
-                    "idempotency_key": UUID().uuidString.lowercased(),
+                    "idempotency_key": idempotency.key,
                 ]
                 if let nameOpt { params["name"] = nameOpt }
-                let response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                let response: [String: Any]
+                do {
+                    response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                } catch let error as CLIError {
+                    // A definitive backend failure is replayed under its key; only an
+                    // in-flight or unknown outcome keeps the key for the retry.
+                    if let backendCode = error.vmBackendCode, backendCode != "vm_create_in_progress" {
+                        Self.clearVMCreateIdempotency(idempotency)
+                    }
+                    throw error
+                }
+                // The copy exists now; a failed attach must not replay this fork.
+                Self.clearVMCreateIdempotency(idempotency)
                 if jsonOutput {
                     print(jsonString(response))
                     break
