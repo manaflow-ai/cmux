@@ -1,4 +1,4 @@
-import CmuxTheme
+public import CmuxTheme
 /// The resolved art-aware treatment for a window in mist mode.
 public nonisolated struct MistBackdropPlan: Equatable, Sendable {
     /// WCAG AA's minimum contrast ratio for primary card text.

@@ -2,7 +2,7 @@ import AppKit
 import CoreImage
 
 /// The texture treatment applied once to a backdrop image when it is loaded.
-public nonisolated struct BackdropTexture: Equatable, Sendable {
+public nonisolated struct BackdropTexture: Hashable, Sendable {
     /// The selected texture algorithm.
     public let filter: BackdropTextureFilter
     /// The filter strength, from none to full effect.
