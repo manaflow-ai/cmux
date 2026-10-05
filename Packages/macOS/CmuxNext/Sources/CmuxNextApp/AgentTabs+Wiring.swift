@@ -28,14 +28,23 @@ extension AgentTabStore {
                 workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0) } }
             }
         }
-        tabs.create = { pane, daemon, record, key in
+        tabs.create = { pane, daemon, record, key, transaction in
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
-            let request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key)
+            let request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
+                                                    transaction: transaction)
             let response = try await connection.request(request)
             let created = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                           surface: response.surface)
             // Every event the daemon sent before the reply: the provisional tab settles there.
             return (created, await connection.eventSequence())
+        }
+        tabs.moveSelection = { [weak services] provisional, surface in
+            for controller in services?.windows.controllers ?? [] {
+                guard let panes = controller.content?.panes.values else { continue }
+                for pane in panes where pane.stripModel.selectedID?.rawValue == provisional {
+                    pane.selectWhenReported(surface: surface)
+                }
+            }
         }
         tabs.bind = { [weak services] key, surface, expected, session in
             guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else {
