@@ -8936,7 +8936,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         // hands a window's link to the external browser only when the user
         // activated it there.
         let replAllowsExternalOpen = owner.map {
-            BrowserReplTabAttachments.shared.attachment(for: $0.id)?.handsLinksToExternalBrowser ?? true
+            BrowserReplNavigationGuard.shared.handsLinkToExternalBrowser(panelID: $0.id, action: navigationAction)
         } ?? true
         if let url = navigationAction.request.url {
             if navigationAction.navigationType == .linkActivated,

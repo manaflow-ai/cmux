@@ -332,12 +332,17 @@ final class BrowserReplTabAttachment {
 
     /// Whether a link activated in this tab may go to the user's configured
     /// external browser
-    /// (``BrowserReplTabOwnership/handsLinksToExternalBrowser(userIsWorkingInTab:)``):
-    /// always in a tab no session drives; in one a session drives, only a
-    /// user's tab the user is working in, while no session's input runs.
-    var handsLinksToExternalBrowser: Bool {
+    /// (``BrowserReplTabOwnership/handsLinkToExternalBrowser(_:now:)``):
+    /// always in a tab no session drives; in one a session drives, only an
+    /// activation WebKit marks as the user's gesture in a user's tab the
+    /// user is working in, while no session's input runs or may still lend
+    /// the page its gesture.
+    func handsLinkToExternalBrowser(isUserInitiated: Bool) -> Bool {
         guard isAttached else { return true }
-        return ownership.handsLinksToExternalBrowser(userIsWorkingInTab: !opensPopupsInBackground)
+        return ownership.handsLinkToExternalBrowser(
+            BrowserReplLinkActivation(userIsWorkingInTab: !opensPopupsInBackground, isUserInitiated: isUserInitiated),
+            now: .now
+        )
     }
 
     /// The attached session whose input the page is handling now, if

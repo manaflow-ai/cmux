@@ -511,27 +511,31 @@ import Testing
     /// a tab sessions drive only a link the user activates, in a user's tab
     /// they are working in, may leave; any other loads in the tab.
     @Test func onlyTheUsersOwnLinkActivationsGoToTheExternalBrowser() {
+        let now = ContinuousClock.now
+        let working = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: true)
+        let elsewhere = BrowserReplLinkActivation(userIsWorkingInTab: false, isUserInitiated: true)
         var users = BrowserReplTabOwnership()
         users.attach(sessionID: "agent")
-        #expect(users.handsLinksToExternalBrowser(userIsWorkingInTab: true))
-        #expect(!users.handsLinksToExternalBrowser(userIsWorkingInTab: false),
+        #expect(users.handsLinkToExternalBrowser(working, now: now))
+        #expect(!users.handsLinkToExternalBrowser(elsewhere, now: now),
                 "a link activated in a tab sessions drive while the user works elsewhere left cmux")
 
         users.beginInput(sessionID: "agent")
-        #expect(!users.handsLinksToExternalBrowser(userIsWorkingInTab: true),
+        #expect(!users.handsLinkToExternalBrowser(working, now: now),
                 "an agent's click handed a link to the external browser")
-        users.endInput(sessionID: "agent")
-        #expect(users.handsLinksToExternalBrowser(userIsWorkingInTab: true))
+        users.endInput(sessionID: "agent", at: now)
+        #expect(users.handsLinkToExternalBrowser(working, now: now.advanced(by: BrowserReplTabOwnership.agentGestureLingering)))
 
         var own = BrowserReplTabOwnership()
         own.markCreated(by: "agent")
-        #expect(!own.handsLinksToExternalBrowser(userIsWorkingInTab: true),
+        #expect(!own.handsLinkToExternalBrowser(working, now: now),
                 "a link in a tab a session created left its domain policy for the external browser")
         own.attach(sessionID: "other")
         own.detach(sessionID: "agent")
-        #expect(own.handsLinksToExternalBrowser(userIsWorkingInTab: true),
+        #expect(own.handsLinkToExternalBrowser(working, now: now),
                 "a tab its creator left is the user's")
     }
+
     /// A page activates links itself (`a.click()` from its own script or
     /// from agent-world code the session ran, which holds no input), and
     /// WebKit reports that as a link activation too. In a tab a session

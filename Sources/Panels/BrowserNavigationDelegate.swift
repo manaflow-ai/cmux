@@ -456,7 +456,7 @@ import WebKit
         // browser only when the user activated it there: an agent's click
         // or the page's own activation loads in the tab, under its guards.
         let replAllowsExternalOpen = owner.map {
-            BrowserReplTabAttachments.shared.attachment(for: $0.id)?.handsLinksToExternalBrowser ?? true
+            BrowserReplNavigationGuard.shared.handsLinkToExternalBrowser(panelID: $0.id, action: navigationAction)
         } ?? true
         if replAllowsExternalOpen, let url = navigationAction.request.url {
             let openResult = externalNavigationHandler.openConfiguredExternallyResult(

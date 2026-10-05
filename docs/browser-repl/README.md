@@ -519,10 +519,13 @@ rest. Measurements: [performance.md](performance.md).
   tab, never as a key window over the user's work (a page that opens one
   after an `await` in the agent's click lands here). A link that matches a
   configured external-browser rule leaves cmux for the system browser only
-  when the user activated it in a user's tab they are working in, with no
-  session's input in flight; an agent's click, or the page's own link
-  activation, in a tab sessions drive (and any link in a tab a session
-  created) loads in the tab instead, under its guards.
+  when the user activated it in a user's tab they are working in: WebKit
+  marks the navigation as a user gesture (`_isUserInitiated`), no
+  session's input is in flight, and none ended in the last 11 s (a page can
+  use an input's gesture that long). An agent's click, the page's own link
+  activation (`a.click()`, also from agent-world code), or one in the 11 s
+  after a session's input, in a tab sessions drive (and any link in a tab a
+  session created) loads in the tab instead, under its guards.
   The domain policy there only refuses the session's reads and input while
   the tab, or a frame of it, shows a blocked page (the console messages and
   page errors of a main frame the policy blocks do not reach the session
