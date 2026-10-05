@@ -1529,6 +1529,10 @@ jobs:
           # ~15s of fetch on every variant and are never read here.
           submodules: false
 
+      - name: Initialize cmux-next notices submodule
+        if: github.ref_name == 'nightly-next'
+        run: git submodule update --init --depth 1 ghostty-next
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
