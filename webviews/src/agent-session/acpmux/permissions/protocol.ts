@@ -1,4 +1,3 @@
-// l10n-allow-file: wire validators; their "Invalid ..." errors name a malformed host reply, a host bug
 import { servesOperation } from "../operations";
 
 export const PERMISSION_GROUP_OPS = {

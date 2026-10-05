@@ -1,4 +1,3 @@
-// l10n-allow-file: wire validators; their "Invalid ..." errors name a malformed host reply, a host bug
 export const CHECKPOINT_OPS = {
   create: "git.checkpoint.create",
   get: "git.checkpoint.get",
