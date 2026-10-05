@@ -5128,6 +5128,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        pendingContentFocusAfterAttachment = false
         webViewFocusRequestGeneration &+= 1
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
@@ -7425,6 +7426,7 @@ extension BrowserPanel {
     }
 
     private func presentNativeFindBar() {
+        pendingContentFocusAfterAttachment = false
         clearBrowserFocusMode(reason: "startFind")
         preferredFocusIntent = .findField
         let created = searchState == nil
@@ -7870,6 +7872,7 @@ extension BrowserPanel {
     }
 
     func noteAddressBarFocused() {
+        pendingContentFocusAfterAttachment = false
         clearBrowserFocusMode(reason: "addressBarFocused")
         guard preferredFocusIntent != .addressBar else { return }
         preferredFocusIntent = .addressBar
@@ -7877,6 +7880,7 @@ extension BrowserPanel {
     }
 
     func noteFindFieldFocused() {
+        pendingContentFocusAfterAttachment = false
         clearBrowserFocusMode(reason: "findFieldFocused")
         guard preferredFocusIntent != .findField else { return }
         preferredFocusIntent = .findField
@@ -8062,6 +8066,7 @@ extension BrowserPanel {
         }
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+        pendingContentFocusAfterAttachment = false
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.requestAck panel=\(id.uuidString.prefix(5)) " +
