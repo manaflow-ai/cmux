@@ -270,6 +270,26 @@ describe("harness switch: a prompt sent before the session is ready", () => {
     expect(notices).toEqual(["Click the choice again to apply it."]);
   });
 
+  /// One outstanding ticket per (method, configId): two held options each keep their own.
+  test("two held config options each reserve and send their own ticket", async () => {
+    const { store, port } = setup();
+    const asked: unknown[] = [];
+    store.setHandlers({
+      gesture: (intent) => (asked.push(intent), Promise.resolve(`ticket-${asked.length}`)),
+    });
+    void store.switchTo("codex");
+    store.pickConfig("reasoning_effort", "high");
+    store.pickConfig("verbosity", "low");
+    port.creates[0]!.reply.resolve("codex-1");
+    await settle();
+    expect(asked).toEqual([
+      { method: "session/set_config_option", params: { configId: "reasoning_effort", value: "high" } },
+      { method: "session/set_config_option", params: { configId: "verbosity", value: "low" } },
+    ]);
+    expect(port.calls.slice(3)).toEqual(["config reasoning_effort=high", "config verbosity=low"]);
+    expect(port.tickets).toEqual(["ticket-1", "ticket-2"]);
+  });
+
   test("a pick in a live session (not held) asks for no gesture", () => {
     const { store } = setup();
     let asked = 0;

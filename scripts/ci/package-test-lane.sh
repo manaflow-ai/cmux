@@ -468,8 +468,17 @@ run_suite() {
   if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
     ensure_ghosttykit
   fi
-  echo "::group::swift build --build-tests $suite_package"
-  swift build --build-tests --package-path "$suite_package" < /dev/null
+  # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
+  # user runs); @testable imports then need -enable-testing. The default stays debug.
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
+  # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
+  # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
+  # release suite build turns that one SIL pass off.
+  if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
+    configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
+  fi
+  echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
+  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
@@ -488,7 +497,7 @@ run_suite() {
       --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
       --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
       --sample-seconds 5 --label "$filter" --log "$log" \
-      -- swift test --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
+      -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
     if [ "$status" -eq 0 ]; then
       python3 scripts/ci/require_swift_test_execution.py --log "$log" || status=$?
     fi

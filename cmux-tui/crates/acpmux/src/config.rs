@@ -366,16 +366,6 @@ impl Default for TuiConfig {
     }
 }
 
-/// A remote acpmux daemon this daemon mirrors. Sessions there appear here as
-/// `<peer>/<name>` and every request is forwarded.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PeerConfig {
-    pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -412,9 +402,10 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
-    /// `webRoots`: folders a remote (Web) connection may use as a session's
-    /// cwd or extra directory, besides the known projects (the cwds of local
-    /// sessions). Written in config.json, never over a WebSocket.
+    /// `webAskingModes`: more asking modes per family (`server/remote_guard.rs`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub web_asking_modes: BTreeMap<String, Vec<String>>,
+    /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
     /// `pool`: hidden pre-created sessions that make a harness switch
@@ -986,6 +977,8 @@ pub use codex_adapter::{
     CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
     resolve_adapter_package_bin,
 };
+mod peer;
+pub use peer::PeerConfig;
 mod pool;
 pub use pool::PoolConfig;
 mod preset_args;

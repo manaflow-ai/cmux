@@ -12,7 +12,7 @@
         "cmux-tui/rust-toolchain.toml",
         "first-party-apps/cloud/server/rust-toolchain.toml"
       ],
-      "binaries": "bin/cmux, bin/cmux-tui-ssh/*, bin/cmux-app-host (cmux-tui) and bin/cmux-cloud (first-party-apps/cloud/server)"
+      "binaries": "bin/cmux, bin/cmux-tui-ssh/*, bin/cmux-app-host, bin/cmux-browser-host (cmux-tui) and bin/cmux-cloud (first-party-apps/cloud/server)"
     },
     {
       "version": "1.91.0",
@@ -38,14 +38,14 @@
   "zig": [
     {
       "version": "0.16.0",
+      "ci_version": "0.16.0",
       "file": "zig-0.16.0/LICENSE",
       "sha256": "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177",
       "source": "zig-0.16.0/LICENSE in https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz (sha256 43186959edc87d5c7a1be7b7d2a25efffd22ce5807c7af99067f86f99641bfdf in https://ziglang.org/download/index.json)",
       "ghostty_sources": [
-        "ghostty",
         "ghostty-next"
       ],
-      "binaries": "Contents/MacOS/cmux (GhosttyNextKit), bin/cmux and bin/cmux-tui-ssh/* (libghostty-vt), bin/ghostty: Zig std and compiler_rt"
+      "binaries": "Contents/MacOS/cmux (GhosttyNextKit), bin/cmux and bin/cmux-tui-ssh/* (libghostty-vt): Zig std and compiler_rt"
     }
   ]
 }

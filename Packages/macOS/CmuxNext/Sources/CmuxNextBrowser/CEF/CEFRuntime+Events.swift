@@ -145,6 +145,7 @@ extension CEFRuntime {
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
+        windowRequests.linkClicks.onGesture = { [weak self] browser in self?.tabsByBrowser[browser]?.automaticDownloads.userGesture() }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
@@ -213,7 +214,7 @@ extension CEFRuntime {
         case .popupWindowBounds:
             popupWindowBoundsChanged(window: window)
         case .sidePanelChanged:
-            for host in hosts.values where host.owns(window: window) { host.visibleTab?.scheduleSidePanelRefresh() }
+            for host in hosts.values where host.owns(window: window) { host.visibleTab?.sidePanel.scheduleRefresh() }
         case .moved, .unknown:
             break
         }

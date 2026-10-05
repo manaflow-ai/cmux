@@ -40,7 +40,7 @@ pub(crate) const USER_ONLY_OPERATIONS: [&str; 3] =
     ["apps.install", "apps.uninstall", "apps.enable"];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
-const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
+pub(crate) const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
 pub(crate) const NEEDS_VERIFIED_APP: &str = "needs a verified cmux app connection";
 
 /// The origin of one request, least to most trusted.

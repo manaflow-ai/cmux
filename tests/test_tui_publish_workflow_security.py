@@ -198,53 +198,104 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "pull_request_target" in triggers
     pr_trigger = triggers["pull_request_target"]
     assert pr_trigger.get("branches") == ["feat-cmux-next"]
-    assert set(pr_trigger["paths"]) == {
-        "cmux-tui/**", "ghostty", "ghostty-next",
-        ".github/workflows/cmux-tui-artifacts.yml",
-        ".github/workflows/cmux-tui-build-package.yml",
-    }
+    paths = pr_trigger.get("paths")
+    assert paths == [
+        "cmux-tui/**",
+        "ghostty",
+        "ghostty-next",
+        "scripts/cmux-next/build-layout-reducer-ffi.sh",
+    ]
     push_trigger = triggers["push"]
     assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
     assert "paths" not in push_trigger
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
-    assert "git mktree --missing" in preflight
-    assert "cmux-tui-aarch64-apple-darwin.sha256" in preflight
+    assert "cmux_tui_tree_key.py" in preflight
+    assert "cmux-tui-aarch64-apple-darwin" in preflight
+    assert "cmux-tui-app-host-aarch64-apple-darwin" in preflight
+    assert "cmux-tui-cloud-server-aarch64-apple-darwin" in preflight
+    assert "$asset.sha256" in preflight
     assert "ls-remote" in preflight
     assert "tree_ready" in preflight
     assert "run_macos" in preflight
+    assert "owner_run_id" in preflight
+    assert "actions/workflows/cmux-tui-artifacts.yml/runs" in preflight
+    owner_wait = workflow_job(artifacts, "tree-owner-wait")
+    assert "takeover" in owner_wait
+    assert "actions/runs/$OWNER_RUN_ID" in owner_wait
+    assert "skipping duplicate build" in owner_wait
+    assert "taking over" in owner_wait
     assert "refs/heads/main" in preflight
     for job in ("build", "cmux-next-daemon-tests"):
         body = workflow_job(artifacts, job)
-        assert "needs: tree-preflight" in body
+        assert "needs: [tree-preflight, tree-owner-wait]" in body
         assert "needs.tree-preflight.outputs.run_macos == 'true'" in body
+        assert "needs.tree-owner-wait.outputs.takeover == 'true'" in body
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     assert 'CARGO_NET_RETRY: "10"' in daemon
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
     publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "adopting the verified write-once binary" in publisher
+    assert "trusted helper" in publisher
     assert "already published with a different binary" not in publisher
     assert "for attempt in 1 2 3" in daemon
     assert "cargo test --workspace --locked cmux_next_" in daemon
 
-    requeue = workflow_job(artifacts, "requeue-failed-publish")
-    assert "github.run_attempt < 3" in requeue
-    assert "actions: write" in requeue
-    assert "/actions/runs/$RUN_ID/rerun" in requeue
-    assert "needs.cmux-next-daemon-tests.result == 'failure'" in requeue
-    assert "needs.build.result == 'failure'" in requeue
-    assert "needs.tree-preflight.result == 'failure'" in requeue
-    assert "needs.publish-pr-tree.result == 'failure'" in requeue
+    # A run cannot rerun itself while it is in progress (403 "This workflow
+    # is already running"); cmux-tui-artifacts-retry.yml retries completed
+    # failed runs (policy: tests/test_cmux_tui_artifacts_retry.py).
+    assert "/rerun" not in (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
     pr_publisher = workflow_job(artifacts, "publish-pr-tree")
     assert "github.event_name == 'pull_request_target'" in pr_publisher
     assert "github.event.pull_request.head.repo.full_name == github.repository" in pr_publisher
     assert 'git fetch --no-tags origin "$BASE_COMMIT"' in pr_publisher
     assert "git show \"$BASE_COMMIT:scripts/ci/upload-r2-object.py\"" in pr_publisher
     assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
-    assert "git mktree --missing" in pr_publisher
+    assert "cmux_tui_tree_key.py" in pr_publisher
     assert "cmux-tui/tree/$KEY" in pr_publisher
+    assert "missing opaque build companion" in pr_publisher
+    tree_publisher = workflow_job(artifacts, "publish-tree")
+    assert "publish-cmux-tui-tree.py" in tree_publisher
+    assert "complete tree" in tree_publisher
+    assert "trusted helper" in tree_publisher
+    assert "cmux-tui-app-host-aarch64-apple-darwin" in tree_publisher
+    assert "cmux-tui-cloud-server-aarch64-apple-darwin" in tree_publisher
+
+
+def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    assert "format('sha-{0}', github.sha)" in artifacts
+    assert "feat-cmux-next-push" not in artifacts
+    assert "cancel-in-progress: false" in artifacts
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "fetch --no-tags --depth=1" in preflight
+    assert "current_key" in preflight
+    assert '"$current_key" == "$key"' in preflight
+    assert "retaining publication for superseded tree" in preflight
+    assert "deterministic owner" in preflight
+    assert "owner_run_id" in preflight
+    for job, prefix in (("build", "cmux-tui-build-"), ("cmux-next-daemon-tests", "cmux-tui-daemon-")):
+        body = workflow_job(artifacts, job)
+        assert f"group: {prefix}" + "${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in body
+        assert "cancel-in-progress: false" in body
+    tree_publisher = workflow_job(artifacts, "publish-tree")
+    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}" in tree_publisher
+    assert "replaces an older pending job" in artifacts
+
+
+def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
+    input_file = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+    key_paths = []
+    for line in input_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        kind, path = line.split(maxsplit=1)
+        key_paths.append("cmux-tui/**" if kind == "tree" and path == "cmux-tui" else path)
+    triggers = workflow_triggers(workflow("cmux-tui-artifacts.yml"))
+    assert triggers["pull_request_target"]["paths"] == key_paths
+    assert "cmux_tui_tree_key.py" in workflow("cmux-tui-artifacts.yml")
 
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:

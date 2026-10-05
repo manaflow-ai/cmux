@@ -35,6 +35,8 @@ final class SettingsWindowService: InternalPageProvider {
     /// A show that waits for a main window with a workspace.
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool)?
     var isWaiting: Bool { waiting != nil }
+    /// The page fragment the Settings page shows, or will open with.
+    var currentRoute: String? { webPage?.route ?? pendingRoute }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
     /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens

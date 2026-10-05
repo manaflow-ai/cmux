@@ -62,7 +62,7 @@ public final class BrowserChromeView: NSView {
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
-    private let pageStatus = PageStatusViews()
+    let pageStatus = PageStatusViews()
     var toolbarHeight: NSLayoutConstraint!
     private var observation: ObservationLoop?
     private var showsStop = false
@@ -127,7 +127,7 @@ public final class BrowserChromeView: NSView {
         if findBar.isHidden {
             findBar.isHidden = false
             findBar.alphaValue = 0
-            Motion.animate(.fadeIn) { self.findBar.animator().alphaValue = 1 }
+            Motion.animate(.fadeIn, in: findBar) { self.findBar.animator().alphaValue = 1 }
             updateOcclusion()
         }
         findBar.focus()
@@ -135,7 +135,7 @@ public final class BrowserChromeView: NSView {
 
     public func hideFindBar() {
         guard !findBar.isHidden else { return }
-        Motion.animate(.fadeOut, { self.findBar.animator().alphaValue = 0 }, completion: {
+        Motion.animate(.fadeOut, in: findBar, { self.findBar.animator().alphaValue = 0 }, completion: {
             self.findBar.isHidden = true
             self.updateOcclusion()
         })
@@ -273,7 +273,7 @@ public final class BrowserChromeView: NSView {
         if let onOmnibarEvent { return onOmnibarEvent(event) }
         switch event {
         case .didEndEditing(.commit), .didEndEditing(.open), .didEndEditing(.cancel), .didEndEditing(.keyword): returnFocusToPage()
-        case .didBeginEditing, .didEndEditing(.blur): break
+        case .didBeginEditing, .didEndEditing(.blur), .didEndEditing(.switchToTab): break
         }
     }
 

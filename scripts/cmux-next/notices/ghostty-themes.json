@@ -1,11 +1,11 @@
 {
   "comment": "The iTerm2-Color-Schemes release that Resources/ghostty/themes is a copy of (byte-equal: every file matches that release's ghostty-themes.tgz). ghostty_themes_notice.py fails when the themes change and this record does not.",
   "source": "Resources/ghostty/themes",
-  "files": 463,
-  "tree_sha256": "7bd51591ba3900c0eddba286825338d832e84f14f1c4c0fbf617e68080007d07",
-  "release": "release-20260216-151611-fc73ce3",
-  "commit": "fc73ce39746540b6d5ec6b91e304785431401d85",
-  "archive": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20260216-151611-fc73ce3/ghostty-themes.tgz",
-  "archive_sha256": "14200bb86a0c814ab69609d500b280b396b6d2eb835edf0676de4a789c0aa8fd",
+  "files": 617,
+  "tree_sha256": "4c6e30e14c38e9f597dba88feace819a9044e1834a6e3c3bfdaeb7d6bc1af75f",
+  "release": "release-20260921-150923-0b55a9e",
+  "commit": "0b55a9e609daa0727be7d0d4705616dbe8d08fed",
+  "archive": "https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20260921-150923-0b55a9e/ghostty-themes.tgz",
+  "archive_sha256": "da83fb32fcef53c8cb1dca868fb700a904d5d86420d7588e574a0f81a75008d5",
   "license": "iterm2-themes"
 }

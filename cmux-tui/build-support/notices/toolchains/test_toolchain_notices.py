@@ -44,7 +44,6 @@ class Fixture:
             (self.texts / rel).write_bytes(data)
         self.write("cmux-tui/rust-toolchain.toml", '[toolchain]\nchannel = "1.95.0"\nprofile = "minimal"\n')
         self.write("Native/DiffSidecar/rust-toolchain.toml", '[toolchain]\nchannel = "1.88.0"\n')
-        self.write("ghostty/build.zig.zon", '.{\n    .name = .ghostty,\n    .minimum_zig_version = "0.16.0",\n}\n')
         self.write("ghostty-next/build.zig.zon", '.{\n    .minimum_zig_version = "0.16.0",\n}\n')
         self.manifest = {
             "bundle_dir": "Contents/Resources/toolchain-licenses",
@@ -57,8 +56,8 @@ class Fixture:
                  "toolchain_files": ["Native/DiffSidecar/rust-toolchain.toml"], "binaries": "bin/cmux-diff-sidecar"},
             ],
             "zig": [
-                {"version": "0.16.0", "file": "zig-0.16.0/LICENSE", "sha256": sha(self.files["zig-0.16.0/LICENSE"]),
-                 "source": "fixture", "ghostty_sources": ["ghostty", "ghostty-next"], "binaries": "bin/ghostty"},
+                {"version": "0.16.0", "ci_version": "0.16.0", "file": "zig-0.16.0/LICENSE", "sha256": sha(self.files["zig-0.16.0/LICENSE"]),
+                 "source": "fixture", "ghostty_sources": ["ghostty-next"], "binaries": "bin/cmux"},
             ],
         }
 
@@ -90,17 +89,34 @@ class ToolchainNoticesTest(unittest.TestCase):
         self.assertIn("1.96.0", problem)
         self.assertIn("COPYRIGHT-library.html", problem)
 
-    def test_a_zig_bump_in_either_ghostty_source_stops_until_reviewed(self) -> None:
+    def test_a_zig_bump_in_ghostty_next_stops_until_reviewed(self) -> None:
         self.fx.write("ghostty-next/build.zig.zon", '.{\n    .minimum_zig_version = "0.17.0",\n}\n')
         [problem] = tn.repo_problems(self.fx.load(), self.fx.root)
         self.assertIn("ghostty-next/build.zig.zon", problem)
         self.assertIn("0.17.0", problem)
 
-    def test_a_missing_ghostty_manifest_fails_instead_of_passing(self) -> None:
-        (self.fx.root / "ghostty/build.zig.zon").unlink()
+    def test_the_exact_ci_zig_version_must_be_recorded_and_match(self) -> None:
+        self.fx.manifest["zig"][0]["ci_version"] = "0.16.1"
         [problem] = tn.repo_problems(self.fx.load(), self.fx.root)
-        self.assertIn("ghostty/build.zig.zon", problem)
-        self.assertIn("git submodule update --init", problem)
+        self.assertIn("ci_version", problem)
+        self.assertIn("0.16.1", problem)
+        del self.fx.manifest["zig"][0]["ci_version"]
+        with self.assertRaises(tn.ManifestError):
+            self.fx.load()
+
+    def test_a_missing_ghostty_manifest_fails_instead_of_passing(self) -> None:
+        (self.fx.root / "ghostty-next/build.zig.zon").unlink()
+        [problem] = tn.repo_problems(self.fx.load(), self.fx.root)
+        self.assertIn("ghostty-next/build.zig.zon", problem)
+        self.assertIn("git submodule update --init ghostty-next", problem)
+
+    def test_the_classic_ghostty_submodule_is_not_read(self) -> None:
+        # The Zig minimum comes from ghostty-next only: a checkout without the classic
+        # `ghostty` submodule passes, and a different Zig in classic Ghostty is ignored.
+        self.assertFalse((self.fx.root / "ghostty").exists())
+        self.assertEqual(tn.repo_problems(self.fx.load(), self.fx.root), [])
+        self.fx.write("ghostty/build.zig.zon", '.{\n    .minimum_zig_version = "0.15.2",\n}\n')
+        self.assertEqual(tn.repo_problems(self.fx.load(), self.fx.root), [])
 
     def test_a_stored_text_must_match_its_sha256(self) -> None:
         (self.fx.texts / "zig-0.16.0/LICENSE").write_bytes(b"edited\n")
@@ -193,7 +209,8 @@ class ToolchainNoticesTest(unittest.TestCase):
         self.assertEqual(rust["1.95.0"].sha256, "90567e2718bf7fd65a71a3a43c5596488e80e5f51ed02bfea6fec54458b5f3d1")
         [zig] = manifest.zig
         self.assertEqual(zig.version, "0.16.0")
-        self.assertEqual(sorted(zig.ghostty_sources), ["ghostty", "ghostty-next"])
+        self.assertEqual(zig.ci_version, "0.16.0")
+        self.assertEqual(zig.ghostty_sources, ["ghostty-next"])
 
     def test_shipped_rust_ties_hold_for_this_checkout(self) -> None:
         # The Zig half needs the Ghostty submodules; CI initializes them.

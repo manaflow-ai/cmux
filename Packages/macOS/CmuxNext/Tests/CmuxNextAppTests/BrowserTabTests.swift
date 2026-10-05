@@ -43,7 +43,7 @@ struct BrowserTabTests {
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
         browserTabs.cefUnavailable = { .notBundled }
-        browserTabs.create = { pane, url, engine, _ in
+        browserTabs.create = { pane, url, engine, _, _ in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
         }
@@ -95,7 +95,7 @@ struct BrowserTabTests {
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
         browserTabs.cefUnavailable = { .startFailed("no CEF here") }
-        browserTabs.create = { pane, url, engine, _ in
+        browserTabs.create = { pane, url, engine, _, _ in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
         }

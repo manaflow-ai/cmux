@@ -20,7 +20,7 @@ extension SidebarView {
         let hidden = (top: above == 0, bottom: below == 0)
         guard changed || hidden != minimalHiddenBands else { return }
         minimalHiddenBands = hidden
-        Motion.animate(.hover) {
+        Motion.animate(.hover, in: self) {
             if changed { newButton.animator().alphaValue = alpha }
             aboveFade.animator().alphaValue = above
             belowFade.animator().alphaValue = below

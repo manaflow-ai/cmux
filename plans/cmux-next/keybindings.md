@@ -300,6 +300,23 @@ Return or the fourth stroke ends, Escape cancels; the page never reads key event
 `changed` stream. `set`, `remove` and `reset` answer `cmux.keybindings.unsupported` until
 keybindings.json has its owner (slice 4, cmux-config).
 
+8.7 **Ghostty keybinds in the table (GHOSTTY-CONFIG).** The routed Ghostty keybinds
+(`TerminalHostActionRoute`) are table entries, not a lookup after the table
+(`GhosttyKeyBindingLayer`, loaded by `GhosttyKeybindSync` at launch, on every Ghostty
+config change and on a keyboard layout change). Order: `.ghosttyFallback` (every routed
+keybind, below all cmux entries) < cmux defaults < app entries < `.ghostty` (a keybind that
+differs from a config without user files, only `surfaceKind == terminal && !terminal.copyMode`)
+< cmux.json and keybindings.json. A winning Ghostty entry goes to a focused terminal, which runs
+the keybind itself; elsewhere its routed action runs, never a content action from a hook and
+never a browser chord in a browser context. Removals never take out a Ghostty entry; the
+shortcut recorder notes Ghostty entries instead of listing them as owners; `keybinding.list`
+lists them (`source` `ghostty` / `ghostty-fallback`). The Keyboard Shortcuts page lists them read-only
+as "Ghostty" and "Ghostty default" (a user keybind once: its fallback entry is not a second row;
+`KeybindingReports.pageList`). User docs: docs/ghostty-keybindings.md "Precedence and focus".
+Limits: one chord per action (Ghostty's reverse map), so a default chord rebound to another
+action reads as a default; unrouted Ghostty actions are not entries (filling the routes closes it).
+Test: `GhosttyKeybindPrecedenceTests`.
+
 ### Modifier hold hints
 
 `shortcuts.showModifierHoldHints` defaults to `true` and is editable in Keyboard

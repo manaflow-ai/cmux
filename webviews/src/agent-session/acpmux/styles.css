@@ -74,6 +74,7 @@
 .acpmux-menu-section+.acpmux-menu-section{margin-top:6px;padding-top:6px;box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge)}
 .acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:12px}
 .acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:28px;padding:5px 8px;box-sizing:border-box;border-radius:8px;cursor:default}
+.acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
 .acpmux-menu-item.acpmux-unrestricted{color:var(--acpmux-warning)}
 .acpmux-menu-text{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -152,6 +153,11 @@
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
+.acpmux-empty-actions{display:flex;align-items:center;gap:8px;margin-top:4px}
+.acpmux-empty-actions button{height:30px;padding:0 13px;border:0;border-radius:6px;font:inherit;font-size:13px;cursor:pointer}
+.acpmux-empty-new{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-empty-import{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.acpmux-empty-actions button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Context (ComposerContext.tsx): plain, right-aligned location pickers above the field. */
 .acpmux-composer-context {
   display: flex;

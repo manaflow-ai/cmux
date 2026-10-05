@@ -162,8 +162,9 @@ struct PendingPopup {
 // passes `now_ms` (steady milliseconds), so tests need no sleeps.
 class PendingPopups {
  public:
-  // A popup older than this did not cause an OnAfterCreated now.
-  static constexpr int64_t kLifetimeMs = 1000;
+  // A popup older than this did not cause an OnAfterCreated now: 5 s,
+  // Chrome's user-activation lifetime (a gesture is spent after that).
+  static constexpr int64_t kLifetimeMs = 5000;
   static constexpr size_t kLimit = 8;
 
   void Remember(int opener, PendingPopup popup) {
@@ -192,28 +193,19 @@ class PendingPopups {
   }
 
   // The popup of `opener` a new tab belongs to: the oldest live one whose
-  // target URL is `url` (when `url` is known and one matches), else the
-  // oldest live one. False when none is live.
+  // target URL is exactly `url`. False when `url` is unknown (empty) or no
+  // live popup has it: a tab that cannot be matched gets no popup, so no
+  // disposition and no user gesture (never a guess).
   bool Take(int opener, const std::string& url, int64_t now_ms, PendingPopup* out) {
     Expire(now_ms);
-    size_t pick = entries_.size();
+    if (url.empty()) return false;
     for (size_t i = 0; i < entries_.size(); ++i) {
-      if (entries_[i].opener != opener) continue;
-      if (!url.empty() && entries_[i].popup.url == url) {
-        pick = i;
-        break;
-      }
-      if (pick == entries_.size()) pick = i;
+      if (entries_[i].opener != opener || entries_[i].popup.url != url) continue;
+      *out = std::move(entries_[i].popup);
+      entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(i));
+      return true;
     }
-    if (pick == entries_.size()) return false;
-    if (!url.empty() && entries_[pick].popup.url != url) {
-      // A known URL that matches no popup: the oldest is a guess only when
-      // its own URL is unknown.
-      if (!entries_[pick].popup.url.empty()) return false;
-    }
-    *out = std::move(entries_[pick].popup);
-    entries_.erase(entries_.begin() + static_cast<std::ptrdiff_t>(pick));
-    return true;
+    return false;
   }
 
   // The opener closed.

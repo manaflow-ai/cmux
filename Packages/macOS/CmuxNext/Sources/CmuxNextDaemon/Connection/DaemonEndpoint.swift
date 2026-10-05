@@ -81,6 +81,10 @@ public struct DaemonCapabilities: Sendable {
     public let batchClose = "batch-close-v1"
     /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
     public let closeReason = "close-reason-v1"
+    /// `browser-host-provider`: the verified app's credentials for the daemon's browser host.
+    public let browserHostProvider = "browser-host-provider-v1"
+    /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
+    public let frontendBrowserActivate = "frontend-browser-activate-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
@@ -186,6 +190,12 @@ public struct DaemonCapabilities: Sendable {
     /// A READY cut exactly at a host resize, restored with the view's own
     /// reflowed history (S2c; plans/cmux-next/ghostty-next.md 2.2).
     public let terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
+    /// The Kitty image replay after a plain READY (S3k).
+    public let terminalSnapshotImages = "terminal-snapshot-images-v1"
+    /// The OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`,
+    /// `terminal-clipboard-reply` and the targeted read events
+    /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
+    public let terminalClipboardRead = "terminal-clipboard-read-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -195,14 +205,15 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, closeReason, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, conversationTabs, agentSessionTabs, conversationSearch, cloudConversations,
-                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory] }
+                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
+                                            terminalClipboardRead] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

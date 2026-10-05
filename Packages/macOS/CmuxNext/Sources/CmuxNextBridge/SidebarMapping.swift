@@ -45,6 +45,13 @@ public struct SidebarMapping {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
+        let kind: SidebarWorkspaceKind = if tabs.contains(where: { $0.agent != nil }) {
+            .harness
+        } else if tabs.contains(where: { $0.kind == .browser }) {
+            .browser
+        } else {
+            .terminal
+        }
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -53,6 +60,7 @@ public struct SidebarMapping {
             // The hooks' status line, else the daemon's workspace status (state resources).
             status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },
             icon: Self.icon(color: workspace.color, icon: workspace.icon),
+            kind: kind,
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,

@@ -15,7 +15,8 @@ extension KeyRouter {
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
         if decided.contains(event) { return false }
         let context = keyContext(for: focus, facts: Facts())
-        if let winner = resolve(event, context: context), registry.keyTier(for: winner.command) == .content,
+        // A Ghostty keybind never runs a content action from a hook (the terminal runs its own).
+        if let winner = resolve(event, context: context), !winner.source.isGhostty, registry.keyTier(for: winner.command) == .content,
            !isPageKey(event, id: winner.command), Self.allows(.content, id: winner.command, focus: focus) {
             return RegistryKeyBindings(registry).run(winner, keyContext: context.bits)
         }
@@ -51,8 +52,30 @@ extension KeyRouter {
     /// dispatcher decided never runs a menu item (menus are display only
     /// for keys). Other key windows (panels, sheets, windows of their own)
     /// follow the tier rule of the key window's focus.
+    /// Runs `body` while `event` is dispatched outside
+    /// `NSApplication.sendEvent` (`debug.key`), where `NSApp.currentEvent`
+    /// is not that event.
+    func dispatchingSynthetic<T>(_ event: NSEvent, _ body: () -> T) -> T {
+        let previous = syntheticKeyEvent
+        syntheticKeyEvent = event
+        defer { syntheticKeyEvent = previous }
+        return body()
+    }
+
+    /// Whether a terminal may offer `event` to the main menu before Ghostty
+    /// (`TerminalKeyEquivalent.menuMayClaim`).
+    func menuMayClaim(_ event: NSEvent) -> Bool {
+        !decided.contains(event)
+    }
+
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
-        if let event = NSApp.currentEvent, event.type == .keyDown, decided.contains(event) { return false }
+        let allowed = menuGate(id)
+        trace?("menu gate \(id.rawValue): \(allowed ? "allowed" : "refused")")
+        return allowed
+    }
+
+    private func menuGate(_ id: ActionID) -> Bool {
+        if let event = syntheticKeyEvent ?? NSApp.currentEvent, event.type == .keyDown, decided.contains(event) { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
         return Self.allowsMenu(registry.keyTier(for: id), id: id, focus: controller.focus.state, keyWindow: kind)

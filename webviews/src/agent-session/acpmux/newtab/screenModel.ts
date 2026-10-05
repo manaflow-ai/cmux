@@ -6,6 +6,7 @@ import { ageLabel, recentSessions } from "../NewTabPage";
 import { matchScore, type OmnibarContext } from "../omnibar";
 import { sessionMark } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
+import { type Translate, translate } from "../i18n";
 
 export type ScreenAgent = { id: string; name: string };
 
@@ -18,7 +19,8 @@ export type ScreenRow =
   | { type: "open"; url: string; text: string }
   | { type: "tab"; id: string; title: string; detail?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
-  | { type: "history"; url: string; title?: string };
+  | { type: "history"; url: string; title?: string }
+  | { type: "action"; id: string; title: string; detail?: string };
 
 /// Agents shown per query; more installed harnesses stay in the composer's picker.
 export const MAX_AGENT_ROWS = 4;
@@ -76,6 +78,15 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
       } as ScreenRow,
       score: matchScore(query, workspace.name, workspace.detail) + 0.5,
     })),
+    ...(omnibar.actions ?? []).map((action) => ({
+      row: {
+        type: "action",
+        id: action.id,
+        title: action.title,
+        ...(action.detail ? { detail: action.detail } : {}),
+      } as ScreenRow,
+      score: matchScore(query, action.title, ...(action.keywords ?? [])) + 0.4,
+    })),
     ...omnibar.history.map((entry) => ({
       row: { type: "history", url: entry.url, ...(entry.title ? { title: entry.title } : {}) } as ScreenRow,
       score: matchScore(query, entry.title, entry.url.replace(/^https?:\/\/(www\.)?/, "")) + 0.1,
@@ -111,12 +122,16 @@ export type ChatCard = {
 };
 
 /// The newest chats, the ones waiting on the user first; a dropped chat is an error card.
-export function recentChatCards(sessions: AcpmuxSnapshot["sessions"], now = Date.now()): ChatCard[] {
+export function recentChatCards(
+  sessions: AcpmuxSnapshot["sessions"],
+  now = Date.now(),
+  t: Translate = translate,
+): ChatCard[] {
   return recentSessions(sessions, CHAT_CARD_COUNT).map((session) => ({
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
     ...(session.harness ? { harness: session.harness } : {}),
-    age: ageLabel(session.updatedAt, now),
+    age: ageLabel(session.updatedAt, now, t),
     ...(session.preview ? { message: session.preview } : {}),
     state: sessionMark(session, false) ?? "idle",
   }));

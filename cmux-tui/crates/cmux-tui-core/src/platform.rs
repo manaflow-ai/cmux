@@ -606,7 +606,7 @@ pub fn ghostty_config_paths() -> Vec<PathBuf> {
     ghostty_config_paths_from(env_path("XDG_CONFIG_HOME"), home_dir())
 }
 
-fn ghostty_config_paths_from(
+pub(crate) fn ghostty_config_paths_from(
     xdg_config_home: Option<PathBuf>,
     home: Option<PathBuf>,
 ) -> Vec<PathBuf> {

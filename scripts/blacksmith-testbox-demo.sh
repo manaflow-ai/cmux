@@ -47,21 +47,26 @@ test -x "$BOUNDED" || { echo "missing $BOUNDED; run from a cmux worktree" >&2; e
 test -f "$WORKFLOW" || { echo "missing $WORKFLOW; rebase onto a main that has the lane" >&2; exit 65; }
 # Every Testbox starts through the cmuxterm-hq wrapper: it warms the box,
 # registers it with the fleet controller (the Testbox Approver App approves
-# only a registered box) and passes the gate. HQ_ROOT defaults to the hq
-# checkout that holds this worktree (worktrees/<slug>).
-HQ_ROOT="${HQ_ROOT:-$(cd ../.. && pwd)}"
-WARMUP="$HQ_ROOT/scripts/testbox-warmup.sh"
-test -x "$WARMUP" || { echo "missing $WARMUP; set HQ_ROOT to your cmuxterm-hq checkout (main fe7e4a80c04 or later)" >&2; exit 65; }
+# only a registered box) and passes the gate. Human approval of Testbox runs
+# was removed on purpose on 2026-10-05; the cmux-ci App approves registered
+# boxes. A missing reviewer is expected, not a security problem. HQ_TOOLS is an
+# hq checkout that stays on main (the hq primary checkout is not on main and
+# has no wrapper); the script pulls it first.
+HQ_TOOLS="${HQ_TOOLS:-/Users/lawrence/fun/cmuxterm-hq-worktrees/hq-tools-5c}"
+git -C "$HQ_TOOLS" pull --ff-only >/dev/null || { echo "cannot update $HQ_TOOLS (git pull --ff-only)" >&2; exit 65; }
+WARMUP="$HQ_TOOLS/scripts/testbox-warmup.sh"
+test -x "$WARMUP" || { echo "missing $WARMUP; set HQ_TOOLS to an hq checkout on main" >&2; exit 65; }
 
-if [[ ! -f ghostty/build.zig.zon || ! -f ghostty-next/build.zig.zon ]]; then
-  say "Initializing the Ghostty submodule (one time, takes a moment)"
-  run_local git submodule update --init ghostty ghostty-next
+# cmux-tui builds libghostty-vt from the ghostty-next gitlink only.
+if [[ ! -f ghostty-next/build.zig.zon ]]; then
+  say "Initializing the ghostty-next submodule (one time, takes a moment)"
+  run_local git submodule update --init ghostty-next
 fi
 
 BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || true)"
 [[ -n "$BRANCH" ]] || { echo "HEAD is detached; check out a branch first" >&2; exit 65; }
 SOURCE_SHA="$(git rev-parse HEAD)"
-GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
+GHOSTTY_NEXT_SHA="$(git rev-parse HEAD:ghostty-next)"
 
 if [[ -n "$(git status --porcelain=v1 --untracked-files=normal)" ]]; then
   echo "worktree is dirty; commit and push before benchmarking" >&2
@@ -81,7 +86,7 @@ fi
 blacksmith auth whoami >/dev/null || { echo "run: blacksmith auth login" >&2; exit 65; }
 echo "branch        $BRANCH"
 echo "commit        $SOURCE_SHA"
-echo "ghostty       $GHOSTTY_SHA"
+echo "ghostty-next  $GHOSTTY_NEXT_SHA"
 echo "CLI           $(blacksmith --version)"
 
 say "Boxes currently running in the org (never adopt one you did not warm)"
@@ -136,7 +141,12 @@ say "Waiting for hydration (installs pinned Zig and Rust, fetches Cargo and Zig 
 say "Pinning the box to your commit"
 echo "The box is an exact checkout of main right now, because that is what CI"
 echo "hydrated. This makes it an exact checkout of $SOURCE_SHA."
-pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule update --init --depth 1 ghostty ghostty-next; git rev-parse HEAD"
+# A box warmed from main can hold a submodule checkout (the classic ghostty)
+# at main's commit. After the reset it no longer matches the candidate's
+# gitlink and the stage refuses the dirty tree, so deinitialize every
+# checked-out submodule and initialize only ghostty-next, the one cmux-tui
+# builds from.
+pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule foreach --quiet 'printf \"%s\\n\" \"\$sm_path\"' | xargs -r git submodule deinit --force --; git submodule update --init --depth 1 ghostty-next; git rev-parse HEAD"
 printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$pin_command"
 "$BOUNDED" 300 blacksmith testbox run --id "$TBX" "$pin_command"
 
@@ -147,7 +157,7 @@ if (( STAGES )); then
   mkdir -p "$out/raw"
   for stage in first-clean incremental-noop changed-file; do
     say "Stage: $stage"
-    stage_command="CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_SHA"
+    stage_command="CMUX_TESTBOX_REMOTE=1 CMUX_TESTBOX_ID=$TBX ./scripts/blacksmith-cmux-tui-testbox-stage.sh $stage $SOURCE_SHA $GHOSTTY_NEXT_SHA"
     printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$stage_command"
     "$BOUNDED" 1500 blacksmith testbox run --id "$TBX" "$stage_command"
     for suffix in json time log; do

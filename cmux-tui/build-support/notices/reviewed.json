@@ -473,12 +473,22 @@
       ]
     },
     "rquickjs-sys 0.14.0": {
-      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release. The vendored QuickJS-NG sources (rquickjs submodule sys/quickjs = quickjs-ng/quickjs 0fdea21ff109, byte-identical to the .crate's quickjs/) compile libregexp.c, libunicode.c, quickjs.c and dtoa.c into the binary; their MIT text is quickjs/LICENSE. Two more texts ship with them: the Unicode License V3 of the Unicode data tables in libunicode-table.h (lines 5-43 of that file, the comment body without its /* */ lines; libunicode.c includes the tables), and the MIT notice of quickjs-c-atomics.h (Copyright (c) 2023 Marcin Kolny; lines 1-23, the header comment; quickjs.c includes it on every non-tcc, non-wasm target).",
       "files": [
         {
           "file": "texts/DelSkayn-rquickjs-d7ef5eeae702/LICENSE",
           "source": "https://raw.githubusercontent.com/DelSkayn/rquickjs/d7ef5eeae702fea24c03643064de454f1c1dd4b0/LICENSE",
           "sha256": "976ad3d07927343ab99b31510625acba89eac8e0e517c712925620ddeda91b70"
+        },
+        {
+          "file": "texts/quickjs-ng-quickjs-0fdea21ff109/UNICODE-LICENSE-V3.txt",
+          "source": "https://raw.githubusercontent.com/quickjs-ng/quickjs/0fdea21ff1090084e91dad812b343d92e79ba9d9/libunicode-table.h#L5-L43",
+          "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+        },
+        {
+          "file": "texts/quickjs-ng-quickjs-0fdea21ff109/quickjs-c-atomics-LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/quickjs-ng/quickjs/0fdea21ff1090084e91dad812b343d92e79ba9d9/quickjs-c-atomics.h#L1-L23",
+          "sha256": "0a726795ea99fd5934f81f54e7e885031e844862755281df8afc3e6e5b571b9c"
         }
       ]
     },
@@ -619,6 +629,21 @@
           "file": "texts/wez-wezterm-d5ca5509b95e/LICENSE.md",
           "source": "https://raw.githubusercontent.com/wez/wezterm/d5ca5509b95edc31291ba29bd1fcbf3f0b12c92d/LICENSE.md",
           "sha256": "37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca"
+        }
+      ]
+    },
+    "winapi-x86_64-pc-windows-gnu 0.4.0": {
+      "reason": "the .crate (2018, no .cargo_vcs_info.json) ships no license file; Cargo.toml says MIT/Apache-2.0 and repository retep998/winapi-rs. The texts are that repository's root LICENSE-MIT and LICENSE-APACHE at 9497609ef44c ('Publish 0.3.4'), the commit whose x86_64/Cargo.toml is this crate's 0.4.0 manifest (include list without license files; fa4e2c5a later added them to the crate directory). It holds MinGW import libraries for the Windows target (independent mingw-w64 review, 2026-10-05).",
+      "files": [
+        {
+          "file": "texts/retep998-winapi-rs-9497609ef44c/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-APACHE",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+        },
+        {
+          "file": "texts/retep998-winapi-rs-9497609ef44c/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-MIT",
+          "sha256": "5b19674a1db628a475850a131956ed49521b744e3dda8f5a94141f9aba681219"
         }
       ]
     }

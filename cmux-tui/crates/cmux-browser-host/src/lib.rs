@@ -17,6 +17,7 @@ pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
 pub mod host;
+pub mod idle_exit;
 pub mod lease;
 pub mod locality;
 pub mod observe;

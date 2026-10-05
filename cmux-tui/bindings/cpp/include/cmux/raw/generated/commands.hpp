@@ -51,6 +51,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_back(const BrowserBackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_forward(const BrowserForwardRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_frame_presented(const BrowserFramePresentedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<BrowserHostProviderResult> browser_host_provider(const BrowserHostProviderRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_insert_text(const BrowserInsertTextRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_key(const BrowserKeyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_key_press(const BrowserKeyPressRequest& request, RequestOptions options = {});
@@ -72,6 +73,17 @@ public:
     [[nodiscard]] Result<JsonValue> close_tabs(const CloseTabsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CloseTerminalResult> close_terminal(const CloseTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_history(const CloudConversationHistoryRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_op(const CloudConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_snapshot(const CloudConversationSnapshotRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_subscribe(const CloudConversationSubscribeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_unsubscribe(const CloudConversationUnsubscribeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_inbox_list(const CloudInboxListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_inbox_subscribe(const CloudInboxSubscribeRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_inbox_unsubscribe(const CloudInboxUnsubscribeRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_session_clear(const CloudSessionClearRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAgentTokenResult> conversation_agent_token(const ConversationAgentTokenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationBindResult> conversation_bind(const ConversationBindRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationCreateResult> conversation_create(const ConversationCreateRequest& request, RequestOptions options = {});
@@ -229,6 +241,8 @@ public:
     [[nodiscard]] Result<SurfaceResult> split(const SplitRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> subscribe(const SubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalClipboardReplyResult> terminal_clipboard_reply(const TerminalClipboardReplyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EventStream> terminal_clipboard_subscribe(const TerminalClipboardSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalReadRangeResult> terminal_read_range(const TerminalReadRangeRequest& request, RequestOptions options = {});

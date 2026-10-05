@@ -45,6 +45,7 @@ def immutable_asset_patterns(name_prefix: str) -> list[re.Pattern[str]]:
         re.compile(r"^cmuxd-remote-(?:darwin|linux)-(?:arm64|amd64)-(?P<build>\d+)$"),
         re.compile(r"^cmuxd-remote-checksums-(?P<build>\d+)\.txt$"),
         re.compile(r"^cmuxd-remote-manifest-(?P<build>\d+)\.json$"),
+        re.compile(r"^cmuxd-remote-THIRD_PARTY_LICENSES-(?P<build>\d+)\.txt$"),
         SOURCE_ARCHIVE_PATTERN,
     ])
     if name_prefix == DEFAULT_NAME_PREFIX:

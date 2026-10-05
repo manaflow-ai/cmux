@@ -32,6 +32,26 @@ reviewed text; `zig-std` needs the Zig text. `toolchain_notices.py check-repo`
 `rust-toolchain.toml` channel or a Ghostty `minimum_zig_version` no longer
 matches, so a toolchain bump stops until its text is reviewed.
 
+FreeType: the macos slice links FreeType, so hand-written.md's `FreeType` section holds the
+FreeType License credit; `ios_notices.py check-macos` (source-archive CI, with the license
+tree) fails when it does not name the FreeType version of the pinned tree (`FREETYPE_YEARS`).
+
+musl: GhosttyNextKit's Termio inlines Zig's `std.math.cbrt` (ported from musl), so the
+app binary (`Contents/MacOS/cmux`) and the iOS pane carry musl's COPYRIGHT (hand-written
+section, checked by `ios_notices.py check-repo`; the pane takes the reviewed file of
+`cmux-tui/dist/notices/package-notices.json`). The cmux-tui Darwin packages link no
+musl-derived code (`package-notices.json` `darwin.review`); `package_notices.py
+check-darwin-binary` in the package job fails a Darwin binary that gains some.
+
+Browser host: `bin/cmux-browser-host` has its own Rust section (`rust-cmux-browser-host`;
+rquickjs-sys carries the QuickJS-NG MIT text, the Unicode License V3 of libunicode-table.h
+and the quickjs-c-atomics.h notice from reviewed.json) and the hand-written section
+"cmux browser host runtime JavaScript" for the embedded acorn and Playwright code.
+`cmux-tui/build-support/notices/browser-host/browser_host_js_notices.py check` (notices CI)
+fails a js/vendor file without a reviewed row in `browser-host-js.json`, a new upstream
+version (marker), a changed text, or a section that lacks a path or text.
+install-cmux-tui-client.sh installs the binary only while bundle-map.json maps it.
+
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 
@@ -50,6 +70,22 @@ nightly-next collects a second tree from that submodule
 puts the tree and its Zig packages in the source archive. A product that
 builds cmux-tui with its own Ghostty pin passes `--ghostty-revision-file`.
 
+Linked set: `vt_link_graph.py generate` (Testbox or CI; it runs zig) builds
+libghostty-vt with `-Dstrip=false` and an empty Zig cache for aarch64/x86_64
+macOS, aarch64/x86_64 Linux musl and x86_64 Windows GNU, reads the archive's DWARF source paths and
+writes `vt-link-graph.json`. `check_ghostty_vt_notices.py --link-graph` checks
+it (the graph's commit is the resolved gitlink, nothing unattributed, linked
+packages declared and covered) and prints linked vs declared. nightly-next and
+the source archive dry run run it blocking, with the declared-set check.
+`--check-link-graph` (notices CI, no submodule) fails a ghostty-next gitlink or
+build.rs change until the graph is regenerated on a Testbox for the new commit;
+its error gives the commands.
+
+Open item: the bundle check's scan for rustc std paths in a Mach-O without
+`rust-std` (Release merges Iroh's Rust code into the app binary) landed with
+its fix in one commit; the next change to that code adds a red test first as
+its own commit.
+
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache
 of the build), release-time regeneration in nightly-next, and the exact `cargo tree`
@@ -64,3 +100,25 @@ nightly-next builds and verifies it on every build, ships the Ghostty license
 tree in `Contents/Resources/ghostty-licenses/`, and publishes the archive and
 the tag only while `vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE` is 1.
 `cmux-next-source-archive.yml` is the dry run (artifact only).
+
+## Changing the GhosttyNextKit pin
+
+A pin change (`Packages/Shared/CmuxGhosttyKit/Package.swift`) needs four
+regenerated files, or `ios_notices.py check-repo` fails: `ios/link-set.json`,
+`ghosttykit-macos-link-set.json`, the `app_link` in `ios/link-set.json` (the real
+link of a cmux-ci iOS build) and `ios/cmux/Settings.bundle/Acknowledgements.plist`.
+One command makes all four:
+
+1. Commit the pin and the `ghostty-next` gitlink (same Ghostty revision).
+2. Push it as a side branch: `SAFE_PUSH_NEW_BRANCH_BASE=feat-cmux-next safe-push.sh ghosttykit-pin/<name>`.
+   That push runs `cmux-next-source-archive.yml`, which uploads the license tree
+   (and, when they differ, the generated link sets) even when its checks fail.
+3. On a Mac, when that run has finished: `python3 scripts/cmux-next/notices/ghosttykit_repin.py`.
+   It checks the pin and the gitlink, downloads and checks the pinned zip, takes
+   the run's license tree, writes both link sets, submits a cmux-ci iOS build of
+   HEAD (or reuses `--ios-job ID`), writes `app_link`, generates the pane and runs
+   `check-repo`. Each step stops with what to do next.
+4. Commit the files it names, then land the side branch through safe-push.
+
+A pane entry is omitted only with positive evidence from that build (see
+`ios_notices.py app-link`); everything else stays listed.

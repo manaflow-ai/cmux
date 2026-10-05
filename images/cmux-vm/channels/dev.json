@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "env": "dev",
+  "snapshot": "cmuxnp-dev-vmimg-auto3-1526e78",
+  "snapshot_id": "sh-6d6e1173d5a94684b9b5b4ab5891f441",
+  "freestyle_account": "cmux-next dev (freestyle-cmux-next-dev-20261004)",
+  "source_sha": "1526e7816e94627c13b036962230ad0f518f92db",
+  "lock_sha256": "db02406abbcbde71bf6316a44a5df861ad617a4ac22a84435d613a41c950bc51",
+  "cmux_tui": "4fd459691fe0b69d69e73d48035983e7ffe7f3fa (daemon 0.1.0+4fd459691fe0, advertises loopback-forward-v1)",
+  "baked_at": "2026-10-05T10:45:16Z",
+  "smoke": "PASSED 2026-10-05T10:47:38Z (2 clones, agent bind probe with per-clone machine-id and journald steps, resize probe; plans/cmux-next/cloud-automation.md 23)",
+  "previous": "cmuxnp-dev-vmimg-auto1-8d111c8 (sh-99d84130836649b4b1b746a41f57b5f9), kept until the development Worker points at this snapshot, then deleted by this lane",
+  "backend_var": "CLOUD_FREESTYLE_SNAPSHOT for ENVIRONMENT=development (backend lead sets it; prefix cmuxnp-dev-vmimg- is enforced)"
+}

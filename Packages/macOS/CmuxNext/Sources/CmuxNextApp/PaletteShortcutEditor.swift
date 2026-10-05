@@ -26,9 +26,7 @@ final class PaletteShortcutEditor: PaletteShortcutEditing {
     func environment(for event: NSEvent?) -> ShortcutEditEnvironment {
         let registry = services.registry
         let ghostty: String? = event.flatMap { event in
-            services.keyRouter.ghosttyHostAction(event).flatMap(TerminalHostActionRoute.route).map { route in
-                registry.descriptor(for: route.id)?.title ?? route.id.rawValue
-            }
+            services.keyRouter.ghosttyBinding(for: event).map { id in registry.descriptor(for: id)?.title ?? id.rawValue }
         }
         return ShortcutEditEnvironment(ghosttyBinding: { _ in ghostty }, chromeChords: BrowserChordTable.chromeReserved)
     }

@@ -37,6 +37,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_LIST,
     method::MUX_STATUS,
     method::MUX_SESSIONS,
+    method::MUX_WEB_MODES,
     method::MUX_HARNESSES,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
@@ -66,15 +67,9 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
+    let key = super::session_key(&params).ok().map(str::to_owned);
     let mut reply = dispatch_request(hub, conn, m, params).await;
-    // One place for every reply (status, the peer listings of peer_add,
-    // peer_reconnect and peer_remove, forwarded peer replies): only the
-    // local socket ever reads a token back.
-    if conn.origin != Origin::Local
-        && let Ok(v) = &mut reply
-    {
-        super::redact::redact_for_remote(m, v);
-    }
+    super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
 }
 
@@ -96,6 +91,7 @@ async fn dispatch_request(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
+        super::remote_guard::mark_forwarded(conn.origin, &params, &mut p);
         if matches!(
             m,
             method::MUX_ATTACH
@@ -155,7 +151,7 @@ async fn dispatch_request(
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
-                "origin": if conn.origin == Origin::Web { "remote" } else { "local" },
+                "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
@@ -223,9 +219,12 @@ async fn dispatch_request(
                 effort: pick("effort"),
                 adopt,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin == Origin::Web,
+                remote: conn.origin.web_class(),
             };
             let s = hub.new_session(req).await?;
+            if conn.origin.web_class() {
+                super::remote_guard::settle_web_session_mode(hub, &s).await?;
+            }
             attach(hub, conn, &s.id);
             let meta = s.meta();
             Ok(json!({
@@ -319,6 +318,7 @@ async fn dispatch_request(
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
                 resend,
+                control: super::remote_guard::control_of(conn.origin, &params),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -382,6 +382,7 @@ async fn dispatch_request(
         // ------------------------------------------------ acpmux extensions
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
+        method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WARM => {
             let requested: Vec<String> = params
                 .get("sessionIds")
@@ -404,7 +405,7 @@ async fn dispatch_request(
                 cwd: s("cwd").map(PathBuf::from),
                 wait: params.get("wait").and_then(Value::as_bool) == Some(true),
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin == Origin::Web,
+                remote: conn.origin.web_class(),
             })
             .await
         }
@@ -460,13 +461,7 @@ async fn dispatch_request(
             Ok(cat)
         }
         "_acpmux/peer_add" => {
-            let name = str_param(&params, "name")
-                .ok_or_else(|| RpcError::invalid_params("name is required"))?;
-            let url = str_param(&params, "url")
-                .ok_or_else(|| RpcError::invalid_params("url is required"))?;
-            let token = str_param(&params, "token").map(str::to_owned);
-            let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-            hub.add_peer(name, url, token, wait).await?;
+            hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_reconnect" => {
@@ -907,7 +902,8 @@ async fn dispatch_request(
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.respond_permission_group(&s, params).await
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.respond_permission_group(&s, params, control).await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -919,7 +915,8 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
-            hub.respond_permission(&s, pid, option, answers).await?;
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.respond_permission(&s, pid, option, answers, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
@@ -981,9 +978,8 @@ async fn dispatch_request(
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => hub.handoff_start(&params).await,
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
-        // Anything else that names a session goes to the agent untouched,
-        // from the unix socket only: a harness extension method may take
-        // params that spawn or read (`remote_guard.rs`).
+        // Anything else that names a session goes to the agent untouched, from the
+        // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
         other => {
             if conn.origin != Origin::Local && session_key(&params).is_ok() {
                 return Err(RpcError::invalid_params(format!(

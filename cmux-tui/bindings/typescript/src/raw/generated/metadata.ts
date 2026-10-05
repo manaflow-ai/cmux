@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47. */
+/* cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47" as const;
+export const SDK_IR_SHA256 = "c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -104,6 +104,10 @@ export const COMMAND_METADATA = {
       "snapshot": {
         "since": null,
         "capability": "terminal-snapshot-v1"
+      },
+      "snapshot_images": {
+        "since": null,
+        "capability": "terminal-snapshot-images-v1"
       },
       "snapshot_local_history": {
         "since": null,
@@ -216,6 +220,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Acknowledges the exact rendered browser frame for this connection.",
       "Requires browser-pointer-frame-guard-v1."
+    ]
+  },
+  "browser-host-provider": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "browser-host-provider-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
+      "The secret is never journaled, logged or put in an event."
     ]
   },
   "browser-insert-text": {
@@ -475,6 +490,116 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Provider-managed workspaces reject this ordinary mutation."
+    ]
+  },
+  "cloud-conversation-history": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-op": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. One cloud op tagged by kind, forwarded with the client's idempotency key and origin; unsupported kinds are refused with reason unsupported_op. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-snapshot": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. tail is 1-50. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-subscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Shares one upstream socket per conversation; at most 64. Replies {conversation, state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-conversation-unsubscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-inbox-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-inbox-subscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Shares one upstream inbox socket among local clients. Replies {state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-inbox-unsubscribe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Ends this connection's inbox interest. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-session-clear": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Drops the lease. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-session-set": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback). See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-session-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Returns state signed_out, active or expired; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "conversation-agent-token": {
@@ -1338,6 +1463,10 @@ export const COMMAND_METADATA = {
       "agent_session": {
         "since": null,
         "capability": "agent-session-tabs-v1"
+      },
+      "transaction": {
+        "since": null,
+        "capability": "conversation-tab-transaction-v1"
       }
     },
     "stream": null,
@@ -2415,6 +2544,34 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "terminal-clipboard-reply": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+    ]
+  },
+  "terminal-clipboard-subscribe": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "terminal-clipboard-read",
+        "terminal-clipboard-read-cancelled"
+      ],
+      "kind": "subscribe",
+      "ordering": "Registration response followed by targeted read requests and their cancellations; no replay. Closing the connection refuses its open reads.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+    ]
+  },
   "terminal-events": {
     "authority": "control",
     "since": 9,
@@ -2752,6 +2909,54 @@ export const EVENT_METADATA = {
     ],
     "emission": "serialized-never-emitted"
   },
+  "cloud-conversation-changed": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-conversation-resynced": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-inbox-changed": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-inbox-reset": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-session-needed": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-subscription-state": {
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "colors-changed": {
     "since": 6,
     "capability": null,
@@ -3065,6 +3270,22 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "terminal-clipboard-read": {
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "terminal-clipboard-read-cancelled": {
+    "since": 12,
+    "capability": "terminal-clipboard-read-v1",
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -3429,6 +3650,44 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserHostProviderResult": {
+    "additional_properties": false,
+    "fields": {
+      "host_pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "listener_pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "secret": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "socket": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -8838,6 +9097,80 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "kind": "opaque_json",
     "reason": "A tab named by its numeric surface id or its public tab_ id."
   },
+  "TerminalClipboardHost": {
+    "additional_properties": false,
+    "fields": {
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardHostKind"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalClipboardHostKind": {
+    "kind": "enum",
+    "values": [
+      "local",
+      "remote",
+      "cloud"
+    ]
+  },
+  "TerminalClipboardLocation": {
+    "kind": "enum",
+    "values": [
+      "standard",
+      "selection",
+      "primary"
+    ]
+  },
+  "TerminalClipboardReplyResult": {
+    "additional_properties": false,
+    "fields": {
+      "accepted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "granted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalClipboardSubscribeResult": {
+    "additional_properties": false,
+    "fields": {
+      "clipboard_read_ready": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalColorOverrides": {
     "additional_properties": false,
     "fields": {
@@ -10531,6 +10864,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "snapshot_images": {
+          "capability": "terminal-snapshot-images-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "snapshot_local_history": {
           "capability": "terminal-snapshot-local-history-v1",
           "default": false,
@@ -10726,6 +11069,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "browser-host-provider": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserHostProviderResult"
     }
   },
   "browser-insert-text": {
@@ -11707,6 +12061,271 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "WorkspaceMutationResult"
+    }
+  },
+  "cloud-conversation-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "before_seq": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-op": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "op": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "origin": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-snapshot": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "tail": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-conversation-unsubscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-inbox-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "include_archived": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "limit": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-inbox-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-inbox-unsubscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-session-clear": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-session-set": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "access_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "api_base_url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "client_version": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expires_at": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-session-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "conversation-agent-token": {
@@ -15184,6 +15803,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "transaction": {
+          "capability": "conversation-tab-transaction-v1",
+          "default": null,
+          "description": "Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "workspace": {
           "default": null,
           "nullable": true,
@@ -15238,6 +15868,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "string"
           }
+        },
+        "transaction": {
+          "description": "The request's transaction, when it sent one.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
         }
       },
       "kind": "object"
@@ -15247,6 +15886,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "activate": {
+          "default": true,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,
@@ -19260,6 +19908,64 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "terminal-clipboard-reply": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "text": {
+          "constraints": [
+            "Absent or null refuses the read. Text over 1 MiB (UTF-8 bytes) is refused."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalClipboardReplyResult"
+    }
+  },
+  "terminal-clipboard-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_ids": {
+          "constraints": [
+            "At most 256 terminal public ids; each must be a valid term_ id. A new subscription replaces the connection's previous set."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalClipboardSubscribeResult"
+    }
+  },
   "terminal-events": {
     "request": {
       "additional_properties": false,
@@ -20552,6 +21258,290 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "client-list-invalidated"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-conversation-changed": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "change": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-changed"
+        }
+      },
+      "rev": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "transaction": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-conversation-resynced": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-resynced"
+        }
+      },
+      "messages": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "rev": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "summary": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-inbox-changed": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "entries": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-inbox-changed"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "transaction": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-inbox-reset": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-inbox-reset"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-session-needed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-session-needed"
+        }
+      },
+      "expires_at": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-subscription-state": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-subscription-state"
+        }
+      },
+      "reason": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "scope": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -22386,6 +23376,74 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-clipboard-read": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-clipboard-read"
+        }
+      },
+      "host": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardHost"
+        }
+      },
+      "location": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TerminalClipboardLocation"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "terminal-clipboard-read-cancelled": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal-clipboard-read-cancelled"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

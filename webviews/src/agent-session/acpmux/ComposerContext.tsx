@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Combobox } from "../../ui/Combobox";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
+import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
+import { ProjectChooser, type Project } from "./ProjectChooser";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 
@@ -24,12 +28,16 @@ export function ComposerContext({
   peers = [],
   started = false,
   onProject,
+  projectChoices,
+  onBrowseProject,
 }: {
   summary?: Summary;
   sessions?: Session[];
   peers?: string[];
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
+  projectChoices?: Project[];
+  onBrowseProject?(): void;
 }) {
   const computers = useMemo(() => availableComputers(summary, sessions, peers), [summary, sessions, peers]);
   const initialComputer = computerId(summary);
@@ -39,9 +47,14 @@ export function ComposerContext({
     () => availableFolders(summary, sessions, selectedComputer),
     [summary, sessions, selectedComputer],
   );
-  const currentFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : folders[0]?.id;
+  const currentFolder =
+    summary?.cwd && computerId(summary) === selectedComputer
+      ? summary.cwd
+      : projectChoices
+        ? undefined
+        : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
-  if (!currentComputer && !currentFolder) return null;
+  if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
@@ -62,17 +75,28 @@ export function ComposerContext({
       <span className="acpmux-context-divider" aria-hidden="true">
         ·
       </span>
-      <LocationPicker
-        label={t(CONTEXT_LABELS.folder)}
-        value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
-        options={folders}
-        selected={currentFolder}
-        disabled={readOnly}
-        allowPath
-        onPick={(cwd) => {
-          if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
-        }}
-      />
+      {!readOnly && selectedComputer === "local" && projectChoices ? (
+        <ProjectChooser
+          projects={projectChoices}
+          current={currentFolder}
+          currentLabel={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+          icon={null}
+          onPick={(cwd) => onProject?.(cwd)}
+          onBrowse={onBrowseProject}
+        />
+      ) : (
+        <LocationPicker
+          label={t(CONTEXT_LABELS.folder)}
+          value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+          options={folders}
+          selected={currentFolder}
+          disabled={readOnly}
+          allowPath
+          onPick={(cwd) => {
+            if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -124,6 +148,10 @@ function availableFolders(summary: Summary | undefined, sessions: Session[], com
   return folders;
 }
 
+/// A location menu (shared components, plans/cmux-next/a11y-foundation.md): a menu button over a
+/// radio menu of the options; Base UI owns the roles, focus, arrows, typeahead and Escape. The
+/// folder menu (`allowPath`) is a popover with a field: typing filters the folders, and a typed
+/// absolute or `~/` path is offered too.
 function LocationPicker({
   label,
   value,
@@ -143,134 +171,102 @@ function LocationPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const search = useRef<HTMLInputElement>(null);
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return options.filter((option) =>
       words.every((word) => (option.label + " " + (option.detail ?? "")).toLowerCase().includes(word)),
     );
   }, [options, query]);
-  const typedPath = allowPath && /^(?:\/|~\/)/.test(query.trim()) ? query.trim() : undefined;
-  const close = () => {
-    setOpen(false);
-    setQuery("");
-    trigger.current?.focus();
-  };
-  const show = () => {
-    setQuery("");
-    setActive(
-      Math.max(
-        0,
-        options.findIndex((option) => option.id === selected),
-      ),
-    );
-    setOpen(true);
-  };
-  useEffect(() => {
-    if (!open) return;
-    if (allowPath) search.current?.focus();
-    const away = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", away);
-    return () => document.removeEventListener("pointerdown", away);
-  }, [allowPath, open]);
-  const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      if (shown.length > 0)
-        setActive((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + shown.length) % shown.length);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      const option = shown[active];
-      if (option) onPick(option.id);
-      else if (typedPath) onPick(typedPath);
-      close();
-    }
-  };
-  return (
-    <span ref={root} className="acpmux-location-picker">
-      {disabled ? (
+  if (disabled)
+    return (
+      <span className="acpmux-location-picker">
         <span className="acpmux-location-readonly" aria-label={label + ": " + value} title={label + ": " + value}>
           {value}
         </span>
-      ) : (
-        <>
-          <button
-            ref={trigger}
-            type="button"
-            className="acpmux-location-button"
-            aria-label={label}
-            aria-haspopup="listbox"
-            aria-expanded={open}
-            onClick={() => (open ? close() : show())}
-          >
-            <span>{value}</span>
-            <span aria-hidden="true">⌄</span>
-          </button>
-          {open && (
-            <div className="acpmux-menu acpmux-menu-end acpmux-location-menu">
-              {allowPath && (
-                <input
-                  ref={search}
-                  className="acpmux-location-search"
-                  type="text"
-                  aria-label={label}
-                  placeholder={value}
-                  value={query}
-                  onChange={(event) => {
-                    setQuery(event.target.value);
-                    setActive(0);
-                  }}
-                  onKeyDown={keyDown}
-                />
-              )}
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-              <div role="listbox" aria-label={label}>
-                {shown.map((option, index) => (
-                  <button
-                    type="button"
-                    key={option.id}
-                    className="acpmux-menu-item"
-                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                    role="option"
-                    aria-selected={option.id === selected}
-                    data-active={index === active ? "true" : undefined}
-                    onClick={() => {
-                      onPick(option.id);
-                      setOpen(false);
-                      setQuery("");
-                    }}
-                  >
-                    <span className="acpmux-menu-text">
-                      <span className="acpmux-menu-label">{option.label}</span>
-                      {option.detail && <span className="acpmux-menu-description">{option.detail}</span>}
-                    </span>
-                  </button>
-                ))}
-                {shown.length === 0 && typedPath && (
-                  <button
-                    type="button"
-                    className="acpmux-menu-item acpmux-menu-active"
-                    onClick={() => {
-                      onPick(typedPath);
-                      close();
-                    }}
-                  >
-                    <span className="acpmux-menu-label">{typedPath}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      </span>
+    );
+  const pick = (id: string) => {
+    onPick(id);
+    setOpen(false);
+    setQuery("");
+  };
+  const button = (
+    <>
+      <span>{value}</span>
+      <span aria-hidden="true">⌄</span>
+    </>
+  );
+  if (!allowPath)
+    return (
+      <span className="acpmux-location-picker">
+        <Menu open={open} onOpenChange={setOpen}>
+          <MenuButton className="acpmux-location-button" label={label}>
+            {button}
+          </MenuButton>
+          <MenuPopup className="acpmux-menu acpmux-location-menu" align="end">
+            <MenuRadioGroup value={selected ?? ""} onValueChange={pick}>
+              {options.map((option) => (
+                <MenuRadioItem key={option.id} value={option.id} className="acpmux-menu-item">
+                  <span className="acpmux-menu-text">
+                    <span className="acpmux-menu-label">{option.label}</span>
+                    {option.detail && <span className="acpmux-menu-description">{option.detail}</span>}
+                  </span>
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuPopup>
+        </Menu>
+      </span>
+    );
+  // The folder field suggests folder paths; a typed path that names none is offered as typed.
+  const typedPath = /^(?:\/|~\/)/.test(query.trim()) ? query.trim() : undefined;
+  const suggestions = shown.map((option) => option.id);
+  if (typedPath && !suggestions.includes(typedPath)) suggestions.push(typedPath);
+  return (
+    <span className="acpmux-location-picker">
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-location-button"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {button}
+      </button>
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setQuery("");
+        }}
+        anchor={open ? trigger.current : null}
+        label={label}
+        className="acpmux-menu acpmux-location-menu"
+      >
+        <Combobox
+          suggestions={suggestions}
+          onQuery={setQuery}
+          onSubmit={(path) => (path ? pick(path) : setOpen(false))}
+          onCancel={() => setOpen(false)}
+          label={label}
+          placeholder={value}
+          inputClassName="acpmux-location-search"
+          itemClassName="acpmux-menu-item"
+          renderItem={(path) => {
+            const folder = options.find((option) => option.id === path);
+            return (
+              <span className="acpmux-menu-text">
+                <span className="acpmux-menu-label">{folder?.label ?? path}</span>
+                {folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
+              </span>
+            );
+          }}
+          inline
+        />
+      </Popover>
     </span>
   );
 }

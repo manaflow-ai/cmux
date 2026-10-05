@@ -10,6 +10,10 @@ mod exit_state;
 pub(crate) mod spawn;
 use spawn::{LocalLaunch, LocalSpawn};
 #[cfg(unix)]
+mod clipboard_read;
+#[cfg(all(unix, test))]
+pub(crate) use clipboard_read::test_fixture::hosted_surface_for_clipboard_test;
+#[cfg(unix)]
 mod host_frames;
 #[cfg(unix)]
 mod prelaunch;
@@ -468,21 +472,6 @@ struct HostedFrameStager {
     expected_sequence: u64,
     smart_renderer: bool,
     pending: Option<PendingHostedTransition>,
-}
-
-#[cfg(unix)]
-fn is_targeted_host_response(kind: MessageKind) -> bool {
-    matches!(
-        kind,
-        MessageKind::Capability
-            | MessageKind::ResizeAck
-            | MessageKind::CellPixelSizeAck
-            | MessageKind::KittyGraphicsLimitsAck
-            | MessageKind::ClearHistoryAck
-            | MessageKind::TerminateAck
-            | MessageKind::DetachAck
-            | MessageKind::InputAck
-    )
 }
 
 #[cfg(unix)]
@@ -1926,6 +1915,7 @@ fn hosted_terminal_callbacks(
                 mux.emit_terminal_bell(id);
             }
         })),
+        on_clipboard_read: None,
     }
 }
 
@@ -2693,6 +2683,7 @@ impl Surface {
             viewport: Mutex::new(TerminalViewportState::default()),
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
+        Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface, frame_rx)?;
 
         // Keep exact-child rollback ownership armed through the final thread
@@ -2772,7 +2763,7 @@ impl Surface {
                         };
                         // Targeted responses must be consumed before live staging:
                         // HostedFrameStager intentionally rejects every nonzero request id.
-                        if is_targeted_host_response(frame.kind) && frame.request_id != 0
+                        if host_frames::is_targeted_host_response(frame.kind) && frame.request_id != 0
                         {
                             if frame.version != protocol_version
                                 || frame.flags != 0
@@ -3295,6 +3286,7 @@ impl Surface {
                             &surface,
                             &replacement_control_responses,
                         );
+                        Self::install_clipboard_read_handler(&surface);
 
                         let replacement_reader = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -7043,6 +7035,8 @@ fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
 #[cfg(test)]
 mod tests {
     mod attach_tap;
+    #[cfg(unix)]
+    mod clipboard_read;
     use base64::Engine as _;
     use std::sync::mpsc::sync_channel;
 

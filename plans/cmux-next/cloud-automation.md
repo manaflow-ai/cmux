@@ -335,3 +335,68 @@ Options for sizes above sm in cmux-next:
 - B. Resize after create: one snapshot (sm); the driver calls `resize` right after `vms.create`, before the bind agent's first report. Cost: create-to-ready grows by the resize call plus the disk-growth wait, and a resize failure becomes a create failure path.
 
 Recommendation: B if the dev bake's resize probe shows the guest sees the new shape within about 2 s; else A. Strongest objection to B: a resize on the create critical path couples machine readiness to a second provider call that can fail or be slow under provider load (the classic 9 s create outliers). The probe (`smoke.ts --resize-probe`) records the call time and the time until the guest sees 4 vCPU, 8 GiB and a 32 GB root filesystem. Decision after the numbers; the backend driver change (send the resize) belongs to the backend lead.
+
+## 19. First dev bake (2026-10-05, cmux-next dev account)
+
+How it ran: `workflow_dispatch` needs the workflow file on the default branch, and `cloud-vm-image-bake.yml` exists only on feat-cmux-next, so CI cannot dispatch it. The bake and smoke ran from this lane's worktree at 8d111c84246 with `FREESTYLE_API_KEY_FILE` pointing at the cmux-next dev key (read in process, never printed). Same scripts, same names, same ledger.
+
+| Item | Value |
+| --- | --- |
+| Snapshot (kept, dev channel) | `cmuxnp-dev-vmimg-auto1-8d111c8` = `sh-99d84130836649b4b1b746a41f57b5f9` (`images/cmux-vm/channels/dev.json`) |
+| Bake | 164.5 s; snapshot call 751 ms; 47 apt packages installed, equal to the lock (42 Ubuntu + 5 PGDG), so the container-computed closure held on the real base |
+| Size | sm (2 vCPU, 4 GiB, 16 GB); root fs used 4.91 GB, 114,593 inodes; store 1.16 GB |
+| Boot, 2 clones x 2 runs | create API 164 to 243 ms; create to first exec p50 194 to 196 ms; create to daemon listening p50 567 to 574 ms; create to ready p50 650 to 668 ms |
+| Idle CPU (whole VM, 90 s) | 2.47 and 2.63 CPU-s/min: today's `cmux-devbox-boot` 1 s metadata poll dominates; the 0.2 target needs `cmux host run` (vm-image.md step 2). Terminal hosts: 0 voluntary switches in 60 s |
+| sshd | policy and loopback-only listen: PASS; empty CA refuses, certificate login, scp 1 MiB, plain key refused, KRL-revoked certificate refused: PASS (second smoke; the first smoke's plain-key step was a test bug: the client loads `<key>-cert.pub` by itself) |
+| Roles | display packages present and not running, openbox and ffmpeg absent, CJK fonts present: PASS |
+| VM agent | bind probe against the development API: path unit started the agent, per-clone keys 0600, API answered `auth.forbidden` for the never-issued token, bind.json removed, no bound.json: PASS |
+| Resize sm -> md | call 197 to 208 ms; guest sees 4 vCPU, 8,011 MiB, 32,078 MiB root 1,346 to 1,378 ms after the call started |
+| Resources | 1 failed bake builder (103 s, fc-list check, deleted), 1 bake builder (164 s, deleted), 4 smoke clones (135 to 138 s each, deleted), 1 snapshot kept. 812.5 VM-seconds at sm (13.5 VM-min, 27 vCPU-min). Dollar cost UNVERIFIED (no rate card in the repo). Wall clock 08:30:47 to 08:42:17 UTC (11.5 min, over the approved 10 min by 1.5 min) |
+
+Size decision input (section 18): the resize probe is under 2 s, so option B (one sm snapshot, resize right after create) is the recommendation.
+
+Not done in this window:
+- The one-clone end-to-end against the development API (real bind, applied status report, minted token). It needs (1) the development Worker's `CLOUD_FREESTYLE_SNAPSHOT` set to `cmuxnp-dev-vmimg-auto1-8d111c8` (backend lead; the prefix check accepts it) and (2) a dev identity in the allowed team to call `cloud.machine.create` (the driver then writes bind.json with a real one-time token). Neither is this lane's to set.
+- cmux-cua 0.8.2 and `libxkbcommon0` were pinned after this bake (`cmux-cua --version` verified in an amd64 Ubuntu 24.04 container with libX11, libXi and libxkbcommon), so this snapshot does not carry them. The next bake does. The release tarball has no LICENSE file, against the release contract (CI lead).
+
+## 20. Fixes before the rebake (coordinator 2026-10-05)
+
+- Per-clone machine-id: the agent regenerates `/etc/machine-id` and `/var/lib/dbus/machine-id` (0444) when the MMDS instance id differs from `/var/lib/cmux/machine-id.instance`, in the same bind path that rotates the install key. Services that read the id at boot (journald) keep the old one until they restart; the rebake measures whether that matters.
+- Real daemon block in bind and status reports: the agent sends `identify` on the daemon's control socket (path recorded by the bake from `ss`, `/etc/cmux/daemon-socket`). `version` = daemon version + `+` + build commit (12). The daemon advertises about 70 capabilities and bind accepts at most 32, so `capabilities` = the Cloud-gated ones it advertises (`fs-v1`, `loopback-forward-v1`) + `vm-agent-v1` + `activity` only when an activity sender exists (`ACTIVITY_SENDER_EXISTS = false` today), so the backend can skip idle pause for machines without activity. Fallback: the bake's live identify recorded in `/etc/cmux/daemon.json`; the bake fails if that is not a real answer. Never an empty list.
+- Agent socket moved to `/run/cmux-vm-agent/agent.sock`: the bake's park step and the boot supervisor clear `/run/cmux`.
+- cmux-cua: no release qualifies. 0.8.2, 0.8.3 and 0.8.4 are all pre-releases, and none of their Linux tarballs contains LICENSE (checked 2026-10-05). The 0.8.2 pin is removed; `libxkbcommon0` stays baked for it. Routed to the CI lead through the coordinator.
+
+## 21. Blocker: idle CPU target (0.2 CPU-s/min)
+
+Measured 2.47 and 2.63 CPU-s/min (whole VM, 90 s, section 19). The cause is the classic boot supervisor `cmux-devbox-boot`, which this image still uses: a 1 s loop with two metadata-service `curl` calls (vm-image.md section 3: about 2 CPU-s/min and 354 forks per minute). Terminal hosts are idle (0 voluntary switches in 60 s). Fix: `cmux host run` (vm-image.md step 2, a role of the Rust `cmux` binary): event-driven bind on the resume signals of vm-image.md 6.2, no metadata poll. It needs a cmux-tui window and the session host owner. Until then no bake can meet the 0-idle target; the smoke records the number and does not gate on it.
+
+## 22. Second dev window (2026-10-05 10:17:21 to 10:24:58 UTC, 7.6 min)
+
+Operator bakes (vm-image.md 4.11 command), cmux-next dev account.
+
+| Run | Result |
+| --- | --- |
+| `cmuxnp-dev-vmimg-auto2-4fd4596` | bake failed at `daemon-identify-record` (my check was too strict). The live identify worked: `0.1.0+d7f8fd06326f`, capabilities `["vm-agent-v1"]`. The pinned cmux-tui d7f8fd06 advertises neither `fs-v1` (only on a bound Cloud host) nor `loopback-forward-v1`. Builder deleted. |
+| `cmuxnp-dev-vmimg-auto2-584940e` = `sh-291ed5654cab4bdbac8273932564b7f2` | bake passed in 169.8 s. Smoke: every check passed except `vm-agent-bind-probe`, which failed with no output. The snapshot was deleted by the ledger (no snapshot is kept after a failed smoke). Dev channel stays `auto1-8d111c8`. |
+
+Smoke numbers of the second bake: create to first exec p50 189 ms; create to daemon listening p50 548 ms (p95 1,190 ms, n = 2); idle 2.47 CPU-s/min (section 21); resize sm to md: call 185 ms, guest view 1,325 ms; sshd certificate checks all PASS.
+
+Cause of the probe failure (inferred, not proven on a VM): after the agent writes a new `/etc/machine-id`, `journalctl` reads `/var/log/journal/<new id>` while journald still writes under the old id, so both journal greps in the probe found nothing and `set -e` exited silently. Fixes: the agent restarts `systemd-journald` after it changes the machine-id (dbus-daemon keeps the old id until its next start); the probe reads with `journalctl -m` and every step prints its own FAIL label. Next window: one bake and one smoke.
+
+Pinned cmux-tui d7f8fd06 lacks `loopback-forward-v1`, so Cloud ports (first-party-apps/cloud/server ports/loopback.rs) refuse on this image until the lock pins a newer published cmux-tui.
+
+Resources this window: 2 builders (111 s, 170 s), 2 smoke clones (136 s, 135 s), 1 snapshot (deleted). 552 VM-seconds at sm (9.2 VM-min).
+
+## 23. Third dev window (2026-10-05 10:42:35 to 10:47:39 UTC, 5.1 min): dev channel
+
+Baked from the pushed head 1526e7816e9 with the operator command. cmux-tui pinned to 4fd459691fe0 (published at files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/, binaries checked against its manifest): it advertises `loopback-forward-v1`; the old main pin d7f8fd06 did not.
+
+| Item | Value |
+| --- | --- |
+| Snapshot (dev channel, `images/cmux-vm/channels/dev.json`) | `cmuxnp-dev-vmimg-auto3-1526e78` = `sh-6d6e1173d5a94684b9b5b4ab5891f441` |
+| Bake | 161.9 s; 48 apt packages = the lock (43 Ubuntu + 5 PGDG); root fs 4.94 GB; store 1.19 GB |
+| Daemon block recorded at bake (live identify) | `0.1.0+4fd459691fe0`, `["loopback-forward-v1", "vm-agent-v1"]` |
+| Smoke | PASSED, every check: boot p50 create to first exec 168 ms, to daemon listening 578 ms, to ready 649 ms; sshd certificate checks; roles off and fonts on; agent bind probe with every named step, including `machine-id-changed`, `machine-id-dbus-equal` and `journal-machine-id-line` (the journald restart works on a real clone); resize sm to md 172 ms call, 1,280 ms guest view; idle 2.49 CPU-s/min (section 21 blocker) |
+| Resources | 1 builder (162 s), 2 clones (136 s, 135 s), all deleted; 1 snapshot kept. 433 VM-seconds at sm (7.2 VM-min) |
+
+End to end against the development API: next, after the backend sets `CLOUD_FREESTYLE_SNAPSHOT` and hands over a dev identity. Sequence: `cloud.machine.create` -> bind (bound.json, install registered) -> first `cloud.vm.status.report` applied -> token minted (challenge + token) -> change report (activity line on the agent socket) -> heartbeat on a test interval (`CMUX_VM_AGENT_HEARTBEAT_MS` test override, to add) -> `cloud.machine.pause` -> `cloud.machine.start` -> report after start.

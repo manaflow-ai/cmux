@@ -44,6 +44,20 @@ import Testing
         #expect(header.hasPrefix("default-src 'none'"))
     }
 
+    /// The header is the one webviews/test/agent-pane-locale.test.ts serves the built pane with,
+    /// so that test proves the locale files load under the app's real policy.
+    @Test func theAgentPageCSPIsTheOneThePaneLocaleTestServes() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // CmuxNextAgentPaneTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // CmuxNext
+            .deletingLastPathComponent() // macOS
+            .deletingLastPathComponent() // Packages
+            .deletingLastPathComponent() // repo root
+            .appending(path: "webviews/test/fixtures/agent-page-csp.txt")
+        #expect(PageDescriptor.agent.csp.header == (try String(contentsOf: fixture, encoding: .utf8)))
+    }
+
     /// The page reaches nothing outside its namespace: no shared native op, no other page's ops.
     @Test func opsOutsideTheAgentNamespaceAreRefused() async {
         let (router, box) = router(AgentPaneModel(host: MockAgentPaneHost()))
@@ -73,6 +87,23 @@ import Testing
         #expect(box.prepared == [.ready])
         _ = await call(router, "cmux.agent.handshake", ["reconnect": true])
         #expect(box.prepared.last == .reconnect)
+    }
+
+    @Test func blankChatProjectControlsReachTheSharedPageHost() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), allowsTabConversion: true)
+        model.onListProjects = { _ in ["/project"] }
+        model.onBrowseProject = { "/chosen" }
+        var imported = false
+        model.onImportAndSync = { imported = true }
+        let (router, _) = router(model)
+
+        let listed = await call(router, "cmux.agent.project.list")
+        #expect(listed["value"]?["projects"] == .array([.string("/project")]))
+        let browsed = await call(router, "cmux.agent.project.browse")
+        #expect(browsed["value"]?["cwd"]?.stringValue == "/chosen")
+        let reply = await call(router, "cmux.agent.onboarding.importAndSync")
+        #expect(reply["t"]?.stringValue == "ok")
+        #expect(imported)
     }
 
     @Test func sessionPersistRecordsTheSession() async {

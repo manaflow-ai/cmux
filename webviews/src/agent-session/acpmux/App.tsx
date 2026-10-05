@@ -39,6 +39,7 @@ import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } f
 import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
+import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
@@ -56,7 +57,7 @@ import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
 import { agentName } from "./agents";
-import { useT } from "./i18n";
+import { type Translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
@@ -97,12 +98,12 @@ import { HostError } from "./HostError";
 import { SwitchNotice } from "./SwitchNotice";
 import { ContinueMenu } from "./handoff/ContinueMenu";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
-import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
+import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import type { PermissionDecision } from "./permissions/protocol";
-import { checkpointStrings, localizedCheckpointStrings } from "./checkpoints/strings";
+import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 
@@ -404,7 +405,7 @@ const EditedFilesRow = memo(
               className="acpmux-review-changes"
               onClick={(event) => onOpenDiff(row.id, single?.path, event.currentTarget)}
             >
-              View changes
+              {t("edited.view")}
             </button>
           )}
         </div>
@@ -448,7 +449,7 @@ const EditedFilesRow = memo(
             aria-expanded={showAll}
             onClick={() => setShowAll(!showAll)}
           >
-            {showAll ? "Show fewer files" : `Show ${more} more ${more === 1 ? "file" : "files"}`}
+            {showAll ? t("edited.fewer") : more === 1 ? t("edited.more.one") : t("edited.more.other", { n: more })}
             <ChevronDown width={14} height={14} style={showAll ? { transform: "rotate(180deg)" } : undefined} />
           </button>
         )}
@@ -538,6 +539,7 @@ function RowFrame({
   onEntered: (id: string) => void;
   children: React.ReactNode;
 }) {
+  const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
   useLayoutEffect(() => {
@@ -560,7 +562,7 @@ function RowFrame({
       ref={ref}
       data-row-id={row.id}
       className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
-      aria-label={speaker(kind)}
+      aria-label={speaker(kind, t)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
@@ -571,7 +573,8 @@ function RowFrame({
 }
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
-const speaker = (kind: string) => (kind === "user" ? "You" : kind === "assistant" ? "Agent" : undefined);
+const speaker = (kind: string, t: Translate) =>
+  kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   !isFoldedCopy(row) &&
@@ -612,6 +615,7 @@ export function VirtualTranscript({
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
 }) {
+  const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const [scroll, setScroll] = useState({ top: 0, delta: 0 });
@@ -835,7 +839,7 @@ export function VirtualTranscript({
     flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top })));
   };
   return (
-    <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}>
+    <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
         <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {
@@ -911,6 +915,9 @@ function AcpmuxPane() {
   const t = useT();
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
+  const [newSession, setNewSession] = useState(false);
+  // An unsent chat can choose its folder even before an agent is available.
+  const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -926,8 +933,8 @@ function AcpmuxPane() {
     () => applySwitch(clientSnapshot, switchView, catalog),
     [clientSnapshot, switchView, catalog],
   );
-  const [handoffLabels, setHandoffLabels] = useState(handoffStrings);
-  const [checkpointLabels, setCheckpointLabels] = useState(checkpointStrings);
+  const handoffLabels = useMemo(() => handoffStrings(t), [t]);
+  const checkpointLabels = useMemo(() => checkpointStrings(t), [t]);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
   const checkpoints = useCheckpoints({
     request: callNative,
@@ -959,7 +966,7 @@ function AcpmuxPane() {
     ["draft", "starting"].includes(handoff.state) &&
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
-  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot);
+  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
   // A folder the user hasn't decided on is asked about beside the chat's other permission asks,
   // once its first prompt went; nothing waits on the answer.
   const trustAsk = useFolderTrustAsk(trustSource, {
@@ -1284,9 +1291,24 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
-  const composerSnapshot = useMemo(
-    () => (catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog }),
-    [snapshot, catalog],
+  const composerSnapshot = useMemo(() => {
+    const current = catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog };
+    return projectDraft && !snapshot.sessionId
+      ? { ...current, summary: { sessionId: "", cwd: projectDraft } }
+      : current;
+  }, [snapshot, catalog, projectDraft]);
+  useEffect(() => {
+    if (snapshot.sessionId) setProjectDraft(undefined);
+  }, [snapshot.sessionId]);
+  const chooseProject = useCallback(
+    (cwd: string, peer?: string) => {
+      if (freshChat && !snapshot.sessionId && !peer) {
+        setProjectDraft(cwd);
+        return;
+      }
+      void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined);
+    },
+    [freshChat, snapshot.sessionId],
   );
   useEffect(() => {
     window.React = React;
@@ -1434,6 +1456,7 @@ function AcpmuxPane() {
         const host = await callNative<{
           protocolVersion: number;
           transport?: string;
+          /// Only the browser dev slot (devHost.ts) sends these; the app never does.
           endpoint?: string;
           token?: string;
           sessionId?: string;
@@ -1445,8 +1468,6 @@ function AcpmuxPane() {
           harness?: string;
           adopt?: unknown;
           account?: unknown;
-          handoffStrings?: unknown;
-          checkpointStrings?: unknown;
           surface?: unknown;
           linkScheme?: unknown;
           sessionMustExist?: boolean;
@@ -1454,6 +1475,7 @@ function AcpmuxPane() {
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
+        setNewSession(host.newSession === true && !host.sessionId);
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
@@ -1464,8 +1486,6 @@ function AcpmuxPane() {
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
-        setHandoffLabels(localizedHandoffStrings(host.handoffStrings));
-        setCheckpointLabels(localizedCheckpointStrings(host.checkpointStrings));
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
@@ -1481,7 +1501,9 @@ function AcpmuxPane() {
               : "compact",
           );
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
-        if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) {
+        // The app's host owns the socket (`acpmux-bridge`); the page never gets an endpoint or token.
+        const bridge = host.transport === "acpmux-bridge";
+        if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
           // A host with no daemon to reach has nothing left to fail.
           setHostError(undefined);
           return;
@@ -1521,7 +1543,11 @@ function AcpmuxPane() {
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
           },
-          mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined,
+          mock
+            ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
+            : bridge
+              ? () => new BridgeSocket() as unknown as WebSocket
+              : undefined,
           mock ? "daemon" : "native",
         );
         if (cancelled) {
@@ -1735,7 +1761,7 @@ function AcpmuxPane() {
   const sidebarShown = sidebar === "open";
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
-  const header = paneHeader(composerSnapshot);
+  const header = paneHeader(composerSnapshot, t);
   const sourceHarness = snapshot.summary?.harness?.split(/[-_]/)[0];
   const handoffTargets = composerSnapshot.catalog.filter((entry) => {
     const family = entry.id.split(/[-_]/)[0];
@@ -1759,11 +1785,34 @@ function AcpmuxPane() {
       return;
     }
     setNewTab(undefined);
-    const start = cwd ? callNative("chat.new", { cwd }) : Promise.resolve();
-    void start.then(() => (text ? callNative("chat.send", { text }) : undefined));
+    void (async () => {
+      if (cwd) await callNative("chat.new", { cwd });
+      if (text) await callNative("chat.send", { text });
+    })().catch(() => undefined);
   };
+  const loadNewTabProjects = useCallback(
+    () =>
+      callNative<{ projects?: string[] }>("project.list").then((result) =>
+        (result?.projects ?? []).map((cwd) => ({ cwd, label: projectName(cwd) ?? cwd })),
+      ),
+    [],
+  );
+  const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
+  useEffect(() => {
+    if (!freshChat || newTab || quick) return;
+    let active = true;
+    void loadNewTabProjects()
+      .then((projects) => {
+        if (active) setDirectProjects(projects);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [freshChat, newTab, quick, loadNewTabProjects]);
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
+    for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
     for (const session of composerSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
@@ -1772,7 +1821,7 @@ function AcpmuxPane() {
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
-  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects]);
+  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   const transcript = (
     <TurnActionsContext.Provider value={turnActions}>
       <TurnCountsContext.Provider value={turnCountsFor}>
@@ -1843,12 +1892,35 @@ function AcpmuxPane() {
         onSend={(text, attachments) => {
           // Until acpmux connects nothing takes a prompt; the composer keeps it.
           if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-          callNative("chat.send", { text, attachments }).then(() => promptLanded.current(), cancelOpenInWindow);
+          const send = async () => {
+            if (projectDraft && !snapshot.sessionId) await callNative("chat.new", { cwd: projectDraft });
+            return callNative("chat.send", { text, attachments });
+          };
+          send().then(() => promptLanded.current(), cancelOpenInWindow);
         }}
         onStop={() => void callNative("chat.cancel")}
-        onProject={(cwd, peer) =>
-          void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined)
+        onProject={chooseProject}
+        projectChoices={freshChat && !quick ? newTabProjects : undefined}
+        onBrowseProject={
+          freshChat && !quick
+            ? () => {
+                void callNative<{ cwd?: string }>("project.browse")
+                  .then((result) => {
+                    if (result?.cwd) chooseProject(result.cwd);
+                  })
+                  .catch(() => undefined);
+              }
+            : undefined
         }
+        onTerminal={
+          freshChat && !quick
+            ? (text) => {
+                const cwd = composerSnapshot.summary?.cwd;
+                void callNative("tab.open", { kind: "terminal", text, run: false, ...(cwd ? { cwd } : {}) });
+              }
+            : undefined
+        }
+        onTerminalTypeAhead={(text) => void callNative("tab.typeAhead", { text })}
         onMode={(modeId) => void callNative("chat.mode", { modeId })}
         // Without a folder there is nothing to search; the + menu leaves the item out.
         searchFiles={fileRoot ? searchFiles : undefined}
@@ -1894,7 +1966,7 @@ function AcpmuxPane() {
           <button
             type="button"
             className="acpmux-sidebar-scrim"
-            aria-label="Close sessions"
+            aria-label={t("sidebar.closeOverlay")}
             tabIndex={-1}
             onClick={closeOverlay}
           />
@@ -1907,6 +1979,11 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}
+              cwd={newTab.cwd}
+              projects={newTabProjects}
+              loadProjects={loadNewTabProjects}
+              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
+              onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
               home={newTab.home}
               {...newTabScreenActions({
                 callNative,
@@ -1927,16 +2004,19 @@ function AcpmuxPane() {
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
+              loadProjects={loadNewTabProjects}
               chips={ComposerChips}
               onSubmit={openFromNewTab}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
+              onOpenFile={(path) => void callNative("file.open", { path, where: "tab" }).catch(() => undefined)}
+              onAction={(id) => void callNative("app.action", { id }).catch(() => undefined)}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
                 selectSession(sessionId);
               }}
               onShowAll={() => setSidebar("open")}
               onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
-              onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
           ) : (
@@ -1948,8 +2028,8 @@ function AcpmuxPane() {
                       type="button"
                       className="acpmux-sidebar-toggle"
                       ref={sidebarToggle}
-                      aria-label="Sessions"
-                      title="Sessions"
+                      aria-label={t("sidebar.sessions")}
+                      title={t("sidebar.sessions")}
                       aria-controls="acpmux-sidebar"
                       aria-expanded={sidebarShown}
                       onClick={toggleSidebar}
@@ -2011,7 +2091,11 @@ function AcpmuxPane() {
                     }
                   />
                 ) : freshChat ? (
-                  <EmptyState project={projectName(snapshot.summary?.cwd)} />
+                  <EmptyState
+                    project={projectName(snapshot.summary?.cwd)}
+                    onNew={newChat}
+                    onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
+                  />
                 ) : (
                   transcript
                 )}

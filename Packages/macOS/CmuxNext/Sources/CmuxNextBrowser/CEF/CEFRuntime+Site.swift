@@ -22,7 +22,8 @@ extension CEFRuntime {
         return raw < 0 ? nil : CEFContentSetting(rawValue: raw)
     }
 
-    /// Stores `value` for `kind` on `url` (`.default` clears the exception).
+    /// Stores `value` for `kind` on `url` (`.default` clears the exception);
+    /// url "" sets the profile default.
     @discardableResult
     func setContentSetting(_ browser: Int32, url: String, kind: SitePermissionKind, value: CEFContentSetting) -> Bool {
         shim?.setContentSetting(browser, url, kind.rawValue, value.rawValue) == 1
@@ -46,6 +47,17 @@ extension CEFRuntime {
     func sslStatus(_ browser: Int32) -> CEFSSLStatus? {
         guard let shim, let json = shim.takeOwnedString(shim.sslStatus(browser)) else { return nil }
         return CEFSSLStatus.parse(json)
+    }
+
+    /// Forgets every certificate error the user proceeded past in the tab's
+    /// profile (CEF has no per-host call) and closes the profile's
+    /// connections, so the next load verifies the server again. False when
+    /// the shim could not do it.
+    func clearCertificateExceptions(_ browser: Int32) async -> Bool {
+        let reply = try? await siteCall(browser, what: "certificate exceptions clear") { shim, id in
+            shim.clearCertificateExceptions(browser, id)
+        }
+        return reply?.value == 1
     }
 
     private func siteCall(_ browser: Int32, what: String,

@@ -20,6 +20,8 @@ mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
+mod cloud_conversations_backend;
+#[cfg(unix)]
 mod coderouter_usage;
 mod config;
 mod headless;
@@ -33,6 +35,7 @@ mod layout_undo;
 mod link;
 mod local_owner;
 mod localization;
+mod loopback_policy;
 mod machine;
 #[cfg(unix)]
 mod machine_agent;
@@ -82,6 +85,9 @@ mod ui;
 
 use headless::run_headless;
 pub(crate) use headless::wake_headless;
+#[cfg(unix)]
+use loopback_policy::deny_daemon_listener_ports;
+use loopback_policy::loopback_forward_policy;
 
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
@@ -2090,37 +2096,6 @@ impl Drop for LocalOwnerEventLoop {
 }
 
 /// Starts the session server: surface environment, state root, mux, and listeners.
-/// `server.loopback_forward` from cmux-tui.json. An invalid value turns
-/// forwarding off instead of widening access.
-fn loopback_forward_policy(
-    value: Option<&serde_json::Value>,
-) -> cmux_tui_core::server::LoopbackForwardPolicy {
-    use cmux_tui_core::server::LoopbackForwardPolicy;
-    let Some(value) = value else { return LoopbackForwardPolicy::default() };
-    match LoopbackForwardPolicy::from_config_value(value) {
-        Ok(policy) => policy,
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "startup",
-                "cmux-tui: server.loopback_forward is invalid ({error}); loopback forwarding is off"
-            );
-            LoopbackForwardPolicy::disabled()
-        }
-    }
-}
-
-/// Denies loopback forwarding to ports this daemon listens on, so a forwarded
-/// page can never reach the daemon itself. Port 0 (not yet bound) is skipped.
-#[cfg(unix)]
-fn deny_daemon_listener_ports<const N: usize>(
-    policy: &mut cmux_tui_core::server::LoopbackForwardPolicy,
-    addresses: [Option<std::net::SocketAddr>; N],
-) {
-    for address in addresses.into_iter().flatten().filter(|address| address.port() != 0) {
-        policy.deny_port(address.port());
-    }
-}
-
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2213,8 +2188,7 @@ fn run_server(
     if let Some(term) = args.term {
         surface_options.term = term;
     }
-    surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
-    surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    cmux_tui_core::daemon_env::add_daemon_socket_env(&socket_path, &mut surface_options);
     #[cfg(unix)]
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
@@ -2313,6 +2287,7 @@ fn run_server(
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
+    mux.configure_browser_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -2437,6 +2412,8 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    #[cfg(unix)]
+    cloud_conversations_backend::install(&mux);
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
     // has always left the terminal running unplaced, and clients built

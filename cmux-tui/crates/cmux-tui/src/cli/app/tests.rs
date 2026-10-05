@@ -569,3 +569,14 @@ fn app_call_never_claims_the_person_and_passes_app_refusals_through() {
     assert_eq!(sent["method"], "settings.set");
     assert_eq!(sent["params"]["origin"], "script");
 }
+
+/// R92: `cmux ghostty diagnostics` prints the app's `ghostty.diagnostics`
+/// report (the Ghostty config keys and keybind actions cmux does not
+/// apply); extra words are a usage error.
+#[test]
+fn ghostty_diagnostics_reads_the_app_report() {
+    let (method, params) = call(parse(&args(&["ghostty", "diagnostics"])).unwrap().unwrap());
+    assert_eq!(method, "ghostty.diagnostics");
+    assert_eq!(params, json!({}));
+    assert!(parse(&args(&["ghostty", "diagnostics", "extra"])).is_err());
+}

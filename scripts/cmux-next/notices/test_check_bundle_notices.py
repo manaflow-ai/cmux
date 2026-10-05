@@ -262,6 +262,39 @@ class CheckBundleNoticesTest(unittest.TestCase):
         for zig in manifest.zig:
             self.assertIn((toolchain_notices.TEXTS / zig.file).read_text(), section.replace("\n\n---\n", "\n"))
 
+    # cmux-browser-host (bundled beside bin/cmux since d75d38ec229) -------------
+
+    BROWSER_HOST = "Contents/Resources/bin/cmux-browser-host"
+    BROWSER_HOST_SECTIONS = ("rust-cmux-browser-host", "manual-cmux-browser-host-runtime-javascript")
+
+    def browser_host_app(self) -> dict:
+        """The fake bundle: bin/cmux-browser-host (Rust, rustc 1.95.0 std), the
+        reviewed toolchain texts, and the committed THIRD_PARTY_LICENSES.md."""
+        sys.path.insert(0, str(ROOT / "cmux-tui/build-support/notices/toolchains"))
+        import toolchain_notices
+        toolchain_notices.install(toolchain_notices.load(), self.app / "Contents/Resources")
+        (self.app / "Contents/MacOS/app").unlink()
+        binary = self.app / self.BROWSER_HOST
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(THIN + b"/rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/lib.rs")
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        notices.write_text((ROOT / "THIRD_PARTY_LICENSES.md").read_text())
+        return json.loads((HERE / "bundle-map.json").read_text())
+
+    def test_bundled_browser_host_passes_with_the_committed_map_and_notices(self) -> None:
+        self.assertEqual(checker.check(self.app, self.browser_host_app()), [])
+
+    def test_bundled_browser_host_fails_without_its_notice_sections(self) -> None:
+        bundle_map = self.browser_host_app()
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        text = notices.read_text()
+        for section in self.BROWSER_HOST_SECTIONS:
+            text = text.replace(f"<!-- notices-section: {section} -->\n", "")
+        notices.write_text(text)
+        errors = checker.check(self.app, bundle_map)
+        for section in self.BROWSER_HOST_SECTIONS:
+            self.assertIn(f"{self.BROWSER_HOST}: missing notice section:{section}", errors)
+
     def test_map_requirements_are_well_formed(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         for entry in bundle_map["entries"] + bundle_map.get("resources", []):

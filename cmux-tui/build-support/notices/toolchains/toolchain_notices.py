@@ -20,8 +20,12 @@ stored text (texts/<file>), its sha256 and where it came from:
   rust: version, rustc_commit (the `/rustc/<commit>/` prefix of std paths
         inside a binary), toolchain_files (rust-toolchain.toml files whose
         channel must equal version), binaries (a note)
-  zig:  version, ghostty_sources (submodules whose build.zig.zon
-        minimum_zig_version must equal version), binaries (a note)
+  zig:  version, ci_version (the exact Zig CI installs; install-zig-ci.sh
+        refuses any other, apart from the Zig SDK conformance version),
+        ghostty_sources (submodules whose build.zig.zon minimum_zig_version
+        must equal version: ghostty-next, the source of every Zig binary that
+        cmux-next and cmux-tui ship; the classic `ghostty` submodule only
+        builds the classic app, which ships from main), binaries (a note)
 check-repo fails when a pin moves, so a toolchain bump stops until the new
 text is reviewed and recorded. A missing build.zig.zon fails (initialize the
 submodule); nothing is skipped.
@@ -97,8 +101,12 @@ class RustToolchain(Text):
 
 class ZigToolchain(Text):
     def __init__(self, data: dict, texts: Path):
-        super().__init__(data, texts, {"ghostty_sources"})
+        super().__init__(data, texts, {"ghostty_sources", "ci_version"})
+        if not VERSION.match(data["ci_version"]):
+            raise ManifestError(f"toolchains.json zig {data['version']}: bad ci_version {data['ci_version']!r}")
         self.ghostty_sources: List[str] = list(data["ghostty_sources"])
+        # The exact Zig that CI installs (scripts/install-zig-ci.sh refuses any other).
+        self.ci_version: str = data["ci_version"]
 
 
 class Manifest:
@@ -153,6 +161,11 @@ def rust_toolchain_problems(manifest: Manifest, root: Path) -> List[str]:
 def zig_toolchain_problems(manifest: Manifest, root: Path) -> List[str]:
     problems = []
     for zig in manifest.zig:
+        if zig.ci_version != zig.version:
+            problems.append(
+                f"toolchains.json: zig ci_version {zig.ci_version!r} is not the reviewed {zig.version}; CI installs "
+                "exactly minimum_zig_version, so record that version's LICENSE first"
+            )
         for source in zig.ghostty_sources:
             rel = f"{source}/build.zig.zon"
             path = root / rel
