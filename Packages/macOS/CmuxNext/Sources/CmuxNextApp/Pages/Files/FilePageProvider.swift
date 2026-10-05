@@ -54,9 +54,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     private var changeListeners: [UUID: (JSONValue) -> Void] = [:]
     /// The folder of the open file the current asset token serves, and the token.
     private(set) var assetToken = UUID().uuidString.lowercased()
-    /// Canonical paths the user granted this tab: its document, chooseFile results, approved
-    /// links. The page opens only these (and recents); their folders bound links that open
-    /// without asking, and they are writable (the user chose them).
+    /// Canonical paths that are this tab's documents, whoever opened them: its first document,
+    /// chooseFile results, approved links. The page may open them, and their folders bound the
+    /// links that open without asking.
+    private(set) var documents: Set<String> = []
+    /// The documents the user chose (Open File..., the picker, a click, an approved link): these are
+    /// writable. A document an agent or script opened is writable only inside a user root.
     private(set) var granted: Set<String> = []
     /// Markdown files `resolveLinks` found inside a granted document's folder: the page may open
     /// them in place (following a link it showed).
@@ -83,6 +86,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         self.file = file.map(Self.canonical)
         if let file = self.file {
             shown.insert(file.path)
+            documents.insert(file.path)
             if userChose { granted.insert(file.path) }
         }
         self.host = host
@@ -116,7 +120,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("chooseFile"):
             let start = params["start"]?.stringValue.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0, isDirectory: true) : nil }
             guard let chosen = await host.chooseFile(start: start) else { return .null }
-            granted.insert(Self.canonical(chosen).path)
+            userChose(chosen)
             return ["path": .string(chosen.path)]
         case kind.op("openLink"):
             try await openLink(params, host: host, userGesture: context.userGesture)
@@ -164,9 +168,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Links resolved, `.` and `..` removed: the path every grant check compares.
     nonisolated static func canonical(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }
 
-    /// Whether `url` (canonical) is inside the folder of a granted document.
+    /// The user chose `url` for this tab (a picker result, or Open File... of the file it shows):
+    /// a document of the tab, and writable.
+    func userChose(_ url: URL) {
+        let path = Self.canonical(url).path
+        documents.insert(path)
+        granted.insert(path)
+    }
+
+    /// Whether `url` (canonical) is inside the folder of one of the tab's documents.
     private func inGrantedFolder(_ url: URL) -> Bool {
-        granted.contains { document in
+        documents.contains { document in
             let folder = URL(fileURLWithPath: document).deletingLastPathComponent().path
             return url.path.hasPrefix(folder == "/" ? "/" : folder + "/")
         }
@@ -176,7 +188,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// link, a recents entry, or a markdown file `resolveLinks` found in a granted folder.
     private func mayOpen(_ url: URL) -> Bool {
         let path = url.path
-        return granted.contains(path) || shown.contains(path) || linked.contains(path) || (host?.isRecent(path) ?? false)
+        return documents.contains(path) || shown.contains(path) || linked.contains(path) || (host?.isRecent(path) ?? false)
     }
 
     private func snapshot(_ url: URL) async throws -> FileSnapshot {
@@ -341,7 +353,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             // naming the resolved path; a refused or unshown sheet refuses the link.
             if !inGrantedFolder(target) {
                 guard await host.confirmOpen(target, userGesture: userGesture) else { throw PageError.cancelled }
-                granted.insert(target.path)
+                userChose(target)
             }
             return host.openFile(target)
         }

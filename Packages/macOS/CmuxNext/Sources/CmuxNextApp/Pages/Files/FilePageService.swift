@@ -86,6 +86,11 @@ final class FilePageService: InternalPageProvider {
         let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, recoveredText: recoveredText)) { [unowned self] key in
             self.file(key) == real
         }
+        // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
+        if userChose {
+            tabs[key]?.userChose = true
+            tabs[key]?.provider?.userChose(real)
+        }
         // A tab that already showed the file takes the draft on its next config.
         if let recoveredText, let provider = tabs[key]?.provider, provider.recoveredText == nil, tabs[key]?.page != nil {
             provider.recoveredText = recoveredText
