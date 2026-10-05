@@ -47,12 +47,13 @@ extension CloudTreeOutlineView.Coordinator {
                 guard let self, let outline else { return }
                 finishMachineLift()
                 restoreDragImage(image, of: session, in: outline)
-            }
-        ) { rows in
+            },
+            collapse: { rows in
             withProgrammaticUpdate {
                 for row in rows { outline.collapseItem(row) }
             }
-        }
+            }
+        )
 #if DEBUG
         cmuxDebugLog("cloud.lift.organization lifted=\(lifted) node=\(node.id) siblings=\(parent.children.count)")
 #endif
@@ -70,12 +71,13 @@ extension CloudTreeOutlineView.Coordinator {
               let scope = CloudMachineReorderScope(machineNodeID: node.id, roots: nodes) else { return }
         outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings, pressY: pressY,
-            isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned }
-        ) { machines in
+            isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned },
+            collapse: { machines in
             self.withProgrammaticUpdate {
                 for machine in machines { outline.collapseItem(machine) }
             }
-        }
+            }
+        )
         installMachineLiftMouseUpMonitor(for: session, in: outline)
     }
 
