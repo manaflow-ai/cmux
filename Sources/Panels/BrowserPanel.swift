@@ -8639,12 +8639,21 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         // A REPL session gets a download only when it may read every place
         // the request went (BrowserReplDownloadSource).
         BrowserReplTabAttachment.downloadRedirected(download, to: request.url)
-        // After WebKit picked the destination the download may already be a
-        // session's: that decision is made again for this place.
+        // Before WebKit picked the destination the download has no state
+        // yet, but its claim (starter and every place so far, this one last)
+        // is judged now, before the request goes there: a tab a session
+        // created never sends one to a place its policy refuses.
         guard let downloadID = storedState(for: download)?.downloadID else {
-            decisionHandler(.allow)
+            let starter = BrowserReplTabAttachment.downloadStarter(of: download)
+            let source = BrowserReplTabAttachment.downloadSource(of: download)
+            notifyOnMain { [weak self] in
+                let allowed = self?.replAttachment?()?.allowsDownloadRedirect(startedBy: starter, source: source) ?? true
+                decisionHandler(allowed ? .allow : .cancel)
+            }
             return
         }
+        // After WebKit picked the destination the download may already be a
+        // session's: that decision is made again for this place.
         notifyOnMain { [weak self] in
             let allowed = self?.replAttachment?()?.downloadRedirected(id: downloadID, to: request.url) ?? true
             decisionHandler(allowed ? .allow : .cancel)

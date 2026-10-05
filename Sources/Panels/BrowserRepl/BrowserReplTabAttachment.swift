@@ -1569,6 +1569,24 @@ final class BrowserReplTabAttachment {
         return !isLiveCreator(refusal.sessionID)
     }
 
+    /// Whether a download that has no destination yet may follow a redirect,
+    /// given its claim (`startedBy`, and `source` with the redirect's place
+    /// last): not when it would be refused once it starts
+    /// (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``),
+    /// so the request never reaches a place the tab's creating session's
+    /// policy or directories refuse.
+    func allowsDownloadRedirect(startedBy starter: String?, source: BrowserReplDownloadSource) -> Bool {
+        guard isAttached else { return true }
+        let route = ownership.downloadRoute(
+            startedBy: starter,
+            source: source,
+            policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
+            fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
+        )
+        if case .refused = route { return false }
+        return true
+    }
+
     /// Reports download `id`'s end to the session it went to. A finished
     /// file's every source is judged again first, under the session's policy
     /// and directories now: one they refuse gives the session no path.

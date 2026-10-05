@@ -89,7 +89,10 @@ opaque `blob:` one is judged by the document that started the navigation)
 and each local file among them lies inside the session's working or
 temporary directory. Otherwise, in a tab the session created, the download
 is cancelled and `navigation.blocked` reports why; in a user's tab it keeps
-the user's download location.
+the user's download location. In a tab the session created, a redirect of
+the download to an address that would refuse it is cancelled before the
+request goes there, also one WebKit reports before it picked the
+download's destination.
 
 A dialog or file chooser the page opens while it handles a session's
 `input.*` call, the first second of its page-world `frame.evaluate` (the
