@@ -185,9 +185,14 @@ final class CloudPortsStatusActionButton: NSButton {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(opacity).cgColor
         }
-        attributedTitle = NSAttributedString(string: chipTitle, attributes: [
+        let titleAttributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .medium),
             .foregroundColor: isHovered || isHighlighted ? NSColor.labelColor : NSColor.secondaryLabelColor,
+        ]
+        attributedTitle = NSAttributedString(string: chipTitle, attributes: titleAttributes)
+        attributedAlternateTitle = NSAttributedString(string: chipTitle, attributes: [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .medium),
+            .foregroundColor: NSColor.labelColor,
         ])
     }
 }

@@ -65,9 +65,12 @@ struct CloudTreeMachineDetailLayoutTests {
             if case .placeholder(_, let placeholder) = node.kind { return placeholder.style == .connecting }
             return false
         })
-        // Ports, Terminals and Displays wait for the link; with no fleet
-        // telemetry there is no Resources either, so no tab row at all.
-        #expect(!machine.children.contains { $0.structureTag == "machineDetailTabs" })
+        // Ports, Terminals and Displays wait for the link, while Resources
+        // remains available because it does not depend on the link.
+        let tabsRow = try #require(machine.children.first { $0.structureTag == "machineDetailTabs" })
+        guard case .machineDetailTabs(let tabs) = tabsRow.kind else { Issue.record("not a tab row"); return }
+        #expect(tabs.tabs == [.resources])
+        #expect(tabsRow.detailPools.map(\.structureTag) == ["resourcesPool"])
     }
 
     @Test("Opening Terminals shows New Terminal, then every terminal labelled with its workspace")
