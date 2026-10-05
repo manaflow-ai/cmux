@@ -5,7 +5,7 @@ use cmux_browser_host::cdp::{AGENT_WORLD, CdpConnection, CdpDriver, CdpWire};
 use cmux_browser_host::driver::Driver;
 use cmux_browser_host::protocol::{DriverEvent, ErrorCode};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
@@ -25,6 +25,11 @@ struct Browser {
     tabs: HashMap<String, FakeTab>,
     /// Every message the driver sent, in order.
     sent: Vec<Value>,
+    /// Chromium's double report: after the agent world's context (20) a
+    /// second context with the same name (21) where the agent script never ran.
+    empty_agent_world: bool,
+    /// Agent-world contexts that hold the page agent.
+    agent_in: HashSet<i64>,
 }
 
 struct FakeWire {
@@ -130,7 +135,23 @@ impl FakeWire {
                 let target = target_of(&session);
                 events.push(session_event(&session, "Runtime.executionContextCreated", json!({"context": {
                     "id": 20, "name": AGENT_WORLD, "auxData": {"frameId": format!("F-{target}"), "isDefault": false}}})));
+                browser.agent_in.insert(20);
+                if browser.empty_agent_world {
+                    events.push(session_event(&session, "Runtime.executionContextCreated", json!({"context": {
+                        "id": 21, "name": AGENT_WORLD, "auxData": {"frameId": format!("F-{target}"), "isDefault": false}}})));
+                }
                 json!({"identifier": "1"})
+            }
+            "Runtime.evaluate" if params["expression"] == AGENT_SOURCE => {
+                let context = params["contextId"].as_i64().unwrap_or(0);
+                browser.agent_in.insert(context);
+                json!({"result": {"type": "undefined"}})
+            }
+            "Runtime.evaluate"
+                if params["expression"].as_str().is_some_and(|e| e.contains("__cmuxPageAgent")) =>
+            {
+                let context = params["contextId"].as_i64().unwrap_or(0);
+                json!({"result": {"type": "boolean", "value": browser.agent_in.contains(&context)}})
             }
             "Page.navigate" => {
                 let url = params["url"].as_str().unwrap().to_owned();
@@ -273,8 +294,11 @@ struct Harness {
 
 impl Harness {
     fn new() -> Harness {
-        let wire =
-            Arc::new(FakeWire { conn: OnceLock::new(), browser: Mutex::new(Browser::default()) });
+        Harness::with_browser(Browser::default())
+    }
+
+    fn with_browser(browser: Browser) -> Harness {
+        let wire = Arc::new(FakeWire { conn: OnceLock::new(), browser: Mutex::new(browser) });
         let conn = CdpConnection::new(Box::new(WireHandle(wire.clone())));
         wire.conn.set(Arc::downgrade(&conn)).ok().unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
@@ -432,6 +456,28 @@ fn agent_world_evaluation_uses_the_agent_context() {
 }
 
 #[test]
+fn agent_calls_install_the_agent_in_an_agent_world_context_that_lacks_it() {
+    let h = Harness::with_browser(Browser { empty_agent_world: true, ..Browser::default() });
+    let target = h.open(None);
+    let mark = h.mark();
+    h.call("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 1"}));
+    let sent = h.sent_since(mark);
+    let installed =
+        sent.iter().position(|(m, p)| m == "Runtime.evaluate" && p["expression"] == AGENT_SOURCE);
+    let called = sent.iter().position(|(m, _)| m == "Runtime.callFunctionOn").unwrap();
+    assert!(
+        installed.is_some_and(|i| i < called),
+        "the agent goes into context 21 first: {sent:?}"
+    );
+    assert_eq!(sent[installed.unwrap()].1["contextId"], 21);
+    assert_eq!(sent[called].1["executionContextId"], 21);
+    // The context is checked once.
+    let mark = h.mark();
+    h.call("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 2"}));
+    assert_eq!(h.methods_since(mark).iter().filter(|m| *m == "Runtime.evaluate").count(), 0);
+}
+
+#[test]
 fn agent_handles_resolve_inside_the_agent_world() {
     let h = Harness::new();
     let target = h.open(None);
@@ -452,6 +498,9 @@ fn agent_handles_resolve_inside_the_agent_world() {
 fn page_world_handles_move_through_backend_nodes() {
     let h = Harness::new();
     let target = h.open(None);
+    // The first agent call checks the agent world once; keep that out of
+    // the sequence below.
+    h.call("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 0"}));
     let mark = h.mark();
     h.call(
         "frame.evaluate",
@@ -472,12 +521,25 @@ fn page_world_handles_move_through_backend_nodes() {
     assert_eq!(sent[0].1["executionContextId"], 20, "handles resolve in the agent world");
     assert_eq!(sent[0].1["returnByValue"], false);
     assert_eq!(sent[1].1["objectId"], "obj-h7");
+    let group = sent[0].1["objectGroup"].clone();
     assert_eq!(
         sent[2].1,
-        json!({"backendNodeId": 42, "executionContextId": 10, "objectGroup": "cmux-handles"})
+        json!({"backendNodeId": 42, "executionContextId": 10, "objectGroup": group})
     );
     assert_eq!(sent[3].1["executionContextId"], 10);
     assert_eq!(sent[3].1["arguments"], json!([{"objectId": "page-42"}]));
+    assert_eq!(sent[4].1["objectGroup"], group, "the call releases its own group");
+    // Frames in one process share a session: a call that released a shared
+    // group killed a concurrent call's objects (parity 31 lost a frame), so
+    // every call has a group of its own.
+    let mark = h.mark();
+    h.call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "(el) => el.id", "handles": ["h7"]}),
+    );
+    let again = h.sent_since(mark);
+    assert_ne!(again[0].1["objectGroup"], group, "each call has its own object group");
+    assert_eq!(again[4].1["objectGroup"], again[0].1["objectGroup"]);
 }
 
 #[test]
@@ -677,7 +739,12 @@ fn unknown_methods_and_browser_level_raw_cdp_are_refused() {
 fn a_request_filter_intercepts_and_decides_every_request() {
     let h = Harness::new();
     let target = h.open(None);
-    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|url: &str| {
+    // The filter sees the tab each request belongs to.
+    let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+    let record = seen.clone();
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(move |request| {
+        let (target, url) = (request.target, request.url);
+        record.lock().unwrap().push((target.to_owned(), url.to_owned()));
         url.contains("evil.test").then(|| "not in session.allowedDomains (example.com)".to_owned())
     });
     let mark = h.mark();
@@ -696,6 +763,8 @@ fn a_request_filter_intercepts_and_decides_every_request() {
     loop {
         let sent = h.sent_since(mark);
         if sent.len() >= 2 {
+            let seen = seen.lock().unwrap().clone();
+            assert!(seen.iter().all(|(t, _)| t == &target), "requests name their tab: {seen:?}");
             assert!(
                 sent.contains(&(
                     "Fetch.failRequest".to_string(),
@@ -727,7 +796,7 @@ fn a_request_filter_intercepts_and_decides_every_request() {
 fn workers_and_prerenders_are_intercepted_before_they_run() {
     let h = Harness::new();
     h.open(None);
-    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_: &str| None);
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_| None);
     assert!(h.driver.set_request_filter(Some(filter)));
     let mark = h.mark();
     for (session, kind, subtype) in [("W1", "worker", ""), ("P1", "page", "prerender")] {
@@ -1059,5 +1128,65 @@ fn frames_that_show_browser_pages_are_refused_and_released() {
         detach["sessionId"],
         json!(session),
         "a child session is detached through its parent"
+    );
+}
+
+/// New headless takes its window chrome out of --window-size (1280x661),
+/// so every headless tab gets the protocol's 1280x800 viewport before it
+/// runs, and a viewport reset returns to it (parity 14).
+#[test]
+fn headless_tabs_get_the_hidden_tab_viewport() {
+    let h = Harness::new();
+    let mark = h.mark();
+    let target = h.open(None);
+    let sent = h.sent_since(mark);
+    let pos = |name: &str| sent.iter().position(|(m, _)| m == name);
+    let metrics = pos("Emulation.setDeviceMetricsOverride").expect("a viewport override");
+    assert!(metrics < pos("Runtime.runIfWaitingForDebugger").unwrap());
+    assert_eq!(sent[metrics].1["width"], 1280);
+    assert_eq!(sent[metrics].1["height"], 800);
+    let mark = h.mark();
+    h.call("tab.setViewport", json!({"targetId": target, "reset": true}));
+    let sent = h.sent_since(mark);
+    assert!(
+        sent.iter().any(|(m, p)| m == "Emulation.setDeviceMetricsOverride" && p["height"] == 800),
+        "a reset returns to the hidden-tab size: {sent:?}"
+    );
+    assert!(!sent.iter().any(|(m, _)| m == "Emulation.clearDeviceMetricsOverride"));
+}
+
+/// RequestKind (5c): a main-frame document is Document, an iframe's document
+/// SubframeDocument, everything else Subresource.
+#[test]
+fn request_kinds_tell_main_frame_documents_from_iframes() {
+    use cmux_browser_host::driver::RequestKind;
+    let h = Harness::new();
+    let target = h.open(None);
+    let seen = Arc::new(Mutex::new(Vec::<RequestKind>::new()));
+    let record = seen.clone();
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(move |request| {
+        record.lock().unwrap().push(request.kind);
+        None
+    });
+    assert!(h.driver.set_request_filter(Some(filter)));
+    let session = format!("S{}", &target[1..]);
+    let main = format!("F-{target}");
+    for (id, frame, kind) in [
+        ("r1", main.as_str(), "Document"),
+        ("r2", "CROSS", "Document"),
+        ("r3", main.as_str(), "Script"),
+    ] {
+        h._conn.receive(&json!({"sessionId": session, "method": "Fetch.requestPaused", "params": {
+            "requestId": id, "frameId": frame, "request": {"url": "https://a.test/x", "method": "GET", "headers": {}},
+            "resourceType": kind}}).to_string());
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while seen.lock().unwrap().len() < 3 {
+        assert!(std::time::Instant::now() < deadline, "the filter saw {:?}", seen.lock().unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![RequestKind::Document, RequestKind::SubframeDocument, RequestKind::Subresource]
     );
 }

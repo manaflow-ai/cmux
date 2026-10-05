@@ -151,7 +151,7 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         });
-        handle_command(mux, 0, command, &writer)
+        handle_command(mux, mux.local_test_client(0), command, &writer)
     }
 
     #[test]
@@ -243,3 +243,7 @@ mod tests {
 #[cfg(test)]
 #[path = "frontend_browser_keys_tests.rs"]
 mod keys_tests;
+
+#[cfg(test)]
+#[path = "frontend_browser_reuse_tests.rs"]
+mod reuse_tests;

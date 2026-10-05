@@ -44,15 +44,32 @@ pub fn wakes(summary: &Summary, message: &Message, is_mux_message: impl Fn(&str)
     if author.kind != ParticipantKind::Human || message.author == AGENT_MUX {
         return false;
     }
+    // A message from a paired device starts a remote-origin prompt chain
+    // (server-remote-conversations.md section 6). Until that gate exists it
+    // never wakes the Chief: fail closed.
+    if message.origin.is_some() || author.person.is_some() {
+        return false;
+    }
     let retracted = message.retracted_at.as_deref().is_some_and(|at| !at.is_empty());
     if !summary.participants.iter().any(|p| p.id == AGENT_MUX) || retracted {
         return false;
     }
-    let count = |kind| summary.participants.iter().filter(|p| p.kind == kind).count();
-    if count(ParticipantKind::Human) == 1 && count(ParticipantKind::Agent) == 1 {
+    // Count persons, not participant ids: a paired device (`person`) is the
+    // same human as its person, so pairing does not change the rule
+    // (decision D-C).
+    let mut persons: Vec<&str> = summary
+        .participants
+        .iter()
+        .filter(|p| p.kind == ParticipantKind::Human)
+        .map(|p| p.person.as_deref().unwrap_or(&p.id))
+        .collect();
+    persons.sort_unstable();
+    persons.dedup();
+    let agents = summary.participants.iter().filter(|p| p.kind == ParticipantKind::Agent).count();
+    if persons.len() == 1 && agents == 1 {
         return true;
     }
-    if summary.id.starts_with("conv_dm_") && summary.participants.len() == 2 {
+    if summary.id.starts_with("conv_dm_") && persons.len() + agents == 2 {
         return true;
     }
     let mentioned = message.parts.iter().any(|part| match part {
@@ -187,6 +204,7 @@ mod tests {
             display_name: id.into(),
             agent_class: None,
             acp_session: None,
+            person: None,
         }
     }
 
@@ -218,6 +236,7 @@ mod tests {
             edited_at: None,
             retracted_at: None,
             reactions: Vec::new(),
+            origin: None,
         }
     }
 
@@ -242,6 +261,24 @@ mod tests {
         assert!(!wakes(&one_to_one, &retracted, |_| false));
         let without = summary("conv_c", vec![person(USER_LOCAL, human), person("agent_x", agent)]);
         assert!(!wakes(&without, &message(USER_LOCAL, None, None), |_| false));
+    }
+
+    /// Pairing adds a device of the same person: a plain local message still
+    /// wakes the Chief, and a device message does not (no remote chains yet).
+    #[test]
+    fn a_paired_device_does_not_change_the_wake_rule() {
+        let human = ParticipantKind::Human;
+        let mut device = person("remote_inst_1", human);
+        device.person = Some(USER_LOCAL.into());
+        let paired = summary(
+            "conv_a",
+            vec![person(USER_LOCAL, human), person(AGENT_MUX, ParticipantKind::Agent), device],
+        );
+        assert!(wakes(&paired, &message(USER_LOCAL, None, None), |_| false));
+        assert!(!wakes(&paired, &message("remote_inst_1", None, None), |_| false));
+        let mut remote = message(USER_LOCAL, None, None);
+        remote.origin = Some(cmux_conversation::Origin::Remote { install: "inst_1".into() });
+        assert!(!wakes(&paired, &remote, |_| false));
     }
 
     /// Float gap (plans/cmux-next/chief-mac.md section 4): the cores write

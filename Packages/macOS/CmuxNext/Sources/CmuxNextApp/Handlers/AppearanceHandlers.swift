@@ -11,8 +11,11 @@ import CmuxNextSettings
 /// reapplies the same value.
 enum AppearanceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let studio = AppearanceStudioController(context: context)
-        registry.bind("appearance.customize", run: { _ in try studio.toggle() })
+        // Customize Appearance… opens Settings on Appearance (R82: the floating studio panel went
+        // with the Swift Settings UI; the page's sliders preview live in every window).
+        registry.bind("appearance.customize", run: { invocation in
+            try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)
+        })
         registry.bind("appearance.density.compact", run: { _ in try setDensity(.compact, context) })
         registry.bind("appearance.density.comfortable", run: { _ in try setDensity(.comfortable, context) })
         for speed in MotionSpeed.allCases {
@@ -112,7 +115,9 @@ enum AppearanceHandlers {
     /// `window.titlebar`: applied at once, then written to cmux.json.
     private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
         try requireUnmanaged(WindowTitlebarSetting.configPath, context)
-        context.design.titlebar = style
+        // Tab bars at the bottom keep the standard title bar (R109,
+        // `ChromePlacementSetting.effectiveTitlebar`); the choice is saved.
+        context.design.titlebar = context.design.tabBarPosition == .bottom ? .standard : style
         // The default removes the key (and an emptied `window` object).
         let value: JSONValue? = style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue)
         context.writeSetting("set titlebar", WindowTitlebarSetting.configPath, value, reloadOnFailure: true)

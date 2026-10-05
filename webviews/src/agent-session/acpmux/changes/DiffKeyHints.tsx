@@ -1,10 +1,11 @@
 import React from "react";
 import { Keycap } from "../Keycap";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 
 /// The changes view's reading keys, always in view (useDiffKeys). They are the view's own keys,
 /// not app shortcuts the user rebinds, so they are drawn as they are.
 export function DiffKeyHints() {
+  const t = useT();
   const hints: [keys: string[], label: string][] = [
     [["j", "k"], t("diff.keys.files")],
     [["n", "p"], t("diff.keys.changes")],

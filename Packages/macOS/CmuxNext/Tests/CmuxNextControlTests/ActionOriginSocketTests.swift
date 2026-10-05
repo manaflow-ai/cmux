@@ -14,7 +14,7 @@ import Testing
         let registry = ActionRegistry.standard()
         var seen: ActionInvocation?
         registry.bind("splitRight", invoke: { seen = $0 })
-        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil)
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil, configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
         let result = await router.handle(
             ControlRequest(id: "1", method: "action.run", params: ["action": "splitRight", "origin": origin]),
@@ -40,7 +40,7 @@ import Testing
         let registry = ActionRegistry.standard()
         var ran = false
         registry.bind("tab.focus", invoke: { _ in ran = true })
-        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil)
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil, configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
         let result = await router.handle(
             ControlRequest(id: "1", method: "tab.focus", params: ["tab": "tab_1", "origin": "user"]),

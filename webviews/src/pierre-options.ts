@@ -15,7 +15,7 @@ export type DiffViewerOptions = {
 };
 
 /** Height of a file header row; also the virtualizer's header metric. */
-export const DIFF_FILE_HEADER_HEIGHT = 32;
+export const DIFF_FILE_HEADER_HEIGHT = 38;
 
 export function codeViewOptions(options: DiffViewerOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
   return {
@@ -57,15 +57,15 @@ export function workerHighlighterOptions(
 export function codeViewUnsafeCSS(): string {
   return `
     :host {
-      /* Pierre's own background is the page's one viewer background, so file
-         headers, separators and code rows all paint the same opaque color. */
-      --diffs-light-bg: var(--cmux-diff-viewer-bg);
-      --diffs-dark-bg: var(--cmux-diff-viewer-bg);
+      /* Code rows and separators are clear over the page's one backdrop
+         (only html paints it, so a translucent backdrop never stacks). */
+      --diffs-light-bg: transparent;
+      --diffs-dark-bg: transparent;
       --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
       --diffs-bg-context-override: transparent;
       --diffs-bg-context-gutter-override: transparent;
-      --diffs-bg-separator-override: var(--cmux-diff-viewer-bg);
-      background-color: var(--cmux-diff-viewer-bg);
+      --diffs-bg-separator-override: transparent;
+      background-color: transparent;
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
@@ -79,7 +79,17 @@ export function codeViewUnsafeCSS(): string {
     code {
       background-color: transparent;
     }
-    /* The file header is opaque: scrolled code never shows through it. Its
+    /* R139: the page selects nothing by default (pages/shared/desktop.css) and the shadow
+       root inherits that; the code text of each line is content, so it opts back in. Line
+       numbers, separators and buffers stay chrome (Pierre keeps them user-select: none). */
+    [data-line] {
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
+    }
+    /* The file header is never transparent (Lawrence): it paints the
+       backdrop composited onto the theme color at full alpha, so scrolled
+       code never shows through it, even over a see-through window. Its
        content is the slotted FileHeader (renderCustomHeader), so the row's
        height is fixed to the virtualizer's diffHeaderHeight metric. */
     [data-diffs-header] {
@@ -87,7 +97,7 @@ export function codeViewUnsafeCSS(): string {
       min-height: 0;
       display: flex;
       align-items: stretch;
-      background-color: var(--cmux-diff-viewer-bg);
+      background-color: var(--cmux-diff-solid-bg);
       border-bottom: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
@@ -158,45 +168,42 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
-      background-color: var(--cmux-diff-viewer-bg);
-    }
-    [data-file-tree-search-container][data-open='false'] {
-      display: none;
-    }
-    [data-file-tree-search-container] {
-      margin: 0 4px 6px 0;
-      padding: 0 5px 6px 1px;
-      border-bottom: 1px solid var(--trees-border-color);
+      background-color: var(--cmux-diff-solid-bg);
     }
     [data-file-tree-virtualized-scroll='true'] {
       height: 100%;
       min-height: 0;
       overflow: auto;
-      background-color: var(--cmux-diff-viewer-bg);
+      background-color: var(--cmux-diff-solid-bg);
       padding-inline-start: 0;
-      padding-inline-end: 2px;
-      margin-inline-end: 2px;
+      padding-inline-end: 0;
       scrollbar-gutter: stable;
     }
     [data-item-section='content'] {
       flex: 1 1 auto;
       min-width: 0;
     }
-    /* +N -N change counts (the row decoration), right-aligned and tabular. A
-       one-sided count takes the row's added or deleted status color. */
+    /* R139: rows are chrome, an arrow cursor like a native source list. */
+    [data-type='item'] {
+      cursor: default;
+    }
+    /* Folder names are bright, file names dim (the selected row is bright
+       through --trees-selected-fg). The tree has no folder color variable. */
+    [data-item-type='folder'] > [data-item-section='content'] {
+      color: var(--trees-selected-fg);
+    }
+    /* "+N -N" (the row decoration, file-tree-stats.ts), right-aligned. */
     [data-item-section='decoration'] {
       flex: 0 0 auto;
+      padding-inline-end: 1.5px;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
-    [data-item-git-status='added'] > [data-item-section='decoration'] {
-      color: var(--trees-status-added);
-    }
-    [data-item-git-status='deleted'] > [data-item-section='decoration'] {
-      color: var(--trees-status-deleted);
+    [data-item-section='decoration'] svg {
+      display: block;
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-viewer-bg) !important;
+      background-color: var(--cmux-diff-solid-bg) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
   `;

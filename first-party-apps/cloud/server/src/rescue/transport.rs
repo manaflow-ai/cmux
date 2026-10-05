@@ -1,20 +1,15 @@
 //! [`RescueTransport`]: the interactive byte stream to a Cloud machine when
 //! its cmux-tui daemon is down.
 //!
-//! PLATFORM GAP: the cmux Cloud API has no route for an interactive stream
-//! today (checked 2026-10-04 in `web/app/api/vm/[id]/*`):
-//! - `exec` runs one command and answers once (no stdin, no PTY, 15 min cap);
-//! - `scp-endpoint` authorizes a 15-minute Ed25519 key with `restrict`
-//!   (no PTY) for file transfer over the private network;
-//! - `sessions` (legacy websocket attach) answers 409
-//!   `vm_attach_transport_unsupported`;
-//! - `attach-endpoint` and `cmux-remote` reach the daemon, which is the part
-//!   that is down in a rescue.
+//! PLATFORM GAP: the rescue stream is `cloud.shell.open` on the cmux-next
+//! backend (contract 2.6, a wire stream the Worker relays from the
+//! provider's exec terminal), which has not shipped. The daemon link cannot
+//! serve it: the daemon is the part that is down in a rescue.
 //!
 //! So production uses [`MissingRescueRoute`], which refuses every open with
 //! `unsupported`. Tests use a fake. No route is invented here.
 
-use super::iface::{BackendError, Grid, Signal};
+use cmux_terminal_iface::{BackendError, ExitStatus, Grid, Signal};
 
 pub type StreamId = u64;
 
@@ -22,12 +17,12 @@ pub type StreamId = u64;
 pub enum TransportEvent {
     Output(Vec<u8>),
     /// The remote shell ended with this status.
-    Closed {
-        code: Option<i32>,
-    },
+    Closed(ExitStatus),
     /// The stream broke (network, machine stopped, credential expired).
     Dropped {
         reason: String,
+        /// A new open may work (network); false when it cannot (revoked).
+        retryable: bool,
     },
 }
 
@@ -41,7 +36,9 @@ pub trait RescueTransport: Send {
     fn resize(&mut self, stream: StreamId, grid: Grid) -> Result<(), BackendError>;
     fn signal(&mut self, stream: StreamId, signal: Signal) -> Result<(), BackendError>;
     fn close(&mut self, stream: StreamId) -> Result<(), BackendError>;
-    /// Events since the last call, in order, for every stream.
+    /// Events since the last call, in order, for every stream. After a
+    /// `Closed` or `Dropped` event the transport has freed that stream; the
+    /// backend never calls `close` for it.
     fn take_events(&mut self) -> Vec<(StreamId, TransportEvent)>;
 }
 
@@ -57,23 +54,25 @@ impl RescueTransport for MissingRescueRoute {
     }
 
     fn open(&mut self, _machine: &str, _grid: Grid) -> Result<StreamId, BackendError> {
-        Err(BackendError::Unsupported(MISSING_ROUTE.into()))
+        // `unsupported {}` carries no text; `cloud.rescue.open` answers
+        // MISSING_ROUTE before it reaches this backend.
+        Err(BackendError::Unsupported)
     }
 
     fn write(&mut self, _stream: StreamId, _bytes: &[u8]) -> Result<(), BackendError> {
-        Err(BackendError::Closed)
+        Err(BackendError::not_open())
     }
 
     fn resize(&mut self, _stream: StreamId, _grid: Grid) -> Result<(), BackendError> {
-        Err(BackendError::Closed)
+        Err(BackendError::not_open())
     }
 
     fn signal(&mut self, _stream: StreamId, _signal: Signal) -> Result<(), BackendError> {
-        Err(BackendError::Closed)
+        Err(BackendError::not_open())
     }
 
     fn close(&mut self, _stream: StreamId) -> Result<(), BackendError> {
-        Err(BackendError::Closed)
+        Err(BackendError::not_open())
     }
 
     fn take_events(&mut self) -> Vec<(StreamId, TransportEvent)> {

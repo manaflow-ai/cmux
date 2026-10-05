@@ -1,8 +1,9 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject as runIn } from "cloudflare:test"
+import { runInDurableObject as runIn } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * P0 (coordinator 2026-10-03): a listen-only socket must stop receiving events once its token
@@ -129,7 +130,7 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
       const s = await c.setup()
       const sock = await listen(s.stub, s.entity, { ...s.principal, expires_at: Date.now() + 300 })
       await sleep(400)
-      await runDurableObjectAlarm(s.stub)
+      await fireAlarm(s.stub)
       await sleep(50)
       expect(sock.state.closed).toBe(4401)
     })
@@ -173,6 +174,11 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
     const feed = testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u.user))
     const principal = { identity: install, kind: "install", user: u.user, install, grant, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
     const sock = await listen(feed, u.user, principal)
+    // This test covers the frame gate when the revoke push did not reach the owner: drop the registry row.
+    await sleep(50)
+    await runIn(userStub, async (_i: unknown, state: DurableObjectState) => {
+      state.storage.sql.exec("DELETE FROM socket_owners")
+    })
     expect((await op(u.t, "install.revoke", { install })).ok).toBe(true)
     await runInDurableObject(feed, async (i) => i.forgetInstallChecks?.())
     const snapshotsBefore = sock.frames.filter((f) => f.t === "snapshot").length
@@ -183,5 +189,24 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
     expect(sock.state.closed).toBe(4401)
     expect(sock.frames.filter((f) => f.t === "snapshot").length).toBe(snapshotsBefore)
     expect(sock.frames.some((f) => f.t === "result")).toBe(false)
+  })
+
+  it("revoking an install closes its sockets on other owners at once (instant revocation)", async () => {
+    const sub = `sock-inst-${crypto.randomUUID().slice(0, 6)}`
+    const u = await userOf(sub)
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const reg = await op(u.t, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "mac", name: "mac", device_name: "mac", platform: "macos" })
+    const install = reg.value.id as string
+    const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(u.user))
+    const grant = await runInDurableObject(userStub, async (i) => i.boundEngine.currentState.installs[install].grant as string)
+    const principal = { identity: install, kind: "install", user: u.user, install, grant, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
+    const feed = await listen(testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u.user)), u.user, principal)
+    const team = await listen(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(u.team)), u.team, { ...principal, team: u.team })
+    expect((await op(u.t, "install.revoke", { install })).ok).toBe(true)
+    // No cache is forgotten and no event is sent: the revoke itself closes both sockets.
+    for (let i = 0; i < 100 && (feed.state.closed === undefined || team.state.closed === undefined); i++) await sleep(10)
+    expect(feed.state.closed).toBe(4401)
+    expect(team.state.closed).toBe(4401)
   })
 })

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 import type { DiffTransport } from "./diff/transport";
-import type { BranchListResult, BranchPickerGroup, BranchPickerRow } from "./diff/generated/protocol";
+import type { BranchListResult, BranchPickerGroup, BranchPickerRow, SessionOpened } from "./diff/generated/protocol";
 
 /**
  * Searchable, uncapped branch base picker. Renders a heavy toolbar button that
@@ -77,6 +77,11 @@ const EMPTY_FILTER_GROUP_CAP: Record<string, number> = {
 const EMPTY_FILTER_DEFAULT_CAP = 8;
 const FILTERED_TOTAL_CAP = 50;
 
+const REASON_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
+  default: "branchPickerReasonDefault",
+  manual: "branchPickerReasonManual",
+};
+
 const GROUP_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
   suggested: "branchPickerGroupSuggested",
   worktrees: "branchPickerGroupWorktrees",
@@ -141,12 +146,15 @@ function computePopoverStyle(rect: DOMRect): PopoverStyle {
 
 export function BranchBasePicker({
   label,
+  onBranchSessionOpened,
   onNavigate,
   onSelectBranchBase,
   picker,
   transport = null,
 }: {
   label: DiffViewerLabelResolver;
+  /** branchChange answered with a new session (page host): the viewer adopts it in place. */
+  onBranchSessionOpened?: (session: SessionOpened) => void;
   onNavigate: (url: string) => void;
   onSelectBranchBase?: (baseRef: string) => void;
   picker: BranchPickerPayload;
@@ -236,8 +244,15 @@ export function BranchBasePicker({
           },
         })
         .then((result) => {
+          // The page host opens a new branch session against the chosen base, and the viewer
+          // switches to it in place; the classic host answers with a page to navigate to.
+          if (result.type === "sessionOpened" && onBranchSessionOpened) {
+            setGeneratingRef(null);
+            onBranchSessionOpened(result.value);
+            return;
+          }
           if (result.type !== "navigation") {
-            throw new Error("branch change response missing navigation");
+            throw new Error(`branch change answered ${result.type}`);
           }
           onNavigate(result.value.url);
         })
@@ -519,7 +534,9 @@ function BranchPickerRowView({
   // Prefer the backend's localized `secondary` (e.g. the localized reason label
   // for Suggested rows) over the raw English `reason` contract tag so non-English
   // diff viewers don't show "fork point" / "created from" verbatim.
-  const secondary = row.secondary ?? row.worktreeDir ?? row.reason ?? "";
+  // Reason tags the sidecar sends itself (`manual`, `default`) have their own labels.
+  const reasonKey = row.reason ? REASON_LABEL_KEY[row.reason] : undefined;
+  const secondary = row.secondary ?? row.worktreeDir ?? (reasonKey ? label(reasonKey) : row.reason) ?? "";
   return (
     <>
       {entry.firstInGroup ? (

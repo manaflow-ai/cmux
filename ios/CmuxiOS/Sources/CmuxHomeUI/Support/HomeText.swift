@@ -10,6 +10,8 @@ enum HomeText {
 
     static var homeTitle: String { String(localized: "home.title", defaultValue: "Home", bundle: .module) }
     static var composeButton: String { String(localized: "home.compose.button", defaultValue: "Compose", bundle: .module) }
+    static var searchCommand: String { String(localized: "home.command.search", defaultValue: "Search Messages", bundle: .module) }
+    static var backCommand: String { String(localized: "home.command.back", defaultValue: "Back", bundle: .module) }
     static var newMessage: String { String(localized: "home.compose.newMessage", defaultValue: "New Message", bundle: .module) }
     static var newGroup: String { String(localized: "home.compose.newGroup", defaultValue: "New Group", bundle: .module) }
     static var newChief: String { String(localized: "home.compose.newChief", defaultValue: "New Chief", bundle: .module) }
@@ -47,6 +49,11 @@ enum HomeText {
     static var tapbackFailedTitle: String { String(localized: "home.tapback.failedTitle", defaultValue: "Couldn't Add the Reaction", bundle: .module) }
     static var actionFailedTitle: String { String(localized: "home.action.failedTitle", defaultValue: "Couldn't Update the Conversation", bundle: .module) }
     static var ok: String { String(localized: "home.ok", defaultValue: "OK", bundle: .module) }
+    /// An op (a tapback, a read cursor) ran out of resends unanswered.
+    static var unansweredTitle: String {
+        String(localized: "home.unanswered.title", defaultValue: "A change may not have gone through. Check your connection.",
+               bundle: .module)
+    }
 
     // MARK: Offline and refusals
 

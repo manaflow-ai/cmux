@@ -12,7 +12,7 @@ import Testing
 @Suite struct SettingsSchemaTests {
     static let densities: Set<String> = ["compact", "comfortable"]
     /// The metrics the schema lists (the App passes every `MetricKey`).
-    static let metrics: Set<String> = [InterfaceSizeSetting().metricName]
+    static let metrics: Set<String> = Set(LayoutMetricSetting.ranges.keys)
 
     static func diagnostics(for value: JSONValue, at path: [String]) -> [SettingsDiagnostic] {
         var root = JSONValue.object([:])
@@ -37,9 +37,12 @@ import Testing
         case .sound: ["default", "none", "Glass"]
         case .url: ["", "https://example.com/start", "example.com"]
         case .hostList: [[], ["mail.google.com", "*.example.com"]]
+        case .folderList: [[], ["/Users/ada/src", "~/notes"]]
         case .timeRange: [["start": "22:00", "end": "07:30"]]
         case .theme: ["Nord", "light:Rose Pine Dawn,dark:Rose Pine", "Theme From A Newer Ghostty"]
         case .fontFamily: ["SF Mono", "JetBrains Mono"]
+        case .numberList(let number): [[], [.number(number.range.lowerBound), .number(number.range.upperBound)]]
+        case .stringMap: [[:], ["*": "★", "Work": ""]]
         }
     }
 
@@ -53,14 +56,19 @@ import Testing
         case .sound: [5]
         case .url: ["not an address", "ftp://example.com", 4]
         case .hostList: ["mail.google.com", [1]]
+        case .folderList: ["/Users/ada/src", ["relative/path"], [1]]
         case .timeRange: [["start": "25:00", "end": "07:00"], "22:00-07:00"]
         case .theme: ["Nord\nfont-size = 40", "light:Nord,night:Nord", 7]
         case .fontFamily: ["Mono = 1", "\"Quoted\"", 12]
+        case .numberList(let number): [.number(number.range.lowerBound), [.number(number.range.upperBound + 1)], ["1"]]
+        case .stringMap: ["★", ["Work": 1]]
         }
     }
 
+    /// cmux-next's parser checks the keys cmux-next reads; cmux-browser validates its own keys
+    /// against the export (`accepts` and `refuses`).
     @Test func everyAllowedValueLoadsWithoutADiagnostic() {
-        for descriptor in SettingsSchema.all {
+        for descriptor in SettingsSchema.all where descriptor.isShownInCmuxNext {
             for value in Self.validSamples(descriptor) {
                 #expect(descriptor.accepts(value), "\(descriptor.id) = \(value)")
                 let found = Self.diagnostics(for: value, at: descriptor.path).filter { $0.path.hasPrefix(descriptor.id) }
@@ -70,7 +78,7 @@ import Testing
     }
 
     @Test func everyRefusedValueLoadsWithADiagnosticAtItsKey() {
-        for descriptor in SettingsSchema.all {
+        for descriptor in SettingsSchema.all where descriptor.isShownInCmuxNext {
             for value in Self.invalidSamples(descriptor) {
                 #expect(!descriptor.accepts(value), "\(descriptor.id) = \(value)")
                 let found = Self.diagnostics(for: value, at: descriptor.path).filter { $0.path.hasPrefix(descriptor.id) }
@@ -101,7 +109,7 @@ import Testing
         let ids = SettingsSchema.all.map(\.id)
         #expect(Set(ids).count == ids.count)
         for descriptor in SettingsSchema.all {
-            #expect(SettingsSchema.settings(in: descriptor.section).contains(descriptor))
+            #expect(SettingsSchema.settings(in: descriptor.section).contains(descriptor) == descriptor.isShownInCmuxNext)
         }
     }
 

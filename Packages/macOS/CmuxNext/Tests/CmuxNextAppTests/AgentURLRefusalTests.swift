@@ -58,4 +58,16 @@ import Testing
         #expect(refusal(.back, page())?.code == "forbidden")
         #expect(refusal(.back, page(kind: .webkit)) == nil)
     }
+
+    /// An already-open first-party page tab (cmux://history, cmux-page://cmux.settings)
+    /// is never driven by an agent; a third-party app page is not reserved.
+    @Test func firstPartyPageTabsAreRefused() {
+        for url in ["cmux://history", "cmux-page://cmux.settings/", "cmux-page://cmux.passwords/"] {
+            let shown = page(url, kind: .webkit)
+            #expect(refusal(.evaluate("1"), shown)?.code == "forbidden", "\(url)")
+            #expect(refusal(.reload, shown)?.code == "forbidden", "\(url)")
+        }
+        #expect(refusal(.evaluate("1"), page("cmux-page://com.example.app/", kind: .webkit)) == nil)
+        #expect(refusal(.navigate("cmux-page://cmux.settings/"), page(), target: "cmux-page://cmux.settings/")?.code == "forbidden")
+    }
 }

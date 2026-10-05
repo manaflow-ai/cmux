@@ -2,47 +2,73 @@
 //! matched by id, and op lines that arrive during a call wait their turn.
 
 use cmux_cloud::api::HostRelay;
-use cmux_cloud::{ControlPlane, HttpCall, RelayError};
+use cmux_cloud::{ControlPlane, RelayError, WireCall, WireReply, WireResult};
 use serde_json::{Value, json};
 use std::io::Cursor;
 
-fn call() -> HttpCall {
-    HttpCall {
+fn call() -> WireCall {
+    WireCall {
         op: "cloud.machine.create".into(),
-        method: "POST",
-        path: "/api/vm".into(),
-        body: Some(json!({})),
+        params: json!({ "size": { "cpu": 2 } }),
         idempotency_key: Some("k-1".into()),
+        origin: Some("user"),
     }
 }
 
+fn first_line(out: &[u8]) -> Value {
+    serde_json::from_slice(out.split(|b| *b == b'\n').next().expect("line")).expect("JSON")
+}
+
 #[test]
-fn a_call_goes_out_without_credentials_and_queues_op_lines() {
+fn a_wire_call_goes_out_without_credentials_and_queues_op_lines() {
     let input = concat!(
         "{\"type\":\"op\",\"id\":\"7\",\"op\":\"cloud.machine.list\"}\n",
-        "{\"type\":\"relay.response\",\"id\":\"r9\",\"status\":500}\n",
-        "{\"type\":\"relay.response\",\"id\":\"r1\",\"status\":200,\"body\":{\"id\":\"vm-1\"}}\n",
+        "{\"type\":\"relay.result\",\"id\":\"r9\",\"ok\":true,\"value\":{}}\n",
+        "{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{\"machine\":{\"id\":\"vm_1\"}},\"revision\":\"42\",\"replayed\":true}\n",
     );
     let mut out = Vec::new();
     let mut relay = HostRelay::new(Cursor::new(input), &mut out);
     let reply = relay.call(&call()).expect("reply");
-    assert_eq!(reply.status, 200, "a stray answer with another id is ignored");
-    assert_eq!(reply.body, json!({ "id": "vm-1" }));
+    assert_eq!(
+        reply,
+        WireReply::Result(WireResult {
+            value: json!({ "machine": { "id": "vm_1" } }),
+            revision: Some("42".into()),
+            replayed: true,
+        }),
+        "a stray answer with another id is ignored"
+    );
     let queued = relay.next_message().expect("io").expect("queued op");
     assert_eq!(queued["id"], "7");
     assert!(relay.next_message().expect("io").is_none());
     drop(relay);
-    let sent: Value =
-        serde_json::from_slice(out.split(|b| *b == b'\n').next().expect("line")).expect("JSON");
-    assert_eq!(sent["type"], "relay.request");
+    let sent = first_line(&out);
+    assert_eq!(sent["type"], "relay.op");
+    assert_eq!(sent["op"], "cloud.machine.create");
     assert_eq!(sent["idempotency_key"], "k-1");
+    assert_eq!(sent["origin"], "user");
     let keys: Vec<&str> = sent.as_object().expect("object").keys().map(String::as_str).collect();
     for key in keys {
         assert!(
-            ["type", "id", "op", "method", "path", "body", "idempotency_key"].contains(&key),
+            ["type", "id", "op", "params", "idempotency_key", "origin"].contains(&key),
             "{key}"
         );
     }
+}
+
+#[test]
+fn a_wire_error_is_typed_and_a_bad_result_is_unavailable() {
+    let input = concat!(
+        "{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":false,\"error\":{\"code\":\"cloud.quota.exceeded\",\"message\":\"full\",\"retryable\":false,\"details\":{\"limit\":5,\"used\":5}}}\n",
+        "{\"type\":\"relay.result\",\"id\":\"r2\",\"ok\":false}\n",
+        "{\"type\":\"relay.response\",\"id\":\"r3\",\"status\":200}\n",
+    );
+    let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
+    let WireReply::Error(error) = relay.call(&call()).expect("reply") else { panic!("error") };
+    assert_eq!(error.code, "cloud.quota.exceeded");
+    assert_eq!(error.details, Some(json!({ "limit": 5, "used": 5 })));
+    assert!(matches!(relay.call(&call()), Err(RelayError::Unavailable(_))), "no typed error");
+    assert!(matches!(relay.call(&call()), Err(RelayError::Unavailable(_))), "wrong answer type");
 }
 
 #[test]
@@ -77,4 +103,96 @@ fn a_line_that_is_not_utf8_is_invalid_not_fatal() {
     let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
     assert_eq!(relay.next_message().expect("io").expect("line")["type"], "invalid");
     assert_eq!(relay.next_message().expect("io").expect("line")["id"], "2");
+}
+
+/// The lines the server wrote, parsed.
+fn written(out: &[u8]) -> Vec<Value> {
+    out.split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).expect("JSON line"))
+        .collect()
+}
+
+#[test]
+fn op_lines_beyond_the_queue_bound_get_relay_busy_and_the_rest_keep_their_order() {
+    use cmux_cloud::api::RELAY_QUEUE_LINES;
+    let total = RELAY_QUEUE_LINES + 1;
+    let mut input = String::new();
+    for n in 1..=total {
+        input.push_str(&format!(
+            "{{\"type\":\"op\",\"id\":\"{n}\",\"op\":\"cloud.machine.list\"}}\n"
+        ));
+    }
+    input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
+    let mut out = Vec::new();
+    let mut relay = HostRelay::new(Cursor::new(input), &mut out);
+    assert!(matches!(relay.call(&call()).expect("reply"), WireReply::Result(_)));
+    let mut kept = Vec::new();
+    while let Some(message) = relay.next_message().expect("io") {
+        kept.push(message["id"].as_str().expect("id").to_owned());
+    }
+    drop(relay);
+    let expected: Vec<String> = (1..=RELAY_QUEUE_LINES).map(|n| n.to_string()).collect();
+    assert_eq!(kept, expected, "the first {RELAY_QUEUE_LINES} op lines run, in order");
+    let busy: Vec<Value> = written(&out).into_iter().filter(|l| l["type"] == "result").collect();
+    assert_eq!(busy.len(), 1, "exactly one op is answered at once: {busy:?}");
+    assert_eq!(busy[0]["id"], total.to_string());
+    assert_eq!(busy[0]["ok"], false);
+    assert_eq!(busy[0]["error"]["code"], "cmux.cloud.relay_busy");
+    assert_eq!(busy[0]["error"]["retryable"], true);
+}
+
+#[test]
+fn host_events_during_a_call_keep_only_the_newest_of_each_op() {
+    let mut input = String::new();
+    for n in 0..(cmux_cloud::api::RELAY_QUEUE_LINES * 2) {
+        input.push_str(&format!(
+            "{{\"t\":\"host.event\",\"op\":\"cmux.host.link.changed\",\"data\":{{\"n\":{n}}}}}\n"
+        ));
+    }
+    input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
+    let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
+    assert!(matches!(relay.call(&call()).expect("reply"), WireReply::Result(_)));
+    let first = relay.next_message().expect("io").expect("the newest event");
+    assert_eq!(first["data"]["n"], cmux_cloud::api::RELAY_QUEUE_LINES * 2 - 1);
+    assert!(relay.next_message().expect("io").is_none(), "older events of the op were replaced");
+}
+
+#[test]
+fn unknown_host_frames_during_a_call_are_dropped_and_host_answers_are_bounded() {
+    let mut input = String::new();
+    input.push_str("{\"t\":\"host.mystery\",\"op\":\"x\"}\n");
+    for n in 0..(cmux_cloud::api::HOST_FRAME_LINES + 10) {
+        input.push_str(&format!("{{\"t\":\"host.result\",\"id\":{n},\"value\":{{}}}}\n"));
+    }
+    input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
+    let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
+    assert!(matches!(relay.call(&call()).expect("reply"), WireReply::Result(_)));
+    let mut kept = 0;
+    while let Some(message) = relay.next_message().expect("io") {
+        assert_eq!(message["t"], "host.result", "{message}");
+        kept += 1;
+    }
+    // One per frame link plus the link details (not the op-line bound).
+    assert_eq!(kept, cmux_cloud::api::HOST_FRAME_LINES);
+}
+
+#[test]
+fn team_events_during_a_call_are_kept_in_order_and_never_answered() {
+    let mut input = String::new();
+    for i in 0..(cmux_cloud::api::RELAY_QUEUE_LINES + 3) {
+        input.push_str(&format!("{{\"type\":\"team.event\",\"event\":\"cloud.machine.removed\",\"data\":{{\"n\":{i}}}}}\n"));
+    }
+    input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
+    let mut out = Vec::new();
+    let mut relay = HostRelay::new(Cursor::new(input), &mut out);
+    assert!(relay.call(&call()).is_ok());
+    let mut n = 0;
+    while let Some(message) = relay.next_message().expect("io") {
+        assert_eq!(message["data"]["n"], n, "kept in order");
+        n += 1;
+    }
+    assert_eq!(n, cmux_cloud::api::RELAY_QUEUE_LINES + 3, "more than the op bound, none dropped");
+    drop(relay);
+    assert_eq!(written(&out).len(), 1, "only the relay.op line: no result line for an event");
 }

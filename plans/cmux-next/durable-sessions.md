@@ -20,10 +20,10 @@ stdio pipes in their own process group (`acpmux/src/agent.rs:136-152`).
 | Event | Terminals | Agents (ACP) |
 | --- | --- | --- |
 | App quit or crash | survive: the daemon is not the app's child; `applicationWillTerminate` only closes the connection (`AppDelegate.swift:215-226`); only "End Sessions" sends `shutdown-daemon end_terminals` | survive: acpmux is not the app's child and the app never stops it |
-| Sparkle update and relaunch | survive, but the OLD daemon keeps running: `updaterWillRelaunchApplication` only logs (`UpdaterService.swift:203-217`), `server ensure` never compares builds (`local_owner.rs:280-325`), and `DaemonLauncher.isStale`/`restartDaemon` (`DaemonLauncher.swift:293-319`) have no caller outside a test | survive, OLD acpmux keeps running: no version check anywhere (`AgentPaneHost.swift:43-131`, `mux/host/src/acpmux-daemon.ts:67-87`) |
+| Sparkle update and relaunch | survive; the app hands the old daemon off to the bundled build (slice UP: `DaemonService` runs `DaemonLauncher.handOffIfStale`, fenced `shutdown-daemon`, hosts adopted) | survive; the app hands an acpmux off only when it reports `agentHosts` (`AcpmuxVersionHandoff`); with agent hosts the new acpmux adopts every agent mid-turn |
 | Daemon restart (SIGTERM, `shutdown-daemon`, crash, SIGKILL) | survive: hosts outlive the daemon; the new daemon re-adopts them from `terminal-hosts-<token>/*.json` records (`mux.rs:3518-3780`); tested by `terminal_host_survives_sigkill_and_is_adopted_with_io_and_size`, `fenced_daemon_shutdown_acks_then_preserves_and_re_adopts_terminal_host`, `terminal_host_survives_daemon_process_group_hangup` | n/a (acpmux is a separate process) |
-| acpmux restart (SIGTERM, `_acpmux/shutdown`) | n/a | LOST: `shutdown_all` cancels pending permissions and SIGTERMs then SIGKILLs every harness process group (`hub/turns.rs:854-880`, `daemon.rs:159`) |
-| acpmux crash (SIGKILL) | n/a | LOST: the harness loses its stdin and stdout; the running turn dies with it |
+| acpmux restart (SIGTERM, `_acpmux/shutdown`) | n/a | survive under agent hosts (default on): the daemon detaches every host and the next daemon adopts it; `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything) ends them and records the turn in progress as `turn_result {status: cancelled, detail: quit}` (`hub/shutdown.rs`). With `ACPMUX_AGENT_HOSTS=0`: LOST, as before |
+| acpmux crash (SIGKILL) | n/a | survive under agent hosts: the host keeps every unacknowledged entry and the next daemon resumes after the last logged `hseq`. With `ACPMUX_AGENT_HOSTS=0`: LOST |
 | acpmux start after either | n/a | every non-closed session becomes `idle` (`hub/mod.rs` `load_from_store`); an open turn gets `turn_result failed outcome_unknown` "the daemon restarted before this turn settled" (`mark_unknown_outcomes`); queued prompts (memory only) are gone; the next prompt respawns the harness and resumes its own history (`session/load`, or `claude --resume`) |
 
 What survives an agent restart is the transcript (`$ACPMUX_HOME/sessions/<id>/session.json` +
@@ -77,19 +77,21 @@ the controller (acpmux hub today, the daemon's acp actor after ownership-v2 slic
   `host_lost`; with a sidecar it is the harness's real exit. A record that does not parse or whose
   version is unknown is NOT skipped: the session is listed as `unadoptable` (2.4).
 
-### 2.2 Host buffering: the spool
+### 2.2 Host buffering: the acked entry buffer
 
-- The host numbers every line it moves: `hseq` (u64, contiguous). Directions: `in` (harness stdout,
-  after translation), `out` (written to harness stdin), `err` (stderr), `tap` (raw Claude lines the
-  translator wants in the log, today's `claude.*` kinds), `exit`.
-- Every line goes to an append-only spool file `<home>/hosts/<session>.spool` (fsync per batch,
-  bounded: 64 MiB, then the host stops reading the harness stdout, which back-pressures the harness
-  instead of dropping lines) and to the attached controller.
-- The controller appends each line to the session event log as today, then sends `Ack{hseq}` after
-  its store flushed. The host truncates the spool prefix at the acked `hseq` (segment files, delete
-  whole segments).
-- The spool is the authoritative wire log until acked; the event log stays the product format. Two
-  copies of the same bytes for a short window is the price of no loss.
+- The host numbers every event it moves: `hseq` (u64, contiguous). Entry kinds: `in` (an ACP message
+  from the harness, after translation: logged then dispatched), `tap` (log only: a line written to the
+  harness, or a raw Claude line kept beside its translation, today's `claude.*` kinds), `err`
+  (stderr), `exit`.
+- Entries stay in the host's memory until the controller sends `Ack{hseq}`, which it does after it
+  appended the matching record to the session event log (a direct `write(2)`, so a controller SIGKILL
+  cannot lose it). Each entry becomes exactly one record, carrying `hostSeq` (additive field), so a new
+  controller resumes after the largest `hostSeq` of the current host incarnation: no loss, no repeat.
+- Cap: 64 MiB of unacked entries, then the host stops reading the harness stdout, which back-pressures
+  the harness instead of dropping lines.
+- In memory, not on disk (changed from the first draft): the buffer only has to outlive the
+  controller. If the host itself dies, the harness loses its pipes and dies too; the transcript up to
+  the last ack is in the event log. A disk spool would add fsync cost to every line for that case only.
 
 ### 2.3 Controller protocol and adopt handshake
 
@@ -131,11 +133,12 @@ replayed spool:
 - Permissions: each `permission_request` without `permission_decision` is re-registered under the
   same `permissionId`; the answer goes to the agent's original JSON-RPC request id, now recorded in
   the `permission_request` payload (`agentRequestId`, additive).
-- Other agent-to-client requests (fs, terminal) with no logged response are answered again; fs reads
-  are idempotent, `terminal/create` returns the recorded terminal when one exists.
-- Queue: queued prompts are persisted as today's `queued` records plus a new `dequeued` record, so the
-  queue is rebuilt instead of lost.
-- Status: from `HostHello.status` (`ready`, `running`, `waiting`), not forced to `idle`.
+- Other agent-to-client requests with no logged answer (fs reads and writes) are handled again as if
+  they just arrived; a write asks permission again.
+- Queue: prompts that waited behind the turn in the old daemon were never sent to the agent; their
+  clients resend them (`_meta.acpmux.resend`, which already looks in the log). Not rebuilt (A3).
+- Status: `running` while the recovered turn runs, `waiting` while a recovered prompt is open, else
+  `ready`; never forced to `idle` for an adopted agent.
 
 ### 2.6 Shutdown semantics
 
@@ -143,8 +146,20 @@ replayed spool:
   running. Same contract as the cmux-tui daemon ("SIGTERM hands off").
 - Ending agents is explicit: session stop/close terminates that host; `_acpmux/shutdown
   {endAgents: true}` (new optional param) terminates all; the app's "End Everything" quit sends it.
-- `--memory` stores and tests that need the old behavior pass `--agent-hosts=off`, which keeps
-  today's direct child path (also the rollback switch for one release).
+- Switch: `ACPMUX_AGENT_HOSTS=1` turns hosts on for new agents (A2-A3); A4 makes it the default with
+  `ACPMUX_AGENT_HOSTS=0` as the one-release opt-out. `--memory` stores never use hosts (no log to resume
+  from). Hosts already running are adopted whatever the switch says.
+
+### 2.7 Code map (A1-A4, landed on feat-cmux-next 2026-10-04)
+
+- `acpmux/src/agent_host/mod.rs`: protocol frames, records, liveness lock, the frozen
+  `terminate_unadoptable` path; `host.rs`: the `__agent-host` process; `link.rs`: spawn and connect.
+- `acpmux/src/agent.rs`: `ChildAgent::spawn_hosted` / `attach_hosted` (same API as a direct child);
+  `harness_command` is the one place that builds a harness's argv, env and cwd (direct or hosted);
+  the hook point for launch overrides (acp.trust).
+- `acpmux/src/hub/hosts.rs`: `adopt_agent_hosts` at daemon start (before spawns), the log scan for
+  open work, turn and permission recovery; `hub/turns.rs` `finish_turn` settles live and recovered
+  turns; `shutdown_all` detaches hosted agents.
 
 ## 3. Update flow end to end (Sparkle)
 
@@ -161,6 +176,13 @@ replayed spool:
    event log from their last `seq`; a turn that ran through the update keeps streaming.
 6. Once the restart is done, the app records `daemon_build_adopted` (debug log + `debug.window_snapshot`
    field) so a tagged build can prove it.
+
+Implemented (UP): `DaemonService.start` runs `DaemonLauncher.handOffIfStale` after the first connect.
+It compares `identify.build_commit` with the bundled `cmux-tui --version` commit; a mismatch sends the
+fenced `shutdown-daemon`, and the endpoint provider waits for the old pid's kernel exit event (bounded
+by a `DemandTimer` deadline) before `server ensure`. An unknown build on either side keeps the running
+daemon. `AgentPaneHost.findOrStart` reads `_acpmux/status`; it hands off a stale acpmux only when the
+status reports `agentHosts`, because without agent hosts the restart would end its agents.
 
 A daemon restart is ~seconds for normal state but data-dependent (journal replay; a 12 GB journal took
 ~3 min, cloud-guest-upgrades.md); the app shows "Updating terminals…" over views during the restart and
@@ -212,9 +234,40 @@ on restart. All additive; no record removed or renamed.
 
 ## 7. R41: no false "Process exited"
 
-Filled in from the audit of every path to the banner (section 7.1); the recover button itself
-("Restart Shell Here", `restart-tab`, capability `tab-restart-v1`) belongs to the tab.restart agent.
-This lane supplies the typed reason it shows.
+The banner comes only from `TerminalAttachMachine.processExited`, sent by `TerminalLinkWatch` when the
+store's `tab.dead` turns true (tree `dead`, or the `surface-exited` event). Audit of every path:
+
+| # | Trigger | Class | Fix |
+| --- | --- | --- | --- |
+| C1 | async adoption after a daemon restart/upgrade (slow host, 2 s handshake, `Indeterminate` liveness, fd pressure): the tab has no surface and the tree said `dead: surface.map(is_dead).unwrap_or(true)` | false | daemon keeps pending terminals (keyed by public `term_` id); a surfaceless tab is dead only when its terminal ended; adoption completion pushes `tree-changed` (the app ignores registry events) |
+| C2 | any transient `dead=true`: the attach machine's `exited` was permanent, so C1 stuck forever | false | `processRevived` event: the watch sends it when the tab turns live again; an exited view re-attaches, a pending exit is withdrawn |
+| C3 | a host record this build cannot validate (newer `record_version` after a rollback) was skipped: terminal ended `missing-host-record`, host orphaned | false | terminal stays `unadoptable`; a watcher thread blocks on the host's live marker and ends the terminal with the host's exit sidecar when it exits; close signals the host only with proof (the exact marker its record names is held + PID) |
+| B1-B6 | host died without exit status, died before/during adoption, incarnation mismatch, record missing, signal during logout | real end, wrong words | typed `end` with a stable `host_lost.reason` |
+| A1-A5 | the shell exited, exit sidecar at startup, local PTY exit, user "End Sessions" | real | `end.kind = exited / signaled` |
+
+Wire (capability `terminal-state-v1`), on every terminal tab in the tree JSON (`list-workspaces`,
+tree pushes):
+- `terminal_state`: `running | adopting | reconnecting | failed | unadoptable | exited`. Only
+  `exited` means the shell ended.
+- `dead`: true only for `exited`.
+- `host_record_version`: the unreadable record's version when `unadoptable`.
+- `end` (only when `exited`): `{kind: "exited", code}` | `{kind: "signaled", signal, core_dumped}` |
+  `{kind: "host_lost", reason, detail}` | `{kind: "launch_failed", detail}`. `reason` is one of
+  `missing_record, incarnation_mismatch, dead_before_adoption, died_during_adoption,
+  died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended, other`.
+  Terminals with a runtime use its end; surfaceless ones use their durable receipt.
+- Swift: `TabSnapshot/TabModel.terminalState`, `.end` (`TerminalTabEnd`), `.hostRecordVersion`;
+  unknown future values decode as nil / `.other`.
+
+The banner text and the "Restart Shell Here" / "Close" actions belong to the tab.restart agent
+(`restart-tab`, `tab-restart-v1`); it reads `TabModel.end` and `terminalState`. Suggested words:
+`exited` "Process exited (code N)", `signaled` "Process killed (signal N)", `host_lost` "Terminal
+lost: <reason words>", `unadoptable` "Running under an older cmux; close to end it", `reconnecting`
+"Reconnecting…", `failed` "Lost connection to the terminal" with Reconnect.
+
+Not covered yet: the `surface-exited` event carries no `end` (clients read it from the next tree);
+a handshake with no common protocol version still retries as `adopting` (only unreadable records
+become `unadoptable`); `failed` has no daemon-side retry trigger beyond a new adoption.
 
 ## 8. Risks and the strongest objection
 

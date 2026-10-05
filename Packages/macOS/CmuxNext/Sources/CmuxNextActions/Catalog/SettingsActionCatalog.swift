@@ -54,6 +54,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
             ),
+            // The Keyboard Shortcuts editor (R59), a React page tab; no
+            // default key (defaults do not change, K1).
+            ActionDescriptor(
+                id: "keybindings.open",
+                title: String(localized: "action.keybindings.open", defaultValue: "Open Keyboard Shortcuts", bundle: .module),
+                keywords: ["shortcuts", "keybindings", "keys", "rebind", "chords", "when", "hotkeys"], category: .settings,
+                symbol: "keyboard", surfaces: [.palette, .keyboard], cliName: "settings keyboard-shortcuts",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             // DEV and NIGHTLY only (`DevTools`); CLI verb for the Rust CLI:
             // `cmux debug open-settings`.
             ActionDescriptor(
@@ -135,6 +144,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.sendFeedback", defaultValue: "Send Feedback", bundle: .module),
                 keywords: ["bug", "report", "contact"], category: .settings, symbol: "envelope",
                 surfaces: [.keyboard, .menu], cliName: "settings send-feedback", mainMenu: .help
+            ),
+            // Every entrypoint (Help menu, palette, `cmux settings show-crash-logs`,
+            // the restart notice) opens the newest crash
+            // log in TextEdit (CrashRecoveryService.showCrashLogs).
+            ActionDescriptor(
+                id: "help.showCrashLogs",
+                title: String(localized: "action.help.showCrashLogs", defaultValue: "Show Crash Logs", bundle: .module),
+                keywords: ["crash", "report", "ips", "log", "diagnostics", "textedit"], category: .settings,
+                symbol: "doc.text.magnifyingglass", surfaces: [.palette, .menu], cliName: "settings show-crash-logs",
+                mainMenu: .help
             ),
             ActionDescriptor(
                 id: "help.featureFlags",

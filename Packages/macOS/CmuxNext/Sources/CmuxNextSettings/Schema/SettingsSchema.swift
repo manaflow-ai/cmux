@@ -9,8 +9,22 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + palette + tasks + appearance + terminal + sidebarSections + browser + notifications + labs + feed
+        let next = general + UpdateSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+            + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + NotificationSettingsSchema.descriptors
+            + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
+        return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
+            + BrowserAppSettingsSchema.descriptors
     }
+
+    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
+    /// `appearance.metrics.*` rows say so themselves.
+    static let sharedWithBrowser: Set<String> = [
+        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
+        "focusRing.enabled", "focusRing.width", "focusRing.color",
+        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
+        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
+    ]
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
     /// (the app theme and the terminal font), which each row still resets.
@@ -18,9 +32,9 @@ public nonisolated enum SettingsSchema {
         AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
     ]
 
-    /// The descriptors of one section, in order.
+    /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads stay out).
     public static func settings(in section: SettingsSection) -> [SettingDescriptor] {
-        all.filter { $0.section == section }
+        all.filter { $0.section == section && $0.isShownInCmuxNext }
     }
 
     /// The descriptor for a dotted key or key path.
@@ -33,10 +47,10 @@ public nonisolated enum SettingsSchema {
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
         case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
-        case .appearance: ["appearance.customize", "space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
+        case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .keyboard: ["palette.searchShortcuts"]
+        case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
         case .accounts: ["accounts.refresh", "openTeamPicker"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
@@ -63,6 +77,19 @@ public nonisolated enum SettingsSchema {
                 keywords: ["history", "commands", "shell", "privacy", "osc 133"]
             ),
             SettingDescriptor(
+                NavigationHistoryScopeSetting.configPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.navigation.historyScope", "Back and Forward"),
+                help: SettingsText.keyed("settings.navigation.historyScope.help",
+                                        "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history."),
+                kind: .choice([
+                    SettingChoice("workspace", SettingsText.keyed("settings.navigation.historyScope.workspace", "Workspace")),
+                    SettingChoice("window", SettingsText.keyed("settings.navigation.historyScope.window", "Window")),
+                    SettingChoice("surface", SettingsText.keyed("settings.navigation.historyScope.surface", "Focused Page")),
+                ]),
+                default: .string(NavigationHistoryScopeSetting.fallback),
+                keywords: ["history", "back", "forward", "navigation", "location", "scope"]
+            ),
+            SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,
                 title: SettingsText.keyed("settings.window.titlebar", "Titlebar"),
                 help: SettingsText.keyed("settings.window.titlebar.help", "Minimal has no titlebar strip; the top row moves the window."),
@@ -72,8 +99,22 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
-            newTabKind(group: tabs),
-            newTerminalOpensWorkspace(group: tabs),
+            SettingDescriptor(
+                TitlebarButtonsSetting.configPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
+                help: SettingsText.keyed("settings.window.titlebarButtons.help",
+                                        "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."),
+                kind: .choice([
+                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(TitlebarButtonsSetting.fallback.rawValue),
+                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
+            ),
+            TabSettingsSchema.newTabKind(group: tabs),
+            TabSettingsSchema.plusButton(group: tabs),
+        ] + TabBarSettingsSchema.descriptors(group: tabs) + [
+            TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
@@ -133,7 +174,7 @@ public nonisolated enum SettingsSchema {
 
     // MARK: Appearance
 
-    static var appearance: [SettingDescriptor] { AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + statusIndicator }
+    static var appearance: [SettingDescriptor] { AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {
         SettingNumber(Double(range.lowerBound)...Double(range.upperBound), step: step, unit: .points, placeholder: placeholder)

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
+import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextDesign
@@ -21,7 +22,7 @@ import Foundation
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
-            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
+            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
             + SettingsWindowLayout.tunables + NewTabTunables.all
     }
 }
@@ -86,7 +87,7 @@ final class DebugSettingsService: InternalPageProvider {
         if SettingsWindowLayout.presentation.value == .pane, let window = services.windows.active {
             if let query { model.query = query }
             if let selection { model.selection = selection }
-            SettingsWindowModel.followTheme(window.themeScope)
+            DebugSettingsModel.followTheme(window.themeScope)
             if services.pages.show(.debugSettings, in: window, focus: focus) != nil { return }
         }
         if controller == nil {

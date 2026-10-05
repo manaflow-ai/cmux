@@ -21,8 +21,8 @@ mod toolbar;
 
 pub use catalog::{CATALOG_SCHEMA, validate_catalog};
 pub use cli::{
-    CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, is_mcp_tool,
-    is_reserved_cli_name, mcp_tool_name,
+    CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
+    first_party_cli_owner, is_mcp_tool, is_reserved_cli_name, mcp_tool_name,
 };
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES};
 pub use issue::{Issue, Severity};
@@ -55,6 +55,13 @@ pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
         issues.extend(rules::check(manifest));
     }
     issues
+}
+
+/// The one pane-protocol namespace of an app id (app-platform.md 18):
+/// `<publisher>.<name>` with '-' replaced by '_' (`octo/ssh-terminal` ->
+/// `octo.ssh_terminal`). Third-party op and scope families must use it.
+pub fn app_namespace(id: &str) -> String {
+    id.replace('-', "_").replacen('/', ".", 1)
 }
 
 /// True when no issue is an error.

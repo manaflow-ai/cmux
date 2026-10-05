@@ -1,32 +1,46 @@
-//! `cmux.terminal.connector/1` (mirror) for kind `cloud-vm`.
+//! `cmux.terminal.connector/1` (the shared `cmux-terminal-iface` crate)
+//! for kind `cloud-vm`: `connect {kind, target, open_token} -> {channel,
+//! window_bytes}`, `close {channel}`, `end {channel, lost}` and the shared
+//! errors and local ids of `cmux.terminal.backend/1`. Only the shared trait
+//! is used: the link names its channel and its data plane (the carrier
+//! socket), and the connector closes by channel and drains its events.
 
 mod attach_common;
 mod common;
 
 use attach_common::{FakeSpawner, FakeTransport, attach};
 use cmux_cloud::Server;
-use cmux_cloud::connector::iface::{BackendError, ConnectRequest, TerminalConnector};
+use cmux_terminal_iface::{
+    BackendError, ConnectRequest, ConnectorEvent, DataPlane, Direction, End, FrameBody, HostLink,
+    LocalId, Lost, OpenToken, TerminalConnector,
+};
 use common::FakeControlPlane;
 
 fn server(spawner: &FakeSpawner) -> Server<FakeControlPlane> {
     Server::with_attach(
-        FakeControlPlane::with(&["vm-get", "attach_endpoint_alpha"]),
+        FakeControlPlane::with(&["vm-get"]),
         attach(spawner, &FakeTransport::default()),
     )
 }
 
 fn request(kind: &str, target: &str) -> ConnectRequest {
-    ConnectRequest { kind: kind.into(), target: target.into(), actor: None }
+    ConnectRequest {
+        kind: kind.into(),
+        target: target.into(),
+        open_token: OpenToken("open-token-test".into()),
+    }
 }
 
+const CHANNEL: &str = "cloud-vm/vm-alpha01#1";
+
 #[test]
-fn the_connector_refuses_kind_ssh() {
+fn the_connector_denies_kind_ssh() {
     let spawner = FakeSpawner::default();
     let mut s = server(&spawner);
     let err = s.connector().connect(request("ssh", "vm-alpha01")).err().expect("refused");
-    assert_eq!(err, BackendError::KindRefused { kind: "ssh".into() });
+    assert!(matches!(err, BackendError::Denied { .. }), "a kind not in options.kinds: {err:?}");
     assert_eq!(spawner.spawns(), 0);
-    assert!(s.control_plane().calls.is_empty(), "nothing reached the Cloud API");
+    assert!(s.control_plane().no_calls(), "nothing reached the Cloud API");
 }
 
 #[test]
@@ -40,14 +54,152 @@ fn the_connector_declares_its_id_and_one_kind() {
 }
 
 #[test]
-fn connect_gives_at_most_one_carrier_per_target() {
+fn local_ids_follow_the_landed_pattern() {
+    // `^[a-z][a-zA-Z0-9-]{0,63}$`: at most 64 characters.
+    let longest = format!("a{}", "b".repeat(63));
+    assert!(LocalId::new(&longest).is_ok(), "64 characters are accepted");
+    assert!(LocalId::new(&format!("{longest}c")).is_err(), "65 characters are refused");
+    assert!(LocalId::new("cloudVm-2").is_ok(), "mixed case after the first letter");
+    for bad in ["", "Cloud", "9vm", "-vm", "vm_1", "vm.1", "vm 1", "vé"] {
+        assert!(LocalId::new(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn connect_answers_a_channel_and_a_window() {
     let spawner = FakeSpawner::default();
     let mut s = server(&spawner);
-    let first = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
-    let second = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("again");
-    assert_eq!(first.carrier(), second.carrier());
-    assert_eq!(first.carrier().id, "cloud-vm/vm-alpha01#1");
+    let link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    assert_eq!(link.channel(), CHANNEL, "the channel is the connector link");
+    assert_eq!(link.window_bytes(), 256 * 1024, "the default window");
+    let carrier = s.attach().supervisor().carrier("vm-alpha01").expect("carrier").clone();
+    assert_eq!(carrier.id, CHANNEL);
+    assert_eq!(link.data_plane(), DataPlane::Socket { path: carrier.socket });
+}
+
+/// The refusal of a second handle for a channel that has one.
+const ALREADY: &str = "already connected; use the open link";
+
+fn refused_as_already_connected(answer: Result<Box<dyn HostLink>, BackendError>) {
+    match answer.err() {
+        Some(BackendError::Invalid { reason }) => assert_eq!(reason, ALREADY),
+        other => panic!("a second handle for the channel: {other:?}"),
+    }
+}
+
+#[test]
+fn a_second_connect_while_the_link_is_up_is_refused() {
+    // One handle per channel: the channel's one `end` reaches one handle,
+    // and a close through it ends nobody else's link.
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut first = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    refused_as_already_connected(s.connector().connect(request("cloud-vm", "vm-alpha01")));
+    assert_eq!(spawner.spawns(), 1, "no second link process");
+    assert!(s.connector().take_events().is_empty(), "the first link stays up");
+    first.close().expect("close");
+    let events = s.connector().take_events();
+    assert!(
+        matches!(&events[..], [ConnectorEvent::End { channel, .. }] if channel == CHANNEL),
+        "{events:?}"
+    );
+    let frames = first.take_frames();
+    assert!(matches!(&frames[..], [FrameBody::End(End::Lost(_))]), "one end: {frames:?}");
+    // After the end, a reconnect is a new connect with a new channel.
+    let again = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("reconnect");
+    assert_ne!(again.channel(), CHANNEL, "a new channel after the end");
+}
+
+#[test]
+fn a_connect_while_a_close_waits_for_the_drain_is_unavailable() {
+    // A dropped handle's close that no drain applied yet must not pass to
+    // a new handle: the link is about to end.
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    link.close().expect("close");
+    drop(link);
+    match s.connector().connect(request("cloud-vm", "vm-alpha01")).err() {
+        Some(BackendError::Unavailable { reason, retryable }) => {
+            assert_eq!(reason, "the link is closing");
+            assert!(retryable, "a connect after the drain works");
+        }
+        other => panic!("a connect before the drain: {other:?}"),
+    }
+    let events = s.connector().take_events();
+    assert!(
+        matches!(&events[..], [ConnectorEvent::End { channel, .. }] if channel == CHANNEL),
+        "the close applies at the drain: {events:?}"
+    );
+    let again = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("after the drain");
+    assert_ne!(again.channel(), CHANNEL, "a new channel");
+}
+
+#[test]
+fn a_dropped_link_handle_keeps_the_link_and_frees_its_channel_for_one_handle() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    drop(s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect"));
+    assert!(s.connector().take_events().is_empty(), "a drop does not end the link");
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("again");
+    assert_eq!(link.channel(), CHANNEL, "the same channel, one new handle");
+    refused_as_already_connected(s.connector().connect(request("cloud-vm", "vm-alpha01")));
     assert_eq!(spawner.spawns(), 1);
+    link.close().expect("the new handle owns the link");
+    assert_eq!(s.connector().take_events().len(), 1);
+    assert_eq!(link.take_frames().len(), 1, "the new handle gets the one end");
+}
+
+#[test]
+fn close_ends_the_link_once_and_a_second_close_is_invalid() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    s.connector().close(CHANNEL).expect("close");
+    assert_eq!(spawner.log().terminated.len(), 1, "the link process ended");
+    let events = s.connector().take_events();
+    assert!(
+        matches!(&events[..], [ConnectorEvent::End { channel, .. }] if channel == CHANNEL),
+        "one end for the channel: {events:?}"
+    );
+    let again = s.connector().close(CHANNEL);
+    assert!(matches!(again, Err(BackendError::Invalid { .. })), "{again:?}");
+    assert!(s.connector().take_events().is_empty());
+}
+
+#[test]
+fn a_link_exit_ends_the_channel_with_lost() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    spawner.exit("vm-alpha01", 1);
+    let events = s.connector().take_events();
+    match &events[..] {
+        [ConnectorEvent::End { channel, lost: Lost { reason, retryable: true } }] => {
+            assert_eq!(channel, CHANNEL);
+            assert!(!reason.is_empty());
+        }
+        other => panic!("one retryable end, no up event: {other:?}"),
+    }
+}
+
+#[test]
+fn a_revoke_ends_the_live_channel_and_later_connects_are_denied() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    s.attach_mut().supervisor_mut().revoke_all("the app's permission was revoked");
+    let events = s.connector().take_events();
+    assert!(
+        matches!(&events[..], [ConnectorEvent::End { channel, lost: Lost { retryable: false, .. } }]
+            if channel == CHANNEL),
+        "{events:?}"
+    );
+    let err = s.connector().connect(request("cloud-vm", "vm-alpha01")).err().expect("refused");
+    assert!(matches!(err, BackendError::Denied { .. }), "a revoked target: {err:?}");
+    // A second revoke ends nothing new.
+    s.attach_mut().supervisor_mut().revoke_all("again");
+    assert!(s.connector().take_events().is_empty());
 }
 
 #[test]
@@ -56,8 +208,82 @@ fn a_target_that_is_not_a_machine_id_is_refused_before_any_call() {
     let mut s = server(&spawner);
     for target in ["../vm-alpha01", "vm-alpha01/attach", "-flag", ""] {
         let err = s.connector().connect(request("cloud-vm", target)).err().expect("refused");
-        assert!(matches!(err, BackendError::Invalid(_)), "{target}: {err:?}");
+        assert!(matches!(err, BackendError::Invalid { .. }), "{target}: {err:?}");
     }
-    assert!(s.control_plane().calls.is_empty());
+    assert!(s.control_plane().no_calls());
     assert_eq!(spawner.spawns(), 0);
+}
+
+#[test]
+fn a_missing_or_empty_open_token_is_refused_before_any_call_or_spawn() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    for token in ["", "   "] {
+        let mut req = request("cloud-vm", "vm-alpha01");
+        req.open_token = OpenToken(token.into());
+        let answer = s.connector().connect(req).map(|link| link.channel().to_owned());
+        assert!(matches!(answer, Err(BackendError::Invalid { .. })), "{token:?}: {answer:?}");
+    }
+    assert_eq!(spawner.spawns(), 0, "no link process");
+    assert!(s.control_plane().no_calls(), "nothing reached the Cloud API");
+}
+
+#[test]
+fn the_shared_trait_connect_answers_the_default_window() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    assert_eq!(link.window_bytes(), 256 * 1024);
+    assert_eq!(spawner.spawns(), 1);
+}
+
+#[test]
+fn closing_the_link_handle_ends_the_link_once_with_an_end_frame() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    link.close().expect("close");
+    assert!(matches!(link.close(), Err(BackendError::Invalid { .. })), "one close");
+    // The server applies the close at its next drain of link events.
+    let events = s.connector().take_events();
+    assert!(
+        matches!(&events[..], [ConnectorEvent::End { channel, .. }] if channel == CHANNEL),
+        "{events:?}"
+    );
+    assert_eq!(spawner.log().terminated.len(), 1, "the link process ended");
+    let frames = link.take_frames();
+    assert!(matches!(&frames[..], [FrameBody::End(End::Lost(_))]), "one end: {frames:?}");
+    assert!(link.take_frames().is_empty(), "nothing after the end");
+    let late = link.push(FrameBody::Credit { direction: Direction::Out, bytes: 1 });
+    assert!(matches!(late, Err(BackendError::Invalid { .. })), "{late:?}");
+}
+
+#[test]
+fn a_link_exit_reaches_the_link_handle_as_its_end_frame() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    spawner.exit("vm-alpha01", 1);
+    assert_eq!(s.connector().take_events().len(), 1);
+    let frames = link.take_frames();
+    assert!(
+        matches!(&frames[..], [FrameBody::End(End::Lost(Lost { retryable: true, .. }))]),
+        "{frames:?}"
+    );
+}
+
+#[test]
+fn a_socket_link_refuses_data_and_credit_frames_as_invalid() {
+    // DataPlane::Socket: the bytes move on the carrier socket; the link
+    // says so, and frames that do not belong on it are a caller error.
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    assert!(matches!(link.data_plane(), DataPlane::Socket { .. }));
+    let data = link.push(FrameBody::Data { offset: 1, bytes: b"x".to_vec() });
+    assert!(matches!(data, Err(BackendError::Invalid { .. })), "{data:?}");
+    let credit = link.push(FrameBody::Credit { direction: Direction::Out, bytes: 1 });
+    assert!(matches!(credit, Err(BackendError::Invalid { .. })), "{credit:?}");
+    assert!(link.take_frames().is_empty());
+    assert!(s.connector().take_events().is_empty(), "the link stays up");
 }

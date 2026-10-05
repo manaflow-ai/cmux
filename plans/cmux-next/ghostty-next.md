@@ -189,6 +189,41 @@ version, data(b64)}`; `output` gains `generation` and `offset`; `digest
 {surface}`. `terminal.history` and `terminal.read_range` are in the
 request file `terminal-snapshot-history.md`.
 
+### 2.2 Mac viewer (S2b, landed 2026-10-04)
+
+- The Mac asks for snapshots only when the host advertises
+  `terminal-snapshot-history-v1`: after every READY the host sends the rest
+  of the same COMPLETE encode (HISTORY records through FINISH) as
+  `snapshot {phase: "history"}` chunks at lower priority than live output,
+  and a newer READY cancels the older history. A READY alone would drop the
+  scrollback at every attach and grid change; `terminal-history` pages are
+  bare PAGE records and cannot be fed to `ghostty_surface_restore_snapshot`.
+- Generation order has one owner: `TerminalSnapshotSequencer` on the attach
+  reader thread drops `output` older than the last READY and history of a
+  replaced READY. The Mac channel event `output` therefore carries no
+  generation or offset (deviation from the raw v12 fields above, accepted).
+- `digest` is ignored in v1: comparing it needs the viewer to encode its own
+  READY (drift repair above). Until then attach and grid snapshots repair
+  drift.
+- A READY restore keeps the owner's default palette, bg/fg and cursor
+  defaults; the surface's own config must win (colors, and the cursor style
+  unless the program chose one). ghostty-next applies them as local policy
+  in the restore (PR 20, GhosttyNextKit 68ac618db); the Mac no longer
+  re-applies its config after a READY.
+- S2c (terminal-snapshot-local-history-v1): a viewer that opts in and is up
+  to date gets, at each host resize, a READY cut exactly at the resize point,
+  ordered after every earlier output frame, marked history: "local", with
+  history_rows and history_digest (libghostty-vt digest v2 of the 64 history
+  rows above the READY seam) and no history chunks. The Mac restores it with
+  ghostty_surface_restore_snapshot_local_history: Ghostty reflows the old
+  terminal with the owner's settings and keeps its history on a match (a
+  smaller local scrollback limit still matches); a mismatch restores the READY
+  without history, counts local_history_mismatch and sends snapshot-request
+  (reason gap). A behind viewer, attach, overflow and request keep READY +
+  history. 100k lines: 2.58 MB -> 60 KB base64 per settled resize.
+- Kitty images on screen are lost after a snapshot until S3k (the host
+  replays on-screen images after READY).
+
 ## 3. Manual IO mode
 
 ghostty-next keeps the desktop fork's C ABI so app code transfers:

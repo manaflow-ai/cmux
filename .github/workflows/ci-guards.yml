@@ -486,6 +486,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_package_lane_ghostty_sha.py
 
+      - name: Validate the package test lane's single-suite phase
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_package_lane_suite.py
+
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_workflow_run_sources.py
@@ -911,6 +915,10 @@ jobs:
       - name: Validate the nightly-next guard
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
+
+      - name: Validate nightly version numbers per track
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_version.py
 
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}

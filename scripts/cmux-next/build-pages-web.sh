@@ -12,7 +12,10 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT_ROOT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 MODE="${1:-build}"
-PAGES="history"
+PAGES="history apps coderouter cloud keybindings icon-picker settings passwords"
+# Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
+# app: only English and the active locale are parsed at open (R82 first-open speed).
+SPLIT_STRINGS="settings"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 
@@ -28,9 +31,8 @@ else
   node scripts/pages/gen-strings.mjs
 fi
 
-# Inline script and style only, and no network: the page talks to the app through the cmuxPage
-# message handler. The scheme handler sends the same policy as a header.
-CSP="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
+# No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
+# first-party page widens it). A meta policy would also apply and could only narrow it.
 status=0
 for page in $PAGES; do
   src="$ROOT/webviews/src/pages/$page"
@@ -38,11 +40,15 @@ for page in $PAGES; do
   # Same bundler as the agent pane: React Compiler on first-party sources, then esbuild. The
   # pages import no shiki; the alias argument points at an unused directory.
   bun scripts/agent-pane/bundle.mjs "$src/main.tsx" "$src" "$WORK/$page/app.js"
+  loader=""
+  case " $SPLIT_STRINGS " in
+    *" $page "*) loader="$(node scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;
+  esac
   {
     printf '<!doctype html>\n<html lang="en" data-cmux-page="%s">\n<head>\n' "$page"
     printf '<meta charset="utf-8" />\n'
-    printf '<meta http-equiv="Content-Security-Policy" content="%s" />\n' "$CSP"
     printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
+    [ -n "$loader" ] && printf '%s\n' "$loader"
     printf '<style>\n'
     [ -f "$WORK/$page/app.css" ] && cat "$WORK/$page/app.css"
     printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module">\n'
@@ -56,9 +62,17 @@ for page in $PAGES; do
       echo "error: $out is stale; run scripts/cmux-next/build-pages-web.sh" >&2
       status=1
     fi
+    if [ -d "$WORK/$page/locales" ] && ! diff -rq "$WORK/$page/locales" "$OUT_ROOT/$page/locales" >/dev/null 2>&1; then
+      echo "error: $OUT_ROOT/$page/locales is stale; run scripts/cmux-next/build-pages-web.sh" >&2
+      status=1
+    fi
   else
     mkdir -p "$OUT_ROOT/$page"
     cp "$WORK/$page/index.html" "$out"
+    if [ -d "$WORK/$page/locales" ]; then
+      rm -rf "$OUT_ROOT/$page/locales"
+      cp -R "$WORK/$page/locales" "$OUT_ROOT/$page/locales"
+    fi
     echo "wrote $out ($(wc -c < "$out" | tr -d ' ') bytes)"
   fi
 done

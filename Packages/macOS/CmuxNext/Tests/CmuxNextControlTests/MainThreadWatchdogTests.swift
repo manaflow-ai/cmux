@@ -59,6 +59,32 @@ import Testing
         #expect(watchdog.gapStats.max >= .milliseconds(100))
     }
 
+    /// The watchdog thread can lose the CPU right after it samples a stall.
+    /// The stall may then end before the sample is handed over; the record
+    /// must still carry the stack that was taken during the stall.
+    @MainActor
+    @Test func aSampleTakenDuringTheStallIsKeptWhenTheStallEndsFirst() throws {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false))
+        watchdog.afterSampleForTesting.withLock { hook in
+            hook = { [watchdog] in
+                // Hold the watchdog thread until the main thread's next heartbeat (the stall's end).
+                let beat = watchdog.currentBeat
+                let deadline = ContinuousClock.now + .seconds(2)
+                while watchdog.currentBeat == beat, ContinuousClock.now < deadline { usleep(1_000) }
+            }
+        }
+        watchdog.start()
+        defer { watchdog.stop() }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            stallForTest()
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 0.4, false)
+        let stall = try #require(watchdog.log.records().max { $0.duration < $1.duration }, "no stall recorded")
+        #expect(stall.frames.contains { $0.symbol?.contains("stallForTest") == true },
+                "frames: \(stall.frames.prefix(8).map(\.description))")
+    }
+
     @Test func hangLogIsBoundedDropOldest() {
         let log = HangLog(capacity: 3)
         for index in 0..<5 { log.append(startUptimeNanos: UInt64(index), duration: .milliseconds(60 + index), addresses: []) }

@@ -22,7 +22,14 @@ final class HomeTranscriptView: UIView {
     let controller: HomeController
     let scroll = HomeTranscriptScrollView()
     let field = HomeFieldView()
-    private let fieldGuide = UILayoutGuide()
+    /// An invisible view whose frame is the field's lane: its bottom edge is
+    /// the keyboard guide's top (or the safe area). A view, not a
+    /// UILayoutGuide: when the keyboard guide moves, Auto Layout invalidates
+    /// the layout of views whose frames change, and only that runs
+    /// `layoutSubviews` (inside UIKit's keyboard animation), which places the
+    /// field and tells the core. A guide alone changes without a layout pass,
+    /// so the field stayed under the keyboard.
+    private let fieldLane = UIView()
     private var fieldIsSend = false
     /// The rows changed (not only the viewport): an older page, a new message.
     var onRowsChange: () -> Void = {}
@@ -47,13 +54,17 @@ final class HomeTranscriptView: UIView {
         backgroundColor = CmuxiOSDesign.HomePalette.background
         addSubview(scroll)
         addSubview(field)
-        addLayoutGuide(fieldGuide)
+        fieldLane.isHidden = true
+        fieldLane.isUserInteractionEnabled = false
+        fieldLane.isAccessibilityElement = false
+        fieldLane.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(fieldLane)
         // The field's bottom edge follows the keyboard (or the safe area).
         NSLayoutConstraint.activate([
-            fieldGuide.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: Self.fieldInset),
-            fieldGuide.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -Self.fieldInset),
-            fieldGuide.bottomAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor, constant: -Self.fieldBottom),
-            fieldGuide.heightAnchor.constraint(equalToConstant: 1),
+            fieldLane.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: Self.fieldInset),
+            fieldLane.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -Self.fieldInset),
+            fieldLane.bottomAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor, constant: -Self.fieldBottom),
+            fieldLane.heightAnchor.constraint(equalToConstant: 1),
         ])
         keyboardLayoutGuide.usesBottomSafeArea = true
 
@@ -127,14 +138,25 @@ final class HomeTranscriptView: UIView {
         // The rows keep clear of the landscape sensor housing; the field has its own guide.
         let scrollFrame = CGRect(x: safeAreaInsets.left, y: 0,
                                  width: max(1, bounds.width - safeAreaInsets.left - safeAreaInsets.right), height: bounds.height)
-        if scroll.frame != scrollFrame { scroll.frame = scrollFrame }
+        scroll.setFrameFromHost(scrollFrame)
         controller.resize(to: scrollFrame.size)
 
-        let guide = fieldGuide.layoutFrame
+        let guide = fieldLane.frame
         let height = field.preferredHeight(width: guide.width)
         let send = fieldIsSend
-        placeField(CGRect(x: guide.minX, y: guide.maxY - height, width: guide.width, height: height), send: send)
-        controller.setHostedField(fieldFrameInViewport, send: send)
+        let old = field.frame
+        let frame = CGRect(x: guide.minX, y: guide.maxY - height, width: guide.width, height: height)
+        placeField(frame, send: send)
+        if send || (old.height > 0 && old.height != frame.height) {
+            // More lines or the shrink after a send: the rows follow on the core's field spring.
+            controller.setHostedField(fieldFrameInViewport, send: send)
+        } else {
+            // The keyboard, rotation or the safe area moved the field: UIKit
+            // animates the field on its own curve (or the finger drives it
+            // during an interactive dismissal), so the rows move on the same
+            // curve: the core moves them at once and the row host plays the move.
+            followField(movedBy: controller.setHostedField(fieldFrameInViewport, animated: false))
+        }
         fieldIsSend = false
         scroll.apply(controller.scrollGeometry)
         scroll.verticalScrollIndicatorInsets = UIEdgeInsets(top: safeAreaInsets.top, left: 0,
@@ -153,6 +175,19 @@ final class HomeTranscriptView: UIView {
         } else {
             field.frame = frame
         }
+    }
+
+    /// Shows the rows `moved` points lower (where they were) and animates
+    /// them to their new place inside the current UIKit animation (the
+    /// keyboard's), or at once when there is none (an interactive drag).
+    private func followField(movedBy moved: CGFloat) {
+        guard abs(moved) > 0.01 else { return }
+        let host = scroll.rowHost
+        UIView.performWithoutAnimation {
+            host.bounds.origin.y = host.bounds.origin.y - moved
+        }
+        // motion-allow: rides the keyboard's own UIKit animation (no new timing)
+        host.bounds.origin.y = 0
     }
 
     private func send() {

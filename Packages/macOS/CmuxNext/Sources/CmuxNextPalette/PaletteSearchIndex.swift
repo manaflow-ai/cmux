@@ -2,7 +2,7 @@ public import CmuxNextActions
 
 /// The searchable text and ranking inputs of one item. Sendable, so an
 /// index can be built and searched off the main actor.
-nonisolated public struct PaletteSearchEntry: Sendable {
+nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     public var title: String
     public var keywords: [String]
     public var subtitle: String?
@@ -11,6 +11,10 @@ nonisolated public struct PaletteSearchEntry: Sendable {
     public var frecencyKey: String?
     public var isEnabled: Bool
     public var isVisibleWhenQueryEmpty: Bool
+    /// Matches only a query with this prefix (`PaletteItem.queryPrefix`).
+    public var queryPrefix: String?
+    /// Shows for an empty query only (`PaletteItem.hidesWhenTyping`).
+    public var hidesWhenTyping = false
     /// Index into the page's section table.
     public var sectionIndex: Int
 
@@ -23,6 +27,7 @@ nonisolated public struct PaletteSearchEntry: Sendable {
         frecencyKey: String? = nil,
         isEnabled: Bool = true,
         isVisibleWhenQueryEmpty: Bool = true,
+        queryPrefix: String? = nil,
         sectionIndex: Int = 0
     ) {
         self.title = title
@@ -33,6 +38,7 @@ nonisolated public struct PaletteSearchEntry: Sendable {
         self.frecencyKey = frecencyKey
         self.isEnabled = isEnabled
         self.isVisibleWhenQueryEmpty = isVisibleWhenQueryEmpty
+        self.queryPrefix = queryPrefix
         self.sectionIndex = sectionIndex
     }
 }
@@ -121,7 +127,9 @@ extension PaletteSearchEntry {
             frecencyKey: item.frecencyKey,
             isEnabled: item.isEnabled,
             isVisibleWhenQueryEmpty: visible,
+            queryPrefix: item.queryPrefix,
             sectionIndex: sectionIndex
         )
+        hidesWhenTyping = item.hidesWhenTyping
     }
 }

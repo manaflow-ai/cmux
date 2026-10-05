@@ -646,3 +646,35 @@ fn browser_repl_calls_reach_the_host_bounded_and_marked_mcp() {
     assert_eq!(list["isError"], false);
     assert_eq!(server.backend.last("browser")["mutation"], false);
 }
+
+#[test]
+fn keybinding_read_tools_call_the_app_and_refuse_bad_arguments() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    for name in ["keybinding_list", "keybinding_resolve", "context_keys"] {
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("missing {name}"));
+        assert_eq!(tool["annotations"]["readOnlyHint"], true);
+    }
+    let result =
+        call(&mut server, "keybinding_resolve", json!({"keys": "ctrl+k s", "window": "win_a"}));
+    assert_ne!(result["isError"], true, "{result}");
+    let sent = server.backend.last("app");
+    assert_eq!(sent["method"], "keybinding.resolve");
+    assert_eq!(sent["params"], json!({"keys": "ctrl+k s", "window": "win_a"}));
+    assert_eq!(sent["key"], Value::Null, "a read carries no idempotency key");
+    call(&mut server, "keybinding_list", json!({"query": "tab"}));
+    assert_eq!(server.backend.last("app")["method"], "keybinding.list");
+    call(&mut server, "context_keys", json!({}));
+    assert_eq!(server.backend.last("app")["method"], "context.keys");
+    assert_eq!(
+        call(&mut server, "keybinding_resolve", json!({}))["isError"],
+        true,
+        "keys is required"
+    );
+    assert_eq!(call(&mut server, "context_keys", json!({"nope": "x"}))["isError"], true);
+}

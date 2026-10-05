@@ -1,3 +1,4 @@
+//! (First-party test app: a third-party catalog would use its namespace family, app-platform.md 18.)
 //! App CLI commands and MCP tools (plans/cmux-next/app-commands-codemode.md
 //! sections 1 and 2): the manifest `cli.name`, app-relative `cli.path`,
 //! `cli.positional`, reserved names, and MCP tool names derived from op names.
@@ -6,7 +7,7 @@ use cmux_app_manifest::{Issue, Severity, validate_catalog, validate_manifest};
 use serde_json::{Value, json};
 
 fn manifest(extra: Value) -> Value {
-    let mut m = json!({ "manifestVersion": 2, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" }, "icon": "assets/icon.png" });
+    let mut m = json!({ "manifestVersion": 2, "id": "cmux/notes", "repository": "https://github.com/manaflow-ai/cmux", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" }, "icon": "assets/icon.png" });
     for (k, v) in extra.as_object().expect("object") {
         m[k] = v.clone();
     }
@@ -14,7 +15,7 @@ fn manifest(extra: Value) -> Value {
 }
 
 fn op(name: &str, extra: Value) -> Value {
-    let mut o = json!({ "name": name, "owner": "app:local/x", "class": "mutation", "risk": "mutate-own",
+    let mut o = json!({ "name": name, "owner": "app:cmux/notes", "class": "mutation", "risk": "mutate-own",
         "idempotency": "required",
         "input": { "type": "object", "properties": {
             "text": { "type": "string" }, "tag": { "type": "string" }, "count": { "type": "integer" },
@@ -63,6 +64,30 @@ fn a_cli_name_never_takes_a_built_in_or_reserved_word() {
             "{reserved}"
         );
     }
+}
+
+#[test]
+fn a_first_party_app_may_claim_its_mapped_reserved_word() {
+    let cloud =
+        manifest(json!({ "id": "cmux/cloud", "repository": "https://github.com/manaflow-ai/cmux",
+        "cli": { "name": "cloud" } }));
+    assert!(validate_manifest(&cloud).is_empty(), "{:?}", validate_manifest(&cloud));
+
+    let third_party =
+        manifest(json!({ "id": "alice/cloud", "repository": "https://github.com/alice/cloud",
+        "cli": { "name": "cloud" } }));
+    assert_eq!(
+        found(&validate_manifest(&third_party)),
+        vec![("/cli/name", "cli.nameReserved", Severity::Error)]
+    );
+
+    let other_first_party =
+        manifest(json!({ "id": "cmux/notes", "repository": "https://github.com/manaflow-ai/cmux",
+        "cli": { "name": "cloud" } }));
+    assert_eq!(
+        found(&validate_manifest(&other_first_party)),
+        vec![("/cli/name", "cli.nameReserved", Severity::Error)]
+    );
 }
 
 #[test]
@@ -238,4 +263,21 @@ fn the_reserved_list_covers_the_built_in_scopes() {
         assert!(is_reserved_cli_name(word), "{word}");
     }
     assert!(!is_reserved_cli_name("notes"));
+}
+
+#[test]
+fn every_first_party_mapping_names_a_reserved_word_and_a_first_party_app() {
+    use cmux_app_manifest::{first_party_cli_names, first_party_cli_owner, is_reserved_cli_name};
+    let mut count = 0;
+    for (word, app) in first_party_cli_names() {
+        assert!(is_reserved_cli_name(word), "{word} is mapped but not reserved");
+        assert!(
+            app.starts_with("cmux/") || app.starts_with("manaflow-ai/"),
+            "{word} maps to {app}, which is not a first-party app"
+        );
+        count += 1;
+    }
+    assert!(count >= 1);
+    assert_eq!(first_party_cli_owner("cloud"), Some("cmux/cloud"));
+    assert_eq!(first_party_cli_owner("workspace"), None);
 }

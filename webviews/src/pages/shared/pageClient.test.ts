@@ -29,6 +29,22 @@ describe("BridgePageClient", () => {
     expect(posted[0]).toEqual({ t: "call", id: 1, op: "cmux.history.entries.list", params: { limit: 1 } });
   });
 
+  test("decision 31: a call carries its opid and events hand the echoed opid to the listener", async () => {
+    const { client, posted, target } = host((m) =>
+      m.t === "sub" ? { t: "ok", id: m.id, value: { sub: 7 } } : { t: "ok", id: m.id, value: null },
+    );
+    await client.call("cmux.markdown.save", { text: "x" }, { opid: "p-1" });
+    expect(posted[0]).toEqual({ t: "call", id: 1, op: "cmux.markdown.save", params: { text: "x" }, opid: "p-1" });
+    const events: unknown[] = [];
+    await client.subscribe("cmux.markdown.changes", (data, seq, meta) => events.push([data, seq, meta]));
+    (target[RECEIVE_NAME] as (m: unknown) => void)({ t: "ev", sub: 7, seq: 1, data: { a: 1 }, opid: "p-1" });
+    (target[RECEIVE_NAME] as (m: unknown) => void)({ t: "ev", sub: 7, seq: 2, data: { a: 2 } });
+    expect(events).toEqual([
+      [{ a: 1 }, 1, { opid: "p-1" }],
+      [{ a: 2 }, 2, {}],
+    ]);
+  });
+
   test("err replies reject with the code and retryable flag", async () => {
     const { client } = host((m) => ({
       t: "err",
@@ -40,6 +56,22 @@ describe("BridgePageClient", () => {
     const error = await client.call("x", {}).catch((e) => e);
     expect(isPageError(error)).toBe(true);
     expect(error).toMatchObject({ code: "cmux.history.not_found", message: "gone", retryable: false });
+  });
+
+  test("err replies keep the host's details", async () => {
+    const { client } = host((m) => ({
+      t: "err",
+      id: m.id,
+      code: "operation.failed",
+      message: "no",
+      details: { origin: "session_host", details: { exit_code: 128 } },
+    }));
+    const error = await client.call("x", {}).catch((e) => e);
+    expect((error as { details?: unknown }).details).toEqual({ origin: "session_host", details: { exit_code: 128 } });
+    const plain = await host((m) => ({ t: "err", id: m.id, code: "c", message: "m" }))
+      .client.call("x", {})
+      .catch((e) => e);
+    expect((plain as { details?: unknown }).details).toBeUndefined();
   });
 
   test("a failed post is a retryable transport error; a malformed reply is invalid_result", async () => {

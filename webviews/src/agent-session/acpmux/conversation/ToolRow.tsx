@@ -2,7 +2,7 @@
 // output, Shell block or diff below once opened.
 import { useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
@@ -33,6 +33,7 @@ export function toolIcon(kind?: string): ReactNode {
 /// shell call opens to its Shell block, with the command line even before any output, and an
 /// edit opens to its diff.
 export function ToolRow({ item }: { item: AcpmuxActivity }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
@@ -77,7 +78,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         !shell &&
         (files.length
           ? files.map((file) => <EditDiff key={file.path} file={file} />)
-          : body && <pre className="cv-tool-output">{body}</pre>)}
+          : body && <pre className="cv-tool-output selectable">{body}</pre>)}
     </>
   );
 }

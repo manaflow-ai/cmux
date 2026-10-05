@@ -77,6 +77,15 @@ public final class HomeViewController: UIViewController {
         list.refreshVisibleContent()
     }
 
+    /// First responder while nothing else is (no field editing), so the
+    /// hardware key commands work without a tap first.
+    override public var canBecomeFirstResponder: Bool { true }
+
+    override public func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if !searchController.isActive { becomeFirstResponder() }
+    }
+
     // MARK: Rendering
 
     /// Reads every store property Home depends on; `StoreObservation`
@@ -133,6 +142,32 @@ public final class HomeViewController: UIViewController {
         // Pull down to reveal; the list owns the screen until then.
         navigationItem.hidesSearchBarWhenScrolling = true
         definesPresentationContext = true
+    }
+
+    // MARK: Hardware keyboard (plans/cmux-next/ios-keyboard.md K5)
+
+    /// Cmd-F searches and Cmd-N starts a new message: the same actions as
+    /// pulling down the search field and the compose menu's New Message.
+    /// Listed in the Command-key overlay; inactive while offline (as the buttons).
+    override public var keyCommands: [UIKeyCommand]? {
+        var commands = [UIKeyCommand(title: HomeText.searchCommand, action: #selector(searchCommand), input: "f",
+                                     modifierFlags: .command)]
+        if store.isOnline {
+            commands.append(UIKeyCommand(title: HomeText.newMessage, action: #selector(newMessageCommand), input: "n",
+                                         modifierFlags: .command))
+        }
+        return commands
+    }
+
+    @objc private func searchCommand() {
+        guard navigationController?.topViewController === self else { return }
+        searchController.isActive = true
+        searchController.searchBar.becomeFirstResponder()
+    }
+
+    @objc private func newMessageCommand() {
+        guard store.isOnline else { return }
+        compose.start(.newMessage)
     }
 
     // MARK: Navigation

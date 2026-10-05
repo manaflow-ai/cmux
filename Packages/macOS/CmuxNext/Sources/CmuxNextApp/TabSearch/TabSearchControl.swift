@@ -19,11 +19,12 @@ nonisolated enum TabSearchControl {
     static let maximumLimit = 500
 
     static func methods() -> [ControlMethod] {
-        [
-            .snapshot("tabs.search") { call in
+        let ranker = TabSearchRanker()
+        return [
+            ControlMethod.snapshot("tabs.search") { call in
                 let (query, limit, closed) = try parameters(call.params)
                 let entries = TabSearchEntries.entries(call.snapshot.topology, call.snapshot.tabSearch)
-                let matches = TabSearchRanker.search(entries, query: query, includeClosed: closed, limit: limit, now: Date())
+                let matches = ranker.search(entries, query: query, includeClosed: closed, limit: limit, now: Date())
                 return .object(["tabs": .array(matches.map(json))])
             },
         ]

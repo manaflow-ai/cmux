@@ -15,11 +15,11 @@ import Testing
 
     @Test func aStoredRailLayoutBecomesTheSectionsDefaults() throws {
         let stored = SidebarLayoutDocument(revision: 7, sections: rail.sections)
-        let ops = stored.sectionsMigrationOps
+        let ops = stored.layoutMigrationOps
         #expect(!ops.isEmpty)
         let migrated = try apply(ops, to: stored)
-        #expect(migrated.sections == SidebarLayoutDocument.defaults.sections)
-        #expect(stored.sectionsMigration.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(migrated.sections == SidebarLayoutDocument.migrationTarget.sections)
+        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
         // Moves keep item ids: Settings is the same item, back at the bottom.
@@ -44,10 +44,10 @@ import Testing
 
     /// The sections defaults need nothing, so migrating twice is the same as once.
     @Test func theDefaultsNeedNoMigration() {
-        #expect(SidebarLayoutDocument.defaults.sectionsMigrationOps.isEmpty)
-        let once = rail.sectionsMigration
-        #expect(once.sectionsMigrationOps.isEmpty)
-        #expect(once.sectionsMigration == once)
+        #expect(SidebarLayoutDocument.defaults.layoutMigrationOps.isEmpty)
+        let once = rail.layoutMigration
+        #expect(once.layoutMigrationOps.isEmpty)
+        #expect(once.layoutMigration == once)
     }
 }
 
@@ -56,8 +56,8 @@ import Testing
 @Suite struct SidebarGridBottomMigrationTests {
     @Test func theInlineBottomDefaultBecomesTheGridRow() {
         let stored = SidebarLayoutDocument(revision: 4, sections: SidebarLayoutDocument.inlineBottomDefaults.sections)
-        #expect(stored.sectionsMigration.sections == SidebarLayoutDocument.defaults.sections)
-        #expect(stored.sectionsMigration.sectionsMigrationOps.isEmpty)
+        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
+        #expect(stored.layoutMigration.layoutMigrationOps.isEmpty)
     }
 
     @Test func aCustomizedInlineBottomIsKept() throws {

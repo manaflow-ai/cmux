@@ -25,7 +25,13 @@ extension TabDragSession {
         let daemon = drag.source.pane.map { services.machines.daemon(forPane: $0.pane) }
         let dropWindow = drag.winner?.window ?? drag.source.window
         commitsInFlight.insert(transaction)
+        let refusalsBefore = services.refusalHUD.shownCount
         let settle: @MainActor (Bool) -> Void = { [weak self] ok in
+            // A move that did not land says why: the layer that refused
+            // already did, else the generic reason (never a silent revert).
+            if !ok, outcome != .cancel, let self, self.services.refusalHUD.shownCount == refusalsBefore {
+                self.services.registry.refuse(TabDropStrings.failed)
+            }
             let end: @MainActor () -> Void = { [weak self] in
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
@@ -39,7 +45,7 @@ extension TabDragSession {
         switch drag.source.item {
         case .tab(let id):
             guard let (tab, _) = services.locateTab(id) else {
-                // A session-local tab (an agent pane) is not a daemon tab
+                // A session-local tab (an internal page) is not a daemon tab
                 // and cannot move; say so instead of snapping back silently.
                 if outcome != .cancel { services.registry.refuse(RefusalStrings.sessionLocalTab(id)) }
                 return settle(false)
@@ -57,7 +63,7 @@ extension TabDragSession {
                             transaction: ClientTransactionID, settle: @escaping @MainActor (Bool) -> Void) {
         switch outcome {
         case .strip(let stripID, let index, let groupID):
-            guard let pane = paneController(stripID: stripID) else { return settle(false) }
+            guard let pane = paneController(stripID: stripID) else { return gone(settle) }
             let paneIndex = StripOrder.paneIndex(forDisplayIndex: index, moving: StripTabID(tab.id), in: pane)
             TabMoves.move(tab, to: pane.pane, index: paneIndex, services: services, transaction: transaction) { [weak pane] ok in
                 if ok {
@@ -69,19 +75,21 @@ extension TabDragSession {
                 settle(ok)
             }
         case .newSplit(let paneID, let edge):
-            guard let pane = paneModel(id: paneID) else { return settle(false) }
+            guard let pane = paneModel(id: paneID) else { return gone(settle) }
             // The tab's own pane with its only tab: the owner spawns a fresh
             // tab of the same kind there in the same op.
             let respawn = liveContext(drag).splitRespawns(pane: paneID) ? TabMoves.respawn(for: tab, in: pane, services: services) : nil
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, respawn: respawn, transaction: transaction,
-                                completion: settle)
+            // The preview decided split or new column with the same room
+            // rule (`LayoutTabDropTarget.removingPane`); run that decision.
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, respawn: respawn, roomDecided: true,
+                                transaction: transaction, completion: settle)
         case .newColumn(let screenID, let after):
-            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return settle(false) }
+            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return gone(settle) }
             TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: column, services: services, transaction: transaction, completion: settle)
         case .newDock(let screenID, let edge):
             guard let anchor = screenAnchor(screenID: screenID, in: dropWindow),
-                  let edge = CmuxNextLayout.StickyEdge(rawValue: edge) else { return settle(false) }
-            TabMoves.toNewStickyColumn(tab, anchor: anchor, edge: edge, services: services, transaction: transaction, completion: settle)
+                  let edge = CmuxNextLayout.DockEdge(rawValue: edge) else { return gone(settle) }
+            TabMoves.toNewDockColumn(tab, anchor: anchor, edge: edge, services: services, transaction: transaction, completion: settle)
         case .newWorkspace:
             // Made unplaced, then put at the gap by the sidebar's own path
             // (personal order, or move-workspace-to-group at the slot).
@@ -93,7 +101,7 @@ extension TabDragSession {
                 settle(key != nil)
             }
         case .workspace(let id):
-            guard let workspace = services.workspace(id: id) else { return settle(false) }
+            guard let workspace = services.workspace(id: id) else { return gone(settle) }
             drag.landedWorkspaceID = id
             TabMoves.toWorkspace(tab, workspace: workspace, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
@@ -113,20 +121,22 @@ extension TabDragSession {
                               transaction: ClientTransactionID, settle: @escaping @MainActor (Bool) -> Void) {
         switch outcome {
         case .strip(let stripID, let index, _):
-            guard let pane = paneController(stripID: stripID) else { return settle(false) }
+            guard let pane = paneController(stripID: stripID) else { return gone(settle) }
             TabGroupMoves.move(group, to: pane.pane, index: index, services: services, transaction: transaction) { [weak pane] ok in
                 if !ok { pane?.resyncStrip() }
                 settle(ok)
             }
         case .newSplit(let paneID, let edge):
-            guard let pane = paneModel(id: paneID) else { return settle(false) }
-            TabGroupMoves.toNewSplit(group, pane: pane, edge: edge.paneEdge, services: services, transaction: transaction, completion: settle)
+            guard let pane = paneModel(id: paneID) else { return gone(settle) }
+            TabGroupMoves.toNewSplit(group, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true, transaction: transaction,
+                                     completion: settle)
         case .newColumn(let screenID, let after):
-            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return settle(false) }
+            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return gone(settle) }
             TabGroupMoves.toNewColumn(group, anchor: anchor, afterColumn: column, services: services, transaction: transaction,
                                       completion: settle)
         case .newDock:
-            // A tab group has no dock move yet; the group springs back.
+            // A tab group has no dock move yet: the resolver refuses it with
+            // its reason (`TabDropRefusal.groupDock`), so this never runs.
             settle(false)
         case .newWorkspace:
             let slot = gapSlot(drag)
@@ -138,7 +148,7 @@ extension TabDragSession {
             }
         case .workspace(let id):
             // Into the workspace's first pane, after its tabs.
-            guard let pane = services.workspace(id: id)?.screens.first?.panes.first else { return settle(false) }
+            guard let pane = services.workspace(id: id)?.screens.first?.panes.first else { return gone(settle) }
             drag.landedWorkspaceID = id
             TabGroupMoves.move(group, to: pane, index: pane.tabs.count, services: services, transaction: transaction, completion: settle)
         case .tearOff(let point):
@@ -165,6 +175,13 @@ extension TabDragSession {
     }
 
     // MARK: Lookup
+
+    /// The target the preview showed is gone (closed, or the workspace
+    /// switched) by the time the drop commits: says so and fails the move.
+    func gone(_ settle: @MainActor (Bool) -> Void) {
+        services.registry.refuse(TabDropStrings.targetGone)
+        settle(false)
+    }
 
     /// The sidebar gap or collapsed group the drag was dropped on.
     func gapSlot(_ drag: Drag) -> WorkspaceSlot? {

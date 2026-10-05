@@ -9,6 +9,31 @@ import os
 /// reach the tab on a later main-queue pass than the CEF callback, so the
 /// load here does not re-enter Chromium.
 enum CEFAgentURLGuard {
+    /// Bit 2 of `cmux_shim_set_navigation_guard`: the shim cancels a main-frame
+    /// navigation to a refused page before it commits (OnBeforeBrowse). The
+    /// after-commit `leave` below stays as the last line.
+    static let shimAgentBit: Int32 = 4
+
+    static func shimGuardMode(_ store: BrowserNavigationGuard, agentDriven: Bool) -> Int32 {
+        store.rawValue | (agentDriven ? shimAgentBit : 0)
+    }
+
+    /// Applied when the browser attaches (before any pending load) and when
+    /// the tab becomes agent-driven.
+    static func applyShimGuard(_ tab: CEFTab) {
+        guard let browser = tab.browserID else { return }
+        let mode = shimGuardMode(tab.navigationGuard, agentDriven: tab.isAgentDriven)
+        if mode != 0 { tab.runtime.shim?.setNavigationGuard(browser, mode) }
+    }
+
+    /// The URL a new browser is created with. Its first navigation starts
+    /// before the guard can be set, so an agent-driven tab never starts on
+    /// a refused page.
+    static func creationURL(_ pending: URL?, agentDriven: Bool) -> String {
+        guard let pending else { return BrowserNewTabPage.blankURL }
+        return agentDriven && AgentURLPolicy.refuses(pending) ? BrowserNewTabPage.blankURL : pending.absoluteString
+    }
+
     static func check(_ tab: CEFTab, after event: CEFShimEvent) {
         switch event {
         case .loadStart(_, let url), .address(_, let url): leave(tab, URL(string: url))

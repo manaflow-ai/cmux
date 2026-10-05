@@ -23,11 +23,24 @@ use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
+mod call;
+mod keybinding;
 mod run;
+mod settings;
 
 /// Scopes that belong to the app, whatever follows.
-pub(super) const APP_SCOPES: &[&str] =
-    &["app", "action", "settings", "window", "events", "history", "bookmark", "accounts", "open"];
+pub(super) const APP_SCOPES: &[&str] = &[
+    "app",
+    "action",
+    "settings",
+    "window",
+    "events",
+    "history",
+    "bookmark",
+    "accounts",
+    "open",
+    "keybinding",
+];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
 /// that waits for its work may wait for a terminal to start (6 s) or for a
@@ -60,9 +73,24 @@ pub(super) struct OpenRequest {
 
 #[derive(Debug, PartialEq)]
 pub(super) enum AppCommand {
-    Call { method: &'static str, params: Value, timeout: Duration, pick: Option<&'static str> },
-    Open { requests: Vec<OpenRequest> },
-    Events { params: Value },
+    /// `timeout: None` waits until the app answers (a person at a sheet).
+    Call {
+        method: &'static str,
+        params: Value,
+        timeout: Option<Duration>,
+        pick: Option<&'static str>,
+    },
+    Open {
+        requests: Vec<OpenRequest>,
+    },
+    /// `app call`: one method of a debug build (app/call.rs).
+    DebugCall {
+        method: String,
+        params: Map<String, Value>,
+    },
+    Events {
+        params: Value,
+    },
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -79,17 +107,23 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     }
     let messages = &crate::localization::catalog().app_control;
     let rest = &args[1..];
-    let call =
-        |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
+    let call = |method, params| AppCommand::Call {
+        method,
+        params,
+        timeout: Some(READ_TIMEOUT),
+        pick: None,
+    };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
         ("open", _) => parse_open(rest)?,
+        ("keybinding", _) => keybinding::parse(rest)?,
+        ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
-            timeout: READ_TIMEOUT,
+            timeout: Some(READ_TIMEOUT),
             pick: Some("windows"),
         },
         ("action", Some("list")) => {
@@ -115,21 +149,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             };
             run_action(id, tail, ActionName::Any)?
         }
-        ("settings", Some("get")) => match &rest[1..] {
-            [] => call("settings.get", json!({})),
-            [path] => call("settings.get", json!({ "path": path })),
-            _ => return Err(UsageError::new(messages.settings_usage)),
-        },
-        ("settings", Some("set")) => {
-            let [path, value] = positional::<2>(&rest[1..], messages.settings_usage)?;
-            // A JSON value when it parses as one, else the literal string.
-            let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-            call("settings.set", json!({ "path": path, "value": value }))
-        }
-        ("settings", Some("unset")) => {
-            let [path] = positional::<1>(&rest[1..], messages.settings_usage)?;
-            call("settings.unset", json!({ "path": path }))
-        }
+        ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
         // The app's durable page, location, closed and agent history
         // (plans/cmux-next/history.md): `history list|search`.
         ("history", Some(verb @ ("list" | "search"))) => {
@@ -456,7 +476,7 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     Ok(AppCommand::Call {
         method,
         params: Value::Object(params),
-        timeout: READ_TIMEOUT,
+        timeout: Some(READ_TIMEOUT),
         pick: None,
     })
 }
@@ -531,7 +551,7 @@ pub(super) fn run_action(
     Ok(AppCommand::Call {
         method: "action.run",
         params: Value::Object(params),
-        timeout: if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT },
+        timeout: Some(if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT }),
         pick: None,
     })
 }
@@ -539,7 +559,13 @@ pub(super) fn run_action(
 pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
     match run_command(global, command) {
         Ran::Done(code) => code,
-        Ran::NoSuchCliAction(scope) => {
+        Ran::NoSuchCliAction { name, .. }
+            if super::action_hint::non_verb_action(&name).is_some() =>
+        {
+            super::action_hint::report(&name, global.output)
+                .unwrap_or(super::action_hint::EXIT_CODE)
+        }
+        Ran::NoSuchCliAction { scope, .. } => {
             let messages = &crate::localization::catalog().app_control;
             failure(
                 "usage.invalid",
@@ -560,14 +586,18 @@ pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -
     let mut stream = connect(&socket).ok()?;
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
-        Ran::NoSuchCliAction(_) => None,
+        Ran::NoSuchCliAction { .. } => None,
     }
 }
 
 enum Ran {
     Done(i32),
-    /// The app ran nothing: no action marked for the CLI has this name.
-    NoSuchCliAction(String),
+    /// The app ran nothing: no action marked for the CLI has this name
+    /// (`scope` is its first word).
+    NoSuchCliAction {
+        scope: String,
+        name: String,
+    },
 }
 
 fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
@@ -588,6 +618,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Events { params } => {
             return Ran::Done(stream_events(stream, params, global.output));
         }
+        AppCommand::DebugCall { method, params } => {
+            return Ran::Done(call::run(global, stream, &method, params));
+        }
         AppCommand::Open { requests } => {
             let mut status = 0;
             for request in requests {
@@ -597,7 +630,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                     AppCommand::Call {
                         method: request.method,
                         params: request.params,
-                        timeout: READ_TIMEOUT,
+                        timeout: Some(READ_TIMEOUT),
                         pick: None,
                     },
                 ) {
@@ -620,6 +653,18 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         None
     };
     let report = super::wire::KeyReport::new(key.as_deref());
+    // An open-ended wait ends on Ctrl-C: the CLI's signal handlers would only
+    // set a flag that a blocking read never sees, so give SIGINT, SIGTERM and
+    // SIGHUP their default action back (the app's own deadline still ends it).
+    #[cfg(unix)]
+    if timeout.is_none() && crate::restore_default_termination_signals().is_err() {
+        return Ran::Done(130);
+    }
+    if output_shows_notes(global.output)
+        && let Some(note) = settings::waiting_note(method, &params)
+    {
+        eprintln!("{note}");
+    }
     let response = match request_with_retry(stream, method, &params, timeout) {
         Ok(response) => response,
         Err(error) => {
@@ -639,16 +684,23 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
         Err(error) if cli_name && error_code(&error) == Some("not_found") => {
-            let scope = params["action"].as_str().unwrap_or_default();
-            Ran::NoSuchCliAction(scope.split(' ').next().unwrap_or_default().to_owned())
+            let name = params["action"].as_str().unwrap_or_default().to_owned();
+            let scope = name.split(' ').next().unwrap_or_default().to_owned();
+            Ran::NoSuchCliAction { scope, name }
         }
         Err(mut error) => {
+            settings::explain_refusal(method, &params, &mut error);
             report.annotate(&mut error, global.output);
             let code = super::wire::print_local_error(&error, global.output, 1);
             report.finish(global.output);
             Ran::Done(code)
         }
     }
+}
+
+/// Progress notes go to stderr for a person, never in JSON or quiet output.
+fn output_shows_notes(output: OutputMode) -> bool {
+    output == OutputMode::Human
 }
 
 fn error_code(error: &Value) -> Option<&str> {
@@ -707,15 +759,27 @@ fn with_read_barrier(mut params: Value) -> Value {
     params
 }
 
+/// `timeout: None` reads until the app answers or closes the connection.
 pub(super) fn request(
     stream: &mut UnixStream,
     method: &str,
     params: Value,
-    timeout: Duration,
+    timeout: impl Into<Option<Duration>>,
 ) -> Result<Result<Value, Value>, String> {
-    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(params) });
+    exchange(stream, method, with_read_barrier(params), timeout)
+}
+
+/// One request with exactly `params` (no read barrier) and its response.
+fn exchange(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: impl Into<Option<Duration>>,
+) -> Result<Result<Value, Value>, String> {
+    let timeout = timeout.into();
+    let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
-    stream.set_read_timeout(Some(timeout)).map_err(|error| error.to_string())?;
+    stream.set_read_timeout(timeout).map_err(|error| error.to_string())?;
     let mut reader = BufReader::new(
         stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
     );
@@ -730,10 +794,10 @@ pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), St
     stream.write_all(&bytes).map_err(|error| error.to_string())
 }
 
-fn read_error(error: &std::io::Error, timeout: Duration) -> String {
+fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
     let messages = &crate::localization::catalog().app_control;
-    match error.kind() {
-        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
+    match (error.kind(), timeout) {
+        (std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut, Some(timeout)) => {
             messages.timeout.replace("{seconds}", &timeout.as_secs().to_string())
         }
         _ => error.to_string(),

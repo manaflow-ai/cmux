@@ -61,9 +61,13 @@ enum RoomHandlers {
             let room = try context.room(invocation)
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
-            } else if let window = context.activeWindow?.window {
-                RenamePrompt.run(title: RoomStrings.iconTitle, initial: room.icon ?? "", in: window) { icon in
-                    update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
+            } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
+                context.services.iconPicker.pick(current: room.icon, target: "space:\(room.id.rawValue)", at: anchor) { result in
+                    switch result {
+                    case .set(let icon): update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
+                    case .clear: update(room.id, context) { try await $0.updateProfile($1, icon: .clear) }
+                    case .cancel: break
+                    }
                 }
             } else {
                 throw ActionFailure.invalidTarget(RoomStrings.iconArgumentRequired)
@@ -114,7 +118,10 @@ enum RoomHandlers {
         RoomMoveHandlers.bind(bind, context: context)
     }
 
-    private static func create(invocation: ActionInvocation, _ context: AppActionContext) throws {
+    /// A new space with the next free color; the active window enters it
+    /// (`enter`, else a switch that opens a new terminal workspace there).
+    static func create(invocation: ActionInvocation, _ context: AppActionContext, action: ActionID = "space.new",
+                       enter: (@MainActor @Sendable (ProfileID, WindowState) -> Void)? = nil) throws {
         let store = context.services.machines.local.store
         let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? RoomStrings.defaultName(store.profileIDs.count + 1)
         let used = Set(store.profiles.compactMap(\.color))
@@ -128,13 +135,15 @@ enum RoomHandlers {
         let id = ProfileID.generate()
         let services = context.services
         services.registry.track(Task {
-            guard let connection = services.machines.local.connection else { return ActionWorkFailure("space.new", DaemonError.notConnected) }
+            guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {
                 _ = try await connection.createProfile(name: name, id: id, color: color.rawValue, icon: icon, browserProfileID: browser)
-                if let active, let state = services.windows.states[active.id] { services.windows.switchProfile(id, in: state) }
+                if let active, let state = services.windows.states[active.id] {
+                    if let enter { enter(id, state) } else { services.windows.switchProfile(id, in: state) }
+                }
                 return nil
             } catch {
-                return ActionWorkFailure("space.new", error)
+                return ActionWorkFailure(action.rawValue, error)
             }
         })
     }

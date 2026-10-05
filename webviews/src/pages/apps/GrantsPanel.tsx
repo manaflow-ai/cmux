@@ -1,7 +1,7 @@
 // An installed app's grants: Run sandboxed, and one Allowed switch per scope with the app's reason.
 // A revoke takes effect on the app's next call; a grant asks the host for a native confirmation.
 import type { Strings } from "../shared/i18n";
-import { dimmedWhenSandboxed, orderScopes } from "./model";
+import { dimmedWhenSandboxed, orderScopes, RiskLabel } from "./model";
 import { Badge, Switch } from "./parts";
 import type { AppsStore } from "./store";
 import type { Grants } from "./types";
@@ -26,9 +26,10 @@ export function GrantsPanel({ grants, store, strings }: { grants: Grants; store:
           <div className="apps-grant-text">
             <span className="apps-grant-title">
               <code>{row.scope}</code>
+              {row.risk !== "standard" && <Badge text={t(RiskLabel[row.risk])} />}
               {row.optional && <Badge text={t("store.detail.optional")} />}
             </span>
-            <span className="apps-muted">{row.reason}</span>
+            <span className="apps-muted selectable">{row.reason}</span>
           </div>
           <Switch
             on={row.granted}

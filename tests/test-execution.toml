@@ -293,6 +293,10 @@ path = "tests/test_ci_package_lane_ghostty_sha.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_lane_suite.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
 
@@ -974,4 +978,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_presign.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_version.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_vendored_cmux_agent_cursor.py"
 lane = "linux-guard"

@@ -61,7 +61,8 @@ export const fanOutItems = (fan: FanOut, inviterName: string | undefined, kind: 
       entity: `bump:${bump.conversation}:${bump.rev}`,
       // `user` binds the UserDO inbox to its owner on the first bump (inbox/domain.ts).
       payload: bump,
-      target: { class: "UserDO", name: user, coalesce: `bump:${bump.conversation}` }
+      // An approval bump is never superseded: a later bump would drop the fact that notifies through mute.
+      target: { class: "UserDO", name: user, ...(bump.last_approval ? {} : { coalesce: `bump:${bump.conversation}` }) }
     })
   }
   for (const wake of fan.wakes) {

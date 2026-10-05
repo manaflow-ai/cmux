@@ -6,13 +6,18 @@ import CmuxNextSettings
 import Foundation
 
 /// The app's native UI ops for React pages (plans/cmux-next/react-pages.md 1.3):
-/// `cmux.app.action.run` runs one of the page's allowed registry actions with origin `user` (the
-/// page is a user surface; the action's own rules, such as destructive confirmation, still
-/// apply), and `cmux.app.clipboard.write` writes the pasteboard.
+/// `cmux.app.action.run` runs one of the page's allowed registry actions with origin `page` (never
+/// `user` unless a native sheet confirmed it, so rules such as destructive confirmation still
+/// ask), and `cmux.app.clipboard.write` writes the pasteboard.
 @MainActor
 final class AppPageNativeProvider: PageProvider {
     private unowned let services: AppServices
     private let page: PageDescriptor
+    /// Runs a confirmed namespace op on the provider that owns its namespace.
+    var forward: (@MainActor (_ op: String, _ params: CmuxNextSettings.JSONValue, _ context: PageCallContext) async throws -> CmuxNextSettings.JSONValue)?
+    var presenter: any PageConfirmationPresenter = DialogPageConfirmationPresenter()
+    /// The page view the sheet attaches to.
+    var anchor: () -> NSView? = { nil }
 
     init(services: AppServices, page: PageDescriptor) {
         self.services = services
@@ -22,12 +27,23 @@ final class AppPageNativeProvider: PageProvider {
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         switch op {
         case PageNativeOp.actionRun:
+            if let name = params["action"]?.stringValue, let kind = page.confirmedOps[name] {
+                return try await runConfirmed(name, kind: kind, args: params["args"] ?? .object([:]), context: context)
+            }
             guard let name = params["action"]?.stringValue, page.actions.contains(name) else {
                 throw PageError(code: "cmux.app.action_refused", message: "\(params["action"]?.stringValue ?? "") is not an action of this page")
             }
             let id = ActionID(rawValue: name)
-            let invocation = ActionInvocation(arguments: Self.arguments(params["args"], for: services.registry.descriptor(for: id)),
-                                              origin: .user)
+            // `target` is the CLI form `kind:id` (a browser profile row: `browser-profile:<id>`).
+            var target: ActionTargetRef?
+            if let text = params["target"]?.stringValue {
+                guard let parsed = ActionTargetRef(parsing: text) else { throw PageError.invalidParams("target must be kind:id") }
+                target = parsed
+            }
+            // A page control is not the user's own gesture (origin `page`): rules that need the user
+            // (destructive confirmation) still ask. The click may change the view it was made in.
+            let invocation = ActionInvocation(target: target, arguments: Self.arguments(params["args"], for: services.registry.descriptor(for: id)),
+                                              origin: context.isConfirmedUser ? .user : .page, focusRequested: true)
             return ["ran": .bool(services.registry.perform(id, invocation: invocation))]
         case PageNativeOp.clipboardWrite:
             guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
@@ -37,6 +53,18 @@ final class AppPageNativeProvider: PageProvider {
         default:
             throw PageError.unknownOp(op)
         }
+    }
+
+    /// A confirmed op (``PageDescriptor/confirmedOps``): the native sheet, then the op as the user's
+    /// own on the namespace's provider. A declined sheet answers `{confirmed: false}` (the Cloud
+    /// page's contract), an approved one `{confirmed: true, value}`.
+    private func runConfirmed(_ op: String, kind: PageConfirmation.Kind, args: CmuxNextSettings.JSONValue,
+                              context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+        guard let forward else { throw PageError.unknownOp(op) }
+        let labels = (args.objectValue ?? [:]).compactMapValues(\.stringValue)
+        guard await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor()) else { return ["confirmed": false] }
+        let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true, opid: context.opid))
+        return ["confirmed": true, "value": value]
     }
 
     /// The page's `args` object as typed action arguments, by the descriptor's schema.
@@ -72,18 +100,26 @@ final class DaemonPageRelay: PageProvider {
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op.hasPrefix("cmux.") else { throw PageError.unknownOp(op) }
-        guard let connection = services.machines.local.connection else {
+        guard services.machines.local.connection != nil else {
             throw PageError.closed
         }
         var members = params.objectValue ?? [:]
-        let key = members.removeValue(forKey: "idempotency_key")?.stringValue
+        let key = Self.idempotencyKey(members.removeValue(forKey: "idempotency_key")?.stringValue, context: context)
         do {
-            let result = try await ResourceRelayClient(connection: connection).send(
-                operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key)
+            // The page relay connection: origin `page`, or the user with a native-sheet token.
+            let result = try await PageRelayChannel.shared(for: services.machines.local).send(
+                operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key,
+                context: context)
             return try Self.pageValue(result)
         } catch let error as DaemonError {
             throw Self.pageError(error)
         }
+    }
+
+    /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend
+    /// after a reconnect replays the daemon's first answer instead of applying twice.
+    static func idempotencyKey(_ explicit: String?, context: PageCallContext) -> String? {
+        explicit ?? context.opid
     }
 
     static func daemonParams(_ members: [String: CmuxNextSettings.JSONValue]) throws -> [String: CmuxNextDaemon.JSONValue] {
@@ -111,20 +147,17 @@ final class DaemonPageRelay: PageProvider {
     }
 }
 
-extension AppServices {
-    /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
-    /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
-    func historyWebPage() -> PageWebView? {
-        guard PageTunables.history.value == .web,
-              let page = PageWebView(descriptor: .history, routes: pageRoutes(for: .history)) else { return nil }
-        PageConnectionWatch(page: page, store: machines.local.store).start()
-        return page
+/// A namespace whose owner is not running yet: every call answers `code` (the page shows "Not
+/// available yet" for it, never an error banner).
+@MainActor
+final class UnavailablePageProvider: PageProvider {
+    private let code: String
+
+    init(code: String) {
+        self.code = code
     }
 
-    /// The routes of `page`: its namespaces to the daemon relay, `cmux.app.` to the native ops.
-    func pageRoutes(for page: PageDescriptor) -> [PageRoute] {
-        let relay = DaemonPageRelay(services: self)
-        return page.namespaces.map { PageRoute(prefix: $0, provider: relay) }
-            + [PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: self, page: page))]
+    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+        throw PageError(code: code, message: "\(op) is not available yet")
     }
 }

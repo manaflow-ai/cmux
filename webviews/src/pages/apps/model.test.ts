@@ -5,6 +5,8 @@ import {
   dimmedWhenSandboxed,
   filterApps,
   initials,
+  isRemovable,
+  listedInStore,
   matches,
   orderScopes,
   parseRoute,
@@ -46,28 +48,43 @@ describe("search and categories (Swift AppStoreListing.matches)", () => {
 });
 
 describe("permissions", () => {
-  test("required before optional, then the riskiest first", () => {
+  test("required before optional, then restricted, sensitive, standard", () => {
     const ordered = orderScopes([
-      { scope: "b:read", risk: "read", optional: false },
-      { scope: "net:x", risk: "network", optional: true },
-      { scope: "a:write", risk: "mutate", optional: false },
-      { scope: "integration:y", risk: "integration", optional: false },
+      { scope: "b:read", risk: "standard", optional: false },
+      { scope: "net:x", risk: "restricted", optional: true },
+      { scope: "a:write", risk: "sensitive", optional: false },
+      { scope: "terminal:input", risk: "restricted", optional: false },
     ] as const);
-    expect(ordered.map((scope) => scope.scope)).toEqual(["integration:y", "a:write", "b:read", "net:x"]);
+    expect(ordered.map((scope) => scope.scope)).toEqual(["terminal:input", "a:write", "b:read", "net:x"]);
   });
 
   test("network and integration rows dim while sandboxed", () => {
-    expect(dimmedWhenSandboxed({ scope: "net:a", reason: "", risk: "network", optional: false, granted: true })).toBe(
-      true,
-    );
-    expect(
-      dimmedWhenSandboxed({ scope: "workspace:read", reason: "", risk: "read", optional: false, granted: true }),
-    ).toBe(false);
+    const row = (scope: string) => ({ scope, reason: "", risk: "standard" as const, optional: false, granted: true });
+    expect(dimmedWhenSandboxed(row("net:a"))).toBe(true);
+    expect(dimmedWhenSandboxed(row("integration:b"))).toBe(true);
+    expect(dimmedWhenSandboxed(row("workspace:read"))).toBe(false);
   });
 
   test("glyph initials", () => {
     expect(initials("GitHub PRs")).toBe("GP");
     expect(initials("Caffeinate")).toBe("CA");
     expect(initials(" ")).toBe("?");
+  });
+});
+
+describe("first-party apps (FIRST-PARTY-APPS)", () => {
+  test("the store never lists itself", () => {
+    const all = Object.values(sampleApps().details) as CatalogApp[];
+    expect(all.some((app) => app.id === "cmux/app-store")).toBe(true);
+    expect(all.filter(listedInStore).map((app) => app.id)).not.toContain("cmux/app-store");
+    expect(all.filter(listedInStore).length).toBe(all.length - 1);
+  });
+
+  test("first-party apps are hidable, never removable", () => {
+    expect(isRemovable({ tier: "first-party" })).toBe(false);
+    expect(isRemovable({ tier: "verified" })).toBe(true);
+    expect(isRemovable({ tier: "unverified" })).toBe(true);
+    // An owner that does not send a tier yet: removable, the owner still refuses first-party ids.
+    expect(isRemovable({})).toBe(true);
   });
 });

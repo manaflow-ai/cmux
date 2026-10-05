@@ -8,7 +8,8 @@ public import Foundation
 ///
 /// Rules every page gets here, so no provider repeats them:
 /// - only ops and streams the descriptor admits reach a provider; the rest is `unknown_op`;
-/// - params must be an object; an `origin` the page sends is refused (the host stamps `user`);
+/// - params must be an object; an `origin` or a confirmation the page sends is refused (the host
+///   stamps `page`; only a native confirmation sheet makes a call the user's);
 /// - events of one subscription are numbered from 1; an unsubscribe or ``close()`` cancels.
 @MainActor
 public final class PageRouter {
@@ -49,7 +50,14 @@ public final class PageRouter {
         case "call":
             guard let op = message["op"]?.stringValue else { return Self.error(id: id, .invalidParams("missing op")) }
             do {
-                let value = try await call(op, params: message["params"] ?? .object([:]))
+                var opid: String?
+                if let raw = message["opid"] {
+                    guard let text = raw.stringValue, PageCallContext.isValidOpid(text) else {
+                        return Self.error(id: id, PageError(code: "cmux.protocol.bad_message", message: "opid must be 1-128 characters of [A-Za-z0-9._:-]"))
+                    }
+                    opid = text
+                }
+                let value = try await call(op, params: message["params"] ?? .object([:]), opid: opid)
                 return ["t": "ok", "id": .number(Double(id)), "value": value]
             } catch let error as PageError {
                 return Self.error(id: id, error)
@@ -77,9 +85,22 @@ public final class PageRouter {
         }
     }
 
-    private func call(_ op: String, params: JSONValue) async throws -> JSONValue {
+    /// Whether a real key or mouse event reached the page's view just now (PageWKWebView); nil in
+    /// tests without a view.
+    public var hasUserGesture: (@MainActor () -> Bool)?
+
+    /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
+    public var titleBarDoubleClick: (@MainActor () -> Void)?
+
+    private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+        if op == PageNativeOp.titleBarDoubleClick {
+            guard !closed else { throw PageError.closed }
+            titleBarDoubleClick?()
+            return .object([:])
+        }
         let (provider, params) = try admit(op, params: params)
-        return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id))
+        return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
+                                                                                     userGesture: hasUserGesture?() ?? false))
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
@@ -116,7 +137,9 @@ public final class PageRouter {
             throw PageError.unknownOp(op)
         }
         guard case .object(let members) = params else { throw PageError.invalidParams("params must be an object") }
-        guard members["origin"] == nil else { throw PageError.invalidParams("origin is set by the host") }
+        for reserved in ["origin", "confirmed", "confirmation"] where members[reserved] != nil {
+            throw PageError.invalidParams("\(reserved) is set by the host")
+        }
         return (route.provider, params)
     }
 
@@ -139,7 +162,7 @@ public final class PageRouter {
     /// not a page command or no subscriber listens.
     @discardableResult
     public func publishCommand(_ command: String, arguments: [String: JSONValue] = [:]) -> Bool {
-        guard PageNativeOp.commands.contains(command) else { return false }
+        guard descriptor.commands.contains(command) else { return false }
         var data = arguments
         data["command"] = .string(command)
         let subs = builtIn.filter { $0.value == PageNativeOp.pageCommand }.keys.sorted()

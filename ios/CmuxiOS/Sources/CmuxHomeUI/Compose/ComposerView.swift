@@ -28,7 +28,9 @@ final class ComposerView: UIView, UITextViewDelegate {
         }
     }
 
-    let textView = UITextView()
+    /// The conversation field's text view: hardware Return sends, Shift- or
+    /// Option-Return adds a line, the software Return adds a line.
+    let textView = HomeFieldTextView()
     private let placeholderLabel = UILabel()
     private let sendButton = UIButton(type: .system)
     private let field = UIView()
@@ -65,6 +67,7 @@ final class ComposerView: UIView, UITextViewDelegate {
         textView.textContainerInset = UIEdgeInsets(top: 8, left: 6, bottom: 8, right: 6)
         textView.isScrollEnabled = false
         textView.delegate = self
+        textView.onReturn = { [weak self] in self?.send() }
         textView.accessibilityLabel = HomeText.composerA11y
         textView.translatesAutoresizingMaskIntoConstraints = false
         field.addSubview(textView)
@@ -137,13 +140,11 @@ final class ComposerView: UIView, UITextViewDelegate {
 
     /// Grows with the text up to `maxLines`, then scrolls inside.
     private func updateHeight() {
-        let font = textView.font ?? .preferredFont(forTextStyle: .body)
-        let insets = textView.textContainerInset.top + textView.textContainerInset.bottom
-        let maxHeight = ceil(font.lineHeight * CGFloat(Self.maxLines) + insets)
         let width = textView.bounds.width > 0 ? textView.bounds.width : bounds.width - 60
+        let maxHeight = textView.height(ofLines: Self.maxLines, width: width)
         let fitting = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         let target = min(max(HomeMetrics.composerMinHeight, ceil(fitting)), maxHeight)
-        textView.isScrollEnabled = fitting > maxHeight
+        textView.isScrollEnabled = fitting > maxHeight + 0.5
         if heightConstraint?.constant != target { heightConstraint?.constant = target }
     }
 

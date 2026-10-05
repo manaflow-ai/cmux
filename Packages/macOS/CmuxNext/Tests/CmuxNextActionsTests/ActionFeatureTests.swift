@@ -52,9 +52,9 @@ import Testing
         let registry = ActionRegistry.standard()
         registry.bind("newCloudMachine") {}
         let shortcut = Shortcut("y", modifiers: [.command])
-        #expect(registry.resolve(shortcut)?.id == "newCloudMachine")
+        #expect(registry.keyWinner(shortcut)?.command == "newCloudMachine")
         registry.disabledFeatures = [.cloud]
-        #expect(registry.resolve(shortcut)?.id != "newCloudMachine")
+        #expect(registry.keyWinner(shortcut)?.command != "newCloudMachine")
     }
 
     @Test func serverActionsAreRemoteHosts() {
@@ -71,7 +71,7 @@ import Testing
         registry.disabledFeatures = Set(ActionFeature.allCases)
         let index = registry.currentShortcutIndex()
         let chorded = index.chords.values.flatMap { $0.values.flatMap { $0 } }
-        let keyed = index.byShortcut.values.flatMap { $0 }
+        let keyed = RegistryKeyBindings(registry).table.entries.filter { $0.keys.count == 1 }.map(\.command)
         #expect(!chorded.isEmpty && !keyed.isEmpty)
         for id in chorded + keyed { #expect(registry.disabledFeature(for: id) == nil, "\(id)") }
         #expect(!keyed.contains("newCloudMachine"))

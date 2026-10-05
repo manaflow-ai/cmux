@@ -104,8 +104,13 @@ extension PaletteModel {
             notice = nil
             actionsMenu = nil
             showChrome(of: state)
+            selectedQueryLength = nil
             if case .textInput(let spec) = state.kind {
                 selectsQuery = !spec.initialText.isEmpty && top.query == spec.initialText
+            } else if case .list(let page) = state.kind, let length = page.initialQuerySelection,
+                      !page.initialQuery.isEmpty, top.query == page.initialQuery {
+                selectsQuery = true
+                selectedQueryLength = length
             } else {
                 selectsQuery = false
             }
@@ -137,11 +142,15 @@ extension PaletteModel {
             placeholder = page.placeholder
             pageSymbol = page.symbol
             isTextInput = false
+            fieldHint = page.hint
+            pageCrumbs = page.crumbs.map(\.title)
         case .textInput(let spec):
             pageTitle = spec.title
             placeholder = spec.placeholder
             pageSymbol = spec.symbol
             isTextInput = true
+            fieldHint = nil
+            pageCrumbs = []
         }
     }
 

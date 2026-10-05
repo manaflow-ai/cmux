@@ -7,8 +7,8 @@ export type AppTier = "first-party" | "verified" | "unverified";
 
 export type AppSource = "default" | "user" | "bundled" | "local";
 
-/** The risk class of a scope (scope-classes.json). */
-export type ScopeRisk = "read" | "mutate-own" | "mutate" | "network" | "integration" | "destructive";
+/** The risk class of a scope (cmux-app-host schema/v2/scope-classes.json). */
+export type ScopeRisk = "standard" | "sensitive" | "restricted";
 
 export interface AppIconRef {
   /** A manifest path served by `cmux.apps.asset.get`; absent means the generic glyph. */
@@ -31,6 +31,8 @@ export interface CatalogApp {
   installed: boolean;
   enabled?: boolean;
   hidden?: boolean;
+  /** The owner's word: hidable, never removable (first-party apps; FIRST-PARTY-APPS). */
+  hide_only?: boolean;
 }
 
 export interface CatalogListResult {
@@ -71,6 +73,10 @@ export interface InstalledApp {
   hidden: boolean;
   sandboxed: boolean;
   source: AppSource;
+  /** The listing's tier; first-party apps are hidable, never removable (FIRST-PARTY-APPS). */
+  tier?: AppTier;
+  /** The owner's word on Hide versus Remove; wins over `tier`. */
+  hide_only?: boolean;
   icon?: AppIconRef;
   update?: { version: string };
   /** The host's last failure for this app, when it has one. */
@@ -109,6 +115,9 @@ export interface AppsChanged {
 export interface ConfirmedResult {
   status: "done" | "cancelled";
 }
+
+/** The App Store's own app id: the store never lists itself (FIRST-PARTY-APPS). */
+export const APP_STORE_ID = "cmux/app-store";
 
 export const AppsOps = {
   catalogList: "cmux.apps.catalog.list",

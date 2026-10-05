@@ -137,13 +137,18 @@ struct LeaderChordRoutingTests {
         #expect(!chords.isPending)
     }
 
-    /// A Ctrl-B chord (tmux preset) is not the leader: no overlay, and the
-    /// key after it still reaches the view when it completes nothing.
-    @Test func otherChordsKeepTheirMismatch() {
+    /// A Ctrl-B chord (tmux preset) is not the leader, but its overlay
+    /// shows too (R59: which-key for every armed prefix) and Escape cancels
+    /// it; another key after it still reaches the view when it completes
+    /// nothing.
+    @Test func otherChordsShowTheOverlayAndEscapeCancelsThem() {
         let registry = ShortcutChordRoutingTests.registry(), window = NSObject()
         var chords = ChordTracker()
         #expect(Self.step(&chords, ShortcutChordRoutingTests.ctrlB, registry, window: window) == .armed)
         #expect(chords.leaderPrefix == nil)
-        #expect(Self.step(&chords, Self.escape, registry, window: window) == .mismatch)
+        #expect(chords.armedKeys == [ShortcutChordRoutingTests.prefix])
+        #expect(Self.step(&chords, Self.escape, registry, window: window) == .dismissed)
+        _ = Self.step(&chords, ShortcutChordRoutingTests.ctrlB, registry, window: window)
+        #expect(Self.step(&chords, Self.q, registry, window: window) == .mismatch)
     }
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { projectLabel } from "./sessionList";
-import { t } from "./i18n";
+import { translate as t } from "./i18n";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",

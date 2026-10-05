@@ -160,4 +160,76 @@ import Testing
         harness.controller.installStagedUpdate()
         #expect(persisted(harness) == before)
     }
+
+    /// `updates.installOnQuit` off (cmux-next): a quit cancels the held
+    /// installer with Sparkle's Skip reply on the ready-to-install prompt,
+    /// which cancels the installer without recording a skipped version, so
+    /// the next check offers the update again.
+    @Test func cancellingAStagedUpdateRepliesSkipOnceAndClearsIt() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        find(harness, into: ChoiceBox())
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+        #expect(harness.controller.stagedUpdate != nil)
+
+        harness.controller.cancelStagedUpdate()
+        #expect(readyBox.choice == .skip)
+        #expect(harness.controller.stagedUpdate == nil)
+
+        readyBox.choice = nil
+        harness.controller.cancelStagedUpdate()
+        harness.controller.installStagedUpdate()
+        #expect(readyBox.choice == nil)
+    }
+
+    /// `updates.downloadAutomatically` off: a found update waits as the
+    /// prompt; the user's click downloads it and it stages like a
+    /// background download (the host installs it).
+    @Test func withDownloadsOffAFoundUpdateWaitsForTheClick() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.downloadsUpdatesInBackground = false
+        let found = ChoiceBox()
+        find(harness, into: found)
+        #expect(found.choice == nil)
+        guard case .updateAvailable = harness.model.state else {
+            Issue.record("expected the waiting prompt, got \(harness.model.state)")
+            return
+        }
+        harness.controller.acceptAvailableUpdate()
+        #expect(found.choice == .install)
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+        #expect(readyBox.choice == nil)
+        #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
+    }
+
+    /// A test feed (cmux-next NIGHTLY/DEV, "Use Test Update Feed") replaces the baked feed for
+    /// every check; clearing it returns to the baked feed. Signatures are unchanged.
+    @Test func aFeedOverrideReplacesTheBakedFeed() {
+        let harness = Harness()
+        let baked = harness.controller.driver.resolvedFeedURL()
+        harness.controller.feedOverride = "https://example.com/test/appcast.xml"
+        #expect(harness.controller.driver.resolvedFeedURL() == "https://example.com/test/appcast.xml")
+        harness.controller.feedOverride = nil
+        #expect(harness.controller.driver.resolvedFeedURL() == baked)
+    }
+
+    /// After a rollback, the build rolled back from (and anything older) is not offered
+    /// again; a newer build is.
+    @Test func skippedBuildsAreNotOfferedAgain() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.skipsBuildsThrough = "0.64.17"
+        let found = ChoiceBox()
+        find(harness, into: found)
+        #expect(found.choice == .dismiss)
+        #expect(harness.controller.stagedUpdate == nil)
+
+        harness.controller.skipsBuildsThrough = "0.64.16"
+        let newer = ChoiceBox()
+        find(harness, into: newer)
+        #expect(newer.choice == .install)
+    }
 }

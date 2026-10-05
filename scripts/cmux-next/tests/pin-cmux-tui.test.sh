@@ -46,10 +46,39 @@ if grep -q 'on no remote branch' <<<"$out"; then
 fi
 grep -q 'is not published' <<<"$out" || { printf 'fetch did not reach the published-tree check:\n%s\n' "$out" >&2; exit 1; }
 
+# A dirty cmux-tui tree is refused (exit 1), and the refusal explains why an
+# nx-remote warm tree is dirty and which mode gives a clean one.
+echo dirty > "$TMP/job/cmux-tui/a"
+status=0
+out=$(cd "$TMP/job" && env -u GITHUB_ACTIONS -u CI_JOB_DIR -u CMUX_NEXT_TUI_ALLOW_DIRTY \
+  CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 \
+  bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || status=$?
+[[ "$status" == 1 ]] || { printf 'a dirty tree was not refused (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+grep -q 'uncommitted cmux-tui source changes' <<<"$out" || { printf 'dirty refusal lost its reason:\n%s\n' "$out" >&2; exit 1; }
+grep -qF 'warm trees are dirty by design' <<<"$out" \
+  && grep -qF 'nx-remote --ref <pushed sha>' <<<"$out" \
+  || { printf 'dirty refusal does not explain nx-remote warm trees:\n%s\n' "$out" >&2; exit 1; }
+git -C "$TMP/job" checkout -q -- cmux-tui/a
+
 # A commit on no branch of origin is still refused before any wait.
 echo three > "$TMP/job/cmux-tui/a"
 git_q -C "$TMP/job" add cmux-tui/a
 git_q -C "$TMP/job" commit -m "local only"
 out=$(run "$TMP/job")
 grep -q 'on no remote branch' <<<"$out" || { printf 'an unpushed commit was not refused:\n%s\n' "$out" >&2; exit 1; }
+
+# Pin mode: the Cloud app server fields go together, and cloud-server-path names
+# the file fetch puts beside the pinned binary (no network).
+pin_dir="$TMP/job/scripts/cmux-next"
+good="commit=$(printf 'a%.0s' {1..40})
+url=https://example.com/cmux-tui
+sha256=$(printf 'b%.0s' {1..64})"
+printf '%s\ncloud_server_url=https://example.com/cmux-cloud\n' "$good" > "$pin_dir/cmux-tui.pin"
+status=0
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || status=$?
+[[ "$status" == 1 ]] && grep -q 'cloud_server_url= and cloud_server_sha256= go together' <<<"$out" \
+  || { printf 'a half cloud_server pin was not refused (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+printf '%s\ncloud_server_url=https://example.com/cmux-cloud\ncloud_server_sha256=%s\n' "$good" "$(printf 'c%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh cloud-server-path --pin)
+[[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-cloud ]] || { printf 'cloud-server-path --pin printed %s\n' "$out" >&2; exit 1; }
 printf 'pin-cmux-tui tests: ok\n'

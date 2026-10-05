@@ -69,7 +69,12 @@ final class ConversationViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         setVisible(true)
+        // Esc and Cmd-[ work before the field is tapped; a field that already
+        // edits keeps the keyboard.
+        if transcript?.field.textView.isFirstResponder != true { becomeFirstResponder() }
     }
+
+    override var canBecomeFirstResponder: Bool { true }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -94,6 +99,21 @@ final class ConversationViewController: UIViewController {
     private func setVisible(_ visible: Bool) {
         isVisible = visible
         transcript?.controller.isVisibleToUser = visible
+    }
+
+    // MARK: Hardware keyboard (plans/cmux-next/ios-keyboard.md K5)
+
+    /// Esc and Cmd-[ go back to Home, as the Back button. Esc yields to an
+    /// input method that is composing (system behavior first).
+    override var keyCommands: [UIKeyCommand]? {
+        // One overlay entry (Cmd-[); Esc is the same action without a second listing.
+        [UIKeyCommand(title: HomeText.backCommand, action: #selector(backCommand), input: "[", modifierFlags: .command),
+         UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(backCommand))]
+    }
+
+    @objc private func backCommand() {
+        guard navigationController?.topViewController === self else { return }
+        navigationController?.popViewController(animated: !CmuxiOSDesign.HomeMotion.reduceMotion)
     }
 
     // MARK: Transcript
@@ -121,6 +141,12 @@ final class ConversationViewController: UIViewController {
         binding.onRefusal = { [weak self] intent, rejection in
             self?.presentRefusal(HomeRefusalAlert(intent: intent, rejection: rejection))
         }
+        // An op that ran out of resends unanswered may not have gone through.
+        // Hosts set the binding hooks, never store.onUnanswered/onRefusal:
+        // the binding chains the store hook per conversation.
+        binding.onUnanswered = { [weak self] intent in
+            self?.presentRefusal(HomeRefusalAlert(unanswered: intent))
+        }
         self.binding = binding
         view.controller.isVisibleToUser = isVisible
         observation.renderNow()
@@ -130,7 +156,8 @@ final class ConversationViewController: UIViewController {
 
     private func presentRefusal(_ content: HomeRefusalAlert) {
         guard presentedViewController == nil else { return }
-        let alert = UIAlertController(title: content.title, message: content.message, preferredStyle: .alert)
+        let alert = UIAlertController(title: content.title, message: content.message.isEmpty ? nil : content.message,
+                                      preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: HomeText.ok, style: .default))
         present(alert, animated: true)
     }

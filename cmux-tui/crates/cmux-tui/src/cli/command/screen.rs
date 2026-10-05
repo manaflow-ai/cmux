@@ -84,8 +84,8 @@ fn column_update(
 ) -> Result<CommandPlan, UsageError> {
     validate_prefixed_id("column", "split", column)?;
     let mut params = map_with("column", Value::String(column.to_string()));
-    if let Some(sticky) = flags.take("sticky") {
-        params.insert("sticky".into(), Value::Bool(parse_bool("--sticky", &sticky)?));
+    if let Some(dock) = flags.take("dock") {
+        params.insert("dock".into(), Value::Bool(parse_bool("--dock", &dock)?));
     }
     for (flag, allowed) in [("edge", ["left", "right"]), ("mode", ["docked", "overlay"])] {
         if let Some(value) = flags.take(flag) {

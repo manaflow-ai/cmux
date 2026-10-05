@@ -5,8 +5,9 @@
 // every key; a missing value fails. Merged with the Settings lead's
 // webviews/scripts/settings/generate-strings.mjs (branch feat-cmux-next-settings-react): a page
 // lists catalogs and, per catalog, which keys it uses.
-//   node scripts/pages/gen-strings.mjs           # write
+//   node scripts/pages/gen-strings.mjs           # write every page
 //   node scripts/pages/gen-strings.mjs --check   # fail when a generated file is stale
+//   node scripts/pages/gen-strings.mjs settings  # only the named pages
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,9 +57,32 @@ export function schemaKeys(schemaFile) {
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 // The History table moves next to the page when the Swift page is deleted (react-pages.md H4).
-// The Settings page adds its entry here (schema keys from CmuxNextSettings + `settingsPage.` keys
-// from CmuxNextSettingsWindow).
 export const PAGES = {
+  // Every key the settings schema names (CmuxNextSettings catalog), every `settingsPage.` and
+  // `settingsWindow.` key (CmuxNextSettingsWindow catalog); merged from the Settings lead's generate-strings.mjs with the
+  // same output.
+  settings: {
+    out: "webviews/src/pages/settings/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextSettings/Localizable.xcstrings`,
+        keys: () => schemaKeys("schemas/settings/settings-schema.json"),
+      },
+      {
+        file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
+        // `settingsWindow.` keys too: the page draws the Swift window's cards (R82 commits 2-5).
+        keys: (all) => all.filter((key) => key.startsWith("settingsPage.") || key.startsWith("settingsWindow.")),
+      },
+      {
+        file: `${sources}/CmuxNextActions/BrowserProfileActions.xcstrings`,
+        keys: () => ["action.browserProfile.manageExtensions"],
+      },
+      {
+        file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,
+        keys: () => ["action.reloadConfiguration"],
+      },
+    ],
+  },
   history: {
     out: "webviews/src/pages/history/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextHistory/Resources/Localizable.xcstrings` }],
@@ -73,6 +97,51 @@ export const PAGES = {
         keys: (all) => all.filter((key) => key.startsWith("store.")),
       },
     ],
+  },
+  // The Keyboard Shortcuts page has its own table in the app's resources.
+  keybindings: {
+    out: "webviews/src/pages/keybindings/generated/strings.json",
+    catalogs: [{ file: `${sources}/CmuxNextApp/Resources/KeybindingsPage.xcstrings` }],
+  },
+  // The Passwords page shares its table with its Swift provider and sheets (`passwords.page.` keys).
+  passwords: {
+    out: "webviews/src/pages/passwords/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextApp/Resources/Passwords.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("passwords.page.")),
+      },
+    ],
+  },
+  // Cloud has no Swift page, so its table lives next to the page.
+  cloud: {
+    out: "webviews/src/pages/cloud/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/cloud/Localizable.xcstrings" }],
+  },
+  // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
+  coderouter: {
+    out: "webviews/src/pages/coderouter/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
+  },
+  // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
+  "icon-picker": {
+    out: "webviews/src/pages/icon-picker/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/icon-picker/Localizable.xcstrings" }],
+  },
+  // The markdown editor (cmux-page://cmux.markdown/) has no Swift page; its table lives next to it.
+  markdown: {
+    out: "webviews/src/pages/markdown/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/markdown/Localizable.xcstrings" }],
+  },
+  // The code editor (cmux-page://cmux.editor/) has no Swift page; its table lives next to it.
+  editor: {
+    out: "webviews/src/pages/editor/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/editor/Localizable.xcstrings" }],
+  },
+  // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
+  viewerEmpty: {
+    out: "webviews/src/viewer-empty/generated/strings.json",
+    catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
   },
 };
 
@@ -100,7 +169,9 @@ export function generate(page) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const check = process.argv.includes("--check");
   let failed = false;
+  const only = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
   for (const [name, page] of Object.entries(PAGES)) {
+    if (only.length && !only.includes(name)) continue;
     const { json, errors } = generate(page);
     const target = path.join(repo, page.out);
     if (errors.length) {

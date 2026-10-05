@@ -40,9 +40,18 @@ nonisolated enum SurfaceSettingsSchema {
             Titles(kind: .browserChrome,
                    color: SettingsText.keyed("settings.appearance.surfaces.browserChrome.color", "Browser Toolbar Color"),
                    opacity: SettingsText.keyed("settings.appearance.surfaces.browserChrome.opacity", "Browser Toolbar Opacity")),
+            Titles(kind: .internalPage,
+                   color: SettingsText.keyed("settings.appearance.surfaces.internalPage.color", "Internal Pages Color"),
+                   opacity: SettingsText.keyed("settings.appearance.surfaces.internalPage.opacity", "Internal Pages Opacity")),
+            Titles(kind: .splitDivider,
+                   color: SettingsText.keyed("settings.appearance.surfaces.splitDivider.color", "Split Divider Color"),
+                   opacity: SettingsText.keyed("settings.appearance.surfaces.splitDivider.opacity", "Split Divider Opacity")),
             Titles(kind: .docks,
                    color: SettingsText.keyed("settings.appearance.surfaces.docks.color", "Docked Columns Color"),
                    opacity: SettingsText.keyed("settings.appearance.surfaces.docks.opacity", "Docked Columns Opacity")),
+            Titles(kind: .diff,
+                   color: SettingsText.keyed("settings.appearance.surfaces.diff.color", "Diff Viewer Color"),
+                   opacity: SettingsText.keyed("settings.appearance.surfaces.diff.opacity", "Diff Viewer Opacity")),
         ]
     }
 

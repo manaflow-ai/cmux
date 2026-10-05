@@ -2,37 +2,51 @@
 //!
 //! The local session host owns the VT state, history and snapshots; this
 //! backend only moves bytes between it and a [`RescueTransport`] stream.
-//! It is the only writer of each rescue terminal's stream state.
+//! It is the only writer of each rescue terminal's stream state. Bytes move
+//! as frames with the shared credit rule (`cmux-terminal-iface`): input data
+//! in offset order within the `in` credit (a gap, an overlap or data past
+//! the credit ends the terminal with `lost`); output data within the `out`
+//! credit, offsets the running byte total; one `end` (`exit` or `lost`)
+//! after the last output, then nothing; after `close` every call is refused
+//! and nothing queues.
 
-use super::iface::{
-    BackendCapabilities, BackendError, BackendId, ByteEvent, ByteTerminal, Close, ExitStatus, Grid,
-    Input, LocalId, OpenRequest, ResumeToken, Signal, TerminalBackend,
-};
+use super::stream::{Status, Stream};
 use super::transport::{RescueTransport, StreamId, TransportEvent};
-use crate::connector::iface::{allow_kind, check_kinds};
-use std::collections::{BTreeMap, HashMap};
+use cmux_terminal_iface::{
+    BackendCapabilities, BackendError, BackendId, ByteTerminal, Close, DEFAULT_WINDOW_BYTES,
+    Direction, End, ExitStatus, FrameBody, Grid, LocalId, Lost, MAX_EXIT_MESSAGE, OpenRequest,
+    ResumeRequest, ResumeToken, Resumed, Signal, TerminalBackend, allow_kind, check_kinds,
+};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 pub const RESCUE_KIND: &str = "cloud-vm-rescue";
 pub const RESCUE_ID: &str = "rescue";
 
-/// Input chunks held while an earlier `seq` is missing. More is refused.
-const MAX_PENDING_INPUT: usize = 256;
-/// One write to the transport at most (a paste is split by the session host).
+/// One input data frame at most (a paste is split by the session host).
 const MAX_WRITE_BYTES: usize = 64 * 1024;
+/// Longest signal name kept from the far end (`exit.signal`).
+const MAX_SIGNAL_NAME: usize = 32;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Status {
-    Open,
-    Exited,
-    Lost,
+/// Cuts far-end text to at most `max` bytes, on a char boundary.
+fn cut(text: &mut String, max: usize) {
+    if text.len() > max {
+        let mut end = max;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
 }
 
-struct Stream {
-    status: Status,
-    next_seq: u64,
-    pending: BTreeMap<u64, Vec<u8>>,
-    events: Vec<ByteEvent>,
+fn bounded(mut status: ExitStatus) -> ExitStatus {
+    if let Some(message) = &mut status.message {
+        cut(message, MAX_EXIT_MESSAGE);
+    }
+    if let Some(signal) = &mut status.signal {
+        cut(signal, MAX_SIGNAL_NAME);
+    }
+    status
 }
 
 struct Inner {
@@ -49,16 +63,17 @@ impl Inner {
                 continue;
             }
             match event {
-                TransportEvent::Output(bytes) => stream.events.push(ByteEvent::Output(bytes)),
-                TransportEvent::Closed { code } => {
-                    stream.status = Status::Exited;
-                    stream.pending.clear();
-                    stream.events.push(ByteEvent::Exit(ExitStatus { code }));
+                TransportEvent::Output(bytes) => stream.output(bytes),
+                // The transport frees a stream that closed or dropped by
+                // itself (RescueTransport contract): never close it again.
+                TransportEvent::Closed(status) => {
+                    stream.released = true;
+                    stream.finish(End::Exit(bounded(status)));
                 }
-                TransportEvent::Dropped { reason } => {
-                    stream.status = Status::Lost;
-                    stream.pending.clear();
-                    stream.events.push(ByteEvent::Lost(reason));
+                TransportEvent::Dropped { mut reason, retryable } => {
+                    cut(&mut reason, MAX_EXIT_MESSAGE);
+                    stream.released = true;
+                    stream.finish(End::Lost(Lost::new(reason, retryable)));
                 }
             }
         }
@@ -68,54 +83,103 @@ impl Inner {
         self.pump();
         match self.streams.get_mut(&id) {
             Some(stream) if stream.status == Status::Open => Ok(stream),
-            _ => Err(BackendError::Closed),
+            _ => Err(BackendError::not_open()),
         }
     }
 
-    /// A transport failure ends the stream: the terminal shows it lost.
-    fn fail(&mut self, id: StreamId, error: BackendError) -> BackendError {
+    /// Closes the transport stream once (it is gone for the terminal either way).
+    fn release(&mut self, id: StreamId) {
         if let Some(stream) = self.streams.get_mut(&id)
-            && stream.status == Status::Open
+            && !std::mem::replace(&mut stream.released, true)
         {
-            stream.status = Status::Lost;
-            stream.pending.clear();
-            stream.events.push(ByteEvent::Lost(error.to_string()));
+            // A refusal changes nothing: the stream is gone either way.
+            let _refused = self.transport.close(id);
         }
+    }
+
+    /// A failed input write ends the stream: the terminal shows it lost
+    /// (after the output it already has) and the transport stream is closed once.
+    fn fail(&mut self, id: StreamId, error: BackendError) -> BackendError {
+        if let Some(stream) = self.streams.get_mut(&id) {
+            let mut reason = error.to_string();
+            cut(&mut reason, MAX_EXIT_MESSAGE);
+            stream.finish(End::Lost(Lost::new(reason, error.retryable())));
+        }
+        self.release(id);
         error
     }
 
-    fn write(&mut self, id: StreamId, input: Input) -> Result<(), BackendError> {
-        if input.bytes.len() > MAX_WRITE_BYTES {
-            return Err(BackendError::Invalid(format!(
-                "one write carries at most {MAX_WRITE_BYTES} bytes"
+    /// A frame that breaks the credit rule ends the terminal with `lost`.
+    fn violate(&mut self, id: StreamId, lost: Lost) {
+        if let Some(stream) = self.streams.get_mut(&id) {
+            stream.violate(lost);
+        }
+        self.release(id);
+    }
+
+    /// One input data frame: written to the transport, then credited.
+    fn write(&mut self, id: StreamId, offset: u64, bytes: Vec<u8>) -> Result<(), BackendError> {
+        if bytes.len() > MAX_WRITE_BYTES {
+            return Err(BackendError::invalid(format!(
+                "one data frame carries at most {MAX_WRITE_BYTES} bytes"
             )));
         }
         let stream = self.open_stream(id)?;
-        if input.seq < stream.next_seq || stream.pending.contains_key(&input.seq) {
-            // A replay of a chunk already accepted: no further effect.
+        if let Err(lost) = stream.input.receive(offset, bytes.len()) {
+            self.violate(id, lost);
             return Ok(());
         }
-        if input.seq > stream.next_seq {
-            if stream.pending.len() >= MAX_PENDING_INPUT {
-                return Err(BackendError::Invalid(format!(
-                    "input seq {} is too far ahead of {}",
-                    input.seq, stream.next_seq
-                )));
-            }
-            stream.pending.insert(input.seq, input.bytes);
+        if bytes.is_empty() {
             return Ok(());
         }
-        let mut ready = vec![input.bytes];
-        stream.next_seq += 1;
-        while let Some(bytes) = stream.pending.remove(&stream.next_seq) {
-            ready.push(bytes);
-            stream.next_seq += 1;
+        if let Err(error) = self.transport.write(id, &bytes) {
+            return Err(self.fail(id, error));
         }
-        for bytes in ready {
-            if let Err(error) = self.transport.write(id, &bytes) {
-                return Err(self.fail(id, error));
+        if let Some(stream) = self.streams.get_mut(&id)
+            && let Ok(Some(credit)) = stream.input.consume(Direction::In, bytes.len() as u64)
+        {
+            stream.queue(credit);
+        }
+        Ok(())
+    }
+
+    /// One frame from the session host.
+    fn push(&mut self, id: StreamId, frame: FrameBody) -> Result<(), BackendError> {
+        let (offset, bytes) = match frame {
+            FrameBody::Data { offset, bytes } => (offset, bytes),
+            FrameBody::End(_) => return self.close(id),
+            FrameBody::Credit { direction, bytes } => {
+                self.pump();
+                let stream = self.streams.get_mut(&id);
+                // An ending stream still needs credit for its last output.
+                let stream = stream.filter(|s| matches!(s.status, Status::Open | Status::Ending));
+                let stream = stream.ok_or_else(BackendError::not_open)?;
+                match direction {
+                    Direction::Out => stream.grant(bytes),
+                    // Only this backend grants `in` credit.
+                    Direction::In => stream.violate(Lost::new("credit direction", false)),
+                }
+                if stream.status == Status::Ended {
+                    self.release(id);
+                }
+                return Ok(());
             }
+        };
+        self.write(id, offset, bytes)
+    }
+
+    /// Closes the terminal for the session host. Output not taken yet is
+    /// dropped; input already written stays written.
+    fn close(&mut self, id: StreamId) -> Result<(), BackendError> {
+        self.pump();
+        let Some(stream) = self.streams.get_mut(&id) else {
+            return Err(BackendError::not_open());
+        };
+        if stream.status == Status::Closed {
+            return Err(BackendError::not_open());
         }
+        stream.close();
+        self.release(id);
         Ok(())
     }
 }
@@ -166,33 +230,29 @@ impl TerminalBackend for RescueBackend {
             exit_status: true,
             resume: false,
             cwd_reports: false,
-            max_write_bytes: MAX_WRITE_BYTES,
+            max_write_bytes: MAX_WRITE_BYTES as u32,
+            // A login shell over a byte stream: the session host answers
+            // DA, DSR and OSC color queries.
+            answers_queries: false,
         }
     }
 
     fn open(&mut self, request: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError> {
         allow_kind(&self.kinds, &request.kind)?;
+        request.open_token.check()?;
         if request.command.is_some() {
-            return Err(BackendError::Unsupported(
-                "the rescue shell runs the machine's login shell only".into(),
-            ));
+            // The rescue shell runs the machine's login shell only.
+            return Err(BackendError::Unsupported);
         }
         let mut inner = lock(&self.inner);
         let stream = inner.transport.open(&request.target, request.grid)?;
-        inner.streams.insert(
-            stream,
-            Stream {
-                status: Status::Open,
-                next_seq: 0,
-                pending: BTreeMap::new(),
-                events: Vec::new(),
-            },
-        );
+        inner.streams.insert(stream, Stream::new(DEFAULT_WINDOW_BYTES));
         Ok(Box::new(RescueTerminal { inner: Arc::clone(&self.inner), stream }))
     }
 
-    fn resume(&mut self, _token: &ResumeToken) -> Result<Box<dyn ByteTerminal>, BackendError> {
-        Err(BackendError::Unsupported("a rescue shell cannot be resumed".into()))
+    fn resume(&mut self, _request: ResumeRequest) -> Result<Resumed, BackendError> {
+        // Capability `resume: false`: a rescue shell cannot be resumed.
+        Err(BackendError::Unsupported)
     }
 }
 
@@ -202,43 +262,40 @@ struct RescueTerminal {
 }
 
 impl ByteTerminal for RescueTerminal {
-    fn take_events(&mut self) -> Vec<ByteEvent> {
+    fn window_bytes(&self) -> u32 {
+        DEFAULT_WINDOW_BYTES
+    }
+
+    fn push(&mut self, frame: FrameBody) -> Result<(), BackendError> {
+        lock(&self.inner).push(self.stream, frame)
+    }
+
+    fn take_frames(&mut self) -> Vec<FrameBody> {
         let mut inner = lock(&self.inner);
         inner.pump();
-        inner
-            .streams
-            .get_mut(&self.stream)
-            .map(|s| std::mem::take(&mut s.events))
-            .unwrap_or_default()
+        inner.streams.get_mut(&self.stream).map(Stream::take).unwrap_or_default()
     }
 
-    fn write(&self, input: Input) -> Result<(), BackendError> {
-        lock(&self.inner).write(self.stream, input)
-    }
-
-    fn resize(&self, grid: Grid) -> Result<(), BackendError> {
+    fn resize(&mut self, grid: Grid) -> Result<(), BackendError> {
         if grid.cols == 0 || grid.rows == 0 {
-            return Err(BackendError::Invalid("a grid needs at least one column and row".into()));
+            return Err(BackendError::invalid("a grid needs at least one column and row"));
         }
         let mut inner = lock(&self.inner);
         inner.open_stream(self.stream)?;
-        inner.transport.resize(self.stream, grid).map_err(|e| inner.fail(self.stream, e))
+        // A refused resize leaves the shell running (as in the sample): the
+        // error is the answer, the terminal stays open.
+        inner.transport.resize(self.stream, grid)
     }
 
-    fn signal(&self, signal: Signal) -> Result<(), BackendError> {
+    fn signal(&mut self, signal: Signal) -> Result<(), BackendError> {
         let mut inner = lock(&self.inner);
         inner.open_stream(self.stream)?;
-        inner.transport.signal(self.stream, signal).map_err(|e| inner.fail(self.stream, e))
+        // A refused signal leaves the shell running, like a refused resize.
+        inner.transport.signal(self.stream, signal)
     }
 
-    fn close(&self, _how: Close) -> Result<(), BackendError> {
-        let mut inner = lock(&self.inner);
-        inner.open_stream(self.stream)?;
-        // The exit arrives as a transport event; nothing more is written.
-        if let Some(stream) = inner.streams.get_mut(&self.stream) {
-            stream.pending.clear();
-        }
-        inner.transport.close(self.stream).map_err(|e| inner.fail(self.stream, e))
+    fn close(&mut self, _how: Close) -> Result<(), BackendError> {
+        lock(&self.inner).close(self.stream)
     }
 
     fn resume_token(&self) -> Option<ResumeToken> {
@@ -249,10 +306,11 @@ impl ByteTerminal for RescueTerminal {
 impl Drop for RescueTerminal {
     fn drop(&mut self) {
         let mut inner = lock(&self.inner);
-        if inner.streams.get(&self.stream).is_some_and(|s| s.status == Status::Open) {
-            // Best effort: the session host dropped the terminal.
-            let _ = inner.transport.close(self.stream);
+        if let Some(stream) = inner.streams.remove(&self.stream)
+            && !stream.released
+        {
+            // The session host dropped the terminal: end the far shell.
+            let _refused = inner.transport.close(self.stream);
         }
-        inner.streams.remove(&self.stream);
     }
 }

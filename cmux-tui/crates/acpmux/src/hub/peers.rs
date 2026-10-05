@@ -15,6 +15,18 @@ impl Hub {
         url: &str,
         token: Option<String>,
     ) -> tokio::sync::watch::Receiver<u64> {
+        // A saved ssh peer the validator refuses never runs: its URL may have
+        // been set by a remote client before tokens stopped leaking to them.
+        // The log names the peer, never the URL.
+        if url.starts_with("ssh://")
+            && let Err(why) = crate::peer::ssh_target(url)
+        {
+            tracing::warn!(peer = %name, "peer refused: its ssh URL is not valid ({why}); fix or remove it");
+            if let Some(old) = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name) {
+                old.stop();
+            }
+            return tokio::sync::watch::channel(1).1;
+        }
         let peer = crate::peer::Peer::new(name, url, token, self.peer_notices.clone());
         let settled = peer.settled();
         if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
@@ -39,6 +51,11 @@ impl Hub {
             return Err(RpcError::invalid_params(
                 "peer url must start with ws://, wss://, or ssh://host",
             ));
+        }
+        if url.starts_with("ssh://")
+            && let Err(why) = crate::peer::ssh_target(url)
+        {
+            return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
         }
         {
             let mut cfg = self.config.write().await;
@@ -165,6 +182,7 @@ impl Hub {
                 dir: "peer".into(),
                 kind: kind.into(),
                 msg: Value::Null,
+                host_seq: None,
             },
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         });
@@ -258,6 +276,7 @@ impl Hub {
                                 dir: "peer".into(),
                                 kind,
                                 msg: Value::Null,
+                                host_seq: None,
                             },
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
@@ -279,6 +298,7 @@ impl Hub {
                             dir: "peer".into(),
                             kind,
                             msg: Value::Null,
+                            host_seq: None,
                         },
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
@@ -313,6 +333,7 @@ impl Hub {
                                 .unwrap_or("session/update")
                                 .to_owned(),
                             msg: json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": params}),
+                            host_seq: None,
                         },
                         method::MUX_EVENT => EventRecord {
                             seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
@@ -328,6 +349,7 @@ impl Hub {
                                 .unwrap_or("")
                                 .to_owned(),
                             msg: params.get("msg").cloned().unwrap_or(Value::Null),
+                            host_seq: None,
                         },
                         // permission_pending is derived from the permission_request event locally.
                         _ => return,

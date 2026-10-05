@@ -1,0 +1,433 @@
+/* Keyboard Shortcuts page; the shared base (colors, menu) is shared/pageBase.css. No blue:
+   selection, hover and the "on" state of a toggle are the foreground at low alpha. */
+.keys-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+.keys-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 18px 18px 10px;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.keys-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.keys-search-row {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.keys-search {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  outline: none;
+  user-select: text;
+}
+
+.keys-search:focus {
+  border-color: var(--page-text-3);
+}
+
+.keys-search::placeholder {
+  color: var(--page-text-3);
+}
+
+.keys-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.keys-toggle {
+  flex: none;
+  white-space: nowrap;
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  color: var(--page-text-2);
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.keys-toggle:hover {
+  background: var(--page-hover);
+}
+
+.keys-toggle.on {
+  color: var(--page-text);
+  background: var(--page-selection);
+  border-color: var(--page-text-3);
+}
+
+.keys-hint {
+  font-size: 11px;
+  color: var(--page-text-3);
+}
+
+.keys-notice {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 18px 0;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--page-separator);
+  color: var(--page-text-2);
+}
+
+.keys-notice > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.keys-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 10px 18px;
+}
+
+.keys-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  outline: none;
+}
+
+.keys-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--page-text-2);
+  padding: 8px 8px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.keys-col-command {
+  width: 34%;
+}
+
+.keys-col-key {
+  width: 24%;
+}
+
+.keys-col-when {
+  width: 22%;
+}
+
+.keys-col-source {
+  width: 10%;
+}
+
+.keys-col-actions {
+  width: 84px;
+}
+
+.keys-table td {
+  padding: 4px 8px;
+  vertical-align: middle;
+  overflow: hidden;
+}
+
+.keys-row td:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.keys-row td:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.keys-row:hover td {
+  background: var(--page-hover);
+}
+
+.keys-row.selected td {
+  background: var(--page-selection);
+}
+
+.keys-row.removed .keys-command-title,
+.keys-row.removed .keys-caps {
+  color: var(--page-text-3);
+  text-decoration: line-through;
+}
+
+.keys-command-title,
+.keys-command-id {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.keys-command-id {
+  font-size: 11px;
+  color: var(--page-text-3);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.keys-col-key {
+  white-space: nowrap;
+}
+
+.keys-caps {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  vertical-align: middle;
+  max-width: 100%;
+}
+
+.keys-cap {
+  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--page-separator);
+  border-bottom-width: 2px;
+  color: var(--page-text);
+}
+
+.keys-placeholder {
+  font-size: 12px;
+  color: var(--page-text-3);
+}
+
+.keys-row.recording .keys-col-key {
+  color: var(--page-text);
+}
+
+.keys-conflict {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  cursor: default;
+}
+
+.keys-conflict:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.keys-when {
+  display: block;
+  width: 100%;
+  min-height: 22px;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: var(--page-text-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+
+.keys-when:hover:not(:disabled) {
+  background: var(--page-hover);
+}
+
+.keys-when:disabled {
+  cursor: default;
+}
+
+.keys-when-input {
+  width: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--page-text-3);
+  background: transparent;
+  outline: none;
+  user-select: text;
+}
+
+.keys-col-source {
+  font-size: 11px;
+  color: var(--page-text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.keys-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.keys-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  border-radius: 5px;
+  cursor: default;
+}
+
+.keys-icon-button:hover,
+.keys-icon-button[aria-pressed="true"] {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.keys-row .keys-icon-button {
+  opacity: 0;
+}
+
+.keys-row:hover .keys-icon-button,
+.keys-row.selected .keys-icon-button,
+.keys-row:focus-within .keys-icon-button,
+.keys-row.recording .keys-icon-button {
+  opacity: 1;
+}
+
+.keys-page :focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: 1px;
+}
+
+.keys-table:focus-visible {
+  outline-offset: -2px;
+}
+
+.keys-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.keys-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--page-text-3);
+  padding: 24px;
+  text-align: center;
+}
+
+/* Narrow panes: each row stacks (command over keys, then when and source); no column is hidden. */
+@media (max-width: 560px) {
+  .keys-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .keys-table,
+  .keys-table tbody {
+    display: block;
+  }
+
+  .keys-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "command actions"
+      "key source"
+      "when when";
+    border-radius: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--page-separator);
+  }
+
+  .keys-row td,
+  .keys-row td:first-child,
+  .keys-row td:last-child {
+    width: auto;
+    border-radius: 0;
+    padding: 2px 8px;
+    background: transparent;
+  }
+
+  .keys-row:hover td,
+  .keys-row.selected td {
+    background: transparent;
+  }
+
+  .keys-row:hover {
+    background: var(--page-hover);
+  }
+
+  .keys-row.selected {
+    background: var(--page-selection);
+  }
+
+  .keys-row .keys-col-command {
+    grid-area: command;
+  }
+
+  .keys-row .keys-col-key {
+    grid-area: key;
+  }
+
+  .keys-row .keys-col-when {
+    grid-area: when;
+  }
+
+  .keys-row .keys-col-source {
+    grid-area: source;
+    text-align: right;
+  }
+
+  .keys-row .keys-col-actions {
+    grid-area: actions;
+  }
+
+  .keys-row .keys-icon-button {
+    opacity: 1;
+  }
+
+  /* An empty condition keeps a thin click target instead of a full line. */
+  .keys-row .keys-when:empty {
+    min-height: 12px;
+    padding: 0 4px;
+  }
+}
+
+.keys-spacer {
+  flex: 1;
+}

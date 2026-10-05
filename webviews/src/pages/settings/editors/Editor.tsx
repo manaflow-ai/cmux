@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
 import { ColorEditor } from "./ColorEditor";
 import { DomainListEditor } from "./DomainListEditor";
+import { FolderListEditor } from "./FolderListEditor";
 import { HostListEditor } from "./HostListEditor";
 import { MenuEditor } from "./MenuEditor";
 import { NumberEditor } from "./NumberEditor";
@@ -39,7 +40,13 @@ export function Editor(props: EditorProps): ReactNode {
       return <UrlEditor {...props} />;
     case "host_list":
       return <HostListEditor {...props} />;
+    case "folder_list":
+      return <FolderListEditor {...props} />;
     case "time_range":
       return <TimeRangeEditor {...props} />;
+    case "number_list":
+    case "string_map":
+      // Only cmux-browser keys have these kinds, and the page never lists them (schema.ts).
+      return null;
   }
 }

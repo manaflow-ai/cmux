@@ -5,6 +5,8 @@ import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.t
 import { DEAD_REPLAY_MS, drainOutboxChannels } from "./owner-outbox.ts"
 import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./owner-preflight.ts"
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
+import { AlarmSerial } from "./alarm-serial.ts"
+import { earliest, recordWakeFailure } from "./owner-wake.ts"
 import { SnapshotBatcher } from "./snapshot-batcher.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
@@ -30,11 +32,8 @@ export interface SubmitResult {
 
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
-/** Upper bound of the owner-wake retry backoff. */
-const MAX_BACKOFF_MS = 5 * 60_000
-/** How long hidden events coalesce before the filtered resync snapshot. */
-const RESYNC_BATCH_MS = 250
-const PRUNE_SLACK_MS = 60 * 60_000
+/** Owner-wake retry backoff cap; resync snapshot coalescing; prune slack. */
+const [MAX_BACKOFF_MS, RESYNC_BATCH_MS, PRUNE_SLACK_MS] = [5 * 60_000, 250, 60 * 60_000]
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
 const safeSend = (ws: WebSocket, text: string) => {
@@ -89,10 +88,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return this.engine
   }
 
-  /** The entity this object is bound to, or null for an object that was never created (no write). */
-  protected boundEntity(): string | null {
-    return boundEntityOf(this.store)
-  }
+  /** The bound entity, or null for an object never created (no write). Memoized: an object never unbinds, so a warm check reads no SQLite. */
+  protected boundEntity = (): string | null => (this.boundMemo ??= boundEntityOf(this.store))
+  private boundMemo: string | null = null
 
   /** `{entity}` of a bound object, or undefined (the shape subclasses read before). Never writes. */
   protected boundRow(): { entity: string } | undefined {
@@ -107,12 +105,13 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** Binds this object to its entity on first use (creates its storage); refuses any other entity. */
   protected bind(entity: string): OwnerEngine<S> {
-    if (!this.isBound(entity)) createBinding(this.store, entity)
+    if (!this.isBound(entity)) [createBinding(this.store, entity), (this.boundMemo = entity)]
     return this.open(entity)
   }
 
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
+  private readonly alarmSerial = new AlarmSerial()
   private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
     if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
   })
@@ -190,6 +189,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return JSON.stringify(this.subscriberSnapshot(engine.snapshot(principal.identity, pending), principal))
   }
 
+  /** RPC from UserDO (socket-registry.ts): an install was revoked; close its sockets here now. */
+  async closeInstall(entity: string, install: string, agent?: string): Promise<boolean> {
+    if (this.isBound(entity)) [agent ? null : this.gate.revoked(install), this.closeSockets((p) => p.install === install && (!agent || p.agent === agent), "revoked")]
+    return true
+  }
+
   /** Closes every socket whose principal matches (revocation). */
   protected closeSockets(match: (p: Principal) => boolean, reason: string) {
     for (const ws of this.ctx.getWebSockets()) {
@@ -198,8 +203,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     }
   }
 
-  /** Hook after each committed op (for example: close a revoked install's sockets). */
-  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>) {}
+  /** Hook after each committed op (close a revoked install's sockets); `params` only for outbox-delivered system ops. */
+  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {}
 
   /**
    * When this owner next needs its alarm for its own work (for example the next
@@ -281,7 +286,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       )
       const reject = frames.find((f) => f.t === "reject")
       if (reject && reject.t === "reject") console.warn(JSON.stringify({ msg: "system op refused", target: engine.stream, source, op: item.op, code: reject.code }))
-      this.afterOp(principal, item.op, frames)
+      this.afterOp(principal, item.op, frames, item.params)
       done.push(item.id)
     }
     this.afterCommit()
@@ -333,11 +338,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     if (!this.engine) return
     const now = Date.now()
     // Per channel: a backed-off channel waits, a healthy one drains now (outbox.ts).
-    const outboxAt = this.engine.outbox.nextDueAt(now)
-    const wake = this.wakeAt(now)
-    const want = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
+    const want = earliest(this.engine.outbox.nextDueAt(now), this.wakeAt(now))
     if (want === null) return
-    void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
+    // setAlarm refuses a time <= 0; a past time fires at once, so the alarm never goes before now.
+    const at = Math.max(want, now)
+    void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
   }
 
   /** One op. On an object that does not exist yet it is decided on the initial state first; a refusal writes nothing (no ledger entry). */
@@ -391,7 +396,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
-    this.gate.seed(principal)
+    this.gate.seed(server, principal, { cls: this.constructor.name, name: entity })
     this.afterCommit()
     safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
@@ -466,7 +471,10 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * (stream, seq), then runs the owner's own wake work, then sets the alarm to
    * the earlier of the drain retry and the owner's next wake.
    */
-  override async alarm() {
+  override alarm(): Promise<void> { return this.alarmSerial.run(() => this.alarmOnce()) }
+  /** Resolves when no alarm run is in flight (test hook, see AlarmSerial). */
+  get alarmIdle(): Promise<void> { return this.alarmSerial.idle }
+  private async alarmOnce() {
     this.gate.sweep(Date.now())
     if (!this.engine) return
     await drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c))
@@ -480,16 +488,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
       await this.onWake(Date.now())
       this.store.exec(`DELETE FROM do_wake`)
     } catch (e) {
-      const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_wake WHERE id = 1`)[0]?.attempts ?? 0) + 1
-      this.store.exec(`INSERT INTO do_wake (id, attempts) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET attempts = excluded.attempts`, attempts)
-      wakeRetryAt = Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts)
-      console.error(JSON.stringify({ msg: "owner wake failed", stream: this.engine.stream, attempts, error: String(e) }))
+      wakeRetryAt = recordWakeFailure(this.store, this.engine.stream, e, MAX_BACKOFF_MS)
     }
     // Includes rows committed during the wake (their afterCommit saw the running alarm).
     const outboxAt = this.engine.outbox.nextDueAt(Date.now())
     const due = this.wakeAt(Date.now())
-    const wake = wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due
-    const at = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
-    if (at !== null) await this.ctx.storage.setAlarm(at)
+    const at = earliest(outboxAt, wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due)
+    if (at !== null) await this.ctx.storage.setAlarm(Math.max(at, Date.now()))
   }
 }

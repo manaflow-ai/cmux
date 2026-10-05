@@ -1,4 +1,4 @@
-import react from "@vitejs/plugin-react";
+import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -34,6 +34,6 @@ export default defineConfig({
         return { code: code.replace(/^@import .*$/gm, ""), map: null };
       },
     },
-    react({ babel: { plugins: [["babel-plugin-react-compiler", { target: "19" }]] } }),
+    ...reactWithCompiler(),
   ],
 });

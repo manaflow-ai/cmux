@@ -1,7 +1,13 @@
 // Pure presentation model of the App Store page (plans/cmux-next/react-pages.md 3.3). Catalog
 // semantics (tiers, install states, grants) belong to the app platform lead's owner; this file
 // only filters, orders and labels what the owner returns.
-import type { AppTier, CatalogApp, GrantRow, ScopeRisk } from "./types";
+import { APP_STORE_ID, type AppTier, type CatalogApp, type GrantRow, type ScopeRisk } from "./types";
+
+export const RiskLabel: Record<ScopeRisk, string> = {
+  standard: "store.risk.standard",
+  sensitive: "store.risk.sensitive",
+  restricted: "store.risk.restricted",
+};
 
 export type StoreTab = "discover" | "installed";
 
@@ -43,6 +49,19 @@ export function matches(app: CatalogApp, query: string): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
+/** Whether the page shows `app` at all: the App Store never lists itself (FIRST-PARTY-APPS). */
+export function listedInStore(app: { id: string }): boolean {
+  return app.id !== APP_STORE_ID;
+}
+
+/**
+ * Whether the page offers Remove for `app`. First-party apps are hidable, never removable
+ * (FIRST-PARTY-APPS): the page offers Hide/Show instead, and the owner refuses an uninstall.
+ */
+export function isRemovable(app: { tier?: AppTier; hide_only?: boolean }): boolean {
+  return app.hide_only === undefined ? app.tier !== "first-party" : !app.hide_only;
+}
+
 export function filterApps(apps: readonly CatalogApp[], query: string, category: string | undefined): CatalogApp[] {
   return apps.filter((app) => (!category || app.categories.includes(category)) && matches(app, query));
 }
@@ -79,8 +98,8 @@ export function categoryLabel(id: string, t: (key: string) => string): string {
   return key ? t(key) : id;
 }
 
-/** Risks shown first in the permissions list: the ones that can change or send things. */
-const RISK_ORDER: ScopeRisk[] = ["destructive", "integration", "network", "mutate", "mutate-own", "read"];
+/** Risk classes shown first in the permissions list: restricted, then sensitive, then standard. */
+const RISK_ORDER: ScopeRisk[] = ["restricted", "sensitive", "standard"];
 
 /** Required scopes before optional ones, then by risk, then by name. */
 export function orderScopes<T extends { scope: string; risk: ScopeRisk; optional: boolean }>(
@@ -96,12 +115,7 @@ export function orderScopes<T extends { scope: string; risk: ScopeRisk; optional
 
 /** Sandboxed apps get no network or integration scopes; those rows show dimmed (Swift AppGrantsView). */
 export function dimmedWhenSandboxed(row: GrantRow): boolean {
-  return (
-    row.risk === "network" ||
-    row.risk === "integration" ||
-    row.scope.startsWith("net:") ||
-    row.scope.startsWith("integration:")
-  );
+  return row.scope.startsWith("net:") || row.scope.startsWith("integration:");
 }
 
 /** Initials for the generic icon glyph (no SF Symbols on the web; coordinator Q5). */

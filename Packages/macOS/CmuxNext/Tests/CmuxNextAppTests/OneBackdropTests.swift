@@ -107,15 +107,8 @@ struct OneBackdropTests {
     private func ownWindows() async throws -> [(WindowKind, NSWindow)] {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-one-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appending(path: "cmux.json")
-        try Data("{}".utf8).write(to: url)
-        let registry = ActionRegistry(catalog: [])
-        let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url,
-                                          managedReader: FixedManagedPreferenceReader(.empty), managedWatchFiles: [])
-        await settings.reload()
+        // Settings is the React page tab (R82); its window kind is built through the window kit below.
         var windows: [(WindowKind, NSWindow)] = []
-        let settingsWindow = SettingsWindowController(model: SettingsWindowModel(settings: settings, registry: registry, host: nil))
-        windows.append((.settings, try #require(settingsWindow.window)))
         let debug = DebugSettingsWindowController(model: DebugSettingsModel(store: TunableStore(), descriptors: []))
         windows.append((.debugSettings, try #require(debug.window)))
         let appRoot = directory.appending(path: "apps")

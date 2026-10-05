@@ -1,12 +1,13 @@
 //! Replay records of mutations (OWNERSHIP-PRINCIPLES invariant 5: replaying
 //! an op with the same key has no further effect).
 //!
-//! An attempt is recorded before the Cloud API call, so the same key with
+//! An attempt is recorded before the backend call, so the same key with
 //! another op or other args is a conflict even after a failure. A success
-//! also records the result, which a retry gets back with no call. A failed or
-//! lost call may be retried with the same key: the Cloud API dedups create,
-//! restore and fork by the derived key [`upstream_key`]. The ledger lives as
-//! long as the server process (data class `ephemeral`).
+//! also records the result, which a retry gets back with no call. A failed,
+//! lost or indeterminate call may be retried with the same key: the
+//! backend's own ledger (keyed by the same key) resumes it or replays its
+//! stored result. The ledger lives as long as the server process (data
+//! class `ephemeral`).
 
 use crate::api::{CloudError, codes};
 use serde_json::{Value, json};
@@ -17,8 +18,14 @@ const CAPACITY: usize = 512;
 
 struct Entry {
     op: String,
-    args: Value,
+    /// SHA-256 of the canonical args: a file write's data can be 16 MiB, so
+    /// the ledger keeps a digest, not the args.
+    args: [u8; 32],
     result: Option<Value>,
+}
+
+fn digest(args: &Value) -> [u8; 32] {
+    Sha256::digest(args.to_string().as_bytes()).into()
 }
 
 #[derive(Default)]
@@ -27,11 +34,10 @@ pub(crate) struct Ledger {
     order: VecDeque<String>,
 }
 
-/// The key sent to the Cloud API: SHA-256 of the op, the canonical args and
-/// the caller's key (64 hex characters). The Cloud API matches keys per team
-/// without comparing the op or the body, so the derived key keeps a create
-/// key from replaying as a fork, and other args from replaying a machine,
-/// also after this process restarts.
+/// A key derived from the op, the canonical args and the caller's key
+/// (SHA-256, 64 hex characters). The live-state ops (connect, ports,
+/// transfers) use it to name their own inner calls; catalog mutations send
+/// the caller's key unchanged.
 pub fn upstream_key(op: &str, args: &Value, key: &str) -> String {
     let canonical = json!([op, args, key]).to_string();
     Sha256::digest(canonical.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
@@ -48,7 +54,7 @@ impl Ledger {
         args: &Value,
     ) -> Result<Option<Value>, CloudError> {
         let Some(entry) = self.entries.get(key) else { return Ok(None) };
-        if entry.op != op || entry.args != *args {
+        if entry.op != op || entry.args != digest(args) {
             return Err(CloudError::new(
                 codes::IDEMPOTENCY_CONFLICT,
                 format!("this idempotency key was already used for {}", entry.op),
@@ -69,7 +75,7 @@ impl Ledger {
         }
         self.order.push_back(key.to_owned());
         self.entries
-            .insert(key.to_owned(), Entry { op: op.to_owned(), args: args.clone(), result: None });
+            .insert(key.to_owned(), Entry { op: op.to_owned(), args: digest(args), result: None });
     }
 
     /// Drops an attempt that changed nothing (refused arguments).
@@ -77,6 +83,12 @@ impl Ledger {
         if self.entries.remove(key).is_some() {
             self.order.retain(|k| k != key);
         }
+    }
+
+    /// Forgets every key (a sign-out: no result of the old session replays).
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
     }
 
     /// Records the result of a successful attempt.

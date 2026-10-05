@@ -2,7 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { registerPicker } from "./pickerOpeners";
 
@@ -80,6 +80,8 @@ type Props = {
   settleTimer?: SettleTimer;
   /// Starts a new chat in another harness (the model picker offers it).
   onHarness?(harness: string): void;
+  /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
+  onHarnessHint?(harness: string | undefined): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// Mode and Plan live in the composer's + menu in the default pane.
@@ -97,11 +99,13 @@ export function ComposerPickers({
   onMode,
   onEffort,
   onHarness,
+  onHarnessHint,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
   showModePlan = true,
 }: Props) {
+  const t = useT();
   const summary = snapshot.summary;
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
   const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
@@ -131,11 +135,16 @@ export function ComposerPickers({
   // once it settles: a switch passes through the new model with the old effort.
   const [recents, setRecents] = useState(loadRecents);
   const harness = summary?.harness;
-  const current = summary?.model;
+  // The chip draws a pick at once; the combo sequencing and the recents follow what the agent
+  // reports (`confirmedModel`, set while a pick is unconfirmed).
+  const shown = summary?.model;
+  const current = summary?.confirmedModel ?? shown;
   const currentEffort = effort?.currentValue;
   const offersEffort = effort !== undefined;
+  // A harness still starting reports nothing yet: what it draws is not a combo the viewer used.
+  const switching = snapshot.switching !== undefined;
   useEffect(() => {
-    if (!harness || !current || (offersEffort && !currentEffort)) return;
+    if (switching || !harness || !current || (offersEffort && !currentEffort)) return;
     return settleTimer(
       () =>
         setRecents((list) =>
@@ -143,7 +152,7 @@ export function ComposerPickers({
         ),
       settleMs,
     );
-  }, [harness, current, currentEffort, offersEffort, effortName, settleMs, settleTimer]);
+  }, [switching, harness, current, currentEffort, offersEffort, effortName, settleMs, settleTimer]);
   // A combo for another model sends the model first, then its effort once the
   // agent reports that model and offers the effort; anything else drops it.
   const pending = useRef<
@@ -170,7 +179,7 @@ export function ComposerPickers({
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
-    if (pickedModel !== current) {
+    if (pickedModel !== shown) {
       pending.current = pickedEffort
         ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
         : undefined;
@@ -221,7 +230,7 @@ export function ComposerPickers({
         <ModelPicker
           catalog={snapshot.catalog}
           harness={harness}
-          model={current}
+          model={shown}
           label={model?.name ?? summary?.model ?? PICKER_LABELS.model}
           efforts={efforts}
           effort={currentEffort}
@@ -232,6 +241,12 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={onHarness}
+          onHarnessHint={onHarnessHint}
+          harnessNotes={
+            snapshot.switching?.phase === "failed"
+              ? { [snapshot.switching.harness]: t("switch.failedShort") }
+              : undefined
+          }
           measureRoom={measurePickerRoom}
         />
       )}

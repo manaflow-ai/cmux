@@ -66,7 +66,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   switch (op.kind) {
     case "message.send": {
       if (op.client_msg_id !== request.idempotency_key || !validToken(op.client_msg_id)) fail("invalid_client_msg_id")
-      const parts = validateParts(op.parts)
+      const parts = validateParts(op.parts, cloud)
       const replyTo = op.reply_to
       if (replyTo !== undefined) {
         const replied = request.reply_target
@@ -110,7 +110,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const message = target(head, request, op.message_id)
       if (message.author !== request.actor) fail("not_author")
       if (message.retracted_at !== undefined) fail("retracted")
-      const parts = validateParts(op.parts)
+      const parts = validateParts(op.parts, cloud)
       return updated(next, {
         ...message,
         parts,

@@ -104,10 +104,20 @@ dependencies = [
 name = "cmux-cloud"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-app-manifest",
+ "cmux-terminal-iface",
+ "getrandom",
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cmux-terminal-iface"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
