@@ -299,6 +299,34 @@ mod tests {
         );
     }
 
+    /// `set-default-colors` makes a smart host publish ResyncRequired, and a
+    /// renderer mint sent right after it is answered behind that marker. The
+    /// surface's reader abandons the stream at ResyncRequired and fails its
+    /// ordered waiters; the mint's Capability must still reach its requester,
+    /// whether the requester registered before or after the abandon.
+    #[test]
+    fn capability_after_resync_reaches_its_waiter() {
+        let version = version();
+        for early in [SMART, EarlyResponses::new(false)] {
+            let responses = ControlResponses::new_for_test();
+            let mint = responses.wait_for_test(11, MessageKind::Capability);
+            // The surface's reader abandons the stream (`HostFrames::abandon`).
+            responses.fail_all_except(|kind| early.resolves(kind));
+            let queue = queue();
+            queue.state.lock().unwrap().abandoned = true;
+            let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
+            resync.version = version;
+            let mut capability = frame(MessageKind::Capability, 11, version);
+            capability.payload = vec![7; 32];
+            read_stream(stream_of(&[resync, capability]), &responses, version, early, &queue);
+            let reply = mint
+                .recv_timeout(Duration::from_secs(1))
+                .expect("the Capability reply after ResyncRequired was dropped");
+            assert_eq!(reply.kind, MessageKind::Capability);
+            assert_eq!(reply.payload, vec![7; 32]);
+        }
+    }
+
     /// At the end of the stream the thread fails only the waiters it owns: a
     /// queued ClearHistoryAck is still resolved by the surface's reader.
     #[test]
