@@ -96,7 +96,16 @@ extension SurfaceCatalog {
         })
         let previous = workspace.cloudBindingState.projectedResources
         let previousHostLabel = workspace.hostLabel
-        workspace.cloudBindingState.updateCatalogMetadata(resources: resourcesByPanel, machineNames: names)
+        // The sidebar hides a panel whose terminal row is missing or still launching, so the row's
+        // arrival and readiness are presentation inputs even when the projection, names and cwd
+        // stay the same. Without them the workspace row stays blank until an unrelated change.
+        let terminalLifecycles = Dictionary(projected.compactMap { projection -> (UUID, SurfaceLifecycle)? in
+            guard let resource = resources[projection.resource], resource.kind == .terminal else { return nil }
+            return (projection.panelID, resource.lifecycle)
+        }, uniquingKeysWith: { first, _ in first })
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: resourcesByPanel, machineNames: names, terminalLifecycles: terminalLifecycles
+        )
         if workspace.hostLabel != previousHostLabel {
             workspace.owningTabManager?.workspaceHostLabelDidChange(workspace)
         }
