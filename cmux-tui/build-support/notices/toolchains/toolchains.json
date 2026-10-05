@@ -1,0 +1,52 @@
+{
+  "comment": "Owned by the license review. Rust and Zig standard library notices (toolchain_notices.py). A new rustc or Zig version needs its text stored under texts/ with its sha256 here; check-repo fails until then.",
+  "bundle_dir": "Contents/Resources/toolchain-licenses",
+  "rust": [
+    {
+      "version": "1.95.0",
+      "rustc_commit": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+      "file": "rust-1.95.0/COPYRIGHT-library.html",
+      "sha256": "90567e2718bf7fd65a71a3a43c5596488e80e5f51ed02bfea6fec54458b5f3d1",
+      "source": "rustc/share/doc/rust/COPYRIGHT-library.html in https://static.rust-lang.org/dist/rustc-1.95.0-aarch64-apple-darwin.tar.xz (xz_hash 149e85a285b6eba58eb6c8bdf7deb1b93763890598e62cb635a712e3a8454f04 in https://static.rust-lang.org/dist/channel-rust-1.95.0.toml; the x86_64-unknown-linux-gnu rustc of 1.95.0 carries the same bytes)",
+      "toolchain_files": [
+        "cmux-tui/rust-toolchain.toml",
+        "first-party-apps/cloud/server/rust-toolchain.toml"
+      ],
+      "binaries": "bin/cmux, bin/cmux-tui-ssh/*, bin/cmux-app-host (cmux-tui) and bin/cmux-cloud (first-party-apps/cloud/server)"
+    },
+    {
+      "version": "1.91.0",
+      "rustc_commit": "f8297e351a40c1439a467bbbb6879088047f50b3",
+      "file": "rust-1.91.0/COPYRIGHT-library.html",
+      "sha256": "3aa41caccecaeddad6fcf2f36ce14146ab7baae57064b05b12ecc6b52d5e917f",
+      "source": "rustc/share/doc/rust/COPYRIGHT-library.html in https://static.rust-lang.org/dist/rustc-1.91.0-aarch64-apple-darwin.tar.xz (xz_hash a68e3ada151e6eee10374529161d35dc26e8a185bddb14eabe6133f37144e02f in https://static.rust-lang.org/dist/channel-rust-1.91.0.toml; the x86_64-unknown-linux-gnu rustc of 1.95.0 carries the same bytes)",
+      "toolchain_files": [],
+      "binaries": "Iroh.framework: the manaflow-ai/iroh-ffi release xcframework at the Package.resolved revision (release_swift.yml pins toolchain 1.91.0; the v1.2.0-cmux.1.ios17 macOS binary names /rustc/f8297e351a40c1439a467bbbb6879088047f50b3/); the bundle check reads the commit from the binary"
+    },
+    {
+      "version": "1.88.0",
+      "rustc_commit": "6b00bc3880198600130e1cf62b8f8a93494488cc",
+      "file": "rust-1.88.0/COPYRIGHT-library.html",
+      "sha256": "3d3f60160f5214efa0a7fd804102d02ce9ea6af04b5249a19eeb243450246ae9",
+      "source": "rustc/share/doc/rust/COPYRIGHT-library.html in https://static.rust-lang.org/dist/rustc-1.88.0-aarch64-apple-darwin.tar.xz (xz_hash 249f4cacd3fac1f718af19373c73e9d3b9a595965972d8b1f3947c578110f520 in https://static.rust-lang.org/dist/channel-rust-1.88.0.toml; the x86_64-unknown-linux-gnu rustc of 1.95.0 carries the same bytes)",
+      "toolchain_files": [
+        "Native/DiffSidecar/rust-toolchain.toml"
+      ],
+      "binaries": "bin/cmux-diff-sidecar (Native/DiffSidecar)"
+    }
+  ],
+  "zig": [
+    {
+      "version": "0.16.0",
+      "ci_version": "0.16.0",
+      "file": "zig-0.16.0/LICENSE",
+      "sha256": "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177",
+      "source": "zig-0.16.0/LICENSE in https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz (sha256 43186959edc87d5c7a1be7b7d2a25efffd22ce5807c7af99067f86f99641bfdf in https://ziglang.org/download/index.json)",
+      "ghostty_sources": [
+        "ghostty",
+        "ghostty-next"
+      ],
+      "binaries": "Contents/MacOS/cmux (GhosttyNextKit), bin/cmux and bin/cmux-tui-ssh/* (libghostty-vt), bin/ghostty: Zig std and compiler_rt"
+    }
+  ]
+}

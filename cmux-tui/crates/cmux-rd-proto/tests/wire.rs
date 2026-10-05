@@ -1,6 +1,6 @@
 use cmux_rd_proto::{
     Arrival, DatagramHeader, DatagramKind, DecodeError, Feedback, FrameBody, HEADER_LEN,
-    InputEvent, InputPacket, Nack, REF_NONE, flags,
+    INPUT_PACKET_PREFIX_LEN, InputEvent, InputPacket, Nack, REF_NONE, flags,
 };
 use proptest::prelude::*;
 
@@ -83,7 +83,7 @@ fn event() -> impl Strategy<Value = InputEvent> {
         (any::<u8>(), any::<bool>()).prop_map(|(button, down)| InputEvent::Button { button, down }),
         (any::<i32>(), any::<i32>(), any::<bool>())
             .prop_map(|(dx, dy, precise)| InputEvent::Scroll { dx, dy, precise }),
-        "[a-zA-Z0-9 ]{0,40}".prop_map(InputEvent::Text),
+        "[a-zA-Z0-9 é]{0,300}".prop_map(InputEvent::Text),
     ]
 }
 
@@ -91,7 +91,27 @@ proptest! {
     #[test]
     fn input_round_trips(first_seq in any::<u32>(), events in proptest::collection::vec(event(), 0..20)) {
         let packet = InputPacket { first_seq, events };
-        prop_assert_eq!(InputPacket::decode(&packet.encode()).expect("decode"), packet);
+        let encoded = packet.encode();
+        let expected_len: usize =
+            INPUT_PACKET_PREFIX_LEN + packet.events.iter().map(InputEvent::encoded_len).sum::<usize>();
+        prop_assert_eq!(encoded.len(), expected_len);
+        let decoded = InputPacket::decode(&encoded).expect("decode");
+        // Text longer than MAX_TEXT_BYTES arrives cut on a character boundary.
+        let truncated: Vec<InputEvent> = packet
+            .events
+            .iter()
+            .map(|e| match e {
+                InputEvent::Text(t) => {
+                    let mut end = t.len().min(cmux_rd_proto::MAX_TEXT_BYTES);
+                    while !t.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    InputEvent::Text(t[..end].to_owned())
+                }
+                other => other.clone(),
+            })
+            .collect();
+        prop_assert_eq!(decoded, InputPacket { first_seq, events: truncated });
     }
 
     #[test]

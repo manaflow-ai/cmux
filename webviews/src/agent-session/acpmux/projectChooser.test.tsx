@@ -8,10 +8,16 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "Node", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
-    key,
-    globals[key],
-  ]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Node",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
@@ -19,9 +25,22 @@ Object.assign(globals, {
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
   Node: dom.window.Node,
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+// The pickers are shared Base UI components (src/ui), which reach for DOM classes by name.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) =>
+    /^(HTML|SVG|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|Resize|getComputedStyle)/.test(
+      key,
+    ) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -74,15 +93,12 @@ test("offers Cloud computers and sends the selected computer with its folder", a
   const computer = doc.querySelector<HTMLButtonElement>('[aria-label="Computer"]')!;
   await act(async () => computer.click());
   expect(
-    [...doc.querySelectorAll('[aria-label="Computer"] + .acpmux-location-menu [role="option"]')].map(
-      (row) => row.textContent,
+    // The computer menu is a shared radio menu (src/ui Menu): its items are menuitemradio rows.
+    [...doc.querySelectorAll('.acpmux-location-menu [role="menuitemradio"]')].map((row) =>
+      row.textContent?.replace("✓", ""),
     ),
   ).toEqual(["This Mac", "devboxCloud"]);
-  await act(async () =>
-    doc
-      .querySelector<HTMLElement>('[aria-label="Computer"] + .acpmux-location-menu [role="option"]:nth-child(2)')!
-      .click(),
-  );
+  await act(async () => doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')[1]!.click());
   const folder = doc.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!;
   expect(folder.textContent).toContain("cmux");
   await act(async () => folder.click());
@@ -94,4 +110,20 @@ test("locks both location labels after the first turn", async () => {
   expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(0);
   expect(doc.querySelectorAll(".acpmux-location-readonly")).toHaveLength(2);
   expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");
+});
+
+test("the folder picker takes a typed absolute path on Return", async () => {
+  await render();
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!.click());
+  const field = doc.querySelector<HTMLInputElement>(".acpmux-location-search")!;
+  expect(field).not.toBeNull();
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(field, "/tmp/scratch");
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(picked.at(-1)?.[0]).toBe("/tmp/scratch");
 });

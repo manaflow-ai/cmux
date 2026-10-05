@@ -355,6 +355,49 @@ class RustNoticesTest(unittest.TestCase):
         self.assertIn("lib 1.0.0", err)
         self.assertIn("do not satisfy 'MIT'", err)
 
+    BSD_ONLY = (
+        "Redistribution and use in source and binary forms, with or without modification. "
+        "Redistributions of source code must retain the above copyright notice. Neither the name.\n"
+    )
+
+    def test_no_environment_variable_accepts_a_mismatch(self) -> None:
+        # The old CMUX_NOTICES_MATCH_REPORT wrote the mismatch to a report and accepted the crate.
+        (self.fx.vendor / "lib-1.0.0" / "LICENSE-MIT").write_text(self.BSD_ONLY)
+        report = self.tmp / "env-report.txt"
+        old = os.environ.get("CMUX_NOTICES_MATCH_REPORT")
+        os.environ["CMUX_NOTICES_MATCH_REPORT"] = str(report)
+        try:
+            code, err, _, _ = self.generate("env-report")
+        finally:
+            if old is None:
+                os.environ.pop("CMUX_NOTICES_MATCH_REPORT", None)
+            else:
+                os.environ["CMUX_NOTICES_MATCH_REPORT"] = old
+        self.assertEqual(code, 1)
+        self.assertIn("do not satisfy 'MIT'", err)
+
+    def test_match_report_lists_every_mismatch_and_still_fails(self) -> None:
+        (self.fx.vendor / "lib-1.0.0" / "LICENSE-MIT").write_text(self.BSD_ONLY)
+        (self.fx.vendor / "gitdep-0.3.0" / "LICENSE").write_text(self.BSD_ONLY)
+        report = self.tmp / "report.txt"
+        report.write_text("stale line from an older run\n")
+        code, err, out, files = self.generate("report", "--match-report", str(report))
+        self.assertEqual(code, 1)
+        lines = report.read_text().splitlines()
+        self.assertEqual(len(lines), 2, lines)
+        self.assertTrue(lines[0].startswith("gitdep 0.3.0: "), lines)
+        self.assertTrue(lines[1].startswith("lib 1.0.0: "), lines)
+        self.assertIn("lib 1.0.0", err)
+        self.assertIn("gitdep 0.3.0", err)
+        self.assertFalse(out.exists())
+        self.assertFalse(files.exists())
+
+    def test_match_report_is_empty_when_every_text_matches(self) -> None:
+        report = self.tmp / "clean-report.txt"
+        code, err, _, _ = self.generate("clean-report", "--match-report", str(report))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(report.read_text(), "")
+
     def test_files_are_verbatim_and_spdx_points_at_them(self) -> None:
         code, err, out, files = self.generate("files")
         self.assertEqual(code, 0, err)

@@ -171,9 +171,21 @@ fn page_relay_request_with_no_origin_derives_page() {
     let mux = mux("relay-page");
     let relay = relay(&mux, "token:10.1");
     assert_a2_refusal(&send(&mux, &relay, &install(None)), "page");
-    // Page calls that need no person are served.
-    assert_eq!(send(&mux, &relay, &ping(None))["ok"], true);
-    assert_eq!(send(&mux, &relay, &ping(Some(json!({"claim": "page"}))))["ok"], true);
+    // The claim is accepted as page; page then gets no catalog operation
+    // (page_access.rs: the allow list is empty).
+    assert_page_access_refusal(&send(&mux, &relay, &ping(None)));
+    assert_page_access_refusal(&send(&mux, &relay, &ping(Some(json!({"claim": "page"})))));
+}
+
+/// The refusal of page_access.rs: the claim was accepted and narrowed to
+/// page (a refused claim has details `{derived, claim}` instead).
+fn assert_page_access_refusal(reply: &Value) {
+    assert_eq!(reply["error"]["code"], "origin.forbidden", "{reply}");
+    assert_eq!(
+        reply["error"]["details"],
+        json!({"required": "agent", "derived": "page"}),
+        "{reply}"
+    );
 }
 
 #[test]
@@ -197,8 +209,9 @@ fn a_client_claim_may_only_narrow() {
     let conn = connect(&mux);
     // No origin behaves as today.
     assert_eq!(send(&mux, &conn, &ping(None))["ok"], true);
-    // Narrowing agent to page is accepted; the gate then sees page.
-    assert_eq!(send(&mux, &conn, &ping(Some(json!({"claim": "page"}))))["ok"], true);
+    // Narrowing agent to page is accepted; the gate then sees page, which
+    // gets no catalog operation.
+    assert_page_access_refusal(&send(&mux, &conn, &ping(Some(json!({"claim": "page"})))));
     assert_a2_refusal(&send(&mux, &conn, &install(Some(json!({"claim": "page"})))), "page");
     // Widening is refused.
     for claim in ["user", "app"] {

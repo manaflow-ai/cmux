@@ -11,6 +11,12 @@
 # make_latest=false, and the run fails if the repository's latest release
 # ever points at a layout-reducer tag. scripts/cmux-next/check-layout-reducer-pin.sh
 # fails CI when the reducer sources change without a new pin.
+#
+# UNPROVEN (2026-10-05): GITHUB_TOKEN got HTTP 403 creating the first tag
+# (run 37272232472). The publish job therefore skips when workflow files
+# changed since the last FFI tag, and a person publishes from the artifact.
+# Whether the token can create the tag after a reducer-only change has not
+# been seen yet; the first real reducer change proves or disproves it.
 name: layout-reducer FFI release
 
 on:
@@ -41,10 +47,35 @@ jobs:
     outputs:
       tag: ${{ steps.assemble.outputs.tag }}
       checksum: ${{ steps.assemble.outputs.checksum }}
+      workflow_changed: ${{ steps.workflow-delta.outputs.changed }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      # GITHUB_TOKEN may not create a tag whose commit range carries
+      # workflow-file changes (run 37272232472: HTTP 403 with contents:write).
+      # Measure the range from the last published FFI tag; the publish job
+      # skips with a notice when it touches .github/workflows.
+      - name: Workflow files changed since the last FFI release
+        id: workflow-delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet --tags origin 'refs/tags/layout-reducer-ffi-*:refs/tags/layout-reducer-ffi-*' || true
+          last="$(git tag --list 'layout-reducer-ffi-*' --merged HEAD --sort=-creatordate | head -n 1)"
+          if [[ -z "$last" ]]; then
+            echo "no earlier FFI tag on this history; treating workflow files as changed"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$last" HEAD -- .github/workflows; then
+            echo "no workflow-file change since $last"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "workflow files changed since $last:"
+            git diff --stat "$last" HEAD -- .github/workflows
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -139,7 +170,17 @@ jobs:
           name: CCmuxLayoutReducerFFI.xcframework
           path: assets
 
+      - name: A person publishes this one
+        if: needs.build.outputs.workflow_changed == 'true'
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          CHECKSUM: ${{ needs.build.outputs.checksum }}
+        shell: bash
+        run: |
+          echo "::notice title=Publish by hand::Workflow files changed since the last FFI release, and GITHUB_TOKEN cannot create tag $TAG over them. A maintainer creates the prerelease (not latest) from this run's CCmuxLayoutReducerFFI.xcframework artifact: tag $TAG at $GITHUB_SHA, checksum $CHECKSUM."
+
       - name: Create the release (never overwrite)
+        if: needs.build.outputs.workflow_changed != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -170,6 +211,7 @@ jobs:
           echo "release: https://github.com/$GH_REPO/releases/tag/$TAG"
 
       - name: The latest release is not a layout-reducer tag
+        if: needs.build.outputs.workflow_changed != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -184,6 +226,7 @@ jobs:
           fi
 
       - name: Anonymous download matches the checksum
+        if: needs.build.outputs.workflow_changed != 'true'
         env:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.build.outputs.tag }}

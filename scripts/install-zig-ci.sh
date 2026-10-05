@@ -7,6 +7,28 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/ghostty-zig-version.sh"
 
 ZIG_REQUIRED="${ZIG_REQUIRED:-$(ghostty_minimum_zig_version "$REPO_ROOT")}"
+
+# Install only a Zig that the license review recorded: the shipped Zig
+# (toolchains.json zig ci_version; the app and the npm/PyPI packages ship its
+# LICENSE) or the Zig SDK conformance version (cmux-tui/bindings/zig/build.zig.zon).
+reviewed_zig_versions() {
+  python3 - "$REPO_ROOT" <<'PY'
+import json, re, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+for zig in json.loads((root / "cmux-tui/build-support/notices/toolchains/toolchains.json").read_text())["zig"]:
+    print(zig["ci_version"])
+zon = root / "cmux-tui/bindings/zig/build.zig.zon"
+if zon.is_file():
+    found = re.search(r'^\s*\.minimum_zig_version\s*=\s*"([^"]+)"', zon.read_text(), re.M)
+    if found:
+        print(found.group(1))
+PY
+}
+if ! reviewed_zig_versions | grep -qxF "$ZIG_REQUIRED"; then
+  echo "error: zig ${ZIG_REQUIRED} is not a reviewed Zig version ($(reviewed_zig_versions | tr '\n' ' ')); record its LICENSE in cmux-tui/build-support/notices/toolchains/toolchains.json (ci_version) first" >&2
+  exit 1
+fi
 ZIG_MINISIGN_PUBLIC_KEY="${ZIG_MINISIGN_PUBLIC_KEY:-RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U}"
 ZIG_INDEX_URL="${ZIG_INDEX_URL:-https://ziglang.org/download/index.json}"
 ZIG_EXPECTED_SHA256="${ZIG_EXPECTED_SHA256:-}"

@@ -9,3 +9,35 @@ if (!hadDocument) scope.document = {};
 await import("@base-ui/utils/useIsoLayoutEffect");
 if (!hadDocument) delete scope.document;
 export {};
+
+// react-dom picks the animationend event name once, when it first loads: without
+// window.AnimationEvent it listens for the prefixed webkitAnimationEnd for the rest of the run,
+// and onAnimationEnd handlers never fire (the agent pane's Search chats sheet exit). WebKit has
+// AnimationEvent, so load react-dom here with a jsdom window that has it, before any test file.
+{
+  const { JSDOM } = await import("jsdom");
+  const { window } = new JSDOM("<!doctype html>");
+  (window as unknown as Record<string, unknown>).AnimationEvent ??= window.Event;
+  const keys = ["window", "document", "navigator", "HTMLElement"] as const;
+  const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, {
+    window,
+    document: window.document,
+    navigator: window.navigator,
+    HTMLElement: window.HTMLElement,
+  });
+  await import("react-dom");
+  await import("react-dom/client");
+  for (const [key, had, value] of saved)
+    if (had) scope[key] = value;
+    else delete scope[key];
+}
+
+// Floating UI (under Base UI's menus and popovers) tests `value instanceof Element` against the
+// global before it asks the node's own window, so a file that installs only `window` and
+// `document` fails with "Element is not defined". A global Element from any window is enough: the
+// check then falls through to the node's own window.
+if (!("Element" in scope)) {
+  const { JSDOM } = await import("jsdom");
+  scope.Element = new JSDOM("<!doctype html>").window.Element;
+}
