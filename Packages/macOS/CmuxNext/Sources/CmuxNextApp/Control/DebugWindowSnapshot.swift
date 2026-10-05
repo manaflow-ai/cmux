@@ -119,6 +119,10 @@ enum DebugWindowSnapshot {
         guard let root = window.contentView else { return [] }
         var result: [WKWebView] = []
         func visit(_ view: NSView) {
+            // A hidden or transparent view hides its whole subtree on screen
+            // (layer opacity multiplies down the tree). The new tab spare
+            // waits under the alpha-0 NewTabSpareParking: never paint it.
+            guard !view.isHidden, view.alphaValue > 0 else { return }
             if let webView = view as? WKWebView,
                webView.window === window,
                !webView.isHiddenOrHasHiddenAncestor,
