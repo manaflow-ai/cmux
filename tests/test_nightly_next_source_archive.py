@@ -67,6 +67,14 @@ def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:
     assert field(inject, "if") == NEXT_FULL_BUILD, field(inject, "if")
 
 
+def test_the_ghostty_next_license_tree_ships_too() -> None:
+    # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's build.rs
+    # names; its license tree ships beside Ghostty's, resolved from the tree.
+    inject = step("Inject the Ghostty dependency licenses (cmux-next)")
+    assert "ghostty-next-licenses" in inject
+    assert "check_ghostty_vt_notices.py --print-source" in inject
+
+
 def test_no_other_step_reads_the_soft_outcome() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "steps.source_archive.outcome" not in text
@@ -76,6 +84,7 @@ def test_no_other_step_reads_the_soft_outcome() -> None:
 def main() -> int:
     test_source_archive_step_blocks()
     test_upload_and_inject_do_not_depend_on_a_soft_outcome()
+    test_the_ghostty_next_license_tree_ships_too()
     test_no_other_step_reads_the_soft_outcome()
     print("nightly-next source archive workflow tests passed")
     return 0

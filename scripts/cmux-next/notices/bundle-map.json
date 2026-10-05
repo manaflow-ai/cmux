@@ -77,6 +77,11 @@
       "path": "Contents/Resources/ghostty-licenses",
       "what": "Ghostty dependency license tree with the MPL-2.0 source offer (collect-ghostty-licenses.py; nightly-next)",
       "notices": ["section:manual-ghostty", "ghostty-license-tree:Contents/Resources/ghostty-licenses"]
+    },
+    {
+      "path": "Contents/Resources/ghostty-next-licenses",
+      "what": "ghostty-next dependency license tree with its MPL-2.0 source offers: the libghostty-vt in bin/cmux (collect-ghostty-licenses.py on the submodule ghostty-vt-sys's build.rs names; nightly-next)",
+      "notices": ["section:manual-ghostty", "ghostty-license-tree:Contents/Resources/ghostty-next-licenses"]
     }
   ]
 }

@@ -43,8 +43,22 @@ impl VmHost for FakeHost {
                 Err(DriverError::new(crate::protocol::ErrorCode::Forbidden, "blocked by policy"))
             }
             "net.fetch" => Ok(json!({"url": params["url"], "status": 200, "bodyBase64": "aGk="})),
+            "frame.evaluate" => Ok(serde_json::from_str(ORDERED).unwrap()),
             _ => Err(DriverError::unsupported_method(method)),
         }
+    }
+
+    fn driver_call_reply(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<crate::driver::Reply, DriverError> {
+        if method == "frame.evaluate" {
+            self.calls.lock().unwrap().push((method.to_owned(), params));
+            let raw = serde_json::value::RawValue::from_string(ORDERED.to_owned()).unwrap();
+            return Ok(crate::driver::Reply::Json(raw));
+        }
+        self.driver_call(method, params).map(crate::driver::Reply::Value)
     }
 
     fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
@@ -61,6 +75,10 @@ impl VmHost for FakeHost {
         }
     }
 }
+
+/// A page value in the page's key order (scenario 32's search results, with
+/// nested objects and arrays).
+const ORDERED: &str = r#"{"title":"cmux","url":"https://example.com/cmux","snippet":"s","nested":{"z":1,"a":[{"y":2,"b":3}]}}"#;
 
 fn session(memory_limit: usize) -> (VmSession, Arc<FakeHost>) {
     let host =
@@ -354,4 +372,18 @@ fn files_the_vm_writes_and_reads_are_masked() {
     assert_eq!(out.error, None, "{out:?}");
     // "x <s> y" in base64: the value never reaches the file or the VM.
     assert_eq!(lines(&out), vec![r#"["eCA8cz4geQ=="]"#]);
+}
+
+/// a9 raw_value: a script value reaches agent code in the page's key order,
+/// nested objects and arrays included (scenario 32's search results).
+#[test]
+fn script_values_keep_the_page_key_order() {
+    let (vm, _) = session(0);
+    let out = vm.eval(
+        "const r = await driver('frame.evaluate', {targetId: 'T', source: '() => 1'}); \
+         return [Object.keys(r), Object.keys(r.nested), Object.keys(r.nested.a[0])].map((k) => k.join(',')).join('|');",
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.error, None);
+    assert_eq!(lines(&out), vec!["\"title,url,snippet,nested|z,a|y,b\""]);
 }

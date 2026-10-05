@@ -371,8 +371,8 @@ def test_themes_and_gobject_get_pinned_texts() -> None:
     file; their pinned MIT texts are collected, and another package directory
     of either stops the collection."""
     manifest = json.loads((PINNED / "MANIFEST.json").read_text())
-    assert manifest["packages"]["iterm2-themes"]["packages"] == [THEMES]
-    assert manifest["packages"]["zig-gobject"]["packages"] == [GOBJECT]
+    assert THEMES in manifest["packages"]["iterm2-themes"]["packages"]
+    assert GOBJECT in manifest["packages"]["zig-gobject"]["packages"]
     with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
         work = Path(raw)
         source, cache = build_fixture(work)
@@ -396,6 +396,38 @@ def test_themes_and_gobject_get_pinned_texts() -> None:
             source, cache = build_fixture(work)
             add_themes_and_gobject(source, themes, gobject)
             assert collect_in_process(source, cache, work / "collected") != 0, label
+
+
+Z2D_NEXT = "z2d-0.12.1-j5P_Hsw8EQAKyZTQICCQnAH2xYkLDW8k9uefbsYdfPZ-"
+THEMES_NEXT = "N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB"
+GOBJECT_NEXT = "gobject-0.3.2-Skun7F6HogCMynX2JqeSHS7xr-8pK4ob-qRFIcEasVi3"
+
+
+def test_ghostty_next_packages_get_pinned_texts() -> None:
+    """ghostty-next (the libghostty-vt source of bin/cmux) fetches z2d 0.12.1,
+    zig-gobject 0.3.2 and a newer iterm2_themes release, none with a license
+    file. z2d 0.12.1 ships its own pinned texts and MPL-2.0 source offer; the
+    other two reuse texts that are byte-equal upstream."""
+    manifest = json.loads((PINNED / "MANIFEST.json").read_text())
+    assert manifest["packages"]["z2d@0.12.1"]["packages"] == [Z2D_NEXT]
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-next-") as raw:
+        work = Path(raw)
+        source, cache = build_fixture(work)
+        add_themes_and_gobject(source, THEMES_NEXT, GOBJECT_NEXT)
+        output = work / "collected"
+        assert collect_in_process(source, cache, output, z2d=Z2D_NEXT) == 0
+        collected = json.loads((output / "SOURCE-MANIFEST.json").read_text())
+        assert collected["unresolved_packages"] == []
+        z2d = {e["source"]: e for e in collected["license_files"] if e["package"] == Z2D_NEXT}
+        for item in manifest["packages"]["z2d@0.12.1"]["files"]:
+            entry = z2d[item["upstream"]]
+            assert (output / entry["destination"]).read_bytes() == (PINNED / item["path"]).read_bytes()
+        offer = (output / z2d[f"source-offer:{Z2D_NEXT}"]["destination"]).read_text()
+        assert "z2d 0.12.1 is licensed under the Mozilla Public License 2.0" in offer
+        assert "7dbae85c81784dba9988320bf9543ed9a81350c8" in offer
+        assert "upstream tag v0.12.1" in offer
+        packages = {e["package"] for e in collected["license_files"]}
+        assert THEMES_NEXT in packages and GOBJECT_NEXT in packages
 
 
 def test_vendored_directory_without_license_is_unresolved() -> None:
@@ -575,6 +607,7 @@ def main() -> int:
     test_pinned_vendored_texts_ship_with_the_tree()
     test_known_zig_pkg_licenses()
     test_themes_and_gobject_get_pinned_texts()
+    test_ghostty_next_packages_get_pinned_texts()
     test_verifier_rejects_long_destination()
     test_collector_rejects_label_collision()
     print("Ghostty license path budget tests passed")

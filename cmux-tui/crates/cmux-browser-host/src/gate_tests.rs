@@ -96,6 +96,24 @@ impl Driver for FakeDriver {
         Vec::new()
     }
 
+    /// A script value as the engine sends it: JSON text in the page's key
+    /// order (a secret also behind a JSON escape).
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Reply, DriverError> {
+        if method == "frame.evaluate" && params["source"] == "ordered" {
+            announce();
+            self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
+            let raw = r#"{"z":"token s3cret-value here","a":[{"y":"s3cret\u002dvalue","b":1.50}],"s3cret-value":true}"#;
+            let raw = RawValue::from_string(raw.to_owned()).unwrap();
+            return Ok(Reply::Json(raw));
+        }
+        self.call_announced(method, params, announce).map(Reply::Value)
+    }
+
     fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
         *self.filter.lock().unwrap() = filter;
         true
@@ -907,5 +925,21 @@ fn request_kind_changes_logging_only() {
             ..fine
         })
         .is_none()
+    );
+}
+
+/// a9 raw_value: a script value stays JSON text in the page's key order,
+/// with secrets masked in that text (string values and keys, also behind
+/// JSON escapes) before it reaches the VM.
+#[test]
+fn script_values_are_masked_as_text_in_the_page_key_order() {
+    let (gate, _driver) = make_gate(Value::Null, false);
+    agent_secret(&gate, "a.test");
+    let reply = gate
+        .driver_call_reply("frame.evaluate", json!({"targetId": "T", "source": "ordered"}))
+        .unwrap();
+    assert_eq!(
+        reply.json_text(),
+        r#"{"z":"token <secret:pw> here","a":[{"y":"<secret:pw>","b":1.50}],"<secret:pw>":true}"#
     );
 }
