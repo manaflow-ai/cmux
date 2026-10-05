@@ -75,14 +75,14 @@ enum DebugShowcase {
             ("docs-site", "~/code/docs-site"),
             ("infra", "~/code/infra"),
         ]
-        for (name, cwd) in workspaces {
-            if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
-                continue
-            }
-            services.showcase.workspaces[name] = nil
-            var spawn = WorkspaceSpawn(cwd: cwd, name: name)
-            spawn.onListed = { [weak services] id, _ in services?.showcase.workspaces[name] = id }
-            Task { @MainActor in
+        Task { @MainActor in
+            for (name, cwd) in workspaces {
+                if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
+                    continue
+                }
+                services.showcase.workspaces[name] = nil
+                var spawn = WorkspaceSpawn(cwd: cwd, name: name)
+                spawn.onListed = { [weak services] id, _ in services?.showcase.workspaces[name] = id }
                 do {
                     let id = try await services.windows.createWorkspace(spawn, into: windowID)
                     services.showcase.workspaces[name] = id
