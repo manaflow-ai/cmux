@@ -172,6 +172,29 @@ jobs:
               echo "Tree $key is missing $asset or its checksum; publication repair is required (see cmuxterm-hq REPAIR.md)."
             fi
           done
+          completion="$RUNNER_TEMP/cmux-tui-completion.json"
+          if ! curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              "$base/completion.json?preflight=$RUN_ID" -o "$completion" \
+              || ! python3 - "$key" "$completion" <<'PY'
+          import json, re, sys
+          key, path = sys.argv[1:]
+          data = json.load(open(path, encoding="utf-8"))
+          names = (
+              "cmux-tui-aarch64-apple-darwin",
+              "cmux-tui-app-host-aarch64-apple-darwin",
+              "cmux-tui-cloud-server-aarch64-apple-darwin",
+          )
+          if data.get("key") != key or not isinstance(data.get("binaries"), dict):
+              raise SystemExit("completion manifest key or binaries object is invalid")
+          for name in names:
+              digest = data["binaries"].get(name)
+              if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                  raise SystemExit(f"completion manifest is missing {name}")
+          PY
+          then
+            tree_ready=false
+            echo "Tree $key is missing a complete completion manifest; publication repair is required (see cmuxterm-hq REPAIR.md)."
+          fi
           if [[ "$tree_ready" == true ]]; then
             echo "Published tree $key and all daemon companions are ready; macOS build can be skipped."
           fi

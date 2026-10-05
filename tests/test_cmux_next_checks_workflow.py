@@ -261,13 +261,28 @@ for arg in "$@"; do
 done
 [[ -z "$MISSING" || "$url" != *"$MISSING"* ]] || exit 22
 
+if [[ "$url" == *completion.json* ]]; then
+  args=("$@")
+  for ((index=0; index<${#args[@]}; index++)); do
+    arg="${args[index]}"
+    if [[ "$arg" == -o ]]; then
+      outfile="${args[index + 1]}"
+      cat > "$outfile" <<'JSON'
+{"key":"0000000000000000000000000000000000000002","binaries":{"cmux-tui-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000","cmux-tui-app-host-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000","cmux-tui-cloud-server-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000"}}
+JSON
+      exit 0
+    fi
+  done
+  exit 1
+fi
+
 [[ "$MALFORMED" != true ]] || { printf 'bad checksum\\n'; exit 0; }
 printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
 ''')
             curl.chmod(0o755)
             output = root / "output"
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
-                   "GITHUB_OUTPUT": str(output), "EVENT_NAME": event, "REF": ref,
+                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(root), "EVENT_NAME": event, "REF": ref,
                    "SHA": "a" * 40, "SOURCE_COMMIT": "a" * 40,
                    "REMOTE_SHA": remote, "PUBLISHED": str(published).lower(),
                    "MISSING": missing, "MALFORMED": str(malformed).lower(),
