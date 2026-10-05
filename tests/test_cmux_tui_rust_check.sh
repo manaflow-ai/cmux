@@ -51,7 +51,9 @@ fail() { echo "FAIL: $*" >&2; echo "$out" >&2; cat "$work/calls" >&2; exit 1; }
 
 run "$script" fmt
 [[ $rc -eq 0 ]] || fail "fmt: rc=$rc"
-[[ "$(head -1 "$work/calls")" == "rustup component add clippy rustfmt" ]] || fail "components not installed first"
+add_line="$(grep -n "^rustup component add clippy rustfmt$" "$work/calls" | cut -d: -f1)"
+first_cargo="$(grep -n "^cargo " "$work/calls" | head -1 | cut -d: -f1)"
+[[ -n "$add_line" && "$add_line" -lt "$first_cargo" ]] || fail "components not installed before cargo"
 grep -q "^cargo fmt --all --check$" "$work/calls" || fail "cargo fmt not run with the toolchain's own cargo"
 ! grep -q "^path-cargo" "$work/calls" || fail "a cargo from PATH ran instead of the toolchain's"
 grep -q "1.95.0-aarch64-apple-darwin" <<<"$out" || fail "active toolchain not printed"
