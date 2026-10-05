@@ -875,6 +875,9 @@ import Testing
         "Connection closed by 10.0.0.5 port 22",
         "no server running on /tmp/tmux-501/default",
         "user@host: Permission denied (publickey).",
+        // A missing file on one line and an /etc path on another say nothing about the transport.
+        "Error connecting to agent: No such file or directory\n/etc/ssh/ssh_config line 12: Unsupported option \"gssapiauthentication\"\nConnection closed by 10.0.0.5 port 22",
+        "Warning: Identity file /etc/keys/id_ed25519 not accessible: No such file or directory.",
         "",
     ])
     func recoverableFailuresKeepRetrying(_ stderr: String) {

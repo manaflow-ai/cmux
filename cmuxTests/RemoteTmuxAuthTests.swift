@@ -1025,6 +1025,14 @@ import Testing
         )
     }
 
+    /// A login banner that describes the account's sign-in is not asking for anything.
+    @Test func aBannerMentioningTwoFactorIsNotAPrompt() {
+        #expect(
+            RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
+                "Two-factor authentication is enabled for this account.\nLast login: Tue Jul 21 09:14:02 2026\n") == false
+        )
+    }
+
     /// Prose that merely mentions a passcode is not a prompt awaiting input.
     @Test func mentioningAPasscodeIsNotAPrompt() {
         #expect(
