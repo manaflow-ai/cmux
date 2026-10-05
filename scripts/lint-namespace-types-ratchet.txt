@@ -90,9 +90,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTuna
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:LayoutTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ExternalOpenRoute.swift:ShellQuote
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Theme/GhosttyThemeFile.swift:GhosttyThemeFile
-Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteRanker.swift:PaletteRanker
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchPlan.swift:TabSearchPlan
-Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchRanker.swift:TabSearchRanker
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchStyle.swift:PaletteTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/HealthAlert.swift:HealthOrdering
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/PairingCode.swift:PairingCode
