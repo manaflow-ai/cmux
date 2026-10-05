@@ -80,6 +80,17 @@ version in this app is available at {url} (the archive that Ghostty {revision} f
 and at https://github.com/vancluever/z2d. The Ghostty source that selects it is at \
 https://github.com/manaflow-ai/ghostty-next/tree/{revision}."""
 
+# The FreeType License (docs/FTL.TXT, section 3) asks binary redistributions to cite the
+# FreeType Project in their documentation, with the year of the FreeType version in use.
+# Keyed by the sha256 of the package's LICENSE.TXT: a new FreeType needs a reviewed entry.
+FREETYPE_YEARS = {
+    # deps.files.ghostty.org/freetype-1220b81f6ecf...tar.gz = FreeType 2.13.2 (Copyright 1996-2023)
+    "2e3bbb7d7c5c396368dd0853a790ec29ce5b8647163dde42a0493fb0d6556b2b": ("2.13.2", 2023),
+}
+FTL_CREDIT = """This software is based in part on the work of the FreeType Team (FreeType {version}, \
+https://freetype.org). Portions of this software are copyright \u00a9 {year} The FreeType Project \
+(www.freetype.org).  All rights reserved."""
+
 
 class NoticeError(Exception):
     pass
@@ -476,6 +487,16 @@ def build_pane(tree: Path, links: dict, pin: dict) -> dict:
         if not files:
             raise NoticeError(f"{package}: linked but the license tree has no text for it")
         body = "\n\n".join(f"{label}:\n\n{text.strip()}" for label, text in files)
+        if package == "freetype":
+            license_text = next((text for label, text in files if label.endswith("LICENSE.TXT")), None)
+            digest = hashlib.sha256(license_text.encode()).hexdigest() if license_text is not None else None
+            if digest not in FREETYPE_YEARS:
+                raise NoticeError(
+                    f"freetype: LICENSE.TXT sha256 {digest} is not in FREETYPE_YEARS; review the FreeType version "
+                    "and add its year for the FTL credit"
+                )
+            version, year = FREETYPE_YEARS[digest]
+            body += "\n\n" + FTL_CREDIT.format(version=version, year=year)
         if package == "z2d":
             url = next(value["url"] for value in manifest["zig_packages"].values() if value["dependency"] == "z2d")
             body += "\n\n" + Z2D_OFFER.format(url=url, revision=pin["ghostty_revision"])
