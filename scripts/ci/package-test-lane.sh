@@ -471,7 +471,8 @@ run_suite() {
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
   local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
-  if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then configuration+=(-Xswiftc -enable-testing); fi
+  # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
+  if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG); fi
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
   echo "::endgroup::"
