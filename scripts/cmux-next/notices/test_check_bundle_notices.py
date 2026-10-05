@@ -77,6 +77,22 @@ class CheckBundleNoticesTest(unittest.TestCase):
         self.assertEqual(checker.macho_files(self.app), ["Contents/Frameworks/Lib.framework/Versions/A/Lib", "Contents/MacOS/app"])
         self.assertEqual(checker.check(self.app, MAP), [])
 
+    def test_bundled_resources_need_their_notices(self) -> None:
+        bundle_map = {**MAP, "resources": [{"path": "Contents/Resources/ghostty/themes", "notices": ["section:ghostty-themes"]}]}
+        self.assertEqual(checker.check(self.app, bundle_map), [])
+        themes = self.app / "Contents/Resources/ghostty/themes"
+        themes.mkdir(parents=True)
+        (themes / "Ubuntu").write_text("palette = 0=#2e3436\n")
+        self.assertEqual(checker.check(self.app, bundle_map), ["Contents/Resources/ghostty/themes: missing notice section:ghostty-themes"])
+        notices = self.app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+        notices.write_text(notices.read_text() + "<!-- notices-section: ghostty-themes -->\n")
+        self.assertEqual(checker.check(self.app, bundle_map), [])
+
+    def test_the_map_covers_bundled_ghostty_themes(self) -> None:
+        bundle_map = json.loads((HERE / "bundle-map.json").read_text())
+        paths = {entry["path"] for entry in bundle_map.get("resources", [])}
+        self.assertIn("Contents/Resources/ghostty/themes", paths)
+
     def test_repository_notices_carry_every_section_that_the_map_names(self) -> None:
         bundle_map = json.loads((HERE / "bundle-map.json").read_text())
         needed = {n.split(":", 1)[1] for e in bundle_map["entries"] for n in e["notices"] if n.startswith("section:")}
