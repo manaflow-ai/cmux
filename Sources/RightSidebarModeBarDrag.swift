@@ -149,7 +149,17 @@ final class RightSidebarModeBarDragController {
         guard let view = anchor.view,
               let event = NSApp.currentEvent, event.type == .leftMouseDragged,
               let image = dragImage(tabFrame.size) else { return false }
-        let frame = tabFrame.offsetBy(dx: current.layout.draggedOffset(translation: translation), dy: travel.height)
+        let lifted = tabFrame.offsetBy(dx: current.layout.draggedOffset(translation: translation), dy: travel.height)
+        // AppKit scales the drag contents to the dragging frame. Unfocused
+        // tabs can have an icon-only resting frame, so use the preview's full
+        // intrinsic size for the frame while keeping the press point anchored.
+        let grabX = current.startLocation.x - tabFrame.minX
+        let frame = NSRect(
+            x: lifted.minX + max(0, grabX - image.size.width + image.size.height / 2),
+            y: lifted.midY - image.size.height / 2,
+            width: image.size.width,
+            height: image.size.height
+        )
         guard let source = RightSidebarModeDragPayload.beginPaneDrag(
             mode: current.mode, from: view, event: event, frame: frame, image: image,
             onEnd: { [weak self] in self?.paneDragEnded() }
