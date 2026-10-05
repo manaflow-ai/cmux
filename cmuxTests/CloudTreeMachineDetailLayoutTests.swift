@@ -70,8 +70,9 @@ struct CloudTreeMachineDetailLayoutTests {
             Issue.record("connecting machine should retain its detail controls")
             return
         }
-        // Terminals stays while connecting (#17326) and shows "No terminals yet".
-        #expect(tabs.tabs == [.ports, .terminals, .resources])
+        // Ports, Terminals and Displays have nothing current while the link
+        // connects (#17139); Resources is fleet telemetry and keeps its tab.
+        #expect(tabs.tabs == [.resources])
     }
 
     @Test("Opening Terminals shows New Terminal, then every terminal labelled with its workspace")
