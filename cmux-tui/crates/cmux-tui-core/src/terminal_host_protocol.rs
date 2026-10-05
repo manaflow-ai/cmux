@@ -500,7 +500,7 @@ impl TryFrom<u16> for MessageKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Frame {
     pub version: u16,
     pub kind: MessageKind,
@@ -531,6 +531,21 @@ pub struct Frame {
     /// a flagged live frame not followed by Colors are protocol errors.
     pub sequence: u64,
     pub payload: Vec<u8>,
+}
+
+/// Payloads carry clipboard text, input and screen contents, so the Debug
+/// form names the frame and its size and never prints payload bytes.
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Frame")
+            .field("version", &self.version)
+            .field("kind", &self.kind)
+            .field("flags", &self.flags)
+            .field("request_id", &self.request_id)
+            .field("sequence", &self.sequence)
+            .field("len", &self.payload.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Frame {

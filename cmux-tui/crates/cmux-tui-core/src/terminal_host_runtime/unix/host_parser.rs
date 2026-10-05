@@ -43,7 +43,6 @@ pub(super) fn run_host_parser(
                         .cursor_activity()
                         .expect("valid host terminals expose cursor activity");
                     let normalized = term.vt_write_with_normalized(&bytes).into_owned();
-                    parser_host.clipboard.dispatch(&mut term, &parser_host.broadcast_lock);
                     parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)
@@ -63,6 +62,9 @@ pub(super) fn run_host_parser(
                     };
                     let pwd = changed_pwd_frame(&mut last_pwd, pwd);
                     parser_host.broadcast_frames(output_transition_frames(normalized, colors, pwd));
+                    // After this chunk's Output, so the owner's mirror shows
+                    // what the program printed before it asked.
+                    parser_host.clipboard.dispatch(&mut term, &parser_host.broadcast_lock);
                     // The parser lock is also the snapshot lock. Mark
                     // this source cursor before releasing it so a
                     // snapshot cannot include output that its boundary

@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+#[cfg(test)]
 use ghostty_vt::ClipboardReadRequest;
 
 use super::{PtyRuntime, Surface};
@@ -62,20 +63,26 @@ impl Surface {
         }
     }
 
+    // Test probes only. A grant goes only through the daemon broker, which
+    // checks who answers; no crate user may complete a read directly.
+
     /// Whether this surface's host connection negotiated clipboard reads.
-    pub fn clipboard_reads_negotiated(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn clipboard_reads_negotiated(&self) -> bool {
         self.with_host(HostAttachment::clipboard_reads_negotiated).unwrap_or(false)
     }
 
     /// The clipboard read the host is waiting on, if any.
-    pub fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {
+    #[cfg(test)]
+    pub(crate) fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {
         self.with_host(HostAttachment::pending_clipboard_read).flatten()
     }
 
     /// Answers the pending read `token`: `Some(text)` grants it, `None`
     /// refuses it. False, with nothing sent, when `token` is not pending
     /// (answered, replaced, or the connection changed).
-    pub fn complete_clipboard_read(
+    #[cfg(test)]
+    pub(crate) fn complete_clipboard_read(
         &self,
         token: u64,
         text: Option<Vec<u8>>,

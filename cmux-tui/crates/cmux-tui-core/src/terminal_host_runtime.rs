@@ -847,7 +847,7 @@ mod unix {
     mod standby;
     pub(crate) use clipboard_read::ClipboardReadSignal;
     use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
-    use clipboard_read::{owner_rights_allowed, owner_rights_for};
+    use clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
     use host_parser::{ParserSignals, run_host_parser};
@@ -1940,12 +1940,15 @@ mod unix {
         launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None)
     }
 
+    /// A one-shot owner connection (for example to terminate a host no
+    /// surface adopted). It never takes clipboard reads; surfaces adopt with
+    /// [`adopt_terminal_host_with_kitty_limits`].
     pub fn adopt_terminal_host(
         record: TerminalHostRecord,
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        let mut attachment = connect_record(record, record_path)?;
+        let mut attachment = connect_record(record, record_path, OwnerIntent::OneShot)?;
         attachment.activate_launched_host()?;
         Ok(attachment)
     }
@@ -1955,7 +1958,12 @@ mod unix {
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        connect_current_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT)
+        connect_current_record_with_timeout(
+            record,
+            record_path,
+            HOST_HANDSHAKE_TIMEOUT,
+            OwnerIntent::Surface,
+        )
     }
 
     pub(crate) fn adopt_terminal_host_with_kitty_limits(
@@ -1973,7 +1981,7 @@ mod unix {
                 // handshake; only legacy records need version probing.
                 adopt_current_terminal_host(record, record_path)
             } else {
-                connect_record(record, record_path)
+                connect_record(record, record_path, OwnerIntent::Surface)
             }
         };
         let mut attachment = connect(record.clone(), record_path.clone())?;
@@ -2380,14 +2388,16 @@ mod unix {
     fn connect_record(
         record: TerminalHostRecord,
         record_path: PathBuf,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
-        connect_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT)
+        connect_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT, intent)
     }
 
     fn connect_record_with_timeout(
         record: TerminalHostRecord,
         record_path: PathBuf,
         handshake_timeout: Duration,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         let endpoint = PathBuf::from(&record.endpoint);
         let mut stream = Some(
@@ -2408,6 +2418,7 @@ mod unix {
                     protocol_version,
                     smart_renderer,
                     stream.take().expect("protocol attempt has a connected stream"),
+                    intent,
                 ) {
                     Ok(attachment) => return Ok(attachment),
                     Err(error) => error,
@@ -2448,6 +2459,7 @@ mod unix {
         record: TerminalHostRecord,
         record_path: PathBuf,
         handshake_timeout: Duration,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         if record.record_version >= HOST_RECORD_VERSION {
             // Fence-capable records are emitted only by the current smart
@@ -2466,9 +2478,10 @@ mod unix {
                 PROTOCOL_VERSION,
                 true,
                 stream,
+                intent,
             );
         }
-        connect_record_with_timeout(record, record_path, handshake_timeout)
+        connect_record_with_timeout(record, record_path, handshake_timeout, intent)
     }
 
     fn is_transient_handshake_transport(error: &anyhow::Error) -> bool {
@@ -2491,6 +2504,7 @@ mod unix {
         protocol_version: u16,
         smart_renderer: bool,
         mut stream: UnixStream,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
             anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
@@ -2504,7 +2518,7 @@ mod unix {
             min_version: protocol_version,
             max_version: protocol_version,
             role: ClientRole::Admin,
-            requested_rights: owner_rights_for(&record, protocol_version),
+            requested_rights: owner_rights_for(&record, protocol_version, intent),
             terminal_id,
             token: owner_token,
         };
@@ -5795,8 +5809,12 @@ mod unix {
                         }
                     }
                     MessageKind::ClipboardReadReply => {
-                        if !command_host.apply_clipboard_read_reply(client, granted_rights, &frame)
-                        {
+                        if !command_host.apply_clipboard_read_reply(
+                            client,
+                            granted_rights,
+                            &frame,
+                            selected_version,
+                        ) {
                             break;
                         }
                     }
@@ -7960,6 +7978,7 @@ mod unix {
                             connect_record,
                             connect_record_path,
                             Duration::from_millis(30),
+                            OwnerIntent::Surface,
                         )
                         .is_err(),
                     )
@@ -8010,6 +8029,7 @@ mod unix {
                     record.clone(),
                     record_path.clone(),
                     Duration::from_millis(30),
+                    OwnerIntent::OneShot,
                 )
                 .is_err()
             );
@@ -8482,6 +8502,7 @@ mod unix {
                 record.clone(),
                 record_path.clone(),
                 Duration::from_secs(1),
+                OwnerIntent::Surface,
             )
             .unwrap();
             assert_eq!(attachment.protocol_version(), LEGACY_PROTOCOL_VERSION);
@@ -8597,6 +8618,7 @@ mod unix {
                 record.clone(),
                 record_path.clone(),
                 Duration::from_secs(1),
+                OwnerIntent::Surface,
             );
             let saw_legacy = server.join().unwrap().unwrap();
             let attachment = result.expect("legacy fallback did not adopt the live shell");

@@ -3,8 +3,9 @@
 //!
 //! Negotiation: a host advertises `supports_clipboard_read` in its discovery
 //! record, and only then does a current-protocol daemon ask the owner token
-//! for `ADMIN | CLIPBOARD_READ`; an older host rejects the unknown right
-//! bit, so it never sees it. The host enables deferred reads only while such
+//! for `ADMIN | CLIPBOARD_READ`, and only on the connection a surface keeps
+//! (one-shot connections ask for `ADMIN`); an older host rejects the unknown
+//! right bit, so it never sees it. The host enables deferred reads only while such
 //! an owner connection is attached.
 //!
 //! Wire: `ClipboardReadRequest` (host to owner) carries `token:u64,
@@ -79,12 +80,28 @@ fn send_cancel(owners: &[ClipboardOwner], open: &OpenClipboardRead, broadcast_lo
     let _ = owner.tap.try_send(frame);
 }
 
+/// What an owner connection is for. The host asks its newest
+/// `CLIPBOARD_READ` connection, so only the connection a surface keeps may
+/// take that right; a one-shot connection would take the reads it cannot
+/// answer and leave them to time out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OwnerIntent {
+    /// The surface's long-lived owner (launch, adoption, reconnect).
+    Surface,
+    /// One command, then disconnect (terminate an unadopted host).
+    OneShot,
+}
+
 /// The rights a daemon asks of a host for one owner connection.
 pub(super) fn owner_rights_for(
     record: &TerminalHostRecord,
     protocol_version: u16,
+    intent: OwnerIntent,
 ) -> CapabilityRights {
-    if protocol_version == PROTOCOL_VERSION && record.supports_clipboard_read {
+    if intent == OwnerIntent::Surface
+        && protocol_version == PROTOCOL_VERSION
+        && record.supports_clipboard_read
+    {
         CapabilityRights::ADMIN | CapabilityRights::CLIPBOARD_READ
     } else {
         CapabilityRights::ADMIN
@@ -411,15 +428,19 @@ impl HostShared {
     }
 
     /// One `ClipboardReadReply` from `client`. False closes the connection:
-    /// it lacks the right or sent a malformed reply. Stale or unknown tokens
-    /// are ignored.
+    /// it lacks the right or sent a malformed envelope or reply. Stale or
+    /// unknown tokens, and tokens another connection was asked about, are
+    /// ignored.
     pub(super) fn apply_clipboard_read_reply(
         &self,
         client: u64,
         granted_rights: CapabilityRights,
         frame: &Frame,
+        protocol_version: u16,
     ) -> bool {
-        if !granted_rights.contains(CapabilityRights::CLIPBOARD_READ) || frame.request_id != 0 {
+        if !granted_rights.contains(CapabilityRights::CLIPBOARD_READ)
+            || !clipboard_envelope_valid(frame, protocol_version)
+        {
             return false;
         }
         let Ok((token, text)) = decode_clipboard_read_reply(&frame.payload) else {
@@ -451,7 +472,7 @@ impl ClipboardReadInbox {
     }
 }
 
-/// The frame envelope every host-originated clipboard frame carries.
+/// The frame envelope every clipboard frame carries, in both directions.
 fn clipboard_envelope_valid(frame: &Frame, protocol_version: u16) -> bool {
     frame.version == protocol_version
         && frame.flags == 0
@@ -529,6 +550,7 @@ impl ControlResponses {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {
         *lock(&self.clipboard_reads.pending)
     }
@@ -544,6 +566,7 @@ impl ControlResponses {
 }
 
 impl HostAttachment {
+    #[cfg(test)]
     pub(crate) fn clipboard_reads_negotiated(&self) -> bool {
         self.control_responses.clipboard_reads_negotiated()
     }
@@ -553,12 +576,15 @@ impl HostAttachment {
         self.control_responses.negotiate_clipboard_reads_for_test();
     }
 
+    #[cfg(test)]
     pub(crate) fn pending_clipboard_read(&self) -> Option<ClipboardReadRequest> {
         self.control_responses.pending_clipboard_read()
     }
 
     /// Answers the pending read `token`: `Some(text)` grants, `None`
     /// refuses. False, with nothing sent, when `token` is not pending.
+    /// Tests only: production answers go through the broker's replier.
+    #[cfg(test)]
     pub(crate) fn complete_clipboard_read(
         &self,
         token: u64,
@@ -589,7 +615,9 @@ pub(crate) struct ClipboardReplier {
 }
 
 impl ClipboardReplier {
-    /// As [`HostAttachment::complete_clipboard_read`].
+    /// Answers the pending read `token`: `Some(text)` grants, `None`
+    /// refuses. False, with nothing sent, when `token` is not pending
+    /// (answered, replaced, or the connection is gone).
     pub(crate) fn complete(&self, token: u64, text: Option<&[u8]>) -> std::io::Result<bool> {
         let (Some(writer), Some(responses)) = (self.writer.upgrade(), self.responses.upgrade())
         else {

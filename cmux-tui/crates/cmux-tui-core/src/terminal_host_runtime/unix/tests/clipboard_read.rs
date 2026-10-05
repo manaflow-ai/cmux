@@ -677,6 +677,7 @@ fn connect_to_fake_host(
         protocol_version,
         true,
         daemon,
+        OwnerIntent::Surface,
     );
     let requested = host.join().unwrap();
     drop(lease);
