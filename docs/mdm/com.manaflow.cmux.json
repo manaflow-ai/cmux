@@ -508,6 +508,12 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
+    "browser.omnibar.calculator" : {
+      "default" : true,
+      "description" : "Shows the answer to arithmetic you type. Return copies it.",
+      "title" : "Calculator Answers",
+      "type" : "boolean"
+    },
     "browser.omnibar.inlineAutocomplete" : {
       "default" : true,
       "description" : "Completes a site you typed before or visit often.",

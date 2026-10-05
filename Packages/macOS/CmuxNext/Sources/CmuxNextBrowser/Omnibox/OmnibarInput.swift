@@ -105,6 +105,8 @@ public nonisolated enum OmnibarEffect: Equatable, Sendable {
     /// Enter loaded the typed text as a URL (what-you-typed or its inline
     /// completion): the visit counts as typed (Chromium `PAGE_TRANSITION_TYPED`).
     case typedNavigation(URL)
+    /// Enter or a click on a calculator row: copy this answer.
+    case copyAnswer(String)
     /// An extension keyword session started (`chrome.omnibox.onInputStarted`).
     case keywordStarted(extensionID: String)
     /// The session's text changed; answer with `.suggestions(generation:)`.

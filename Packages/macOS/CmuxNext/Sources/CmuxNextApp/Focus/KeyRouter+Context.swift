@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextPages
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
@@ -28,6 +29,9 @@ extension KeyRouter {
         /// An editable element in the focused page has the keyboard (a text
         /// field, Monaco, a content-editable): bare keys are typing there.
         var pageEditableFocused = false
+        /// The focused address bar shows its suggestion list: it is a list
+        /// for Ctrl-N/P/J/K (R110) until the list closes.
+        var omnibarListOpen = false
     }
 
     /// The markdown page's id (`PageDescriptor.markdown`), for the
@@ -65,7 +69,9 @@ extension KeyRouter {
         if resolved.isTextInput || facts.pageEditableFocused { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
-        if facts.listFocus || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
+        // Red: the open suggestion list is not a list context yet.
+        let omnibarList = facts.omnibarListOpen && facts.hasMarkedText && { if case .addressBar = resolved { true } else { false } }()
+        if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         return context
     }
 
@@ -114,7 +120,8 @@ extension KeyRouter {
         Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
               terminalCopyMode: terminalCopyMode(in: controller), pageID: focusedPage(in: controller)?.descriptor.id,
               listFocus: focusedReadiness(in: controller)?.isListFocused == true,
-              pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true)
+              pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
+              omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true)
     }
 
     /// The sidebar list and its search field are lists for Ctrl-N/P/J/K.
@@ -128,6 +135,13 @@ extension KeyRouter {
     private func focusedReadiness(in controller: WindowController) -> PageInputReadiness? {
         guard let pane = controller.focus.state.resolved.pane else { return nil }
         return controller.content?.paneController(key: pane)?.currentContent?.inputReadiness
+    }
+
+    /// The focused pane's address bar while it has the keyboard.
+    private func focusedAddressBar(in controller: WindowController) -> AddressBarView? {
+        guard case .addressBar = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
+        return entry.chrome.addressBar
     }
 
     /// The React page the focused pane's selected tab shows, if any.

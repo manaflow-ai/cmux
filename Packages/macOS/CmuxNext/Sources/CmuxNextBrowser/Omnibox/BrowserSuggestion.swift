@@ -15,6 +15,8 @@ public nonisolated struct BrowserSuggestion: Hashable, Sendable, Identifiable {
         case keyword
         /// An open tab of the same profile: Enter reveals it ("Switch to Tab").
         case switchToTab
+        /// A calculator answer: Enter copies it (`content`), never navigates.
+        case answer
     }
 
     public var kind: Kind

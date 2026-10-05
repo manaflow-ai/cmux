@@ -15,7 +15,7 @@ extension OmniboxConfiguration {
             engine = BrowserSearchEngine.builtIn.first { $0.id == setting.searchEngine } ?? .google
         }
         self.init(searchEngine: engine, remoteSuggestions: setting.remoteSuggestions, inlineAutocomplete: setting.inlineAutocomplete,
-                  maxRows: setting.maxRows)
+                  maxRows: setting.maxRows, calculator: setting.calculator)
     }
 }
 

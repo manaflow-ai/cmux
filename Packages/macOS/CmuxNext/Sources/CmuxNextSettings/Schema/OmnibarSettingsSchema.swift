@@ -53,13 +53,19 @@ nonisolated enum OmnibarSettingsSchema {
                 kind: .number(SettingNumber(S.maxRowsRange, step: 1, unit: .count)), default: .number(Double(fallback.maxRows)),
                 keywords: ["suggestions", "rows", "omnibox"]
             ),
+            SettingDescriptor(
+                S.calculatorPath, section: .browser, group: group,
+                title: SettingsText.keyed("settings.browser.omnibar.calculator", "Calculator Answers"),
+                help: SettingsText.keyed("settings.browser.omnibar.calculator.help", "Shows the answer to arithmetic you type. Return copies it."),
+                kind: .toggle, default: .bool(fallback.calculator), keywords: ["calculator", "math", "answer", "omnibox"]
+            ),
         ]
     }
 
     /// Agents may change how many rows show and inline completion; the
     /// engine and remote suggestions decide what leaves the machine.
     static var agentSettableKeys: Set<String> {
-        ["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows"]
+        ["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows", "browser.omnibar.calculator"]
     }
 
     static var privacyKeys: [String] {

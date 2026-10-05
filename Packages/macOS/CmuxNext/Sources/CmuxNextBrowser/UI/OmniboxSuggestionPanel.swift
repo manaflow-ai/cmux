@@ -2,12 +2,13 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The lower part of the suggestion card: a
-/// non-activating child panel flush under the bar, as wide as the card top
-/// (`OmnibarCardTopView`), rounded at the bottom only, with 28 pt rows whose
-/// icon and text line up with the bar's chip and text. A separate window, so
-/// it stays above child-window engines (CEF) and never takes key status from
-/// the field being edited.
+/// The lower part of the suggestion card: flush under the bar, as wide as
+/// the card top (`OmnibarCardTopView`), rounded at the bottom only, with
+/// 28 pt rows whose icon and text line up with the bar's chip and text.
+/// It draws on the window's overlay host in the `.pane` layer, clipped to
+/// the browser pane (plans/cmux-next/overlay-host.md), so it stays above
+/// Chromium page windows without a panel of its own and never takes key
+/// status from the field being edited.
 ///
 /// Rows only report the pointer and clicks; the omnibar state machine
 /// decides which one row is highlighted.
@@ -16,20 +17,17 @@ final class OmniboxSuggestionPanel {
     /// Pointer over row (nil: left the rows), in screen points.
     var onHover: ((Int?, CGPoint) -> Void)?
 
-    private var panel: SuggestionWindow?
     private let content = SuggestionCardView()
     private var rows: [SuggestionRowView] = []
+    private(set) var overlay: OverlayHandle?
 
-    /// Shadow room around the card inside the panel (none at the top: the
-    /// card continues the bar there).
-    private static let shadowMargin: CGFloat = 16
+    var isVisible: Bool { overlay.map { !$0.isDismissed } ?? false }
 
-    var isVisible: Bool { panel?.isVisible ?? false }
+    /// The card view (tests draw it).
+    var cardView: NSView { content }
 
-    func show(_ suggestions: [BrowserSuggestion], highlighted: Int?, below anchor: NSView, in window: NSWindow) {
-        let panel = panel ?? makePanel()
-        // The card takes the omnibar's theme scope (its room or workspace).
-        panel.adoptThemeScope(of: anchor)
+    /// Shows `suggestions` under `anchor` (the bar), clipped to `pane`.
+    func show(_ suggestions: [BrowserSuggestion], highlighted: Int?, below anchor: NSView, pane: NSView, in window: NSWindow) {
         rows.forEach { $0.removeFromSuperview() }
         rows = suggestions.enumerated().map { index, suggestion in
             let row = SuggestionRowView(suggestion: suggestion)
@@ -40,44 +38,42 @@ final class OmniboxSuggestionPanel {
         }
         rows.forEach { content.card.addSubview($0) }
 
-        let anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        let anchorRect = anchor.convert(anchor.bounds, to: nil)
         let outset = OmnibarStyle.cardSideOutset
         let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
         let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
         let cardWidth = anchorRect.width + 2 * outset
-        let margin = Self.shadowMargin
-        let frame = NSRect(
-            x: anchorRect.minX - outset - margin,
-            y: anchorRect.minY - cardHeight - margin,
-            width: cardWidth + 2 * margin,
-            height: cardHeight + margin
-        )
-        content.cardFrame = NSRect(x: margin, y: margin, width: cardWidth, height: cardHeight)
+        content.setFrameSize(NSSize(width: cardWidth, height: cardHeight))
+        content.cardFrame = NSRect(x: 0, y: 0, width: cardWidth, height: cardHeight)
         // Rows from the top, inset (4 at the sides, 2 above each).
         for (index, row) in rows.enumerated() {
             let top = cardHeight - OmnibarStyle.rowGap - CGFloat(index) * rowStep
-            row.frame = NSRect(
-                x: OmnibarStyle.rowSideInset,
-                y: top - OmnibarStyle.rowHeight,
-                width: cardWidth - 2 * OmnibarStyle.rowSideInset,
-                height: OmnibarStyle.rowHeight
-            )
+            row.frame = NSRect(x: OmnibarStyle.rowSideInset, y: top - OmnibarStyle.rowHeight,
+                               width: cardWidth - 2 * OmnibarStyle.rowSideInset, height: OmnibarStyle.rowHeight)
             // Icon and text line up with the bar's chip and text.
             row.leadingIconCenter = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize / 2 - OmnibarStyle.rowSideInset
             row.textLeading = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading - OmnibarStyle.rowSideInset
         }
-
-        panel.setFrame(frame, display: true)
         content.needsLayout = true
-        if panel.parent !== window {
-            panel.parent?.removeChildWindow(panel)
-            window.addChildWindow(panel, ordered: .above)
+        // The card takes the omnibar's theme scope (its room or workspace).
+        anchor.themeScope.fullStrength.root(content)
+
+        let origin = NSRect(x: anchorRect.minX - outset, y: anchorRect.minY - cardHeight, width: cardWidth, height: cardHeight)
+        let clip = pane.convert(pane.bounds, to: nil)
+        if let overlay, !overlay.isDismissed, content.window?.parent === window {
+            overlay.update(paneClip: clip)
+            overlay.update(anchor: origin)
+            return
         }
-        if !panel.isVisible {
-            // No fade: the card top in the bar appears at the same moment.
-            panel.alphaValue = 1
-            panel.orderFront(nil)
+        overlay?.dismiss()
+        let handle = WindowOverlayHost.host(for: window).present(
+            // Red: the window layer, not the pane layer.
+            content, options: OverlayOptions(kind: .attached, anchor: origin, layer: .window)
+        )
+        handle.onDismiss = { [weak self, weak handle] in
+            if self?.overlay === handle { self?.overlay = nil }
         }
+        overlay = handle
     }
 
     func highlight(_ index: Int?) {
@@ -90,38 +86,10 @@ final class OmniboxSuggestionPanel {
     var rowViews: [SuggestionRowView] { rows }
 
     func dismiss() {
-        guard let panel, panel.isVisible else { return }
-        panel.parent?.removeChildWindow(panel)
-        panel.orderOut(nil)
+        let shown = overlay
+        overlay = nil
+        shown?.dismiss()
     }
-
-    private func makePanel() -> SuggestionWindow {
-        let window = SuggestionWindow(
-            contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: true
-        )
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        // The card draws its own shadow so none falls on the seam with the bar.
-        window.hasShadow = false
-        window.level = .popUpMenu
-        window.hidesOnDeactivate = true
-        window.isReleasedWhenClosed = false
-        window.acceptsMouseMovedEvents = true
-        window.contentView = content
-        panel = window
-        return window
-    }
-}
-
-final class SuggestionWindow: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
-    /// The card never scrolls (at most 8 rows); the wheel must not reach
-    /// the page under it either.
-    override func scrollWheel(with event: NSEvent) {}
 }
 
 /// Transparent panel content holding the card layer and its shadow.
@@ -156,6 +124,10 @@ final class SuggestionCardView: NSView {
         card.layer?.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
         refresh()
     }
+
+    /// The card never scrolls (at most 15 rows); the wheel must not reach
+    /// the page under it either.
+    override func scrollWheel(with event: NSEvent) {}
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

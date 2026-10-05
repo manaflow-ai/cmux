@@ -39,6 +39,10 @@ nonisolated enum Strings {
     static var switchToTab: String {
         String(localized: "browser.suggestion.switchToTab", defaultValue: "Switch to Tab", bundle: .module)
     }
+    /// The detail of a calculator row.
+    static var calculatorCopyHint: String {
+        String(localized: "browser.suggestion.calculatorCopyHint", defaultValue: "Return Copies", bundle: .module)
+    }
     /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
         String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .module)

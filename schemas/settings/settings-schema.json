@@ -8446,6 +8446,52 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.calculator.help",
+        "text" : "Shows the answer to arithmetic you type. Return copies it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.calculator",
+      "keywords" : [
+        "calculator",
+        "math",
+        "answer",
+        "omnibox"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "omnibar",
+        "calculator"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.calculator",
+        "text" : "Calculator Answers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -11028,7 +11074,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "0995eaabc8821590129293a5d1395acdebc7541a8147c3e4f40f04b2e38aab7b",
+  "schema_hash" : "ea00d8b5186cb8d41b22f43ee0474cb936233e28204f2eba85bbe54e1183d1bb",
   "sections" : [
     {
       "id" : "general",
