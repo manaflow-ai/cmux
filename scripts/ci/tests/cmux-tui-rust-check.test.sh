@@ -21,6 +21,14 @@ case "\$1 \$2" in
 esac
 STUB
 chmod +x "$TMP/bin/rustup"
+cat > "$TMP/bin/git" <<STUB
+#!/bin/bash
+case " \$* " in
+  *" submodule update --init --depth 1 ghostty ghostty-next "*) exit 0 ;;
+  *) echo "unexpected git invocation: \$*" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$TMP/bin/git"
 run() { (cd "$TMP/work" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" "$@" /bin/bash "$ROOT/scripts/ci/cmux-tui-rust-check.sh" "${ARGS[@]}") 2>&1; }
 fail() { echo "FAIL: $*"; exit 1; }
 ARGS=(fmt)
