@@ -1,6 +1,7 @@
 //! One frontend browser id belongs to at most one tab, ever. A closed tab
-//! keeps its browser id as a tombstone, so neither a keyed retry nor any
-//! other creation may bind that id to a second tab (a registry once held two
+//! keeps its browser id as a tombstone (`resource_identities`; its frontend
+//! and source rows are deleted with the close), so neither a keyed retry nor
+//! any other creation may bind that id to a second tab (a registry once held two
 //! `tab.create_browser` receipts with one `frontend_browser_id`: the home
 //! chief tab's fixed key re-created a closed conversation tab).
 
@@ -115,11 +116,12 @@ fn create_browser_refuses_a_frontend_browser_id_bound_to_another_tab() {
     mux.shutdown();
 }
 
-/// Decision for the stale `frontend_browser_tabs` row: a closed tab keeps it
-/// (with its session history) as tombstone data; the presentation snapshot
-/// that a start loads leaves it out, and the id can never be bound again.
+/// A closed tab's `frontend_browser_tabs` row and session history go with the
+/// close (nothing reads them after it: Reopen Closed restores from the closed
+/// history record), and the id still never resolves or binds again: the
+/// guarantee rests only on the `resource_identities` tombstone.
 #[test]
-fn a_closed_frontend_tab_keeps_its_row_but_never_resolves() {
+fn a_closed_frontend_tab_drops_its_rows_and_never_resolves() {
     let mux = Mux::new_for_test("frontend-reuse-row", crate::SurfaceOptions::default());
     let pane = pane_of_new_workspace(&mux);
     let first = run(
@@ -140,7 +142,27 @@ fn a_closed_frontend_tab_keeps_its_row_but_never_resolves() {
             )?)
         })
         .unwrap();
-    assert_eq!(rows, 1, "the closed tab keeps its frontend row");
+    assert_eq!(rows, 0, "the close deletes the closed tab's frontend row");
+    let history = mux
+        .read_registry_state(|connection| {
+            Ok(connection.query_row(
+                "SELECT COUNT(*) FROM frontend_browser_history WHERE browser_id = ?1",
+                [&browser],
+                |row| row.get::<_, i64>(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(history, 0, "and its session history");
+    let fields =
+        Map::from_iter([("frontend_browser_id".to_string(), Value::String(browser.clone()))]);
+    let rebind = mux
+        .new_browser_tab_with_fields("about:blank".into(), Some(pane), None, fields)
+        .expect_err("a deleted row must not free the browser id");
+    assert_eq!(
+        response_error_code(&rebind).as_deref(),
+        Some("frontend_browser_bound"),
+        "{rebind:#}"
+    );
     // The snapshot a start (or any presentation reload) loads leaves it out.
     let loaded = mux.workspace_registry.lock().unwrap().presentation_snapshot().unwrap();
     assert!(

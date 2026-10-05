@@ -43,7 +43,7 @@ extension IntentWorld {
         case .moveWorkspace(let key, _), .setWorkspaceGroup(let key, _), .placeWorkspace(let key, _, _):
             if Int.random(in: 0..<4, using: &random) == 0 { emit(.treeChanged(transaction: nil)) }
             emit(.workspaceMoved(workspaceDelta(key, index: owner.index(of: key))))
-        case .setWorkspaceGroupCollapsed, .setTabGroupCollapsed, .setRowHeights:
+        case .setWorkspaceGroupCollapsed, .setTabGroupCollapsed, .setRowHeights, .createTab:
             emit(.treeChanged(transaction: nil))
         }
     }

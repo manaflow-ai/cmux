@@ -19,6 +19,8 @@ use crate::state::closed_history_query::{
     closed_record, keep_members, newest_for_window, remove_closed,
 };
 use crate::state::commit::{StateEffects, state_not_found};
+use crate::state::conversation_tabs::ConversationTabTarget;
+use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 
@@ -214,6 +216,12 @@ impl Mux {
         reattach: bool,
     ) -> anyhow::Result<SurfaceId> {
         let surface = match tab["kind"].as_str() {
+            Some("browser") if tab.get("conversation").is_some_and(|value| !value.is_null()) => {
+                let record = ConversationTabRecord::from_wire(&tab["conversation"])
+                    .context("the closed conversation tab has no valid record")?;
+                let target = ConversationTabTarget::Pane(Some(pane));
+                self.new_conversation_tab(target, record, None, None)?.surface.id
+            }
             Some("browser") => {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
                 match tab["engine"].as_str() {

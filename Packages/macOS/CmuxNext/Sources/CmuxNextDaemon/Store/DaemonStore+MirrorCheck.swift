@@ -46,7 +46,9 @@ extension DaemonStore {
     func checkOverlayConservation(confirmed: [String]) {
         #if DEBUG
         guard !intentLog.isEmpty else { return }
-        let visible = workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id).sorted()
+        // A create intent adds its provisional tab; every other intent keeps the set.
+        let visible = workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id)
+            .filter { !ProvisionalTab.isProvisional($0) }.sorted()
         guard visible != confirmed else { return }
         reportMirrorViolation("intent overlay changed the tabs: confirmed \(confirmed.count), visible \(visible.count)")
         #endif
