@@ -42,7 +42,7 @@
 # duplicate case's window is off-screen).
 set -euo pipefail
 
-usage() { sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 [[ "${1:-}" == -h || "${1:-}" == --help ]] && usage 0
 (( $# >= 3 )) || usage
 PACKAGE="$1" SOURCES="$2" FORK_REF="$3"; shift 3
