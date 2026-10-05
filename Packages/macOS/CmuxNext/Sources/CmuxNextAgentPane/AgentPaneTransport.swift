@@ -25,7 +25,7 @@ import Synchronization
         public init() {}
     }
 
-    static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.transport")
+    nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.transport")
     public let limits: Limits
     /// Gets each push for the page (the view sends it through the bridge) and a completion to call
     /// once the page has run it (it paces the next push).
@@ -38,6 +38,9 @@ import Synchronization
     /// Held from `open` until the first frame is sent, then dropped.
     var localAppToken: String?
     var sentFirst = false
+    /// The send line (``submit(connection:frames:reply:)``), drained in order by one task at a time.
+    var pending: [PendingSend] = []
+    var draining = false
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
     /// The permission options the daemon sent, to tell an allow from a deny.
@@ -129,67 +132,35 @@ import Synchronization
     /// refused request is answered with a JSON-RPC error frame. Returns the first error, if any.
     @discardableResult
     public func send(connection id: Int, frames: [String]) async -> AgentPaneTransportError? {
-        let turn = reserveSend()
-        await turn.granted()
-        defer { releaseSend() }
-        return await run(connection: id, frames: frames)
+        await withCheckedContinuation { continuation in
+            submit(connection: id, frames: frames) { continuation.resume(returning: $0) }
+        }
     }
 
-    /// The bridge's entry: queued in arrival order (the turn is reserved before this returns, so a
-    /// later frame never overtakes it). The frame's work runs off the main thread.
+    /// The bridge's entry: the frames join the send line in arrival order (they are in line before
+    /// this returns, so a later frame never overtakes them). Their work runs off the main thread.
     public func submit(connection id: Int, frames: [String], reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
-        let turn = reserveSend()
-        // task-owner: one queued page send; its turn was reserved above, its reply goes to the page
-        Task { [weak self] in
-            await turn.granted()
-            guard let self else { return reply(.closed) }
-            let result = await self.run(connection: id, frames: frames)
-            self.releaseSend()
-            reply(result)
-        }
+        pending.append(PendingSend(connection: id, frames: frames, reply: reply))
+        guard !draining else { return }
+        draining = true
+        // task-owner: the send line's one drain; it ends when the line is empty
+        Task { [weak self] in await self?.drain() }
     }
 
-    func run(connection id: Int, frames: [String]) async -> AgentPaneTransportError? {
+    nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
+
+    /// One page send in line: its frames still to go, its first error, and where its result goes.
+    final class PendingSend {
+        let connection: Int
+        var frames: [String]
         var firstError: AgentPaneTransportError?
-        for frame in frames {
-            switch await step(connection: id, frame: frame) {
-            case .sent: continue
-            case .refused(let error): firstError = firstError ?? error
-            case .stop(let error): return firstError ?? error
-            }
+        let reply: @MainActor (AgentPaneTransportError?) -> Void
+
+        init(connection: Int, frames: [String], reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {
+            self.connection = connection
+            self.frames = frames
+            self.reply = reply
         }
-        return firstError
-    }
-
-    enum Step { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
-
-    /// A queued send's place in line.
-    @MainActor final class SendTurn {
-        private var isGranted = false
-        private var continuation: CheckedContinuation<Void, Never>?
-        func granted() async {
-            guard !isGranted else { return }
-            await withCheckedContinuation { continuation = $0 }
-        }
-        func grant() {
-            isGranted = true
-            continuation?.resume()
-            continuation = nil
-        }
-    }
-
-    private var sendBusy = false
-    private var sendQueue: [SendTurn] = []
-
-    /// Sends run one after another, in the order they were reserved.
-    private func reserveSend() -> SendTurn {
-        let turn = SendTurn()
-        if sendBusy { sendQueue.append(turn) } else { sendBusy = true; turn.grant() }
-        return turn
-    }
-
-    private func releaseSend() {
-        if sendQueue.isEmpty { sendBusy = false } else { sendQueue.removeFirst().grant() }
     }
 
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
