@@ -6,6 +6,37 @@ import {
   shouldSendCoderouterSentryEvent,
 } from "./services/sentry";
 
+/** Compile the first-use Cloud routes while the development server is starting. */
+function prewarmDevCloudRoutes(): void {
+  if (process.env.NODE_ENV !== "development" || process.env.NEXT_RUNTIME !== "nodejs") return;
+  const state = globalThis as typeof globalThis & { __cmuxDevRouteWarmupStarted?: boolean };
+  if (state.__cmuxDevRouteWarmupStarted) return;
+  state.__cmuxDevRouteWarmupStarted = true;
+  const port = process.env.CMUX_PORT ?? process.env.PORT ?? "3000";
+  const origin = `http://127.0.0.1:${port}`;
+  void (async () => {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        await fetch(`${origin}/api/vm`, { signal: AbortSignal.timeout(2_000) });
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+    await Promise.all([
+      "/api/vm",
+      "/api/vm/network-presets",
+      "/api/vm/__prewarm__/stats",
+    ].map(async (path) => {
+      try {
+        await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
+      } catch {
+        // Startup warming is best effort. The real request remains authoritative.
+      }
+    }));
+  })();
+}
+
 export async function register() {
   registerOTel({
     serviceName: process.env.OTEL_SERVICE_NAME ?? "cmux-web",
@@ -17,6 +48,7 @@ export async function register() {
     // Axiom can report failure rate and latency per dependency and endpoint.
     spanProcessors: ["auto", new DependencySpanProcessor()],
   });
+  prewarmDevCloudRoutes();
   if (process.env.NEXT_RUNTIME === "nodejs" && process.env.SENTRY_DSN) {
     const Sentry = await import("@sentry/nextjs");
     Sentry.init({
