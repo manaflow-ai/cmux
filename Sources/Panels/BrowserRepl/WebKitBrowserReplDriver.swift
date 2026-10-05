@@ -319,7 +319,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // The store is cached per change of the typed values; the scan of
         // the result runs off the main thread.
         guard let store = BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID) else { return result }
-        return await Self.maskingTypedSecrets(result, method: method, store: store)
+        return await Self.maskingTypedSecrets(result, method: method, output: BrowserReplDriverOutput(reader: sessionID, typedSecrets: store))
     }
 
     /// A result with the secrets other sessions typed into tabs masked
@@ -329,14 +329,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private static func maskingTypedSecrets(
         _ result: Result<String, BrowserReplDriverError>,
         method: String,
-        store: BrowserReplSecretStore
+        output: BrowserReplDriverOutput
     ) async -> Result<String, BrowserReplDriverError> {
-        switch result {
-        case .success(let json):
-            return method == "tab.screenshot" || method == "tab.pdf" ? result : .success(store.redactJSON(json))
-        case .failure(let error):
-            return .failure(BrowserReplDriverError(code: error.code, message: store.redact(error.message), errorName: error.errorName))
-        }
+        output.masking(result, method: method)
     }
 
     /// The session's capture masks plus the secrets other sessions typed.
@@ -457,7 +452,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 }
             }
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
-            guard let json = JSONSerialization.browserReplString(value) else {
+            // Page URLs in the result (BrowserReplPageURL) become this
+            // session's form of them here.
+            guard let json = BrowserReplDriverOutput(reader: sessionID).result(value) else {
                 return .failure(Self.error("invalid", "Driver result for \(method) is not JSON"))
             }
             return .success(json)
@@ -472,7 +469,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func handle(method: String, params: [String: Any]) async throws -> Any? {
         switch method {
         case "tabs.list": return try listTabs(all: params["all"] as? Bool == true).map(listedTabRow)
-        case "history.search": return try searchHistory(params).map(BrowserReplListedURLs(reader: sessionID).historyRow)
+        case "history.search": return try searchHistory(params)
         case "tabs.dataStore": return try dataStore(params)
         case "tabs.open": return try await openTab(params)
         case "tabs.close": return try closeTab(params)
@@ -1000,22 +997,27 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 applySessionLabel(to: uuid)
             }
         }
-        // Events carry no secret another session typed (BrowserReplTypedSecrets).
-        let visible = BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID)
-            .map { $0.redactValue(payload) } ?? payload
-        guard let json = JSONSerialization.browserReplString(visible) else { return }
+        // Page URLs become this session's form of them, and events carry no
+        // secret another session typed (BrowserReplTypedSecrets).
+        let output = BrowserReplDriverOutput(
+            reader: sessionID,
+            typedSecrets: BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID)
+        )
+        guard let json = output.event(payload) else { return }
         let sink = lock.withLock { self.sink }
         sink?(name, json)
     }
 
-    /// A `tabs.list` row as this session gets it: the URL of a tab it did
-    /// not create (another session's or the user's) without its credential
-    /// values (``BrowserReplListedURLs``).
+    /// A `tabs.list` row with its URL a page URL of the tab's live creator
+    /// (``BrowserReplPageURL``): any other session, and the user's tabs, list
+    /// it without its credential values.
     @MainActor
     private func listedTabRow(_ row: [String: Any]) -> [String: Any] {
         let creator = (row["targetId"] as? String).flatMap(UUID.init(uuidString:))
             .flatMap { BrowserReplTabAttachments.shared.attachment(for: $0)?.creatorSessionID }
-        return BrowserReplListedURLs(reader: sessionID).tabRow(row, creator: creator)
+        var row = row
+        if let url = row["url"] as? String { row["url"] = BrowserReplPageURL(url, creator: creator) }
+        return row
     }
 
     @MainActor
@@ -1567,7 +1569,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             .sorted { $0.lastVisited > $1.lastVisited }
         return matched.prefix(limit).map { entry in
             [
-                "url": entry.url,
+                // The user and every session share the history: no reader
+                // gets its credential values.
+                "url": BrowserReplPageURL(entry.url, creator: nil),
                 "title": entry.title ?? "",
                 "dateVisited": Int(entry.lastVisited.timeIntervalSince1970 * 1000),
             ]
@@ -1620,20 +1624,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 } ?? nil
             }
         }
-        // Frame URLs reach the session as tabs.list URLs do
-        // (BrowserReplListedURLs).
-        let listed = BrowserReplListedURLs(reader: sessionID)
+        // Frame URLs reach the session as tabs.list URLs do; a frame the
+        // session's policy blocks is the page's doing, so not even the tab's
+        // creator gets its URL as written.
         let creator = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.creatorSessionID
         var result: [[String: Any]] = []
         for (frame, nameTask) in zip(frames, names) {
             let name = await nameTask.value
-            result.append(listed.frameRow([
+            let blocked = frameGate.recordedBlockReason(of: frame, in: webView) != nil
+            result.append([
                 "frameId": frame.frameID,
                 "parentFrameId": frame.parentFrameID ?? NSNull(),
-                "url": frame.url,
+                "url": BrowserReplPageURL(frame.url, creator: blocked ? nil : creator),
                 "name": name ?? frame.name,
                 "crossOrigin": frame.crossOrigin,
-            ], creator: creator, blocked: frameGate.recordedBlockReason(of: frame, in: webView) != nil))
+            ])
         }
         return result
     }

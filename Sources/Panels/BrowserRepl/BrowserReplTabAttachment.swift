@@ -845,17 +845,33 @@ final class BrowserReplTabAttachment {
     }
 
     /// Sends a network event only to the sessions it belongs to
-    /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``),
-    /// with its credentials (headers, and credential values in URLs) only
-    /// for the tab's creator.
+    /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``).
+    /// Its URL and headers are the page's (``BrowserReplPageURL``,
+    /// ``BrowserReplPageHeaders``): only the tab's live creator reads their
+    /// credentials.
     private func emitNetwork(_ name: String, _ payload: [String: Any]) {
         let requestID = payload["requestId"] as? String ?? ""
-        for recipient in ownership.networkRecipients(event: name, requestID: requestID) {
-            guard let sink = sinks[recipient.sessionID] else { continue }
-            var body = recipient.seesCredentials ? payload : payload.redactingBrowserReplCredentials()
-            body["targetId"] = targetID
-            sink(name, body)
+        var body = payload
+        body["targetId"] = targetID
+        if let url = payload["url"] as? String { body["url"] = pageURL(url) }
+        if let headers = payload["headers"] as? [String: String] {
+            body["headers"] = BrowserReplPageHeaders(headers, creator: liveCreator)
         }
+        for recipient in ownership.networkRecipients(event: name, requestID: requestID) {
+            sinks[recipient.sessionID]?(name, body)
+        }
+    }
+
+    /// The session that created the tab while it stays attached; `nil` for
+    /// a user's tab.
+    private var liveCreator: String? {
+        ownership.isSessionOwned ? ownership.creatorSessionID : nil
+    }
+
+    /// `url`, which the page or the tab gave, as a page URL only the tab's
+    /// live creator reads as written (``BrowserReplPageURL``).
+    func pageURL(_ url: String) -> BrowserReplPageURL {
+        BrowserReplPageURL(url, creator: liveCreator)
     }
 
     /// Sends a routed event (dialog, file chooser, download) to the one
@@ -1401,30 +1417,26 @@ final class BrowserReplTabAttachment {
             return true
         case .refused(let refusal):
             // Every attached session hears of it; only the tab's creator
-            // gets the URLs as written, the others their credential values
-            // replaced, as download.started gives them.
+            // gets the URLs as written (the reason names the refused hop),
+            // the others their credential values replaced.
             for (sessionID, sink) in sinks {
-                let seesCredentials = isLiveCreator(sessionID)
-                let payload: [String: Any] = [
-                    "url": url?.absoluteString ?? "",
-                    "reason": refusal.reason(seesCredentials: seesCredentials),
-                ]
-                var body = seesCredentials ? payload : payload.redactingBrowserReplCredentials()
-                body["targetId"] = targetID
-                sink("navigation.blocked", body)
+                sink("navigation.blocked", [
+                    "url": pageURL(url?.absoluteString ?? ""),
+                    "reason": refusal.reason(seesCredentials: isLiveCreator(sessionID)),
+                    "targetId": targetID,
+                ])
             }
             return false
         case .session(let delivery):
             guard sinks[delivery.sessionID] != nil else { return true }
             let owner = delivery.sessionID
             sessionDownloads.add(id, to: delivery, source: source)
-            let payload: [String: Any] = [
-                "downloadId": id,
-                "url": url?.absoluteString ?? "",
-                "suggestedFilename": suggestedFilename,
-            ]
             // Only the tab's creator gets the URL's credential values.
-            emit("download.started", delivery.seesCredentials ? payload : payload.redactingBrowserReplCredentials(), to: owner)
+            emit("download.started", [
+                "downloadId": id,
+                "url": pageURL(url?.absoluteString ?? ""),
+                "suggestedFilename": suggestedFilename,
+            ], to: owner)
             return true
         }
     }
