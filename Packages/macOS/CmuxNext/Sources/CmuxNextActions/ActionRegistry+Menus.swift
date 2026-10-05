@@ -37,15 +37,6 @@ extension ActionRegistry {
         item.target = menuTarget
         return item
     }
-
-    /// A menu item that runs `id` on `target`, titled `title` when given
-    /// (a tab strip button's own label) and otherwise by the action.
-    public func makeMenuItem(for id: ActionID, target: ActionTargetRef?, title: String? = nil) -> NSMenuItem? {
-        guard let item = makeMenuItem(for: id) else { return nil }
-        if let title { item.title = title }
-        item.representedObject = ActionMenuPayload(id: canonicalID(for: id), target: target)
-        return item
-    }
 }
 
 extension ActionRegistry {

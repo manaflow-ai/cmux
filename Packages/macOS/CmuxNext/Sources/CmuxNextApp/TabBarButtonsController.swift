@@ -23,6 +23,7 @@ final class TabBarButtonsController {
     private(set) var usesDefaults = true
     @ObservationIgnored private(set) var actions: [String: ActionID] = [:]
     @ObservationIgnored private let context: AppActionContext
+    @ObservationIgnored private lazy var overflowTarget = OverflowMenuTarget(controller: self)
     @ObservationIgnored private var specs: [TabBarButtonSpec] = SurfaceTabBarConfig.defaultButtons
     @ObservationIgnored private var registeredCommands: [ConfigCommandAction] = []
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
@@ -86,13 +87,17 @@ final class TabBarButtonsController {
     }
 
     /// "..."'s menu on pane `paneKey`: one row per button that did not fit,
-    /// running the button's action on the pane.
+    /// under the button's label and with its action's shortcut. Choosing a
+    /// row runs the button on the pane (`perform`), as clicking it would.
     func overflowMenu(for kind: PaneToolbar.Kind, paneKey: String) -> NSMenu {
         let menu = NSMenu()
-        let target = ActionTargetRef(kind: .pane, id: paneKey)
         for button in PaneToolbar.overflow(allButtons(for: kind)) {
-            guard let action = actions[button.id],
-                  let item = registry.makeMenuItem(for: action, target: target, title: button.accessibilityLabel) else { continue }
+            guard let action = actions[button.id] else { continue }
+            let item = registry.makeMenuItem(for: action) ?? NSMenuItem()
+            item.title = button.accessibilityLabel
+            item.target = overflowTarget
+            item.action = #selector(OverflowMenuTarget.run(_:))
+            item.representedObject = OverflowMenuTarget.Row(buttonID: button.id, paneKey: paneKey)
             menu.addItem(item)
         }
         return menu
@@ -143,5 +148,29 @@ final class TabBarButtonsController {
             ))
         }
         registeredCommands = commands
+    }
+}
+
+/// Runs a "..." row: the overflowed button on its pane.
+final class OverflowMenuTarget: NSObject {
+    final class Row: NSObject {
+        let buttonID: String
+        let paneKey: String
+
+        init(buttonID: String, paneKey: String) {
+            self.buttonID = buttonID
+            self.paneKey = paneKey
+        }
+    }
+
+    private weak var controller: TabBarButtonsController?
+
+    init(controller: TabBarButtonsController) {
+        self.controller = controller
+    }
+
+    @objc func run(_ sender: NSMenuItem) {
+        guard let row = sender.representedObject as? Row else { return }
+        controller?.perform(row.buttonID, paneKey: row.paneKey)
     }
 }

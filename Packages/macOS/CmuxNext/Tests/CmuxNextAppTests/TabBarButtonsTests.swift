@@ -136,9 +136,10 @@ import Testing
 
         let menu = controller.overflowMenu(for: .terminal, paneKey: "p1")
         #expect(menu.items.map(\.title) == ["Split Down", "Start Claude"])
-        let runs = menu.items.compactMap(ActionRegistry.menuRun(of:))
-        #expect(runs.map(\.id) == ["splitDown", "cmuxConfig.start-claude"])
-        #expect(runs.allSatisfy { $0.target == ActionTargetRef(kind: .pane, id: "p1") })
+        let rows = menu.items.compactMap { $0.representedObject as? OverflowMenuTarget.Row }
+        #expect(rows.map(\.buttonID) == ["cmux.splitDown", "start-claude"])
+        #expect(rows.allSatisfy { $0.paneKey == "p1" })
+        #expect(menu.items.allSatisfy { $0.target is OverflowMenuTarget })
         #expect(menu.items.first?.keyEquivalent.lowercased() == "d")
     }
 
