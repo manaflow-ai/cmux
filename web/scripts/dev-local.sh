@@ -165,6 +165,28 @@ export CMUX_LOCAL_DEV_PRO=1
 next dev --port "$CMUX_PORT" &
 next_pid=$!
 
+# Next's development server compiles dynamic API routes on their first request.
+# That compile can take several seconds and otherwise lands in the first Cloud
+# machine interaction, even though it is unrelated to provisioning. Warm the
+# authenticated Cloud routes in the background as soon as the server accepts
+# connections. Missing authentication is intentional: the request is only a
+# route compiler trigger and never reaches application state.
+(
+  for attempt in {1..40}; do
+    if ! kill -0 "$next_pid" >/dev/null 2>&1; then exit 0; fi
+    if [[ "$(curl --silent --show-error --max-time 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${CMUX_PORT}/api/vm" 2>/dev/null || true)" =~ ^[1-5][0-9][0-9]$ ]]; then
+      break
+    fi
+    sleep 0.25
+  done
+  for path in \
+    "/api/vm" \
+    "/api/vm/network-presets" \
+    "/api/vm/__prewarm__/stats"; do
+    curl --silent --show-error --max-time 20 -o /dev/null "http://127.0.0.1:${CMUX_PORT}${path}" 2>/dev/null || true
+  done
+) &
+
 set +e
 wait "$next_pid"
 status=$?
