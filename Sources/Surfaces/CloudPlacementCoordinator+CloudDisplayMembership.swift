@@ -223,7 +223,7 @@ extension CloudPlacementCoordinator {
 /// Progress of removing a closed display from its workspace.
 struct ClosedCloudDisplayRemoval: Equatable {
     private(set) var hasLanded = false
-    /// The graph the landed removal was computed from, when it had a cursor.
+    /// The cursor at which the landed removal holds, when the reply had one.
     private(set) var basis: CloudVMCursor?
     var attempts = 0
     var retrying = false

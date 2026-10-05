@@ -176,6 +176,31 @@ struct CloudDisplayMembershipProjectionTests {
         #expect(coordinator.isPendingClose(placement, on: machine), "a stale graph must not rebuild the closed pane")
     }
 
+    @Test("A graph published between the removal's read and its write stays fenced")
+    func graphBeforeTheWriteLandsStaysFenced() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = CloudDisplayMembershipTestProvider(machine: machine)
+        // The removal read revision 3; an unrelated change made revision 4;
+        // the removal's write landed at revision 5.
+        provider.removalBasisRevision = 5
+        catalog.register(provider)
+        let coordinator = CloudPlacementCoordinator()
+        let display = SurfaceResourceID(machine: machine, kind: .display, key: displayID)
+        let placement = SurfaceResourcePlacement(resource: display, remoteWorkspaceID: workspaceID,
+                                                 cloudDisplayMembershipViewID: "panel-b")
+        coordinator.projectionDidEnd(SurfaceProjection(resource: display, workspaceID: UUID(), panelID: UUID(),
+                                                       remoteWorkspaceID: workspaceID, remoteTabID: nil),
+                                     reason: .paneClosed, catalog: catalog)
+        _ = await provider.removed.result
+        await coordinator.enqueue(resource: display, catalog: catalog) { true }.value
+        coordinator.settleClosedDisplays(try state(revision: 4, memberships: [
+            ["display_id": displayID, "client_id": "mac-b", "view_id": "panel-b"]]), catalog: catalog)
+        #expect(coordinator.isPendingClose(placement, on: machine))
+        coordinator.settleClosedDisplays(try state(revision: 6, memberships: [
+            ["display_id": displayID, "client_id": "mac-c", "view_id": "panel-c"]]), catalog: catalog)
+        #expect(!coordinator.isPendingClose(placement, on: machine), "a token after the write is a re-add")
+    }
+
     @Test("Reopening a display while its close is still queued keeps the reopened pane")
     func reopenBeforeTheQueuedCloseRunsWins() async throws {
         let catalog = SurfaceCatalog()
@@ -359,7 +384,7 @@ private final class CloudDisplayMembershipTestProvider: SurfaceProvider, CloudDi
 
     func cloudDisplayMembershipWorkspace(displayID: String, panelID: UUID) async throws -> String? { nil }
     func syncCloudDisplayMembership(displayID: String, workspaceID: String, panelID: UUID, attached: Bool) async throws {}
-    /// The graph revision a removal reads before writing.
+    /// The revision the removal's write lands at.
     var removalBasisRevision: UInt64 = 1
     private(set) var removals = 0
     func removeCloudDisplay(displayID: String, fromWorkspace workspaceID: String) async throws -> CloudVMCursor? {

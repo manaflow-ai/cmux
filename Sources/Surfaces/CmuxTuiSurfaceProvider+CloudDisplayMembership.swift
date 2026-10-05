@@ -54,8 +54,9 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
     }
 
     /// Rewrites one workspace's membership row, revision-checked and retried
-    /// on a conflict. An unchanged set writes nothing. Returns the cursor of
-    /// the graph the change was computed from: no later graph can hold what
+    /// on a conflict. An unchanged set writes nothing. Returns the cursor at
+    /// which the change holds: the accepted write's receipt, or for an
+    /// unchanged set the snapshot it was read from. No later graph holds what
     /// it removed unless a client wrote it again.
     @discardableResult
     private func updateCloudDisplayMemberships(
@@ -110,9 +111,13 @@ extension CmuxTuiSurfaceProvider: CloudDisplayMembershipSyncing {
                 idempotencyKey: idempotencyKey
             )
             do {
-                _ = try await link.run(arguments: request)
+                let reply = try await link.run(arguments: request)
                 scheduleRefresh()
-                return state.cursor
+                // The write's own cursor: a graph read before the write
+                // landed can be newer than the snapshot yet still hold the
+                // removed tokens. Without a receipt there is no safe basis.
+                guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return nil }
+                return CmuxTuiSnapshotParser.mutationCursor(fromResult: object, fallbackGeneration: state.cursor?.generation)
             } catch {
                 lastError = error
                 guard Self.isRevisionConflict(error) else { throw error }
