@@ -175,6 +175,8 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(ExtensionControl.report(services))
             },
+            // Ghostty config keys and keybind actions cmux does not apply (R92).
+            GhosttyDiagnosticsControl().method,
         ])
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).

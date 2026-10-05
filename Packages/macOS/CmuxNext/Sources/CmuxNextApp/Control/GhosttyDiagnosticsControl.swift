@@ -27,8 +27,10 @@ struct GhosttyDiagnosticsControl {
     }
 
     func report() -> JSONValue {
-        // Red: not reported yet.
-        .object([:])
+        .object([
+            "files": .array(files().map(JSONValue.string)),
+            "diagnostics": .array(diagnostics().map(Self.json)),
+        ])
     }
 
     static func json(_ diagnostic: GhosttyConfigDiagnostic) -> JSONValue {
