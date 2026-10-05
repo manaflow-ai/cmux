@@ -374,7 +374,8 @@ def main() -> int:
         if pinned is not None and package.name not in pinned:
             raise ValueError(
                 f"{known_name} license texts are reviewed for {pinned}, not "
-                f"{package.name}; review them again in KNOWN_LICENSES"
+                f"{package.name}; review them again and pin {package.name} in "
+                "pinned-licenses/MANIFEST.json"
             )
         for path in extra_files:
             record(
@@ -435,7 +436,10 @@ def main() -> int:
     if unresolved:
         print(
             "Ghostty dependency packages without discoverable license files:\n  "
-            + "\n  ".join(unresolved),
+            + "\n  ".join(unresolved)
+            + "\nReview each package's upstream license, pin the text in "
+            "cmux-tui/build-support/notices/ghostty/pinned-licenses/MANIFEST.json "
+            "(and update PINNED_MANIFEST_SHA256 in this collector), then build again.",
             file=sys.stderr,
         )
         return 1
