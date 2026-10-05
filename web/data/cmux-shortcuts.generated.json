@@ -59,7 +59,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "newWindow",
@@ -93,7 +94,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "closeWindow",
@@ -127,7 +129,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleFullScreen",
@@ -161,7 +164,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "quit",
@@ -194,7 +198,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "showHideAllWindows",
@@ -229,7 +234,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "globalSearch",
@@ -263,7 +269,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "commandPalette",
@@ -297,7 +304,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "commandPaletteNext",
@@ -330,7 +338,8 @@
               "ctrl"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "commandPalettePrevious",
@@ -363,7 +372,8 @@
               "ctrl"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "goToWorkspace",
@@ -396,7 +406,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "focusHistoryBack",
@@ -429,7 +440,8 @@
               "ctrl"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "focusHistoryForward",
@@ -463,7 +475,112 @@
               "shift"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "list.next",
+          "title": {
+            "en": "Next Item",
+            "ar": "العنصر التالي",
+            "bs": "Sljedeća stavka",
+            "da": "Næste element",
+            "de": "Nächstes Objekt",
+            "es": "Siguiente elemento",
+            "fr": "Élément suivant",
+            "it": "Elemento successivo",
+            "ja": "次の項目",
+            "km": "ធាតុបន្ទាប់",
+            "ko": "다음 항목",
+            "no": "Neste element",
+            "pl": "Następny element",
+            "pt-BR": "Próximo item",
+            "ru": "Следующий элемент",
+            "th": "รายการถัดไป",
+            "tr": "Sonraki öğe",
+            "uk": "Наступний елемент",
+            "vi": "Mục tiếp theo",
+            "zh-CN": "下一项",
+            "zh-TW": "下一項"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "n",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "listFocus"
+            },
+            {
+              "keys": [
+                {
+                  "key": "j",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "listFocus"
+            }
+          ]
+        },
+        {
+          "id": "list.previous",
+          "title": {
+            "en": "Previous Item",
+            "ar": "العنصر السابق",
+            "bs": "Prethodna stavka",
+            "da": "Forrige element",
+            "de": "Vorheriges Objekt",
+            "es": "Elemento anterior",
+            "fr": "Élément précédent",
+            "it": "Elemento precedente",
+            "ja": "前の項目",
+            "km": "ធាតុមុន",
+            "ko": "이전 항목",
+            "no": "Forrige element",
+            "pl": "Poprzedni element",
+            "pt-BR": "Item anterior",
+            "ru": "Предыдущий элемент",
+            "th": "รายการก่อนหน้า",
+            "tr": "Önceki öğe",
+            "uk": "Попередній елемент",
+            "vi": "Mục trước",
+            "zh-CN": "上一项",
+            "zh-TW": "上一項"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "p",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "listFocus"
+            },
+            {
+              "keys": [
+                {
+                  "key": "k",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "listFocus"
+            }
+          ]
         }
       ]
     },
@@ -525,7 +642,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "newBrowserWorkspace",
@@ -559,7 +677,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "openFolder",
@@ -592,7 +711,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "reopenPreviousSession",
@@ -626,7 +746,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "nextSidebarTab",
@@ -660,7 +781,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "prevSidebarTab",
@@ -694,7 +816,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveWorkspaceUp",
@@ -729,7 +852,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveWorkspaceDown",
@@ -764,7 +888,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "selectWorkspaceByNumber",
@@ -798,7 +923,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "renameWorkspace",
@@ -832,7 +958,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "editWorkspaceDescription",
@@ -866,7 +993,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markWorkspaceDone",
@@ -899,7 +1027,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "cycleWorkspaceStatus",
@@ -933,7 +1062,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleChecklistItemComplete",
@@ -966,7 +1096,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "closeWorkspace",
@@ -1000,7 +1131,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "saveLayoutTemplate",
@@ -1034,7 +1166,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "workspace.selectLastUsed",
@@ -1068,7 +1201,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "newWorkspaceGroup",
@@ -1102,7 +1236,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "groupSelectedWorkspaces",
@@ -1136,7 +1271,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleFocusedWorkspaceGroupCollapsed",
@@ -1170,7 +1306,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "nextWorkspaceGroup",
@@ -1206,7 +1343,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "prevWorkspaceGroup",
@@ -1242,7 +1380,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "space.next",
@@ -1276,7 +1415,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "space.previous",
@@ -1310,7 +1450,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "space.selectByNumber",
@@ -1345,7 +1486,8 @@
               "opt"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -1407,7 +1549,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "newColumn",
@@ -1441,7 +1584,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "newRow",
@@ -1476,7 +1620,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "splitDown",
@@ -1510,7 +1655,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "newPaneAutoLayout",
@@ -1544,7 +1690,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleSplitZoom",
@@ -1578,7 +1725,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "equalizeSplits",
@@ -1613,7 +1761,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "resizePaneLeft",
@@ -1647,7 +1796,21 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "resizePaneRight",
@@ -1681,7 +1844,21 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "resizePaneUp",
@@ -1715,7 +1892,21 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "resizePaneDown",
@@ -1749,7 +1940,21 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusLeft",
@@ -1783,7 +1988,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "focusRight",
@@ -1817,7 +2023,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "focusUp",
@@ -1851,7 +2058,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "focusDown",
@@ -1885,7 +2093,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "triggerFlash",
@@ -1919,7 +2128,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "increaseWorkspaceTerminalFontSize",
@@ -1953,7 +2163,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "decreaseWorkspaceTerminalFontSize",
@@ -1987,7 +2198,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "resetWorkspaceTerminalFontSize",
@@ -2021,7 +2233,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleCanvasLayout",
@@ -2055,7 +2268,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "canvasOverview",
@@ -2089,7 +2303,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "canvasTidy",
@@ -2123,7 +2338,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "canvasRevealFocusedPane",
@@ -2157,7 +2373,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "canvasZoomIn",
@@ -2191,7 +2408,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "canvasZoomOut",
@@ -2225,7 +2443,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "canvasZoomReset",
@@ -2258,7 +2477,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "simulatorHome",
@@ -2292,7 +2512,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "simulatorRotateLeft",
@@ -2325,7 +2546,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "simulatorRotateRight",
@@ -2358,7 +2580,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "simulatorToggleAppearance",
@@ -2392,7 +2615,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "simulatorToggleSoftwareKeyboard",
@@ -2425,7 +2649,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "column.dock",
@@ -2459,7 +2684,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -2521,7 +2747,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "focusLocation",
@@ -2554,7 +2781,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "newSurface",
@@ -2589,7 +2817,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "openBrowser",
@@ -2623,7 +2852,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "closeTab",
@@ -2656,7 +2886,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "closeOtherTabsInPane",
@@ -2690,7 +2921,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "renameTab",
@@ -2723,7 +2955,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "nextSurface",
@@ -2757,7 +2990,55 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal"
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal"
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "surfaceKind == page"
+            },
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "surfaceKind == page"
+            }
+          ]
         },
         {
           "id": "prevSurface",
@@ -2791,7 +3072,56 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl",
+                    "shift"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal"
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal"
+            },
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "surfaceKind == page"
+            },
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "surfaceKind == page"
+            }
+          ]
         },
         {
           "id": "moveSurfaceLeft",
@@ -2826,7 +3156,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveSurfaceRight",
@@ -2861,7 +3192,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveSurfaceToPreviousPane",
@@ -2896,7 +3228,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveSurfaceToNextPane",
@@ -2931,7 +3264,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveSurfaceToPaneLeft",
@@ -2966,7 +3300,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveSurfaceToPaneRight",
@@ -3001,7 +3336,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveSurfaceToPaneUp",
@@ -3036,7 +3372,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "moveSurfaceToPaneDown",
@@ -3071,7 +3408,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "selectSurfaceByNumber",
@@ -3105,7 +3443,8 @@
               "ctrl"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "tab.search",
@@ -3139,7 +3478,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "reopenClosedBrowserPanel",
@@ -3173,7 +3513,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -3236,7 +3577,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "focusTextBoxInput",
@@ -3270,7 +3612,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "cycleTextBoxSubmitAction",
@@ -3303,7 +3646,8 @@
               "shift"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "attachTextBoxFile",
@@ -3338,7 +3682,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "clearScreenKeepScrollback",
@@ -3372,7 +3717,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "find",
@@ -3405,7 +3751,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "findInDirectory",
@@ -3439,7 +3786,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "findNext",
@@ -3472,7 +3820,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "findPrevious",
@@ -3506,7 +3855,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "hideFind",
@@ -3541,7 +3891,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "useSelectionForFind",
@@ -3574,7 +3925,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "terminalCopy",
@@ -3607,7 +3959,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "terminalPaste",
@@ -3640,7 +3993,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "terminal.scrollToSelection",
@@ -3679,7 +4033,8 @@
               "key": "j",
               "modifiers": []
             }
-          ]
+          ],
+          "aliases": []
         }
       ]
     },
@@ -3741,7 +4096,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserForward",
@@ -3774,7 +4130,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserReload",
@@ -3807,7 +4164,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserHardReload",
@@ -3841,7 +4199,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserZoomIn",
@@ -3874,7 +4233,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserZoomOut",
@@ -3907,7 +4267,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserZoomReset",
@@ -3940,7 +4301,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markdownZoomIn",
@@ -3973,7 +4335,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markdownZoomOut",
@@ -4006,7 +4369,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markdownZoomReset",
@@ -4039,7 +4403,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleBrowserDeveloperTools",
@@ -4073,7 +4438,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "showBrowserJavaScriptConsole",
@@ -4107,7 +4473,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "inspectBrowserElement",
@@ -4141,7 +4508,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleBrowserFocusMode",
@@ -4175,7 +4543,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleBrowserDesignMode",
@@ -4210,7 +4579,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserLinkHints",
@@ -4241,7 +4611,8 @@
             "key": "f",
             "modifiers": []
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserLinkHintsNewSplit",
@@ -4274,7 +4645,8 @@
               "shift"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "splitBrowserRight",
@@ -4308,7 +4680,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "splitBrowserDown",
@@ -4343,7 +4716,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "saveFilePreview",
@@ -4376,7 +4750,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleFileEditorWordWrap",
@@ -4409,7 +4784,8 @@
               "opt"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "diffViewerNextLine",
@@ -4440,7 +4816,8 @@
             "key": "j",
             "modifiers": []
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "diffViewerPreviousLine",
@@ -4471,7 +4848,8 @@
             "key": "k",
             "modifiers": []
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "diffViewerHalfPageDown",
@@ -4504,7 +4882,8 @@
               "ctrl"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "diffViewerHalfPageUp",
@@ -4537,7 +4916,8 @@
               "ctrl"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "diffViewerNextHunk",
@@ -4570,7 +4950,8 @@
               "ctrl"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "diffViewerPreviousHunk",
@@ -4603,7 +4984,8 @@
               "ctrl"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "diffViewerGoToBottom",
@@ -4636,7 +5018,8 @@
               "shift"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "diffViewerSearch",
@@ -4667,7 +5050,8 @@
             "key": "/",
             "modifiers": []
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "omnibar.openInBackgroundTab",
@@ -4700,7 +5084,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "omnibar.openInForegroundTab",
@@ -4734,7 +5119,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserStop",
@@ -4767,7 +5153,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browser.copyURL",
@@ -4801,7 +5188,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browser.findPrevious",
@@ -4835,7 +5223,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "openDiffViewer",
@@ -4870,7 +5259,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browser.pageInfo",
@@ -4904,7 +5294,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "browserShowHistory",
@@ -4917,7 +5308,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "bookmark.toggleBar",
@@ -4951,7 +5343,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markdownSave",
@@ -4984,7 +5377,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markdownLink",
@@ -5017,7 +5411,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markdownBack",
@@ -5050,7 +5445,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markdownForward",
@@ -5083,7 +5479,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -5145,7 +5542,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleRightSidebar",
@@ -5179,7 +5577,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "focusRightSidebar",
@@ -5213,7 +5612,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "fileExplorerOpenSelection",
@@ -5244,7 +5644,8 @@
             "key": "\r",
             "modifiers": []
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "fileExplorerOpenSelectionFinderAlias",
@@ -5277,7 +5678,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -5340,7 +5742,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "jumpToUnread",
@@ -5374,7 +5777,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "toggleUnread",
@@ -5408,7 +5812,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "markOldestUnreadAndJumpNext",
@@ -5442,7 +5847,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -5515,7 +5921,8 @@
               "key": "s",
               "modifiers": []
             }
-          ]
+          ],
+          "aliases": []
         },
         {
           "id": "palette.quickAgentChat",
@@ -5550,7 +5957,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "palette.toggleDictation",
@@ -5584,7 +5992,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "agentPane.searchChats",
@@ -5617,7 +6026,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "agentPane.permission.allowOnce",
@@ -5651,7 +6061,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "agentPane.permission.allowChat",
@@ -5685,7 +6096,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "agentPane.permission.deny",
@@ -5719,7 +6131,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "agentPane.permission.expand",
@@ -5753,7 +6166,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -5816,7 +6230,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "openTeamPicker",
@@ -5851,7 +6266,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         }
       ]
     },
@@ -5914,7 +6330,8 @@
               "cmd"
             ]
           },
-          "chord": null
+          "chord": null,
+          "aliases": []
         },
         {
           "id": "palette.searchShortcuts",
@@ -5955,7 +6372,8 @@
                 "shift"
               ]
             }
-          ]
+          ],
+          "aliases": []
         }
       ]
     }

@@ -10,7 +10,15 @@ import { fileURLToPath } from "node:url";
 
 export type DocsWireShortcut = { key: string; modifiers: string[]; family?: string };
 export type DocsLocalized = Record<string, string>;
-export type DocsShortcutRow = { id: string; title: DocsLocalized; shortcut: DocsWireShortcut | null; chord: DocsWireShortcut[] | null };
+export type DocsAlias = { keys: DocsWireShortcut[]; when: string | null };
+export type DocsShortcutRow = {
+  id: string;
+  title: DocsLocalized;
+  shortcut: DocsWireShortcut | null;
+  chord: DocsWireShortcut[] | null;
+  /** The binding table's extra default keys (browser tab keys, Ctrl-Cmd arrows for resize). */
+  aliases: DocsAlias[];
+};
 export type DocsShortcutSection = { id: string; order: number; title: DocsLocalized; shortcuts: DocsShortcutRow[] };
 export type DocsShortcutsFile = { version: 1; sections: DocsShortcutSection[] };
 
@@ -22,6 +30,7 @@ type SurfaceAction = {
   title_table: string | null;
   default_shortcut: DocsWireShortcut | null;
   default_chord: DocsWireShortcut[] | null;
+  default_aliases: DocsAlias[];
   palette_section: { id: string; order: number; title: string; title_key: string; title_table: string };
 };
 
@@ -43,7 +52,7 @@ function localized(english: string, key: string | null, table: string | null, ca
 export function buildDocsShortcuts(surfaces: { actions: SurfaceAction[] }, catalogs: Record<string, unknown>): DocsShortcutsFile {
   const sections = new Map<string, DocsShortcutSection>();
   for (const action of surfaces.actions) {
-    if (!action.default_shortcut && !action.default_chord) continue;
+    if (!action.default_shortcut && !action.default_chord && action.default_aliases.length === 0) continue;
     const section = action.palette_section;
     let entry = sections.get(section.id);
     if (!entry) {
@@ -55,6 +64,7 @@ export function buildDocsShortcuts(surfaces: { actions: SurfaceAction[] }, catal
       title: localized(action.title, action.title_key, action.title_table, catalogs),
       shortcut: action.default_shortcut,
       chord: action.default_chord,
+      aliases: action.default_aliases,
     });
   }
   return { version: 1, sections: [...sections.values()].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id)) };
