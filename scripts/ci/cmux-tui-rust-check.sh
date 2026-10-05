@@ -29,8 +29,10 @@ export CARGO_TARGET_DIR="$root/.build/cmux-tui-rust-target"
 # The step's checkout has empty submodules; ghostty-vt-sys builds
 # libghostty-vt from ghostty-next (2026-10-05, step ee99e05f: "missing
 # build.zig"). Initialize the pinned commits shallowly before any cargo.
-if ! git -C "$root" submodule update --init --depth 1 ghostty ghostty-next; then
-  echo "error: git submodule update --init ghostty ghostty-next failed; no cargo command ran" >&2
+# The classic `ghostty` submodule is not needed (cmux-tui embeds ghostty-next's
+# shell integration since 0c9d74bc3ea).
+if ! git -C "$root" submodule update --init --depth 1 ghostty-next; then
+  echo "error: git submodule update --init ghostty-next failed; no cargo command ran" >&2
   exit 3
 fi
 cd "$root/cmux-tui"

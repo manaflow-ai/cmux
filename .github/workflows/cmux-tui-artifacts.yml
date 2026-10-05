@@ -316,7 +316,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install zig
         env:
