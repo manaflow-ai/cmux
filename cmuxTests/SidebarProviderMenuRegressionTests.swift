@@ -103,6 +103,27 @@ struct SidebarProviderMenuRegressionTests {
     }
 
     @Test
+    func hostedSidebarRefreshReadsCommittedWorkspaceSelection() async {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let first = Workspace()
+        let second = Workspace()
+        manager.tabs = [first, second]
+        manager.selectedTabId = first.id
+        var observedSelections: [UUID?] = []
+        let cancellable = SidebarSelectedWorkspaceRefresh.events(from: manager.selectedTabIdPublisher).sink { _ in
+            observedSelections.append(manager.selectedTabId)
+        }
+
+        manager.selectedTabId = second.id
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+
+        #expect(observedSelections == [second.id])
+        withExtendedLifetime(cancellable) {}
+    }
+
+    @Test
     func managementRenameAndImportanceUseNativeOwnershipWithoutChangingSelection() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
         let first = Workspace()
