@@ -1,3 +1,5 @@
+import CmuxNextActions
+import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextUpdater
 import Observation
@@ -6,7 +8,10 @@ extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
         cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater,
-                                                 openChangelog: { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false })
+                                                 openChangelog: { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false },
+                                                 runAction: { [weak services] id in
+                                                     _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+                                                 })
     }
 }
 
@@ -18,11 +23,20 @@ enum SidebarCardFeed {
     static let updateCardID = "update"
     static let testFeedCardID = "test-feed"
     static let whatsNewCardID = "whats-new"
+    /// Announcement cards are `announcement:<id>`.
+    static let announcementPrefix = "announcement:"
 
     static func start(model: SidebarModel, updater: UpdaterService,
-                      openChangelog: @escaping @MainActor () -> Bool = { false }) -> Task<Void, Never> {
+                      openChangelog: @escaping @MainActor () -> Bool = { false },
+                      runAction: @escaping @MainActor (String) -> Void = { _ in }) -> Task<Void, Never> {
         model.onCardAction = { [weak updater] id, action in
             guard let updater else { return }
+            if id.hasPrefix(announcementPrefix) {
+                let announcement = String(id.dropFirst(announcementPrefix.count))
+                if case .button(let actionID) = action, PageDescriptor.changelogTryItActions.contains(actionID) { runAction(actionID) }
+                if action == .dismiss { updater.dismissAnnouncement(announcement) }
+                return
+            }
             if id == whatsNewCardID {
                 if action != .dismiss { _ = openChangelog() }
                 updater.dismissWhatsNew()
@@ -55,6 +69,13 @@ enum SidebarCardFeed {
     /// The update card first, then the test-feed notice while one is active.
     static func cards(_ updater: UpdaterService) -> [SidebarCard] {
         var cards = updater.card.map { [sidebarCard($0)] } ?? []
+        for item in updater.announcements {
+            let buttons = item.action.flatMap { id in
+                PageDescriptor.changelogTryItActions.contains(id) ? [SidebarCard.Button(id: id, title: UpdaterService.announcementActionTitle)] : nil
+            } ?? []
+            cards.append(SidebarCard(id: announcementPrefix + item.id, title: item.title, detail: item.detail, buttons: buttons,
+                                     dismissible: true, alwaysVisible: false, accent: false))
+        }
         if let text = updater.whatsNewCardText {
             cards.append(SidebarCard(id: whatsNewCardID, title: text.title, detail: text.detail,
                                      dismissible: true, alwaysVisible: true, accent: false))

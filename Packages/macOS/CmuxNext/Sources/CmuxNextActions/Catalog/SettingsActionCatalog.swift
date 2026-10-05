@@ -102,6 +102,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .app
             ),
             ActionDescriptor(
+                id: "announcements.show",
+                title: String(localized: "action.announcements.show", defaultValue: "Show Announcements", bundle: .module),
+                keywords: ["announcements", "news", "cards"], category: .settings, symbol: "megaphone",
+                surfaces: [.palette], cliName: "settings show-announcements"
+            ),
+            ActionDescriptor(
+                id: "announcements.hide",
+                title: String(localized: "action.announcements.hide", defaultValue: "Hide Announcements", bundle: .module),
+                keywords: ["announcements", "news", "cards"], category: .settings, symbol: "megaphone",
+                surfaces: [.palette], cliName: "settings hide-announcements"
+            ),
+            ActionDescriptor(
                 id: "palette.applyUpdateIfAvailable",
                 title: String(localized: "action.palette.applyUpdateIfAvailable", defaultValue: "Install Available Update", bundle: .module),
                 keywords: ["update", "install"], category: .settings, symbol: "arrow.down.circle.fill",

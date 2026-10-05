@@ -44,8 +44,10 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await updates in Observations({ settings.snapshot.updates }) {
+            for await (updates, announcements) in Observations({ (settings.snapshot.updates, settings.snapshot.announcements) }) {
                 self?.apply(updates)
+                self?.announcementsFetch = announcements.fetch
+                if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }
             }
         }
     }

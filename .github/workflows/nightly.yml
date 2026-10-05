@@ -2437,11 +2437,18 @@ jobs:
           python3 scripts/cmux-next/release-notes.py index --notes "notes/$NIGHTLY_BUILD.json" \
             ${previous:+--previous "$previous"} --out notes/index.json
           rm -f notes/previous-index.json notes/previous-index.json.sig
+          # Announcement cards (R114): the reviewed release-notes/next/announcements.json, when present.
+          signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
+          if [ -f release-notes/next/announcements.json ]; then
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list)' release-notes/next/announcements.json
+            cp release-notes/next/announcements.json notes/announcements.json
+            signed+=(notes/announcements.json)
+          fi
           key="$(mktemp)"
           trap 'rm -f "$key"' EXIT
           printf '%s\n' "$CONTENT_SIGNING_ED25519_PEM" > "$key"
-          python3 scripts/cmux-next/release-notes.py sign --key "$key" "notes/$NIGHTLY_BUILD.json" notes/index.json
-          for f in "notes/$NIGHTLY_BUILD.json" notes/index.json; do
+          python3 scripts/cmux-next/release-notes.py sign --key "$key" "${signed[@]}"
+          for f in "${signed[@]}"; do
             python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" "$f"
           done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2479,7 +2486,7 @@ jobs:
             name="$(basename "$file")"
             key="${NIGHTLY_NEXT_R2_PREFIX}notes/$name"
             python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            case "$name" in index.json|index.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=31536000, immutable" ;; esac
+            case "$name" in index.json|index.json.sig|announcements.json|announcements.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=31536000, immutable" ;; esac
             case "$name" in *.json) type="application/json" ;; *) type="text/plain" ;; esac
             python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"

@@ -81,4 +81,26 @@ nonisolated enum UpdateSettingsSchema {
             ),
         ]
     }
+
+    /// The cmux announcement cards (R114).
+    static var announcements: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.announcements", "Announcements")
+        let defaults = AnnouncementsSettings()
+        return [
+            SettingDescriptor(
+                AnnouncementsSettings.enabledPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.announcements.enabled", "Show Announcements"),
+                help: SettingsText.keyed("settings.announcements.enabled.help",
+                                        "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar."),
+                kind: .toggle, default: .bool(defaults.enabled), keywords: ["announcements", "news", "cards", "whats new"]
+            ),
+            SettingDescriptor(
+                AnnouncementsSettings.fetchPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.announcements.fetch", "Download Announcements"),
+                help: SettingsText.keyed("settings.announcements.fetch.help",
+                                        "Off: cmux never asks the network for announcements. The request carries no identifiers."),
+                kind: .toggle, default: .bool(defaults.fetch), keywords: ["announcements", "privacy", "offline", "network"]
+            ),
+        ]
+    }
 }

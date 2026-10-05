@@ -42,7 +42,7 @@ nonisolated extension ActionSurfaceCatalog {
             "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
             "palette.openGhosttySettings", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
-            "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates", "updates.whatsNew",
+            "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.pro.upgrade",
             "palette.welcomeChecklist", "palette.importClassicSessions", "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
             "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",

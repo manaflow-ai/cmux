@@ -4,6 +4,8 @@ import Foundation
 /// while the sidebar is revealed; dismissals stay on this Mac.
 extension UpdaterService {
     static let dismissedAnnouncementsKey = "cmux.next.announcements.dismissed"
+    /// The button of an announcement that names an allow-listed action.
+    public static var announcementActionTitle: String { UpdaterStrings.text("updater.announcement.try", "Try It") }
 
     /// Fetches the signed announcements (when enabled and fetching is on)
     /// and filters them; hidden or fetch-off shows none and touches no network.

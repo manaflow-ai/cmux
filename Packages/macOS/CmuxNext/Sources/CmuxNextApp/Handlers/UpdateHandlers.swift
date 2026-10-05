@@ -8,6 +8,13 @@ import CmuxNextUpdater
 enum UpdateHandlers {
     static func bind(into registry: ActionRegistry, updater: UpdaterService, openChangelog: @escaping @MainActor () -> Bool = { false }) {
         registry.bind("updates.whatsNew", run: { _ in _ = openChangelog() })
+        // announcements.enabled through the one setting path (palette.toggleSetting).
+        for (id, on) in [("announcements.show", true), ("announcements.hide", false)] {
+            registry.bind(ActionID(rawValue: id), run: { [weak registry] invocation in
+                _ = registry?.perform("palette.toggleSetting", invocation: ActionInvocation(
+                    arguments: ["setting": .string("announcements.enabled"), "on": .bool(on)], origin: invocation.origin))
+            })
+        }
         // Not tracked for `action.run wait`: a feed fetch can outlast the 2 s
         // control deadline. `updates.check` / `updates.status` carry the result.
         registry.bind("palette.checkForUpdates", run: { _ in updater.checkForUpdates() })
