@@ -68,6 +68,13 @@ nonisolated public struct PaletteNavLevel: Equatable, Sendable, Identifiable {
     public internal(set) var pendingReset: Bool
     /// Return arrived while `rows` were stale: run once fresh rows land.
     public internal(set) var pendingSubmit = false
+    /// The user chose `selection` (arrows, a click) after the last query change. Fresh rows keep
+    /// it by id instead of selecting their top row, and a waiting Return runs it, or nothing when
+    /// the current query has no such row (Return runs exactly the highlighted row).
+    public internal(set) var selectionPinned = false
+    /// The chosen row a waiting Return runs when a later batch of this query brings it (the
+    /// selection meanwhile shows a row that is on screen).
+    public internal(set) var pendingChoice: String?
     /// The empty-query row index the last batch asked for, if any.
     public internal(set) var emptyQuerySelection: Int?
 
