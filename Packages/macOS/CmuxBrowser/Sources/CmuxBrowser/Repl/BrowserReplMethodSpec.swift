@@ -97,12 +97,16 @@ public struct BrowserReplMethodSpec: Sendable, Equatable {
     /// Trusted input for the whole tab: blocked frames are inert while it
     /// is checked and in flight (``BrowserReplFrameGate/guardingInput(in:frames:checkFocusAfter:_:)``).
     public var guardsInput: Bool
+    /// The method leaves the page: the page the tab lands on is judged
+    /// after it (``BrowserReplDocumentAuthority/landedPage(_:in:)``).
+    public var judgesLandedPage: Bool
 
-    public init(target: Target, page: Page, frames: Frames, guardsInput: Bool = false) {
+    public init(target: Target, page: Page, frames: Frames, guardsInput: Bool = false, judgesLandedPage: Bool = false) {
         self.target = target
         self.page = page
         self.frames = frames
         self.guardsInput = guardsInput
+        self.judgesLandedPage = judgesLandedPage
     }
 
     /// The tab capability the method needs, or nil when it takes no tab.

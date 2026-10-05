@@ -206,6 +206,24 @@ struct BrowserReplDocumentAuthorityTests {
         #expect(authority.dataStore("mine", among: [mineElsewhere]) == "own popup's store")
     }
 
+    @Test("Every method that leaves the page judges the page it lands on, as a tab page")
+    func landedPagesAreJudged() throws {
+        for method in [BrowserReplDriverMethod.tabNavigate, .tabHistory, .tabReload] {
+            #expect(method.spec.judgesLandedPage, "\(method.rawValue) does not judge the page it lands on")
+        }
+        #expect(!BrowserReplDriverMethod.tabInfo.spec.judgesLandedPage)
+        // A user's tab that history or a reload took to a local file outside
+        // the session's directories, with no domain policy at all.
+        let authority = BrowserReplDocumentAuthority(sessionID: "s", fileRoots: roots)
+        let userTab = BrowserReplTabFacts(mainFrameURL: URL(string: "file:///etc/passwd"))
+        let landed = authority.landedPage("file:///etc/passwd", in: userTab)
+        #expect(landed.refusal?.code == "blocked")
+        #expect(landed.refusal?.message.contains("the tab is the user's") == true)
+        #expect(authority.landedPage("file:///tmp/session-work/a.html", in: userTab) == .allowed)
+        let strict = BrowserReplDocumentAuthority(sessionID: "s", policy: try policy(prohibited: ["evil.test"]), fileRoots: roots)
+        #expect(strict.landedPage("https://evil.test/", in: BrowserReplTabFacts()).refusal?.code == "blocked")
+    }
+
     @Test("The policy board's authority carries the session's policy and directories")
     func boardAuthority() throws {
         let board = BrowserReplPolicyBoard()

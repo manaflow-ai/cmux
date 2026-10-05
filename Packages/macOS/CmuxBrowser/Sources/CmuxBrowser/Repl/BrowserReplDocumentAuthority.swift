@@ -277,6 +277,12 @@ extension BrowserReplDocumentAuthority {
         }?.store
     }
 
+    /// The verdict on the page `tab` landed on after a navigation the
+    /// session started, by its URL.
+    public func landedPage(_ url: String, in tab: BrowserReplTabFacts?) -> BrowserReplVerdict {
+        verdict(BrowserReplAccess(.load(url)))
+    }
+
     /// Whether `tab` is in the session's workspace (always, when the
     /// workspace is not known here).
     private func isInWorkspace(_ tab: BrowserReplTabFacts) -> Bool {
