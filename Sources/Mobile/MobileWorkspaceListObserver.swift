@@ -3,6 +3,7 @@ import CmuxMobileHost
 import Combine
 import CmuxNotifications
 import CmuxSimulator
+import CmuxSurfaceCatalogModel
 import CmuxWorkspaces
 import Foundation
 import OSLog
@@ -344,6 +345,10 @@ final class MobileWorkspaceListObserver {
                 workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+                // The managed-VM remote configuration feeds the workspace-level
+                // Cloud referral (`cloud_vm_id`); a pure configure/disconnect
+                // need not change any other observed field.
+                workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
                 // Todo status override + checklist are workspace-list-facing
                 // (status lane, checklist progress) and live in their own
                 // sub-model, so a pure todo mutation would otherwise never
@@ -362,10 +367,25 @@ final class MobileWorkspaceListObserver {
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(Self.throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            let sink = merged.sink { [weak self] _ in
+                self?.requestEmission()
+            }
+            // The Cloud binding and its projected catalog resources live in an
+            // @Observable (not Combine) model, and a Cloud terminal projection
+            // can land after its panel appeared; without this stream the phone
+            // would never receive the late `cloud_vm_id`/`cloud_terminal_id`
+            // referral. The stream replays the current revision on subscribe;
+            // that first request is deduplicated by the summary hash.
+            let cloudBindingTask = Task { @MainActor [weak self] in
+                for await _ in workspace.cloudBindingState.changes() {
+                    self?.requestEmission()
+                }
+            }
             perWorkspaceCancellables[workspace.id] = WorkspaceCancellableEntry(
                 objectID: ObjectIdentifier(workspace),
-                cancellable: merged.sink { [weak self] _ in
-                    self?.requestEmission()
+                cancellable: AnyCancellable {
+                    sink.cancel()
+                    cloudBindingTask.cancel()
                 }
             )
         }
@@ -522,6 +542,15 @@ final class MobileWorkspaceListObserver {
                 }
             }
             hasher.combine(workspace.presentedCurrentDirectory)
+            // Cloud referral identity (`cloud.surface.referral.v1`): the bound
+            // Cloud machine (managed transport or cmux-tui binding), its daemon
+            // workspace id, and the per-panel projected resources that supply
+            // each terminal's `cloud_vm_id`/`cloud_terminal_id`. A projection
+            // that lands after the panel appeared changes only this state, so
+            // without it the late referral delta would be hash-suppressed.
+            hasher.combine(workspace.cloudVMID)
+            hasher.combine(workspace.cloudVMBinding?.remoteWorkspaceID)
+            hasher.combine(workspace.cloudBindingState.projectedResources)
             // Todo mutations change the list-facing shape; without these the
             // hash-diff would suppress the re-emit the publishers above fire.
             hasher.combine(workspace.todoState.statusOverride)
