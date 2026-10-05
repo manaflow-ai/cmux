@@ -44,7 +44,7 @@ public enum BrowserReplDownloadRoute: Sendable, Equatable {
     /// The session, which reads it from the temporary directory.
     case session(BrowserReplNetworkRecipient)
     /// Cancelled: the creating session's tab may not load it.
-    case refused(String)
+    case refused(BrowserReplDownloadRefusal)
 }
 
 /// A session a network event goes to, and whether it gets the request's

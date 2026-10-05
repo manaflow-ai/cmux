@@ -1386,13 +1386,25 @@ final class BrowserReplTabAttachment {
         switch route {
         case .user:
             return true
-        case .refused(let reason):
-            emit("navigation.blocked", ["url": url?.absoluteString ?? "", "reason": reason])
+        case .refused(let refusal):
+            // Every attached session hears of it; only the tab's creator
+            // gets the URLs as written, the others their credential values
+            // replaced, as download.started gives them.
+            for (sessionID, sink) in sinks {
+                let seesCredentials = isLiveCreator(sessionID)
+                let payload: [String: Any] = [
+                    "url": url?.absoluteString ?? "",
+                    "reason": refusal.reason(seesCredentials: seesCredentials),
+                ]
+                var body = seesCredentials ? payload : payload.redactingBrowserReplCredentials()
+                body["targetId"] = targetID
+                sink("navigation.blocked", body)
+            }
             return false
         case .session(let delivery):
             guard sinks[delivery.sessionID] != nil else { return true }
             let owner = delivery.sessionID
-            sessionDownloads.add(id, sessionID: owner, source: source)
+            sessionDownloads.add(id, to: delivery, source: source)
             let payload: [String: Any] = [
                 "downloadId": id,
                 "url": url?.absoluteString ?? "",
