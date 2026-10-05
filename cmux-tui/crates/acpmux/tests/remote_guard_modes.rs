@@ -44,7 +44,8 @@ fn hub(d: &Path, store_root: Option<&Path>) -> Arc<Hub> {
         Some(_) => cfg.store.mode = StoreMode::Local,
         None => cfg.store.mode = StoreMode::Memory,
     }
-    let store = acpmux::store::open(&cfg.store, store_root.unwrap_or(Path::new("/nonexistent"))).unwrap();
+    let store =
+        acpmux::store::open(&cfg.store, store_root.unwrap_or(Path::new("/nonexistent"))).unwrap();
     Hub::new(cfg, store)
 }
 
@@ -63,7 +64,10 @@ impl Client {
         let id = self.2;
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
         loop {
-            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv()).await.unwrap().unwrap();
+            let line = tokio::time::timeout(Duration::from_secs(20), self.1.recv())
+                .await
+                .unwrap()
+                .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
                 return v;
@@ -117,10 +121,17 @@ async fn a_web_source_is_resolved_like_its_handler_and_refused_when_it_cannot_be
     // Not found, and an ambiguous prefix: refused, never passed unchecked.
     let mut local = Client::new(&hub, Origin::Local);
     for n in ["dup-a", "dup-b"] {
-        id(&local.new_on(&d, "fake", json!({"_meta": {"acpmux": {"harness": "fake", "name": n}}})).await);
+        id(&local
+            .new_on(&d, "fake", json!({"_meta": {"acpmux": {"harness": "fake", "name": n}}}))
+            .await);
     }
     for key in ["no-such-session", "dup"] {
-        let r = web.call("session/load", json!({"sessionId": key, "cwd": d.join("work"), "mcpServers": []})).await;
+        let r = web
+            .call(
+                "session/load",
+                json!({"sessionId": key, "cwd": d.join("work"), "mcpServers": []}),
+            )
+            .await;
         assert!(err(&r).contains("cannot be resolved"), "{key}: {r}");
     }
     let _ = std::fs::remove_dir_all(&d);
@@ -134,7 +145,10 @@ async fn a_web_fork_load_resume_or_handoff_carries_no_mode_field() {
     let sid = id(&local.new_on(&d, "fake", json!({})).await);
     let mut web = Client::new(&hub, Origin::Web);
     for m in ["session/fork", "session/load", "session/resume", "_acpmux/handoff_prepare"] {
-        for extra in [json!({"modeId": "bypassPermissions"}), json!({"_meta": {"acpmux": {"permissionMode": "acceptEdits"}}})] {
+        for extra in [
+            json!({"modeId": "bypassPermissions"}),
+            json!({"_meta": {"acpmux": {"permissionMode": "acceptEdits"}}}),
+        ] {
             let mut p = json!({"sessionId": sid, "harness": "fcodex", "handoffKey": "k"});
             for (k, v) in extra.as_object().unwrap() {
                 p[k] = v.clone();
@@ -177,10 +191,16 @@ async fn each_harness_starts_and_stays_in_a_reviewed_asking_mode_for_the_web() {
         assert!(err(&r).contains("does not ask"), "{harness}: {r}");
     }
     // An unknown harness: refused, and nothing is left behind.
-    let before = local.call("_acpmux/sessions", json!({})).await["result"]["sessions"].as_array().unwrap().len();
+    let before = local.call("_acpmux/sessions", json!({})).await["result"]["sessions"]
+        .as_array()
+        .unwrap()
+        .len();
     let r = web.new_on(&d, "fgemini", json!({})).await;
     assert!(err(&r).contains("no reviewed asking mode"), "{r}");
-    let after = local.call("_acpmux/sessions", json!({})).await["result"]["sessions"].as_array().unwrap().len();
+    let after = local.call("_acpmux/sessions", json!({})).await["result"]["sessions"]
+        .as_array()
+        .unwrap()
+        .len();
     assert_eq!(before, after, "the refused session was ended");
     let _ = std::fs::remove_dir_all(&d);
 }
