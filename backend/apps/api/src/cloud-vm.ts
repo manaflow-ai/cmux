@@ -60,9 +60,13 @@ export class VmStatusQueue {
       `INSERT INTO cloud_vm_status (machine, report, received_at, applied_at) VALUES (?, ?, ?, ?) ON CONFLICT(machine) DO UPDATE SET report = excluded.report, received_at = excluded.received_at, applied_at = CASE WHEN ? THEN excluded.applied_at ELSE applied_at END`,
       machine, JSON.stringify(report), now, applyNow ? now : 0, applyNow ? 1 : 0
     )
-    if (applyNow && reportsActivity(report)) this.sql.exec(`UPDATE cloud_vm_status SET activity_at = ? WHERE machine = ?`, now, machine)
     return applyNow
   }
+  /** A capable report was committed as applied (called only after statusApplied: a dropped report never counts; review P3). */
+  markActivity(machine: string, report: unknown, now: number) {
+    if (reportsActivity(report)) this.sql.exec(`UPDATE cloud_vm_status SET activity_at = ? WHERE machine = ?`, now, machine)
+  }
+
   /** When the last report with the activity capability was applied (the cost backstop's "last heard"), or null. */
   lastActivityAt(machine: string): number | null {
     if (!this.ready && this.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE name = 'cloud_vm_status'`)[0]?.n === 0) return null
@@ -82,7 +86,7 @@ export class VmStatusQueue {
   takeDue(now: number): Array<{ machine: string; report: unknown }> {
     if (this.dueAt() === null) return []
     const due = this.sql.exec<{ machine: string; report: string }>(`SELECT machine, report FROM cloud_vm_status WHERE received_at > applied_at AND applied_at + ? <= ?`, VM_STATUS_MIN_INTERVAL_MS, now)
-    for (const d of due) this.sql.exec(`UPDATE cloud_vm_status SET applied_at = ?, activity_at = CASE WHEN ? THEN ? ELSE activity_at END WHERE machine = ?`, now, reportsActivity(JSON.parse(d.report)) ? 1 : 0, now, d.machine)
+    for (const d of due) this.sql.exec(`UPDATE cloud_vm_status SET applied_at = ? WHERE machine = ?`, now, d.machine)
     return due.map((d) => ({ machine: d.machine, report: JSON.parse(d.report) as unknown }))
   }
 }
