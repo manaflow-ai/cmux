@@ -1,3 +1,4 @@
+import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
 import { createdAndBound, ensureUser, frame, installOf, person, post, reply, SIZE, signedInWithInstall, bindFile, cloudStub, DAEMON, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
 
@@ -100,7 +101,7 @@ describe("snapshots", { timeout: 60_000 }, () => {
     reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.delete", { snapshot: id })))
     const s1 = (await x.stub.readOp(x.team, x.p, "cloud.snapshot.list", {})).value.snapshots[0]
     expect(s1).toMatchObject({ id, status: "ready" })
-    const creator = await (await import("cloudflare:test")).runInDurableObject(x.stub as never, async (i: any) => i.boundEngine.rows.get("snapshot", id).row.creator)
+    const creator = await (runInDurableObject as unknown as (s: unknown, f: (i: any) => Promise<unknown>) => Promise<any>)(x.stub, async (i: any) => i.boundEngine.rows.get("snapshot", id).row.creator)
     expect(creator).toBe(x.user)
   })
 
@@ -110,7 +111,7 @@ describe("snapshots", { timeout: 60_000 }, () => {
     const { machine } = await createdAndBound(x)
     const id = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.create", { machine }))).value.snapshot.id as string
     const restored = reply(await x.stub.submit(x.team, x.p, frame("cloud.snapshot.restore", { snapshot: id }))).value.machine.id as string
-    const rows = await (await import("cloudflare:test")).runInDurableObject(x.stub as never, async (i: any) => [i.boundEngine.rows.get("machine", restored).row.from_snapshot, i.boundEngine.rows.get("machine", machine).row.from_snapshot])
+    const rows = await (runInDurableObject as unknown as (s: unknown, f: (i: any) => Promise<unknown>) => Promise<any>)(x.stub, async (i: any) => [i.boundEngine.rows.get("machine", restored).row.from_snapshot, i.boundEngine.rows.get("machine", machine).row.from_snapshot])
     expect(rows).toEqual([`cmuxnp-test-cld-${id.replace(/_/g, "-")}`, undefined])
   })
 })

@@ -365,7 +365,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             // Freestyle's own timers are off (createBody): idle belongs to our policy and backstop.
             const m = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row
             // A restore boots its snapshot (a recorded, guarded slug); every other create the deployment's image.
-            const fromSnapshot = m && m.image.id !== this.config.image ? m.image.id : undefined
+            const fromSnapshot = m?.from_snapshot
             const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: 0, ...(fromSnapshot ? { snapshot: fromSnapshot } : {}) })).id
             // 5.8 item 1: a fresh one-time bind token into the VM; only its sha256 is committed.
             const token = newBindToken()

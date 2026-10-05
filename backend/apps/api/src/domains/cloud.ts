@@ -75,6 +75,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly vm_install?: string
   /** When the machine last became running by a start or a bind (private): idle counts from no earlier (review P2). */
   readonly last_power_at?: number
+  /** A restore: the recorded snapshot slug the create boots (the pass branches on this, never on the image id). */
+  readonly from_snapshot?: string
   /** The creator's SSO team at create (private): the VM install counts as registered from that SSO. */
   readonly creator_sso_team?: string
   /** The VM's last applied status report (private; activity feeds the idle pause). */
@@ -87,6 +89,8 @@ export interface LedgerRow {
   /** snapshot ops: the snapshot id and its recorded provider slug (the only slug ever deleted). */
   readonly snapshot?: string
   readonly snapshot_name?: string
+  /** snapshot_delete: the status before the delete (restored on a final failure). */
+  readonly snapshot_status?: "creating" | "ready" | "deleting" | "failed"
   /** resize only: the target size, and the size to restore after a final failure. */
   readonly size?: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
   readonly size_before?: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
@@ -126,7 +130,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, ...machine } = row
+  const { provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, ...machine } = row
   return machine
 }
 
@@ -251,6 +255,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     size: { cpu, memory_mb: memory, disk_mb: disk },
     status: "provisioning",
     image: { id: from ? from.provider_name : config.image, daemon_version: null },
+    ...(from ? { from_snapshot: from.provider_name } : {}),
     host: null,
     classic: false,
     created_at: ctx.now,

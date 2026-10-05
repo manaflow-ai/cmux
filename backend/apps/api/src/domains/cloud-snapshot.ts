@@ -19,12 +19,14 @@ export interface SnapshotRow {
   readonly created_at: number
   readonly revision: string
   readonly provider_name: string
+  /** Who took it (decides delete once its machine is gone). */
+  readonly creator?: string
   /** The machine's size when it was taken (a restore asks for it). */
   readonly size: { readonly cpu: number; readonly memory_mb: number; readonly disk_mb: number }
 }
 
 export const publicSnapshot = (r: SnapshotRow): typeof CloudSnapshot.Type => {
-  const { provider_name: _p, size: _s, ...view } = r
+  const { provider_name: _p, size: _s, creator: _c, ...view } = r
   return view
 }
 const counts = (s: SnapshotRow["status"]) => (s === "creating" || s === "ready" ? 1 : 0)
@@ -47,7 +49,7 @@ export const snapshotCreate = (config: CloudConfig, state: CloudState, params: u
   const rev = state.rev + 1
   const id = ctx.newId("snap")
   const size = { cpu: m.size.cpu ?? 0, memory_mb: m.size.memory_mb ?? 0, disk_mb: m.size.disk_mb ?? 0 }
-  const row: SnapshotRow = { id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size }
+  const row: SnapshotRow = { id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { key, op: "snapshot", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: id, snapshot_name: row.provider_name }
   const s = next(state, { saved: state.saved + 1, pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false, snapshot: id })
@@ -63,12 +65,14 @@ export const snapshotDelete = (config: CloudConfig, state: CloudState, params: u
   if (r.status === "deleting") return noChangePower(state, { deleted: true })
   const source = machineRow(ctx.rows, r.machine)
   // The machine may be gone; then the team admin (or the creator recorded on no row) decides: personal teams only today.
-  if (source && !mayManage(ctx.principal, source.row)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete its snapshots")
+  // The machine's creator or a team admin; once the machine is gone, the snapshot's own creator or a team admin (review P3).
+  const owner = (source ? source.row : { creator: r.creator ?? "" }) as Parameters<typeof mayManage>[1]
+  if (!mayManage(ctx.principal, owner)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete its snapshots")
   if (Object.values(state.pending).some((e) => e.machine === r.machine) && r.status === "creating") return reject("cloud.machine.busy", "the snapshot is still being taken; retry when it is ready", { snapshot: r.id })
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   const rev = state.rev + 1
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: "snapshot_delete", machine: r.machine, provider_name: r.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: r.id, snapshot_name: r.provider_name }
+  const ledger: LedgerRow = { key, op: "snapshot_delete", machine: r.machine, provider_name: r.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: r.id, snapshot_name: r.provider_name, snapshot_status: r.status }
   const row: SnapshotRow = { ...r, status: "deleting", revision: String(rev) }
   const s = next(state, { saved: state.saved - counts(r.status), pending: { ...state.pending, [key]: { machine: r.machine, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: r.machine, removed: false, snapshot: r.id })
   return { ok: true, state: s, value: { deleted: true }, writes: [upsertLedger(ledger, rev), upsertSnapshot(row, stored.n)] }
@@ -102,8 +106,9 @@ export const snapshotResult = (state: CloudState, stored: StoredRow<LedgerRow>, 
     writes.push({ table: TABLE_SNAPSHOT, op: "delete", key: snap.row.id })
     return { ok: true, state: next(state, { pending }, { machine: snap.row.machine, removed: true, snapshot: snap.row.id }), value: { applied: true }, writes }
   }
-  // The provider kept the snapshot: it is still there and still counts.
-  const row: SnapshotRow = { ...snap.row, status: "ready", revision: String(rev) }
+  // The provider kept the snapshot: its status (and count) from before the delete (review P3).
+  const before = l.snapshot_status && l.snapshot_status !== "deleting" ? l.snapshot_status : "ready"
+  const row: SnapshotRow = { ...snap.row, status: before, revision: String(rev) }
   writes.push(upsertSnapshot(row, snap.n))
-  return { ok: true, state: next(state, { pending, saved: state.saved + 1 }, { machine: row.machine, removed: false, snapshot: row.id }), value: { applied: true, final: true }, writes }
+  return { ok: true, state: next(state, { pending, saved: state.saved + counts(before) }, { machine: row.machine, removed: false, snapshot: row.id }), value: { applied: true, final: true }, writes }
 }
