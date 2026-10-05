@@ -141,6 +141,44 @@ struct SessionContentWidthSettingsFileStoreTests {
         }
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func canonicalSidebarAndIntegrationEditsApplyThroughWatcher() async throws {
+        let suite = "cmux-catalog-live-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        let catalog = SettingCatalog()
+        try #"{"sidebar":{"activeTabIndicatorStyle":"leftRail"},"integrations":{"codex":{"hooksEnabled":true}}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        let indicatorKey = catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey
+        let hooksKey = catalog.integrations.codexHooksEnabled.userDefaultsKey
+        let (updates, continuation) = AsyncStream<(String?, Bool)>.makeStream()
+        defer { continuation.finish() }
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: file.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: true,
+            onWatchedFileReload: { _ in
+                continuation.yield((defaults.string(forKey: indicatorKey), defaults.bool(forKey: hooksKey)))
+            }
+        )
+        #expect(defaults.string(forKey: catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey) == "leftRail")
+        try #"{"workspaceColors":{"indicatorStyle":"leftRail"},"sidebar":{"activeTabIndicatorStyle":"solidFill"},"automation":{"codexIntegration":true},"integrations":{"codex":{"hooksEnabled":false}}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        var iterator = updates.makeAsyncIterator()
+        let update = await iterator.next()
+        #expect(update?.0 == "solidFill")
+        #expect(update?.1 == false)
+        #expect(defaults.string(forKey: catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey) == "solidFill")
+        #expect(store.configurationIssues.isEmpty)
+        withExtendedLifetime(store) {}
+    }
+
     private func loadSettings(
         maxWidthJSON: String,
         alignmentJSON: String,
