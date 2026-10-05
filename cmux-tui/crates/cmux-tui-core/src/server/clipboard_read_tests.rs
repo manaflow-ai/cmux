@@ -2,10 +2,10 @@
 //! answers, every other read is refused at once, and a host cancel withdraws
 //! the question.
 
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-use ghostty_vt::{ClipboardLocation, MAX_CLIPBOARD_READ_BYTES};
+use ghostty_vt::{Callbacks, ClipboardLocation, MAX_CLIPBOARD_READ_BYTES, Terminal};
 use serde_json::{Value, json};
 
 use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
@@ -27,14 +27,14 @@ const OTHER_TERMINAL: &str = "term_fedcba9876543210fedcba9876543210";
 struct Client {
     id: u64,
     writer: MessageWriter,
-    outbound: std::sync::Arc<BoundedOutbound>,
+    outbound: Arc<BoundedOutbound>,
 }
 
 fn command(value: Value) -> Command {
     serde_json::from_value(value).expect("raw command")
 }
 
-fn connect(mux: &std::sync::Arc<Mux>, kind: &str) -> Client {
+fn connect(mux: &Arc<Mux>, kind: &str) -> Client {
     let (writer, outbound) = captured_writer();
     let id = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     mux.control_clients.set_info(id, None, Some(kind.to_string()), None).unwrap();
@@ -42,25 +42,25 @@ fn connect(mux: &std::sync::Arc<Mux>, kind: &str) -> Client {
 }
 
 /// The verified cmux app's frontend connection.
-fn frontend(mux: &std::sync::Arc<Mux>) -> Client {
+fn frontend(mux: &Arc<Mux>) -> Client {
     let client = connect(mux, "frontend");
     set_role_for_test(mux, client.id, "main");
     set_verified_app_for_test(mux, client.id, true);
     client
 }
 
-fn run(mux: &std::sync::Arc<Mux>, client: &Client, value: Value) -> anyhow::Result<Value> {
+fn run(mux: &Arc<Mux>, client: &Client, value: Value) -> anyhow::Result<Value> {
     handle_command(mux, client.id, command(value), &client.writer)
 }
 
-fn subscribe(mux: &std::sync::Arc<Mux>, client: &Client, terminals: &[&str]) {
+fn subscribe(mux: &Arc<Mux>, client: &Client, terminals: &[&str]) {
     let reply =
         run(mux, client, json!({"cmd": "terminal-clipboard-subscribe", "terminal_ids": terminals}))
             .unwrap();
     assert_eq!(reply, json!({"clipboard_read_ready": true}));
 }
 
-fn reply(mux: &std::sync::Arc<Mux>, client: &Client, request_id: &str, text: Value) -> Value {
+fn reply(mux: &Arc<Mux>, client: &Client, request_id: &str, text: Value) -> Value {
     run(
         mux,
         client,
@@ -122,7 +122,7 @@ fn refused_at_once(answers: &mpsc::Receiver<Option<Vec<u8>>>) {
     assert_eq!(answers.try_recv(), Ok(None), "the read must be refused at once");
 }
 
-fn mux() -> std::sync::Arc<Mux> {
+fn mux() -> Arc<Mux> {
     Mux::new_for_test("clipboard-broker", SurfaceOptions::default())
 }
 
@@ -192,6 +192,60 @@ fn a_refusal_answers_an_empty_clipboard() {
             .unwrap();
     assert_eq!(refused, json!({"accepted": true, "granted": false}), "absent text refuses");
     assert_eq!(answers.try_recv(), Ok(None));
+}
+
+/// End to end for a terminal no frontend subscribed to (another frontend
+/// watches a different terminal): the program's OSC 52 read goes through the
+/// hosted surface to the broker, which refuses it at once, with no event to
+/// any frontend and no wait on the host's 60 second timeout, and the PTY gets
+/// the empty clipboard reply.
+#[test]
+fn an_unsubscribed_terminal_read_reaches_the_pty_as_an_empty_reply_at_once() {
+    let mux = mux();
+    let elsewhere = frontend(&mux);
+    subscribe(&mux, &elsewhere, &[OTHER_TERMINAL]);
+    let terminal = crate::resource::TerminalPublicId::parse(TERMINAL.to_string()).unwrap();
+    let (surface, mut host) = crate::surface::hosted_surface_for_clipboard_test(&mux, terminal);
+
+    // The host's parser: a real terminal with deferred reads and a captured PTY.
+    let pty = Arc::new(Mutex::new(Vec::new()));
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let callbacks = Callbacks {
+        on_pty_write: Some(Box::new({
+            let pty = pty.clone();
+            move |bytes| pty.lock().unwrap().extend_from_slice(bytes)
+        })),
+        on_clipboard_read: Some(Box::new({
+            let reads = reads.clone();
+            move |request| reads.lock().unwrap().push(request)
+        })),
+        ..Callbacks::default()
+    };
+    let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
+    term.set_clipboard_reads_deferred(true);
+    term.vt_write(b"\x1b]52;c;?\x07");
+    let request = reads.lock().unwrap().pop().expect("the program's read was deferred");
+    assert!(pty.lock().unwrap().is_empty(), "nothing reaches the PTY before the answer");
+
+    let started = Instant::now();
+    let mut payload = request.token.to_le_bytes().to_vec();
+    payload.push(0);
+    write_frame(&mut host, &Frame::new(MessageKind::ClipboardReadRequest, payload)).unwrap();
+    let reply = loop {
+        let frame = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+        if frame.kind == MessageKind::ClipboardReadReply {
+            break frame;
+        }
+    };
+    assert!(started.elapsed() < Duration::from_secs(2), "the refusal must not wait");
+    let (token, rest) = reply.payload.split_at(8);
+    assert_eq!(u64::from_le_bytes(token.try_into().unwrap()), request.token);
+    assert_eq!(rest, [0, 0, 0, 0, 0], "a refusal carries no text");
+    assert_eq!(surface.pending_clipboard_read(), None);
+    assert_no_event(&elsewhere.outbound);
+
+    assert!(term.complete_clipboard_read(request.token, None));
+    assert_eq!(pty.lock().unwrap().as_slice(), b"\x1b]52;c;\x07");
 }
 
 #[test]
