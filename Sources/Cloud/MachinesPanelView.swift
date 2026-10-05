@@ -505,8 +505,8 @@ struct MachinesPanelView: View {
             command = "cmux cr add"
         }
 
-        if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel,
-           panel.sendText(command + "\n") {
+        if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
+            panel.sendInput(command + "\r")
             return
         }
 
