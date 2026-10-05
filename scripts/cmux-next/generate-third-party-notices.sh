@@ -27,6 +27,7 @@
 #
 #   rust-cmux-cli           bin/cmux and bin/cmux-tui-ssh/*  cmux-tui/Cargo.lock
 #   rust-cmux-app-host      bin/cmux-app-host                cmux-tui/Cargo.lock
+#   rust-cmux-browser-host  bin/cmux-browser-host            cmux-tui/Cargo.lock
 #   rust-cmux-cloud         bin/cmux-cloud                   first-party-apps/cloud/server
 #   rust-cmux-diff-sidecar  bin/cmux-diff-sidecar            Native/DiffSidecar/Cargo.lock (this tree)
 #   rust-iroh-ffi           Iroh.framework                   manaflow-ai/iroh-ffi at the Package.resolved revision
@@ -120,6 +121,7 @@ if [[ "$WRITE_TREES" == 1 ]]; then
   }
   cargo_tree rust-cmux-cli "$tui_src/cmux-tui" cmux-tui acpmux
   cargo_tree rust-cmux-app-host "$tui_src/cmux-tui" cmux-app-host
+  cargo_tree rust-cmux-browser-host "$tui_src/cmux-tui" cmux-browser-host
   cargo_tree rust-cmux-cloud "$tui_src/first-party-apps/cloud/server" cmux-cloud
   cargo_tree rust-cmux-diff-sidecar "$ROOT/Native/DiffSidecar" cmux-diff-sidecar
   cargo_tree rust-iroh-ffi "$iroh_src" iroh-ffi
@@ -155,6 +157,10 @@ section rust-cmux-app-host "Rust crates: app host (bin/cmux-app-host)" \
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
   --root cmux-app-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
   --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
+section rust-cmux-browser-host "Rust crates: browser host (bin/cmux-browser-host)" \
+  --lock "$tui_src/cmux-tui/Cargo.lock" --lock-label "cmux-tui/Cargo.lock $tui_label" \
+  --root cmux-browser-host --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
+  --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
 section rust-cmux-cloud "Rust crates: Cloud app server (bin/cmux-cloud)" \
   --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" --lock-label "first-party-apps/cloud/server/Cargo.lock $tui_label" \
   --root cmux-cloud --workspace "$tui_src/first-party-apps/cloud/server" --workspace "$tui_src/cmux-tui" --repo-root "$tui_src" \
@@ -173,6 +179,7 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --hand-written "$ROOT/scripts/cmux-next/notices/hand-written.md"
   --section "$work/ghostty-themes.md"
   --section "$work/rust-cmux-cli.md" --section "$work/rust-cmux-app-host.md"
+  --section "$work/rust-cmux-browser-host.md"
   --section "$work/rust-cmux-cloud.md" --section "$work/rust-cmux-diff-sidecar.md"
   --section "$work/rust-iroh-ffi.md"
   --out "$ROOT/THIRD_PARTY_LICENSES.md")
