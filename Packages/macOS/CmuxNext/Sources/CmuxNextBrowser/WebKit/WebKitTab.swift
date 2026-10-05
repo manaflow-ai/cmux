@@ -38,11 +38,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
-    @ObservationIgnored var downloads: [ObjectIdentifier: BrowserDownload] = [:]
+    /// This tab's downloads (`WebKitDownloads`).
+    @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
     /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
     @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
-    /// Files the person chose for a download (Save Link As…), by download.
-    @ObservationIgnored var chosenDestinations: [ObjectIdentifier: URL] = [:]
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
