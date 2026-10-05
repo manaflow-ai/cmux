@@ -509,7 +509,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #endif
             switch node.kind {
             case .machine(let machine, _):
-                machineActions.promptRename(machine.id, machine.label)
+                machineActions.promptRename(machine)
             case .workspace(let machine, let workspace, _, _, _):
                 nodeActions.renameWorkspace(machine, workspace)
             case .display:
