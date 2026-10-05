@@ -65,6 +65,9 @@ EVENT_CONDITION_STEPS = {
     # The history job binds the synthetic merge base; run_steps binds it
     # directly (PACKAGE_RESOLVED_POLICY_BASE_REF).
     "Bind package policy to synthetic merge base",
+    # A manual dispatch's shallow checkout fetches main's history; a local
+    # checkout already has it, so a local run is never a dispatch.
+    "Fetch main history for a manual dispatch",
     # The Actions-only poll gates the duplicated `ci` group. Local runs should
     # execute the group directly, so the planner omits this step.
     "Check independent fast guard result",
