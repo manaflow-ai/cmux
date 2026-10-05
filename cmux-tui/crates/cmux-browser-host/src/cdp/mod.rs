@@ -8,6 +8,7 @@ mod browser_pages;
 mod capture;
 mod connection;
 mod cookies;
+mod cors;
 mod driver;
 mod evaluate;
 mod fetch;
