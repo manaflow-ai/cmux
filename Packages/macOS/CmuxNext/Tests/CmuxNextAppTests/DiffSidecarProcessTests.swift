@@ -43,7 +43,9 @@ struct DiffSidecarProcessTests {
     /// The deadline stops the child (the real sidecar's whole process group;
     /// a shell script cannot make one, so this checks the child itself).
     @Test func aMissedDeadlineStopsTheChild() async throws {
-        let sidecar = try Self.script("\(Self.marker)\necho $$ > \"$DIR/child\"\nexec sleep 30")
+        // The pid file is written before the ready marker, so it exists before the deadline starts
+        // (a loaded run could otherwise stop the child between the marker and the write).
+        let sidecar = try Self.script("echo $$ > \"$DIR/child\"\n\(Self.marker)\nexec sleep 30")
         var limits = Self.fast
         limits.request = .milliseconds(400)
         await #expect(throws: DiffSidecarError.timedOut) {
