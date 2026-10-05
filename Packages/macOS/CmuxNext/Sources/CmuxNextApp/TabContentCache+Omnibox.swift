@@ -7,6 +7,8 @@ import Foundation
 extension TabContentCache {
     func makeSuggestionEngine(history: InMemoryBrowserHistory, profile: BrowserProfileID) -> OmniboxSuggestionEngine {
         let engine = OmniboxSuggestionEngine(history: history)
+        engine.remote.fetcher = URLSessionSuggestFetcher()
+        engine.apply(omniboxConfiguration)
         engine.openTabs = { [weak self] in self?.openTabRows(incognito: false, profile: profile) ?? [] }
         engine.revealTab = { [weak self] key in self?.onRevealTab?(key) }
         onSuggestionEngineCreated?(engine, profile)
@@ -16,9 +18,18 @@ extension TabContentCache {
     /// The incognito engine, offering incognito tabs only.
     func incognitoSuggestions(_ memory: IncognitoPageMemory) -> OmniboxSuggestionEngine {
         let engine = memory.suggestions
+        // A private profile follows the remote setting, over an ephemeral session.
+        engine.remote.fetcher = URLSessionSuggestFetcher()
+        engine.remote.isPrivate = true
+        engine.apply(omniboxConfiguration)
         engine.openTabs = { [weak self] in self?.openTabRows(incognito: true, profile: .default) ?? [] }
         engine.revealTab = { [weak self] key in self?.onRevealTab?(key) }
         return engine
+    }
+
+    /// Every engine made so far (settings apply to each).
+    var suggestionEngines: [OmniboxSuggestionEngine] {
+        [suggestionEngine, incognitoMemory.suggestions] + profileHistories.values.map(\.suggestions)
     }
 
     /// Live pages of one profile (or of incognito) with a loaded URL.

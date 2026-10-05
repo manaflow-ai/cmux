@@ -207,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
+        BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
         services.updater.follow(settings)
         services.startHibernation(settings: settings)

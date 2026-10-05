@@ -52,6 +52,7 @@ final class TabContentCache {
     private(set) lazy var suggestionEngine = makeSuggestionEngine(history: history, profile: .default)
     var onSuggestionEngineCreated: ((OmniboxSuggestionEngine, BrowserProfileID) -> Void)? // bookmark feed, settings
     var onRevealTab: ((String) -> Void)? // a Switch to Tab row was chosen
+    var omniboxConfiguration = OmniboxConfiguration() // browser.searchEngine, browser.omnibar.*
     /// History and suggestions of each non-default browser profile.
     var profileHistories: [BrowserProfileID: ProfileHistory] = [:]
     /// A profile's omnibar history was created or dropped (`HistoryService`).
