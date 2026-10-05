@@ -47,7 +47,11 @@ enum DebugAgentPane {
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
     private static let script = """
-        const debug = window.cmuxAcpmuxDebug;
+        let debug = window.cmuxAcpmuxDebug;
+        for (let frame = 0; !debug && frame < 120; frame += 1) {
+            await new Promise(requestAnimationFrame);
+            debug = window.cmuxAcpmuxDebug;
+        }
         if (!debug || typeof debug[fn] !== "function") return JSON.stringify({ error: "the page has no cmuxAcpmuxDebug." + fn });
         return JSON.stringify((await debug[fn](...args)) ?? null);
         """
