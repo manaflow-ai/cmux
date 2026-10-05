@@ -377,6 +377,22 @@ describe("app pricing page", () => {
     expect(html).toContain("Get Max");
   });
 
+  test("highlights the requested plan and keeps signed-in Max accounts signed in", async () => {
+    stackConfigured = true;
+    currentUser = { ...proUser, primaryEmail: "max@example.com" };
+    stripeSubscriptionRows = [{ id: "sub_max", plan: "max" }];
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({ cmux_app: "1", plan: "max" }),
+    });
+    const html = await renderSettled(element);
+
+    expect(html).toContain('id="pricing-plan-max"');
+    expect(html).toContain('id="pricing-plan-max" data-selected="true"');
+    expect(html).toContain("Current plan");
+    expect(html).not.toContain("not signed in.");
+  });
+
   for (const [name, params, message] of [
     ["welcomeTeam", { welcome: "team" }, "Your cmux Team purchase is complete."],
     ["billingCancelled", { billing: "cancelled" }, "Checkout cancelled. You have not been charged."],

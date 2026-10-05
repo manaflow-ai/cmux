@@ -43,8 +43,8 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    static func presentAppPricingWeb(source: ProUpgradeSource) {
-        let url = appPricingURLForCurrentAppearance(source: source)
+    static func presentAppPricingWeb(source: ProUpgradeSource, plan: CheckoutPlan? = nil) {
+        let url = appPricingURLForCurrentAppearance(source: source, plan: plan)
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSWorkspace.shared.open(url)
             return
@@ -63,7 +63,7 @@ enum ProUpgradePresenter {
     @MainActor
     static func presentPricing(source: ProUpgradeSource, plan: CheckoutPlan) {
         PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source, plan: plan))
-        presentAppPricingWeb(source: source)
+        presentAppPricingWeb(source: source, plan: plan)
     }
 
     @MainActor
@@ -137,8 +137,15 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    static func appPricingURLForCurrentAppearance(source: ProUpgradeSource) -> URL {
-        CheckoutAttribution.applying(to: decoratedAppWebURL(AuthEnvironment.appPricingURL), source: source)
+    static func appPricingURLForCurrentAppearance(source: ProUpgradeSource, plan: CheckoutPlan? = nil) -> URL {
+        var url = CheckoutAttribution.applying(to: decoratedAppWebURL(AuthEnvironment.appPricingURL), source: source)
+        guard let plan else { return url }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        var queryItems = components?.queryItems ?? []
+        queryItems.removeAll { $0.name == "plan" }
+        queryItems.append(URLQueryItem(name: "plan", value: plan.rawValue))
+        components?.queryItems = queryItems
+        return components?.url ?? url
     }
 }
 

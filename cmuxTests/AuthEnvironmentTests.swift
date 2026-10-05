@@ -799,6 +799,19 @@ struct CheckoutAttributionTests {
     }
 
     @Test
+    @MainActor
+    func appPricingURLCarriesTheRequestedPlan() throws {
+        let url = ProUpgradePresenter.appPricingURLForCurrentAppearance(
+            source: .newMachineSheetMaxUpgrade,
+            plan: .max
+        )
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(url.path == "/app-pricing")
+        #expect(items.contains { $0.name == "cmux_app" && $0.value == "1" })
+        #expect(items.filter { $0.name == "plan" }.map(\.value) == ["max"])
+    }
+
+    @Test
     func intentPropertiesNameSurfaceAndChannel() {
         let properties = CheckoutAttribution.intentProperties(source: .helpMenu, flavor: .stable)
         #expect(properties["source"] as? String == "mac_help_menu")

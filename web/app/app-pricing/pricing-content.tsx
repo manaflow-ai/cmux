@@ -83,6 +83,7 @@ export function AppPricingContent({
   const isGo = snapshot.planId === GO_PLAN_ID;
   const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
+  const requestedPlan = requestedAppPlan(firstParam(params.plan));
   const requestOrigin = appPricingRequestOrigin(headersList);
   const cmuxScheme = validatedNativeCallbackScheme(
     firstParam(params.cmux_scheme),
@@ -180,6 +181,8 @@ export function AppPricingContent({
       columns={showGo ? "four" : "three"}
     >
       <PlanCard
+        id="pricing-plan-free"
+        selected={requestedPlan === "free"}
         name={pricing.free.name}
         price={pricing.free.price}
         period={pricing.perMonth}
@@ -206,6 +209,8 @@ export function AppPricingContent({
 
       {showGo ? (
         <PlanCard
+          id="pricing-plan-go"
+          selected={requestedPlan === "go"}
           name={pricing.go.name}
           price={`$${GO_PRICING_USD.month.billedAmount}`}
           period={pricing.perMonth}
@@ -251,6 +256,8 @@ export function AppPricingContent({
       ) : null}
 
       <PlanCard
+        id="pricing-plan-pro"
+        selected={requestedPlan === "pro"}
         name={pricing.pro.name}
         price={`$${PRO_PRICING_USD.month.billedAmount}`}
         period={pricing.perMonth}
@@ -280,6 +287,8 @@ export function AppPricingContent({
 
       {/* Max: larger machines on the monthly personal plan. */}
       <PlanCard
+        id="pricing-plan-max"
+        selected={requestedPlan === "max"}
         name={pricing.max.name}
         price={`$${MAX_PRICING_USD.month.billedAmount}`}
         period={pricing.perMonth}
@@ -341,6 +350,8 @@ export function AppPricingContent({
       columns="two"
     >
       <PlanCard
+        id="pricing-plan-team"
+        selected={requestedPlan === "team"}
         name={pricing.team.name}
         price={`$${TEAM_PRICING_USD.month.billedAmount}`}
         period={pricing.perUserMonth}
@@ -608,6 +619,12 @@ function appPricingBanner(
 function firstParam(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
+}
+
+function requestedAppPlan(value: string | null): "free" | "go" | "pro" | "max" | "team" | null {
+  return value === "free" || value === "go" || value === "pro" || value === "max" || value === "team"
+    ? value
+    : null;
 }
 
 function pricingMessage(

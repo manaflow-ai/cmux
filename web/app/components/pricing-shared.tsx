@@ -73,16 +73,25 @@ export function PlanCard({
   price,
   period,
   badge,
+  id,
+  selected = false,
   children,
 }: {
   name: string;
   price: ReactNode;
   period?: ReactNode;
   badge?: ReactNode;
+  id?: string;
+  selected?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
+    <div
+      id={id}
+      data-selected={selected ? "true" : undefined}
+      aria-current={selected ? "true" : undefined}
+      className={`relative flex h-full min-w-0 flex-col border p-6 ${selected ? "border-foreground ring-1 ring-foreground/20" : "border-border"}`}
+    >
       {badge ? <div className="absolute right-6 top-6">{badge}</div> : null}
       <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
       <div className="mt-3">
