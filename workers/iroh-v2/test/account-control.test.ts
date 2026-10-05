@@ -468,3 +468,22 @@ test("a burst of 16 concurrent revocation notices deletes every revoked row", as
   expect(results.filter(result => result.status === "rejected")).toEqual([]);
   expect(store.list()).toEqual([]);
 });
+
+test("a Mac whose team authority lease lapsed is no longer listed, so a stale team endpoint cannot hide a live one", async () => {
+  const w = await world();
+  const [aKey, bKey] = await Promise.all([220, 221].map(deviceKey));
+  const a = descriptor(aKey!, identity("team-x", "user-u", "mac-a"), "mac", HOST);
+  const bInY = descriptor(bKey!, identity("team-y", "user-u", "mac-b"), "mac", HOST);
+  w.x.enroll(a, NOW - 100); w.y.enroll(bInY, NOW - 100);
+  w.y.store.observeAuthority("user-u", NOW - 50, NOW + 3550, NOW);
+  const broker = w.account("user-u");
+  await call(broker, bKey!, bInY, "account.publish.v1");
+  expect(directoryOf((await call(broker, aKey!, a, "account.directory.v1")).response).macs.map(mac => mac.descriptor.identity.teamId)).toEqual(["team-y"]);
+  // B stops refreshing team Y (it went back to another team without republishing).
+  const later = NOW + 3600;
+  w.setClock(later);
+  w.x.store.observeAuthority("user-u", later - 10, later + 3590, later);
+  const seen = directoryOf((await call(broker, aKey!, a, "account.directory.v1", later)).response);
+  expect(seen.macs).toEqual([]);
+  expect(seen.inboundMacs).toEqual([]);
+});
