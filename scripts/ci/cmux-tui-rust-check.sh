@@ -27,6 +27,16 @@ umask 022
 root="$(pwd -P)"
 export CARGO_TARGET_DIR="$root/.build/cmux-tui-rust-target"
 cd "$root/cmux-tui"
+# The step's own RUSTUP_HOME auto-installed the pinned toolchain WITHOUT the
+# components rust-toolchain.toml lists (rustup 1.29.1, 2026-10-05: `cargo fmt`
+# failed with "no such command"). Install them explicitly; from this directory
+# the toolchain file selects the toolchain.
+if ! rustup component add clippy rustfmt; then
+  echo "error: rustup component add clippy rustfmt failed; no cargo command ran" >&2
+  exit 3
+fi
+echo "rust toolchain: $(rustup show active-toolchain)"
+rustup component list --installed
 if [[ "$mode" == fmt || "$mode" == all ]]; then
   cargo fmt --all --check
 fi
