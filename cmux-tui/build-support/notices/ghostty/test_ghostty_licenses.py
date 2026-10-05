@@ -228,14 +228,19 @@ PINNED = HERE / "pinned-licenses"
 
 def collect_in_process(
     source: Path, cache: Path, output: Path, z2d: str = Z2D, pinned: Path = PINNED,
-    bindings_package: str = BINDINGS,
+    bindings_package: str = BINDINGS, accept_manifest: bool = False,
 ) -> int:
-    """Run the collector with network access disabled."""
+    """Run the collector with network access disabled. accept_manifest: a
+    test edited the pinned manifest on purpose, so accept its digest."""
     spec = importlib.util.spec_from_file_location("ghostty_collector", COLLECTOR)
     assert spec is not None and spec.loader is not None
     collector = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(collector)
     collector.PINNED_LICENSES = pinned
+    if accept_manifest:
+        collector.PINNED_MANIFEST_SHA256 = hashlib.sha256(
+            (pinned / "MANIFEST.json").read_bytes()
+        ).hexdigest()
     package = source / "zig-pkg" / z2d
     (package / "src").mkdir(parents=True)
     (package / "src/z2d.zig").write_text("// SPDX-License-Identifier: MPL-2.0\n")
@@ -393,6 +398,83 @@ def test_themes_and_gobject_get_pinned_texts() -> None:
             assert collect_in_process(source, cache, work / "collected") != 0, label
 
 
+def test_vendored_directory_without_license_is_unresolved() -> None:
+    """A pkg/ or vendor/ directory with third-party code and no license file
+    fails collection until it is reviewed in pinned-licenses/MANIFEST.json.
+
+    Ghostty vendors the simdutf amalgamation in pkg/simdutf/vendor/ and the
+    generated glad loader in vendor/glad/, both without a license file; they
+    are linked into libghostty and libghostty-vt, and no notice shipped their
+    terms because only Zig packages were checked.
+    """
+    for directory in ("pkg/newlib", "vendor/newgen"):
+        with tempfile.TemporaryDirectory(prefix="cmux-ghostty-vendored-") as raw:
+            work = Path(raw)
+            source, cache = build_fixture(work)
+            vendored = source / directory / "vendor"
+            vendored.mkdir(parents=True)
+            (vendored / "lib.c").write_text("/* third-party code */\nint f(void) { return 0; }\n")
+            (source / directory / "build.zig").write_text("// Ghostty's wrapper\n")
+            result = run(
+                COLLECTOR, "--ghostty-source", source, "--zig-cache", cache,
+                "--output", work / "collected", "--revision", REVISION,
+            )
+            assert result.returncode != 0, (directory, result.stdout)
+            assert directory in result.stderr, result.stderr
+            assert "pinned-licenses/MANIFEST.json" in result.stderr, result.stderr
+            manifest = json.loads((work / "collected/SOURCE-MANIFEST.json").read_text())
+            assert any(item.startswith(directory) for item in manifest["unresolved_packages"]), manifest
+
+
+def test_vendored_directory_with_a_license_file_is_covered() -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-vendored-") as raw:
+        work = Path(raw)
+        source, cache = build_fixture(work)
+        (source / "pkg/afl/vendor").mkdir(parents=True)
+        (source / "pkg/afl/vendor/afl.c").write_text("int g(void) { return 1; }\n")
+        (source / "pkg/afl/LICENSE").write_text("Apache-2.0 text\n")
+        result = run(
+            COLLECTOR, "--ghostty-source", source, "--zig-cache", cache,
+            "--output", work / "collected", "--revision", REVISION,
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def test_pinned_vendored_texts_ship_with_the_tree() -> None:
+    """simdutf: the reviewed amalgamation ships the pinned simdutf texts
+    (Apache-2.0, MIT and the PyTorch BSD-3 notice); another version fails."""
+    content = b"/* simdutf amalgamation fixture */\n"
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-vendored-") as raw:
+        work = Path(raw)
+        pinned = work / "pinned"
+        shutil.copytree(PINNED, pinned)
+        manifest = json.loads((pinned / "MANIFEST.json").read_text())
+        manifest["vendored"]["pkg/simdutf"]["files"] = {
+            "vendor/simdutf.cpp": hashlib.sha256(content).hexdigest(),
+        }
+        (pinned / "MANIFEST.json").write_text(json.dumps(manifest))
+        source, cache = build_fixture(work)
+        (source / "pkg/simdutf/vendor").mkdir(parents=True)
+        (source / "pkg/simdutf/vendor/simdutf.cpp").write_bytes(content)
+        output = work / "collected"
+        assert collect_in_process(source, cache, output, pinned=pinned, accept_manifest=True) == 0
+        collected = json.loads((output / "SOURCE-MANIFEST.json").read_text())
+        shipped = {
+            entry["source"]: entry for entry in collected["license_files"]
+            if entry["package"] == "pkg/simdutf"
+        }
+        for item in manifest["packages"]["simdutf"]["files"]:
+            entry = shipped[item["upstream"]]
+            assert entry["source_kind"] == "verified-upstream-license"
+            assert (output / entry["destination"]).read_bytes() == (pinned / item["path"]).read_bytes()
+        verified = run(VERIFIER, "--root", output, "--revision", REVISION)
+        assert verified.returncode == 0, verified.stderr
+        (source / "pkg/simdutf/vendor/simdutf.cpp").write_bytes(content + b"// 9.1.0\n")
+        assert collect_in_process(
+            source, cache, work / "again", pinned=pinned, accept_manifest=True
+        ) != 0
+
+
 def test_verifier_rejects_long_destination() -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
         work = Path(raw)
@@ -484,6 +566,9 @@ def main() -> int:
     test_bounded_round_trip()
     test_zig_package_index()
     test_zig_pkg_package_without_license_is_unresolved()
+    test_vendored_directory_without_license_is_unresolved()
+    test_vendored_directory_with_a_license_file_is_covered()
+    test_pinned_vendored_texts_ship_with_the_tree()
     test_known_zig_pkg_licenses()
     test_themes_and_gobject_get_pinned_texts()
     test_verifier_rejects_long_destination()

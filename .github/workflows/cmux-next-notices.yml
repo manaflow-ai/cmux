@@ -55,6 +55,7 @@ jobs:
           python3 scripts/cmux-next/notices/test_compose_notices.py
           python3 scripts/cmux-next/notices/test_check_bundle_notices.py
           python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
+          python3 cmux-tui/build-support/notices/ghostty/test_ghostty_vendored.py
           python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
 
