@@ -19,6 +19,16 @@ on:
       - "scripts/cmux-next/cmux-tui.pin"
       - "scripts/cmux-next/generate-third-party-notices.sh"
       - "scripts/cmux-next/notices/**"
+      - "scripts/cmux-next/bundle-cli-resources.sh"
+      - "cmux-tui/dist/notices/**"
+      - "cmux-tui/dist/scripts/package_notices.py"
+      - "cmux-tui/dist/scripts/test_package_notices.py"
+      - "cmux-tui/rust-toolchain.toml"
+      - "first-party-apps/cloud/server/rust-toolchain.toml"
+      - "Native/DiffSidecar/rust-toolchain.toml"
+      - "ghostty"
+      - "ghostty-next"
+      - "cmux-tui/crates/ghostty-vt-sys/build.rs"
       - "scripts/verify-app-bundle-licenses.sh"
       - "Resources/ghostty/themes/**"
       - ".github/workflows/cmux-next-notices.yml"
@@ -60,6 +70,21 @@ jobs:
           python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
           python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+          python3 scripts/cmux-next/notices/test_vt_link_graph.py
+          python3 cmux-tui/dist/scripts/test_package_notices.py
+          python3 cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py
+
+      - name: Rust and Zig standard library notices match the toolchain pins
+        run: |
+          # build.zig.zon of both Ghostty sources sets the Zig version; a missing one fails the check.
+          git submodule update --init --depth 1 --filter=blob:none ghostty ghostty-next
+          python3 cmux-tui/build-support/notices/toolchains/toolchain_notices.py check-repo --repo .
+
+      - name: vt-link-graph.json is for the libghostty-vt gitlink
+        run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json
+
+      - name: npm and PyPI notice texts match vt-link-graph.json
+        run: python3 cmux-tui/dist/scripts/package_notices.py check-data
 
       - name: THIRD_PARTY_LICENSES.md and REVIEW.md are current
         run: ./scripts/cmux-next/generate-third-party-notices.sh --check

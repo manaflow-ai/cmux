@@ -34,6 +34,13 @@ public enum PaletteRankerBridgeError: Error, LocalizedError, Sendable {
 public final class PaletteRankerBridge {
     // crash-allow: JavaScriptCore is serialized by each owning actor or Mutex-protected ranker.
     nonisolated(unsafe) private let context: JSContext
+    /// The index version whose entries the context holds (`__cmuxPaletteInstall`): a keystroke on
+    /// the same index sends only the query, not 2,000 entries to encode and parse again.
+    // crash-allow: serialized with `context` by the owning actor.
+    nonisolated(unsafe) private var installedVersion: Int?
+    /// How many times entries were sent to the context (tests).
+    // crash-allow: serialized with `context` by the owning actor.
+    nonisolated(unsafe) private(set) var entryInstalls = 0
 
     /// Creates a bridge from the checked-in JavaScriptCore-compatible bundle.
     nonisolated public init() throws {
@@ -73,9 +80,10 @@ public final class PaletteRankerBridge {
         rowLimit: Int = 400,
         highlightLimit: Int = 60
     ) throws -> [PaletteRankedSection] {
-        try invoke(PaletteRankerBridgeRequest(
+        if let version, version != installedVersion { try install(index.entries, version: version) }
+        return try invoke(PaletteRankerBridgeRequest(
             operation: "rank",
-            entries: index.entries.map(PaletteRankerBridgeEntry.init),
+            entries: version == nil ? index.entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: query,
             sectionOrders: sectionOrders,
@@ -114,6 +122,23 @@ public final class PaletteRankerBridge {
             rowLimit: 400,
             highlightLimit: 60
         ))
+    }
+
+    /// Sends `entries` to the context once for `version`.
+    nonisolated private func install(_ entries: [PaletteSearchEntry], version: Int) throws {
+        let data = try JSONEncoder().encode(entries.map(PaletteRankerBridgeEntry.init))
+        guard let json = String(data: data, encoding: .utf8),
+              let function = context.objectForKeyedSubscript("__cmuxPaletteInstall"), !function.isUndefined else {
+            throw PaletteRankerBridgeError.runtimeFailed("bridge install entry point is missing")
+        }
+        context.exception = nil
+        function.call(withArguments: [version, json])
+        if let exception = context.exception?.toString() {
+            installedVersion = nil
+            throw PaletteRankerBridgeError.runtimeFailed(exception)
+        }
+        installedVersion = version
+        entryInstalls += 1
     }
 
     nonisolated private func invoke(_ request: PaletteRankerBridgeRequest) throws -> [PaletteRankedSection] {

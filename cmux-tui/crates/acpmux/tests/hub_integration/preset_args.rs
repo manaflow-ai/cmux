@@ -309,6 +309,8 @@ async fn a_remote_origin_connection_never_uses_or_sets_args_or_a_system_prompt()
     }
     // ACP-REMOTE-GUARD F3: a Web cwd must sit inside a root.
     hub.config.write().await.web_roots = vec![cwd()];
+    // The fake harness is not in the reviewed asking-mode table.
+    hub.config.write().await.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
     let mut web = connect(&hub, Origin::Web).await;
     for name in ["argful", "prompted"] {
         let err = web.request(method::SESSION_NEW, new_params(name)).await.unwrap_err();

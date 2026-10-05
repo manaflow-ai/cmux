@@ -40,7 +40,7 @@ extension ActionRegistry {
 
     /// Focus facts a right-click implies (right-clicking a page means a
     /// browser is the target even if a terminal has focus).
-    static func impliedContext(for context: ActionMenuContext) -> ActionContext {
+    nonisolated static func impliedContext(for context: ActionMenuContext) -> ActionContext {
         switch context {
         case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
         case .terminalSelection: .terminalFocused
@@ -85,7 +85,7 @@ extension ActionRegistry {
                 items.append(item)
             case .choices(let id):
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
-                      let item = makeChoicesItem(for: descriptor, target: target)
+                      let item = makeChoicesItem(for: descriptor, target: target, in: context)
                 else { continue }
                 items.append(item)
             }

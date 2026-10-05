@@ -6,6 +6,7 @@ covered by the shipped Ghostty license notices.
 
   check_ghostty_vt_notices.py [--repo DIR] [--rev REV] [--vt-git-dir DIR]
                               (--license-manifest SOURCE-MANIFEST.json ... | --print-source)
+                              [--link-graph vt-link-graph.json]
 
 bin/cmux (cmux-tui) links libghostty-vt, which ghostty-vt-sys's build.rs
 builds with zig from a Ghostty submodule of the cmux tree: `ghostty` at older
@@ -25,6 +26,14 @@ Every declared package must appear in one of the --license-manifest files (a
 collected tree's SOURCE-MANIFEST.json: a `license_files` package or a
 `zig_packages` key). The vendored pkg/ and vendor/ directories of that commit
 must pass ghostty_vendored.py too. Exit 1 names every uncovered package.
+
+--check-link-graph FILE checks only that the graph names the resolved source
+and commit (the notices CI runs it on every gitlink change, so a bump lands
+with a regenerated graph). --link-graph FILE (vt_link_graph.py's output, made on a Testbox from the
+DWARF of libghostty-vt.a built with -Dstrip=false) adds the linked set: the
+graph must be for the resolved source and commit, no DWARF path may be
+unattributed, and every linked package must be declared and covered. The
+output names the linked and the declared-but-not-linked packages.
 
 CMUX_GHOSTTY_SRC overrides build.rs's source for out-of-tree builds; the
 cmux-tui workflows set it empty, so the gitlink is what ships.
@@ -127,6 +136,53 @@ def covered_packages(manifests: list[Path]) -> set[str]:
     return covered
 
 
+REGENERATE = (
+    "regenerate it on a Testbox: `$HQ_TOOLS/scripts/testbox-warmup.sh --lane <lane>`, then "
+    "`blacksmith testbox run --id <tbx> 'python3 scripts/cmux-next/notices/vt_link_graph.py generate "
+    "--dwarfdump /usr/lib/llvm-18/bin/llvm-dwarfdump --out scripts/cmux-next/notices/vt-link-graph.json'` and "
+    "`blacksmith testbox download --id <tbx> scripts/cmux-next/notices/vt-link-graph.json "
+    "scripts/cmux-next/notices/vt-link-graph.json`; commit it with the gitlink change"
+)
+
+
+def stale_graph_problem(graph: dict, path: str, commit: str) -> str | None:
+    if graph.get("source") == path and graph.get("commit") == commit:
+        return None
+    return f"vt-link-graph.json is for {graph.get('source')} {graph.get('commit')}, but bin/cmux links {path} {commit}; {REGENERATE}"
+
+
+def link_graph_problems(graph: dict, path: str, commit: str, declared: list[Package], covered: set[str]) -> tuple[list[str], list[str]]:
+    """(problems, report lines) for a vt_link_graph.py result."""
+    stale = stale_graph_problem(graph, path, commit)
+    if stale:
+        return [stale], []
+    problems: list[str] = []
+    by_hash = {package.package_hash: package for package in declared}
+    linked: dict[str, list[str]] = {}
+    for target, entry in sorted(graph.get("targets", {}).items()):
+        for source_path in entry.get("unattributed", []):
+            problems.append(f"link graph {target}: DWARF source path {source_path} belongs to no package, Zig lib or the Ghostty tree")
+        for package_hash in entry.get("packages", []):
+            linked.setdefault(package_hash, []).append(target)
+    if not graph.get("targets"):
+        problems.append("link graph has no targets")
+    for package_hash, targets in sorted(linked.items()):
+        if package_hash not in by_hash:
+            problems.append(f"link graph: {package_hash} is linked ({', '.join(targets)}) but not declared in build.zig.zon")
+        elif package_hash not in covered:
+            problems.append(f"link graph: linked Zig package {by_hash[package_hash].name} {package_hash} is in no license manifest")
+    names = lambda hashes: ", ".join(f"{by_hash[h].name if h in by_hash else '?'} {h}" for h in hashes) or "none"
+    not_linked = sorted((p.package_hash for p in declared if p.package_hash not in linked), key=lambda h: (by_hash[h].name, h))
+    report = [
+        f"link graph ({', '.join(sorted(graph['targets']))}): linked {len(linked)} of {len(declared)} declared Zig packages",
+        f"linked: {names(sorted(linked, key=lambda h: (by_hash[h].name if h in by_hash else h, h)))}",
+        f"declared, not linked: {names(not_linked)}",
+    ]
+    vendored = sorted({v for entry in graph["targets"].values() for v in entry.get("vendored", {})})
+    report.append(f"vendored Ghostty directories linked: {', '.join(vendored) or 'none'}")
+    return problems, report
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repo", type=Path, default=ROOT, help="the cmux repository")
@@ -134,6 +190,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--vt-git-dir", type=Path, help="the Ghostty repository that holds the gitlink commit (default: the submodule in --repo)")
     parser.add_argument("--license-manifest", type=Path, action="append", default=[], help="a collected SOURCE-MANIFEST.json (repeatable)")
     parser.add_argument("--print-source", action="store_true", help="print the resolved source and commit only")
+    parser.add_argument("--link-graph", type=Path, help="vt_link_graph.py output: also check the packages the archive links")
+    parser.add_argument("--check-link-graph", type=Path, help="only check that this graph is for the resolved source and commit (no submodule needed)")
     override = parser.add_mutually_exclusive_group()
     override.add_argument("--ghostty-revision", help="product override: the Ghostty commit the product builds cmux-tui with")
     override.add_argument("--ghostty-revision-file", type=Path, help="product override: a pin file whose first line is that commit")
@@ -159,6 +217,13 @@ def main(argv: list[str]) -> int:
         print(f"commit source: {origin}")
         if args.print_source:
             return 0
+        if args.check_link_graph is not None:
+            problem = stale_graph_problem(json.loads(args.check_link_graph.read_text(encoding="utf-8")), path, commit)
+            if problem:
+                print(f"error: {problem}", file=sys.stderr)
+                return 1
+            print(f"check_ghostty_vt_notices: {args.check_link_graph} is for {path} {commit[:11]}")
+            return 0
         if not args.license_manifest:
             parser.error("pass --license-manifest (or --print-source)")
         packages = declared_packages(vt_git_dir, commit)
@@ -173,6 +238,15 @@ def main(argv: list[str]) -> int:
         return 2
     covered = covered_packages(args.license_manifest)
     missing = [package for package in packages if package.package_hash not in covered]
+    graph_problems: list[str] = []
+    if args.link_graph is not None:
+        graph_problems, report = link_graph_problems(
+            json.loads(args.link_graph.read_text(encoding="utf-8")), path, commit, packages, covered
+        )
+        for line in report:
+            print(line)
+        for problem in graph_problems:
+            print(f"error: {problem}", file=sys.stderr)
     for package in missing:
         print(
             f"error: libghostty-vt Zig package {package.name} {package.package_hash} "
@@ -181,10 +255,10 @@ def main(argv: list[str]) -> int:
         )
     for problem in vendored_problems:
         print(f"error: {path}@{commit[:11]}: {problem}", file=sys.stderr)
-    if missing or vendored_problems:
+    if missing or vendored_problems or graph_problems:
         print(
             f"check_ghostty_vt_notices: {len(missing)} uncovered Zig package(s), "
-            f"{len(vendored_problems)} vendored problem(s) in {path} {commit}",
+            f"{len(vendored_problems)} vendored problem(s), {len(graph_problems)} link graph problem(s) in {path} {commit}",
             file=sys.stderr,
         )
         return 1

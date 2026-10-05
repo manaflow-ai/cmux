@@ -104,15 +104,17 @@ let remoteDesktopCoreDependency: [Target.Dependency] = remoteDesktopCoreLinked ?
 let remoteDesktopCoreSettings: [SwiftSetting] = remoteDesktopCoreLinked ? [.define("CMUX_RD_FFI")] : []
 
 /// The sidebar's hit testing and reorder rules live in the shared Rust
-/// `cmux-layout-reducer` crate. The fleet build produces this client
-/// xcframework with `scripts/cmux-next/build-layout-reducer-ffi.sh` before
-/// setting CMUX_NEXT_LAYOUT_REDUCER_FFI=1.
-let layoutReducerLinked = Context.environment["CMUX_NEXT_LAYOUT_REDUCER_FFI"] == "1"
-let layoutReducerTargets: [Target] = layoutReducerLinked
-    ? [.binaryTarget(name: "CCmuxLayoutReducerFFI", path: "../../../cmux-tui/target/cmux-layout-reducer-ffi/CCmuxLayoutReducerFFI.xcframework")]
-    : []
-let layoutReducerDependency: [Target.Dependency] = layoutReducerLinked ? ["CCmuxLayoutReducerFFI"] : []
-let layoutReducerSettings: [SwiftSetting] = layoutReducerLinked ? [.define("CMUX_LAYOUT_REDUCER_FFI")] : []
+/// `cmux-layout-reducer` crate. Every build links its C ABI from one pinned
+/// release (.github/workflows/layout-reducer-ffi-release.yml): a build without
+/// the reducer cannot exist, so a drop never resolves to nothing at run time.
+/// A pin change updates the URL (tag layout-reducer-ffi-<source sha>) and the
+/// checksum together; scripts/cmux-next/check-layout-reducer-pin.sh fails CI
+/// when the reducer sources differ from the pinned source sha.
+let layoutReducerFFI: Target = .binaryTarget(
+    name: "CCmuxLayoutReducerFFI",
+    url: "https://github.com/manaflow-ai/cmux/releases/download/layout-reducer-ffi-46af9ee70d8747add50935e55192948e430ff70d/CCmuxLayoutReducerFFI.xcframework.zip",
+    checksum: "302bc20bbddc3dee96d3ed1bade37d05357fa2c6bc87cbb775c4e664c957966e"
+)
 
 let package = Package(
     name: "CmuxNext",
@@ -783,16 +785,16 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSidebar",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")] + layoutReducerDependency,
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxLayoutReducerFFI"],
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings + layoutReducerSettings
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources", "CmuxNextIcons"] + layoutReducerDependency,
-            swiftSettings: uiSwiftSettings + layoutReducerSettings
+            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources", "CmuxNextIcons", "CCmuxLayoutReducerFFI"],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextPalette",
@@ -946,5 +948,5 @@ let package = Package(
             dependencies: ["CmuxNextActions"],
             swiftSettings: uiSwiftSettings
         ),
-    ] + remoteDesktopCoreTargets + layoutReducerTargets
+    ] + remoteDesktopCoreTargets + [layoutReducerFFI]
 )
