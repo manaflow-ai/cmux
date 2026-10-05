@@ -13261,6 +13261,16 @@
       "default": null,
       "capability": "terminal-snapshot-v1"
      },
+     "snapshot_local_history": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "terminal-snapshot-local-history-v1"
+     },
      "snapshot_version": {
       "type": {
        "kind": "scalar",

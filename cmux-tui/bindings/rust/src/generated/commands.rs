@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab.
+// cmux-tui mux protocol 12, IR c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -80,6 +80,8 @@ pub struct AttachSurfaceRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub snapshot_local_history: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot_version: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2954,6 +2956,9 @@ impl CmuxClient {
         }
         if !request.snapshot.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
+        }
+        if request.snapshot_local_history.is_some() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-local-history-v1")?;
         }
         if !request.snapshot_version.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
