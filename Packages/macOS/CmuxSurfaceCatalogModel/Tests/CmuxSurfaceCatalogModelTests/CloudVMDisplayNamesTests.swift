@@ -45,3 +45,14 @@ struct CloudVMDisplayNamesTests {
         #expect(state.displayNames.isEmpty)
     }
 }
+
+@Suite("Display titles before discovery")
+struct CloudDisplayTitleBeforeDiscoveryTests {
+    @Test("The desktop placeholder is titled like a discovered display, not Desktop")
+    func placeholderIsNumbered() {
+        let resource = CmuxTuiSnapshotParser.display(machine: .cloud("title-vm"))
+        #expect(resource.title == "Display 1")
+        #expect(CmuxTuiSnapshotParser.displayTitle(key: "display:7") == "Display 7")
+        #expect(CmuxTuiSnapshotParser.displayTitle(key: "screen-1") == "Desktop")
+    }
+}
