@@ -23,6 +23,7 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
+    @State private var isShowingCoderouterAccountChooser = false
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -125,6 +126,19 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
             viewModel.cancelCloudAgentTask()
+        }
+        .confirmationDialog(
+            "Add coding agent account",
+            isPresented: $isShowingCoderouterAccountChooser,
+            titleVisibility: .visible
+        ) {
+            Button("Codex") { openCoderouterCLI(provider: "codex") }
+            Button("Claude") { openCoderouterCLI(provider: "claude") }
+            Button("OpenCode") { openCoderouterCLI(provider: "opencode") }
+            Button("Other CodeRouter account") { openCoderouterCLI(provider: nil) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose an account type. cmux opens CodeRouter in a terminal and submits the command for you.")
         }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
@@ -437,7 +451,12 @@ struct MachinesPanelView: View {
         }
         nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
         nodeActions.openCoderouterCLI = { [self] in
-            openCoderouterCLI()
+            guard let teamID = accountFlow?.confirmedTeamID,
+                  !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                viewModel.noteTreeHint("Select a team before adding a coding agent account.")
+                return
+            }
+            isShowingCoderouterAccountChooser = true
         }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
@@ -468,7 +487,7 @@ struct MachinesPanelView: View {
     }
 
     @MainActor
-    private func openCoderouterCLI() {
+    private func openCoderouterCLI(provider: String?) {
         guard let teamID = accountFlow?.confirmedTeamID,
               !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             viewModel.noteTreeHint("Select a team before adding a coding agent account.")
@@ -476,7 +495,15 @@ struct MachinesPanelView: View {
         }
 
         let quotedTeamID = "'" + teamID.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let command = "cmux cr org switch \(quotedTeamID) && cmux cr add"
+        let command: String
+        switch provider {
+        case "claude":
+            command = "cmux coderouter claude add oauth-token --team \(quotedTeamID)"
+        case let provider? where ["codex", "opencode"].contains(provider):
+            command = "cmux cr add \(provider)"
+        default:
+            command = "cmux cr add"
+        }
 
         if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel,
            panel.sendText(command + "\n") {
