@@ -160,8 +160,8 @@ export const CloudMachineResize = cloudMutation(
   "money",
   Schema.Struct({ machine: MachineId, size: CloudMachineSize }),
   MachineResult,
-  ["cloud.machine.not_found", "cloud.quota.exceeded", "cloud.size.locked", ...PROVIDER],
-  "Change a machine's size. A larger size may cost money." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.machine.busy", "cloud.size.grow_only", "cloud.size.locked", "cloud.plan.required", ...LIMITED, ...PROVIDER],
+  "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team." + KEY,
   "cloud machine resize",
   true
 )

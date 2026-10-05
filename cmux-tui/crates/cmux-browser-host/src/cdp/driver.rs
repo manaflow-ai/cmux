@@ -227,6 +227,7 @@ impl Driver for CdpDriver {
                 Ok(Value::Null)
             }
             "net.fetch" => inner.net_fetch(params),
+            "net.fetch.cancel" => inner.net_fetch_cancel(params),
             "dialog.respond" => inner.dialog_respond(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),

@@ -30,6 +30,8 @@ const MINI_RUNTIME: &str = r#"
 "#;
 
 struct FakeHost {
+    /// Cells whose fetches the VM cancelled.
+    cancelled: Mutex<Vec<u64>>,
     calls: Mutex<Vec<(String, Value)>>,
     natives: Mutex<Vec<(String, Value)>>,
 }
@@ -61,6 +63,10 @@ impl VmHost for FakeHost {
         self.driver_call(method, params).map(crate::driver::Reply::Value)
     }
 
+    fn cancel_fetches(&self, cell: u64) {
+        self.cancelled.lock().unwrap().push(cell);
+    }
+
     fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
         let text = String::from_utf8_lossy(bytes).replace("SECRET", "<s>");
         text.into_bytes()
@@ -81,8 +87,11 @@ impl VmHost for FakeHost {
 const ORDERED: &str = r#"{"title":"cmux","url":"https://example.com/cmux","snippet":"s","nested":{"z":1,"a":[{"y":2,"b":3}]}}"#;
 
 fn session(memory_limit: usize) -> (VmSession, Arc<FakeHost>) {
-    let host =
-        Arc::new(FakeHost { calls: Mutex::new(Vec::new()), natives: Mutex::new(Vec::new()) });
+    let host = Arc::new(FakeHost {
+        cancelled: Mutex::new(Vec::new()),
+        calls: Mutex::new(Vec::new()),
+        natives: Mutex::new(Vec::new()),
+    });
     let config = VmConfig {
         session_id: "t".into(),
         cwd: std::env::temp_dir()
@@ -386,4 +395,26 @@ fn script_values_keep_the_page_key_order() {
     );
     assert_eq!(out.error, None);
     assert_eq!(lines(&out), vec!["\"title,url,snippet,nested|z,a|y,b\""]);
+}
+
+/// Classic main: a cell's timeout cancels the fetches that cell started; the
+/// VM names the cell on each fetch it sends.
+#[test]
+fn a_cell_timeout_cancels_the_fetches_it_started() {
+    let (vm, host) = session(0);
+    let out = vm.eval(
+        "testNative.fetch(1, JSON.stringify({url: 'https://a.test/x'})); await new Promise(() => {});",
+        Duration::from_millis(300),
+    );
+    assert!(out.error.as_deref().is_some_and(|e| e.contains("timed out")), "{:?}", out.error);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while host.cancelled.lock().unwrap().is_empty() {
+        assert!(Instant::now() < deadline, "the cell's fetches were not cancelled");
+        std::thread::yield_now();
+    }
+    let calls = host.calls.lock().unwrap();
+    let fetch = calls.iter().find(|(m, _)| m == "net.fetch").expect("the fetch ran");
+    let cell = fetch.1["cell"].as_u64().expect("the VM names the fetch's cell");
+    assert!(cell > 0);
+    assert_eq!(*host.cancelled.lock().unwrap(), vec![cell]);
 }
