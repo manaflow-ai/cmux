@@ -160,7 +160,7 @@ struct CloudMenuContentTests {
         var confirmedNames: [String] = []
         let verbs = CloudMachineMenuVerbs(
             openShell: { _ in }, newWorkspace: { _ in }, openDesktop: { _ in },
-            runCommand: { _, _ in }, promptRename: { _, _ in }, copyToPasteboard: { _ in },
+            runCommand: { _, _ in }, promptRename: { _ in }, copyToPasteboard: { _ in },
             confirmDelete: {
                 confirmedIDs.append($0.id)
                 confirmedNames.append($0.displayName)
@@ -320,7 +320,7 @@ struct CloudMenuContentTests {
                     newWorkspace: { self.log.append("newWorkspace:\($0)") },
                     openDesktop: { self.log.append("desktop:\($0)") },
                     runCommand: { self.log.append("run:\($0):\($1.joined(separator: " "))") },
-                    promptRename: { id, _ in self.log.append("rename:\(id)") },
+                    promptRename: { machine in self.log.append("rename:\(machine.id)") },
                     copyToPasteboard: { self.log.append("copy:\($0)") },
                     confirmDelete: { self.log.append("delete:\($0.id)") },
                     promptUpgrade: { self.log.append("upgradeMachine") }

@@ -885,7 +885,7 @@ struct CloudTreeMachineMenuTests {
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
             confirmDelete: { recorder.deletions.append((id: $0.id, name: $0.displayName)) },
-            promptRename: { id, label in recorder.renamedMachines.append((id, label ?? "")) },
+            promptRename: { machine in recorder.renamedMachines.append((machine.id, machine.displayName)) },
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },

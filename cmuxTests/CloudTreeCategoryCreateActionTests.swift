@@ -148,7 +148,7 @@ struct CloudTreeCategoryCreateActionTests {
             coordinator = CloudTreeOutlineView.Coordinator(
                 machineActions: MachineRowActions(
                     openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                    confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
+                    confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
                 ),
                 nodeActions: actions,
                 expansionStore: CloudTreeExpansionStore(defaults: defaults),
