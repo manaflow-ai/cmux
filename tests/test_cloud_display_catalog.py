@@ -458,6 +458,25 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertNotIn(service.standby, numbers)
         service.shutdown.set()
 
+    def test_number_recorded_after_probe_never_becomes_the_standby(self):
+        """A create can record the probed number between the unlocked probe and
+        the locked assignment; that display must not also become the standby."""
+        service, started = self.standby_service()
+        raced = {}
+        real_free_number = service.catalog.free_number
+
+        def free_number(reserved=()):
+            number = real_free_number(reserved=reserved)
+            raced["number"] = service.catalog.allocate(str(uuid.uuid4()))
+            return number
+
+        service.catalog.free_number = free_number
+        service.ensure_standby()
+        self.assertEqual(raced["number"], 2)
+        self.assertIsNone(service.standby)
+        self.assertEqual(started, [])
+        service.shutdown.set()
+
     def test_restarted_service_adopts_the_running_standby(self):
         service, started = self.standby_service()
         service.catalog.allocate(str(uuid.uuid4()))

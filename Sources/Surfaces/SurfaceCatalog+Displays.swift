@@ -5,20 +5,28 @@ extension SurfaceCatalog {
     /// Guest display discovery for a machine whose Displays are on screen. The
     /// guest helper starts a standby display on this request, so the first
     /// New Display hands over a running desktop.
+    /// Returns false, starting nothing, when the machine is asleep or has no
+    /// desktop. `completion` reports whether discovery produced a guest catalog,
+    /// so a failed attempt can be retried rather than treated as done.
+    func beginDisplayDiscovery(
+        on machine: SurfaceMachineID,
+        completion: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) -> Bool {
+        guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider,
+              provider.supportsDisplayCreation else { return false }
+        Task {
+            await provider.refreshDisplays()
+            completion(provider.displayCoordinator.isAvailable)
+        }
+        return true
+    }
+
     /// Names a display for every client; an empty name restores "Display N".
     func renameDisplay(_ id: SurfaceResourceID, name: String) async throws {
         guard id.kind == .display, let provider = provider(for: id.machine) as? CmuxTuiSurfaceProvider else {
             throw SurfaceCatalogError.noProvider(id.machine)
         }
         try await provider.renameDisplay(displayID: id.key, name: name)
-    }
-
-    /// Returns false, starting nothing, when the machine is asleep or has no desktop.
-    func beginDisplayDiscovery(on machine: SurfaceMachineID) -> Bool {
-        guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider,
-              provider.supportsDisplayCreation else { return false }
-        Task { await provider.refreshDisplays() }
-        return true
     }
 
     /// Creates a guest display and publishes it in the machine pool. Projection

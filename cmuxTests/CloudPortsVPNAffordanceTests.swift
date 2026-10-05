@@ -288,6 +288,32 @@ struct CloudPortsVPNAffordanceTests {
         #expect(requested == [.cloud("opened"), .cloud("closed"), .cloud("collapsed")])
     }
 
+    @Test("A failed Displays discovery is retried until it succeeds, at most three times",
+          arguments: [[false, false, true], [false, false, false, false]])
+    func displaysDemandRetriesFailedDiscovery(outcomes: [Bool]) async throws {
+        var remaining = outcomes
+        var attempts = 0
+        var actions = nodeActions()
+        actions.discoverDisplays = { _, completion in
+            attempts += 1
+            let succeeded = remaining.isEmpty ? true : remaining.removeFirst()
+            Task { @MainActor in completion(succeeded) }
+            return true
+        }
+        let machine = SurfaceMachineID.cloud("displays-demand")
+        let tabs = CloudTreeNode(id: "machine:displays-demand/tabs", kind: .machineDetailTabs(CloudTreeMachineDetailTabs(
+            machine: machine, tabs: [.displays], counts: [:], selected: .displays)))
+        let demand = CloudDisplaysDiscoveryDemand()
+        demand.update(nodes: [tabs], actions: actions)
+        for _ in 0..<100 { await Task.yield() }
+        // Starting discovery is not finishing it: failures are retried, and
+        // the retries are bounded so a broken guest is not polled forever.
+        #expect(attempts == 3)
+        demand.update(nodes: [tabs], actions: actions)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(attempts == 3, "an open tab does not rediscover once settled or out of attempts")
+    }
+
     @Test("Ports Wake shares the expired-machine gate and rejects removed machines")
     func wakeUsesCurrentPlan() throws {
         var upgrades = 0

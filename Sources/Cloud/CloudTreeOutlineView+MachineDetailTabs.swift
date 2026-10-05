@@ -24,6 +24,10 @@ extension CloudTreeOutlineView.Coordinator {
 @MainActor
 final class CloudDisplaysDiscoveryDemand {
     private var requested: Set<SurfaceMachineID> = []
+    /// Failed discoveries per shown machine; retries stop at the limit until
+    /// the tab is reopened or the machine leaves and returns to the tree.
+    private var failures: [SurfaceMachineID: Int] = [:]
+    static let maxAttempts = 3
 
     func update(nodes: [CloudTreeNode], actions: CloudTreeNodeActions) {
         var shown: Set<SurfaceMachineID> = []
@@ -34,11 +38,29 @@ final class CloudDisplaysDiscoveryDemand {
         }
         // A machine that leaves the tree, or whose tab closes, asks again next time.
         requested.formIntersection(shown)
-        // A machine that cannot answer yet (asleep, still connecting) is not
-        // marked, so a later tree update after it wakes asks again.
-        for machine in shown where !requested.contains(machine) && actions.discoverDisplays(machine) {
-            requested.insert(machine)
+        failures = failures.filter { shown.contains($0.key) }
+        for machine in shown where !requested.contains(machine) {
+            request(machine, actions: actions)
         }
+    }
+
+    /// A machine that cannot answer yet (asleep, still connecting) is not
+    /// marked, so a later tree update after it wakes asks again. A discovery
+    /// that runs but fails is retried right away, a bounded number of times:
+    /// starting it is not the same as finishing it.
+    private func request(_ machine: SurfaceMachineID, actions: CloudTreeNodeActions) {
+        guard failures[machine, default: 0] < Self.maxAttempts else { return }
+        let started = actions.discoverDisplays(machine) { [weak self] succeeded in
+            guard let self, self.requested.contains(machine) else { return }
+            if succeeded {
+                self.failures[machine] = nil
+                return
+            }
+            self.failures[machine, default: 0] += 1
+            self.requested.remove(machine)
+            self.request(machine, actions: actions)
+        }
+        if started { requested.insert(machine) }
     }
 }
 

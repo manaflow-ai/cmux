@@ -72,7 +72,7 @@ struct CloudTreeNodeActions {
     var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
     /// Starts guest display discovery, which also warms the machine's standby display.
     /// Returns false when the machine cannot run discovery now.
-    var discoverDisplays: @MainActor (SurfaceMachineID) -> Bool = { _ in false }
+    var discoverDisplays: @MainActor (SurfaceMachineID, _ completion: @escaping @MainActor (Bool) -> Void) -> Bool = { _, _ in false }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
@@ -605,7 +605,7 @@ struct CloudTreeNodeActions {
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
-        actions.discoverDisplays = { machine in catalog().beginDisplayDiscovery(on: machine) }
+        actions.discoverDisplays = { machine, completion in catalog().beginDisplayDiscovery(on: machine, completion: completion) }
         actions.renameDisplay = { resource in
             let current = resource.title.isEmpty ? resource.id.key : resource.title
             guard let name = promptForName(
