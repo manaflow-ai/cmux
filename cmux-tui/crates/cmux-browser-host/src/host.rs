@@ -253,7 +253,7 @@ impl Host {
                 Grants {
                     raw_cdp,
                     remote: caller.locality.refuses_private_ranges(),
-                    ..Grants::default()
+                    signed_in_profile: profile != AGENT_PROFILE,
                 },
             )
             .with_tab_secrets(self.tab_secrets.clone())

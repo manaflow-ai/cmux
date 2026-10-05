@@ -122,6 +122,14 @@ impl Gate {
         if let Some(reason) = self.url_refusal(&url) {
             return Err(self.refuse_fetch(&url, format!("fetch: {url} is blocked: {reason}")));
         }
+        // a9 shell-tab condition (e): a shell tab would enter a signed-in
+        // profile's history; the page's own tab runs the fetch instead.
+        if self.grants.signed_in_profile && !params.get("targetId").is_some_and(Value::is_string) {
+            return Err(DriverError::new(
+                ErrorCode::Forbidden,
+                "fetch: open a page first; on a signed-in profile fetch runs in the page's tab",
+            ));
+        }
         let start = self
             .filtered
             .lock()

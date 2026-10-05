@@ -4,6 +4,19 @@
 //! sends the tab's cookies per `credentials`, follows redirects (each hop
 //! passes the session's request filter) and stores Set-Cookie in its jar.
 //! The body is read in the page and pulled in chunks.
+//!
+//! A fetch with no tab runs in a fetch shell (a9 shell-tab conditions,
+//! 2026-10-04): (a) its document is empty, `Cache-Control: no-store`, with
+//! the CSP `default-src 'none'; connect-src http: https:; base-uri 'none';
+//! form-action 'none'` (cors.rs); (b) its service workers are bypassed
+//! before its navigation; (c) it is hidden: not listed, no events, no page
+//! agent, every session call refused; (d) it closes on every exit path and
+//! the session's end, and counts under the gate's 16 fetches per session;
+//! (e) a signed-in profile refuses it (gate). The CSP probe (headless
+//! Chromium 143.0.7499.4, Testbox): an isolated world takes the main
+//! world's CSP, so `default-src 'none'` alone failed the host world's
+//! same-origin fetch ("Failed to fetch"); with `connect-src http: https:`
+//! (or `*`) it succeeded. `sandbox` is not used: it makes the origin opaque.
 
 use super::driver::{INTERNAL_TIMEOUT, Inner};
 use crate::protocol::{DriverError, timeout_of};
