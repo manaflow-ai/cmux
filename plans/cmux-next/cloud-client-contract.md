@@ -224,8 +224,16 @@ Hard gates before ANY link token format goes live (the daemon refuses to start w
 - G3 (every OS, ad349 2026-10-04): the daemon logs its verifier mode (`deny_all` or
   `control_plane`) ONCE at start, with no token or secret in the line.
 - G4 (every OS, ad349 2026-10-04): the daemon strips `CMUX_LINK_TOKEN_VERIFIER` from the
-  environment it passes to terminals and other children, in `daemon_env.rs` (the one place that
-  builds child env), with a test that a child never sees it.
+  environment it passes to terminals and other children, with a test that a child never sees it.
+  Lane 10 finding (2026-10-05): `daemon_env.rs` builds only the caller-merged `extra_env`; a
+  terminal (`PtyCommand`) and the other spawn paths inherit the daemon's process environment, so
+  the strip must remove the variable from that inherited environment (every spawn path, or the
+  daemon's own environment once, before any thread starts), not only in `daemon_env.rs`.
+- Keyset (VM side, lane 10, 2026-10-05): `cmux_link::keyset` reads `GET /v1/cloud/keyset` and
+  the bind answer's `keyset` (schemas/link-token/keyset-vectors.json) and schedules refreshes:
+  one daily deadline at a per-host jittered time, at most one unknown-kid fetch per 60 s, a 429
+  holds every fetch for `retry-after` (60 s default), only an accepted 200 replaces the held
+  keyset. The HTTP fetch and the timer task wire in with `host_inbound` (not in `serve` yet).
 
 Limits that remain: (1) the host uses `DenyAllTokens` until a token format ships, so no Cloud
 stream reaches the entry yet, and G1/G2 block a real verifier until F1 and F2 land; (2) a paired

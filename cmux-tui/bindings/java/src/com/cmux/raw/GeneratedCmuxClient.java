@@ -38,6 +38,11 @@ public abstract class GeneratedCmuxClient {
         return openStream(Commands.ATTACH_SURFACE, request.toWire());
     }
 
+    public final BindConversationTabSessionResult bindConversationTabSession(BindConversationTabSessionRequest request) throws CmuxException {
+        Object result = execute(Commands.BIND_CONVERSATION_TAB_SESSION, request.toWire());
+        return BindConversationTabSessionResult.fromWire(result);
+    }
+
     public final EmptyResult browserActivate(BrowserActivateRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_ACTIVATE, request.toWire());
         return EmptyResult.fromWire(result);

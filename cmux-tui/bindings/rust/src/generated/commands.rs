@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5.
+// cmux-tui mux protocol 12, IR c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -80,6 +80,8 @@ pub struct AttachSurfaceRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub snapshot_local_history: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot_version: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -90,6 +92,23 @@ pub struct AttachSurfaceRequest {
 
 #[rustfmt::skip]
 pub type AttachSurfaceResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BindConversationTabSessionRequest {
+    /// The tab's current session, or null for a tab without one; the bind applies only when it matches.
+    pub expected_session: Nullable<String>,
+    pub session: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BindConversationTabSessionResult {
+    pub conversation: T::ConversationTabRecord,
+    pub replayed: bool,
+    pub surface: T::Id,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1496,16 +1515,20 @@ pub struct NewBrowserTabRequest {
 pub type NewBrowserTabResult = T::SurfaceResult;
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewConversationTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent_session: Optional<T::AgentSessionSource>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
-    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
-    pub owner: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub owner: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2934,6 +2957,9 @@ impl CmuxClient {
         if !request.snapshot.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
+        if request.snapshot_local_history.is_some() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-local-history-v1")?;
+        }
         if !request.snapshot_version.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
@@ -2941,6 +2967,10 @@ impl CmuxClient {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
         self.execute_stream(&ATTACH_SURFACE_METADATA, &request)
+    }
+
+    pub fn bind_conversation_tab_session(&mut self, request: BindConversationTabSessionRequest) -> Result<BindConversationTabSessionResult> {
+        self.execute(&BIND_CONVERSATION_TAB_SESSION_METADATA, &request)
     }
 
     pub fn browser_activate(&mut self, request: BrowserActivateRequest) -> Result<BrowserActivateResult> {
@@ -3465,6 +3495,9 @@ impl CmuxClient {
     }
 
     pub fn new_conversation_tab(&mut self, request: NewConversationTabRequest) -> Result<NewConversationTabResult> {
+        if !request.agent_session.is_missing() {
+            self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
+        }
         self.execute(&NEW_CONVERSATION_TAB_METADATA, &request)
     }
 

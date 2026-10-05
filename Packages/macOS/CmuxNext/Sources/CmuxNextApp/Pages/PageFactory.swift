@@ -120,7 +120,8 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .settings, routes: routes, route: route,
+        // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
+        let page = PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
                                dynamicResources: SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices))
         native.anchor = { [weak page] in page }
         return page

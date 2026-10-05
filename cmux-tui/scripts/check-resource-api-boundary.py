@@ -3232,6 +3232,7 @@ def _is_test_or_example(path: Path) -> bool:
         or name.endswith("_test.go")
         or "_test." in name
         or name.startswith("test_")
+        or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
     )
 

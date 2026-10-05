@@ -113,6 +113,16 @@ describe("editors", () => {
     ]);
   });
 
+  test("an unset slider sits at the value the host derives (the theme's opacity), live", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const row = rowElement(page.container, "appearance.backgroundOpacity");
+    const slider = () => row.querySelector<HTMLInputElement>('input[type="range"]')!.value;
+    await run(() => page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.85 } }));
+    expect(slider()).toBe("0.85");
+    await run(() => page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.6 } }));
+    expect(slider()).toBe("0.6");
+  });
+
   test("a number field commits on Return, clamped to the range", async () => {
     page = await renderPage({ path: "/settings/terminal" });
     const field = rowElement(page.container, "terminal.fontSize").querySelector<HTMLInputElement>("input.number")!;

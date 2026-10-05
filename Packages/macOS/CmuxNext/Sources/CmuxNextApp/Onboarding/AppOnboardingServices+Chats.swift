@@ -80,11 +80,23 @@ extension AppOnboardingServices {
             }
             return
         }
-        var last: String?
-        for chat in chats {
-            guard let harness = chat.adoptHarness else { continue }
-            last = services.agentTabs.resume(AgentPaneAdopt(harness: harness, agentSessionId: chat.sessionID), in: pane.id, of: daemon.store)
-        }
-        if let last { services.paneController(for: pane)?.showAgentTab(last) }
+        // One store tab per chat, in order; the last one is selected. A chat a tab already
+        // resumes gets no second tab.
+        let adopts = chats.compactMap { chat in chat.adoptHarness.map { AgentPaneAdopt(harness: $0, agentSessionId: chat.sessionID) } }
+        let tabs = services.agentTabs
+        let handle = pane.handle
+        let controller = services.paneController(for: pane)
+        services.registry.track(Task { [daemon] in
+            var last: AgentTabCreated?
+            for adopt in adopts where tabs.tab(resuming: adopt) == nil {
+                do {
+                    last = try await tabs.open(in: handle, of: daemon, seed: AgentPaneSeedSource(AgentPaneSeed(adopt: adopt)), adopt: adopt).value()
+                } catch {
+                    return "onboarding chats: \(error)"
+                }
+            }
+            if let last { controller?.selectWhenReported(surface: last.surface) }
+            return nil
+        })
     }
 }

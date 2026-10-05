@@ -559,7 +559,13 @@ pub(super) fn run_action(
 pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
     match run_command(global, command) {
         Ran::Done(code) => code,
-        Ran::NoSuchCliAction(scope) => {
+        Ran::NoSuchCliAction { name, .. }
+            if super::action_hint::non_verb_action(&name).is_some() =>
+        {
+            super::action_hint::report(&name, global.output)
+                .unwrap_or(super::action_hint::EXIT_CODE)
+        }
+        Ran::NoSuchCliAction { scope, .. } => {
             let messages = &crate::localization::catalog().app_control;
             failure(
                 "usage.invalid",
@@ -580,14 +586,18 @@ pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -
     let mut stream = connect(&socket).ok()?;
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
-        Ran::NoSuchCliAction(_) => None,
+        Ran::NoSuchCliAction { .. } => None,
     }
 }
 
 enum Ran {
     Done(i32),
-    /// The app ran nothing: no action marked for the CLI has this name.
-    NoSuchCliAction(String),
+    /// The app ran nothing: no action marked for the CLI has this name
+    /// (`scope` is its first word).
+    NoSuchCliAction {
+        scope: String,
+        name: String,
+    },
 }
 
 fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
@@ -674,8 +684,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
         Err(error) if cli_name && error_code(&error) == Some("not_found") => {
-            let scope = params["action"].as_str().unwrap_or_default();
-            Ran::NoSuchCliAction(scope.split(' ').next().unwrap_or_default().to_owned())
+            let name = params["action"].as_str().unwrap_or_default().to_owned();
+            let scope = name.split(' ').next().unwrap_or_default().to_owned();
+            Ran::NoSuchCliAction { scope, name }
         }
         Err(mut error) => {
             settings::explain_refusal(method, &params, &mut error);

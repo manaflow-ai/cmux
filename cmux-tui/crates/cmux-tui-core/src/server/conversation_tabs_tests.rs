@@ -143,7 +143,7 @@ fn conversation_tab_capability_is_accepted_by_set_client_info() {
         .set_info(client, None, None, Some(vec!["conversation-tabs-v1".to_string()]))
         .unwrap();
     assert!(mux.control_clients.supports_capability(client, "conversation-tabs-v1"));
-    assert!(writer.conversation_tabs.load(Ordering::Acquire));
+    assert!(writer.conversation_tabs.conversation());
     let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
     assert!(
         identity["capabilities"].as_array().unwrap().iter().any(|v| v == "conversation-tabs-v1")

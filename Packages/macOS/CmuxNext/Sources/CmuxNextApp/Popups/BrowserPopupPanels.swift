@@ -11,6 +11,9 @@ import CmuxNextDesign
 /// closes; closing it closes the page.
 final class BrowserPopupPanels {
     private let contextMenus: BrowserContextMenuBuilder
+    /// The link, image and selection rows for a right-click, by the
+    /// opener's tab (`BrowserPageRequests.hitItems`).
+    var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
 
     init(contextMenus: BrowserContextMenuBuilder = .shared) {
         self.contextMenus = contextMenus
@@ -128,7 +131,7 @@ final class BrowserPopupPanels {
             if page.isAgentDriven { child.markAgentDriven() }
             open(child, request: request, over: parent, openerKey: entry.openerKey)
         case .contextMenu(let request):
-            contextMenus.present(request, in: page.contentView)
+            contextMenus.present(request, in: page.contentView, leading: hitItems?(request.target, entry.openerKey) ?? [])
         case .resizePopup(let request):
             resize(entry, to: request)
         case .activate, .download, .notice, .rerouteStore, .takeFocus, .unhandledKey:

@@ -141,6 +141,9 @@ public struct DaemonCapabilities: Sendable {
     /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
     /// Echoed so the daemon sends the canonical kind instead of `browser`.
     public let conversationTabs = "conversation-tabs-v1"
+    /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
+    /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
+    public let agentSessionTabs = "agent-session-tabs-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
@@ -191,7 +194,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, conversationSearch,
+                                            workspaceKind, conversationTabs, agentSessionTabs, conversationSearch,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory] }
 
     /// App code waiting for a daemon half that no branch has yet. Each

@@ -420,6 +420,7 @@ fn a_headless_session_lists_no_start_tab() {
             actor: "test".into(),
             on_behalf_of: None,
             origin: "cli".into(),
+            locality: Default::default(),
         },
         label: "start-tab".into(),
         profile: cmux_browser_host::host::AGENT_PROFILE.into(),

@@ -47,11 +47,6 @@ enum DebugKey {
         } else if params["target"]?.stringValue == "palette" {
             guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
-        } else if params["target"]?.stringValue == "settings" {
-            guard let settings = services.settingsWindow.window, settings.isVisible else {
-                return .object(["error": .string("the Settings window is not open")])
-            }
-            window = settings
         } else if params["target"]?.stringValue == "debugSettings" {
             guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
                 return .object(["error": .string("Debug Settings is not open")])
@@ -129,10 +124,6 @@ enum DebugKey {
         if params["target"]?.stringValue == "debugSettings" {
             return .object(["handled_by": .string(handledBy == "page" ? "debugSettings" : handledBy), "action": action,
                             "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
-        }
-        if params["target"]?.stringValue == "settings", let model = services.settingsWindow.model {
-            return .object(["handled_by": .string(handledBy == "page" ? "settings" : handledBy), "action": action, "window_kind": .string("settings"),
-                            "settings": DebugSettings.state(model, window: window)])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
         return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind)])

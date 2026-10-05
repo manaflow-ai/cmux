@@ -8,11 +8,14 @@ mod browser_pages;
 mod capture;
 mod connection;
 mod cookies;
+mod cors;
 mod driver;
 mod evaluate;
+mod fetch;
 mod input;
 pub mod keys;
 mod navigation;
+mod network;
 mod pdf;
 #[cfg(unix)]
 pub mod pipe;

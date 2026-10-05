@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
+/* cmux-tui mux protocol 12, IR c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe. */
 
 
 import type * as T from "./types.js";
@@ -67,11 +67,26 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "mode"?: ("bytes" | "render") | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
+  "snapshot_local_history"?: boolean;
   "snapshot_version"?: (number) | null;
   "surface"?: (T.Id) | null;
   "viewer_backlog_bytes"?: (bigint) | null;
 }
 export type AttachSurfaceResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface BindConversationTabSessionRequest extends CmuxRequestBase {
+  cmd: "bind-conversation-tab-session";
+  /** The tab's current session, or null for a tab without one; the bind applies only when it matches. */
+  "expected_session": (string) | null;
+  "session": string;
+  "surface": T.Id;
+}
+export type BindConversationTabSessionResult = {
+  "conversation": T.ConversationTabRecord;
+  "replayed": boolean;
+  "surface": T.Id;
+};
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserActivateRequest extends CmuxRequestBase {
@@ -1044,11 +1059,12 @@ export type NewBrowserTabResult = T.SurfaceResult;
 /** Protocol v12; authority: control. */
 export interface NewConversationTabRequest extends CmuxRequestBase {
   cmd: "new-conversation-tab";
+  "agent_session"?: (T.AgentSessionSource) | null;
   "cols"?: (number) | null;
-  "conversation": string;
+  "conversation"?: (string) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
-  "owner": string;
+  "owner"?: (string) | null;
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
   "workspace"?: (T.Id) | null;
@@ -2040,6 +2056,7 @@ export type CmuxRequest =
   | AddTabsToTabGroupRequest
   | ApplyLayoutRequest
   | AttachSurfaceRequest
+  | BindConversationTabSessionRequest
   | BrowserActivateRequest
   | BrowserBackRequest
   | BrowserForwardRequest
@@ -2290,6 +2307,14 @@ export interface CmuxCommandDefinitionMap {
     since: 5;
     capability: null;
     stream: "attach";
+  };
+  "bind-conversation-tab-session": {
+    request: BindConversationTabSessionRequest;
+    result: BindConversationTabSessionResult;
+    authority: "control";
+    since: 12;
+    capability: "agent-session-tabs-v1";
+    stream: null;
   };
   "browser-activate": {
     request: BrowserActivateRequest;

@@ -60,7 +60,6 @@ nonisolated extension ActionSurfaceCatalog {
         .noTargetSurface: [
             "browserProfile.openLink", "file.open",
             "openLinkInDefaultBrowser",
-            "openLinkInNewTab",
             "tabGroup.deleteSaved",
             "tabGroup.reopenSaved",
             "taskManager.killProcess", "toggleChecklistItemComplete", "canvasOverview", "canvasTidy",

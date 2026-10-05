@@ -36,7 +36,7 @@ import Testing
         let document = try #require(try JSONSerialization.jsonObject(with: Data(export.utf8)) as? [String: Any])
         let rows = try #require(document["rows"] as? [[String: Any]])
         func row(_ key: String) throws -> [String: Any] { try #require(rows.first { $0["key"] as? String == key }) }
-        #expect(try row("ui.animationSpeed")["consumers"] as? [String] == ["cmux-next"])
+        #expect(try row("tabs.newTabKind")["consumers"] as? [String] == ["cmux-next"])
         #expect(try row("appearance.theme")["consumers"] as? [String] == ["cmux-browser", "cmux-next"])
         let presets = try row("layout.columnWidthPresets")
         #expect(presets["kind"] as? String == "number_list")
