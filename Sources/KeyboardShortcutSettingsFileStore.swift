@@ -51,6 +51,7 @@ final class CmuxSettingsFileStore {
     /// change would loop forever against it.
     private let isUserDefaultsKeyForcedByProfile: (String) -> Bool
     private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
+    private let onConfigurationIssue: @MainActor @Sendable ([String]) -> Void
     private let stateLock = NSLock()
 
     private var watchers: [FileWatcher] = []
@@ -65,6 +66,9 @@ final class CmuxSettingsFileStore {
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeLegacyDerivedManagedUserDefaultKeys: Set<String> = []
     private var activeManagedCustomSettings = ManagedCustomSettings()
+    private var lastGoodResolvedSettings: ResolvedSettingsSnapshot?
+    private var parsingIssues: [String] = []
+    private(set) var configurationIssues: [String] = []
     private var isApplyingManagedSettings = false
     private var deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
     private(set) var activeSourcePath: String?
@@ -89,7 +93,8 @@ final class CmuxSettingsFileStore {
             }
             return policy.isKeyForcedInAppDomain(key)
         },
-        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
+        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+        onConfigurationIssue: @escaping @MainActor @Sendable ([String]) -> Void = { _ in }
     ) {
         self.isUserDefaultsKeyForcedByProfile = isUserDefaultsKeyForcedByProfile
         self.primaryPath = primaryPath
@@ -104,6 +109,7 @@ final class CmuxSettingsFileStore {
         self.languageSettingsStore = languageSettingsStore
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
+        self.onConfigurationIssue = onConfigurationIssue
         importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
         bootstrapPrimaryTemplateIfNeeded()
         reload(applyLiveDefaultSideEffects: false)
@@ -114,9 +120,7 @@ final class CmuxSettingsFileStore {
             return Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
-                    let previousSocketAccessMode = Self.liveSocketAccessMode(defaults: self.userDefaults)
                     self.reload()
-                    guard Self.liveSocketAccessMode(defaults: self.userDefaults) != previousSocketAccessMode else { continue }
                     self.onWatchedFileReload("settings.file_watcher")
                 }
             }
@@ -168,6 +172,7 @@ final class CmuxSettingsFileStore {
             )
         }
         let resolved = resolveSettings()
+        reportConfigurationIssue()
         applyManagedSettings(
             snapshot: resolved,
             importedManagedDefaults: previousState.importedManagedDefaults,
@@ -200,6 +205,13 @@ final class CmuxSettingsFileStore {
             return true
         }
         return false
+    }
+
+    private func reportConfigurationIssue() {
+        let messages = configurationIssues
+        Task { @MainActor [weak self] in
+            self?.onConfigurationIssue(messages)
+        }
     }
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
@@ -318,14 +330,28 @@ final class CmuxSettingsFileStore {
         let priorSocketMode = synchronized { activeManagedUserDefaults[SocketControlSettings.appStorageKey] }
         let preservedSocketMode = priorSocketMode ?? .string(Self.failClosedSocketMode(defaults: userDefaults).rawValue)
         switch loadSettings(at: primaryPath) {
-        case .parsed(var snapshot, let malformedAutomation):
+        case .parsed(var snapshot, let malformedAutomation, let issues):
             mergeFallbackSettings(into: &snapshot)
             if malformedAutomation { snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = preservedSocketMode }
+            if !issues.isEmpty {
+                configurationIssues = issues
+                if let lastGoodResolvedSettings {
+                    return lastGoodResolvedSettings
+                }
+                return snapshot
+            }
+            lastGoodResolvedSettings = snapshot
+            configurationIssues = []
             return snapshot
-        case .invalid:
+        case .invalid(let issue):
+            configurationIssues = [issue]
+            if let lastGoodResolvedSettings {
+                return lastGoodResolvedSettings
+            }
             return ResolvedSettingsSnapshot(path: primaryPath,
                 managedUserDefaults: [SocketControlSettings.appStorageKey: preservedSocketMode])
-        case .missing: break
+        case .missing:
+            lastGoodResolvedSettings = nil
         }
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
@@ -333,19 +359,20 @@ final class CmuxSettingsFileStore {
             Self.socketModeAfterMissingPrimary(prior: priorSocketMode,
                 fallback: fallbackSnapshot.managedUserDefaults[SocketControlSettings.appStorageKey],
                 defaults: userDefaults)
+        configurationIssues = []
         return fallbackSnapshot
     }
     private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
         for fallbackPath in fallbackPaths {
-            guard case .parsed(let fallbackSnapshot, _) = loadSettings(at: fallbackPath) else { continue }
+            guard case .parsed(let fallbackSnapshot, _, _) = loadSettings(at: fallbackPath) else { continue }
             snapshot.fillMissingSettings(from: fallbackSnapshot)
         }
     }
 
     private enum LoadResult {
         case missing
-        case invalid
-        case parsed(ResolvedSettingsSnapshot, malformedAutomation: Bool)
+        case invalid(String)
+        case parsed(ResolvedSettingsSnapshot, malformedAutomation: Bool, issues: [String])
     }
 
     private func loadSettings(at path: String) -> LoadResult {
@@ -353,19 +380,53 @@ final class CmuxSettingsFileStore {
             return .missing
         }
         guard let data = fileManager.contents(atPath: path), !data.isEmpty else {
-            return .invalid
+            return .invalid(Self.configurationIssue(path: path, data: Data(), message: "cmux.json is empty"))
         }
         do {
             let sanitized = try JSONCParser.preprocess(data: data)
             let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-            guard let root = object as? [String: Any] else { return .invalid }
-            for issue in CmuxConfigSemanticValidator(scope: .global).validate(jsonObject: root) { cmuxSettingsFileStoreLogger.warning("semantic config issue '\(issue.path, privacy: .private(mask: .hash))' in \(path, privacy: .private(mask: .hash)): \(issue.message, privacy: .public)") }
+            guard let root = object as? [String: Any] else {
+                return .invalid(Self.configurationIssue(
+                    path: path,
+                    data: data,
+                    message: CmuxConfigValidationLocalization().string(
+                        "config.validation.cli.doctor.topLevelObject",
+                        defaultValue: "top-level value must be a JSON object"
+                    )
+                ))
+            }
+            // Keep parsing through the classic store's per-setting readers. The
+            // published schema also contains newer and legacy aliases that this
+            // store intentionally does not own; rejecting the whole file on the
+            // validator's first unknown path would discard valid settings and
+            // break backwards-compatible shortcut/config aliases. Each reader
+            // reports malformed values and leaves its previous value in place.
             let malformedAutomation = root["automation"] != nil && !(root["automation"] is [String: Any])
-            return .parsed(parseSettingsFile(root: root, sourcePath: path), malformedAutomation: malformedAutomation)
+            parsingIssues = []
+            let snapshot = parseSettingsFile(root: root, sourcePath: path)
+            let issues = parsingIssues
+            parsingIssues = []
+            return .parsed(snapshot, malformedAutomation: malformedAutomation, issues: issues)
         } catch {
             cmuxSettingsFileStoreLogger.warning("parse error at \(path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))")
-            return .invalid
+            return .invalid(Self.configurationIssue(path: path, data: data, message: String(describing: error)))
         }
+    }
+
+    private static func configurationIssue(path: String, data: Data, message: String, key: String? = nil) -> String {
+        let line = lineNumber(in: data, key: key)
+        return "\(path):\(line): \(message)"
+    }
+
+    private static func lineNumber(in data: Data, key: String?) -> Int {
+        guard let source = String(data: data, encoding: .utf8) else { return 1 }
+        if let key {
+            let leaf = key.split(separator: ".").last.map(String.init) ?? key
+            if let index = source.components(separatedBy: .newlines).firstIndex(where: { $0.contains("\"\(leaf)\"") }) {
+                return index + 1
+            }
+        }
+        return 1
     }
 
     private func parseSettingsFile(root: [String: Any], sourcePath: String) -> ResolvedSettingsSnapshot {
@@ -1783,6 +1844,13 @@ final class CmuxSettingsFileStore {
 
     func logInvalid(_ path: String, sourcePath: String) {
         cmuxSettingsFileStoreLogger.warning("ignoring invalid setting '\(path, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
+        let data = fileManager.contents(atPath: sourcePath) ?? Data()
+        parsingIssues.append(Self.configurationIssue(
+            path: sourcePath,
+            data: data,
+            message: "invalid value for \(path)",
+            key: path
+        ))
     }
 
     func jsonString(_ rawValue: Any?) -> String? {

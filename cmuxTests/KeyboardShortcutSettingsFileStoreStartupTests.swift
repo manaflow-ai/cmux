@@ -24,6 +24,10 @@ import Bonsplit
 @testable import cmux
 #endif
 
+private final class SettingsFileDiagnosticRecorder: @unchecked Sendable {
+    var messages: [[String]] = []
+}
+
 final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
@@ -937,6 +941,81 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testTabBarVisibilityInvalidReloadPreservesLastGoodValueUntilFixed() throws {
+        let defaults = UserDefaults.standard
+        let key = AppCatalogSection().tabBarVisibility.userDefaultsKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "tabBarVisibility": "multiple-tabs"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let invalidIssueReported = expectation(description: "invalid tab bar visibility is reported")
+            let clearedIssueReported = expectation(description: "tab bar visibility issue clears")
+            var didReportInvalid = false
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false,
+                onConfigurationIssue: { messages in
+                    if messages.contains(where: { $0.contains("app.tabBarVisibility") }), !didReportInvalid {
+                        didReportInvalid = true
+                        invalidIssueReported.fulfill()
+                    } else if didReportInvalid, messages.isEmpty {
+                        clearedIssueReported.fulfill()
+                    }
+                }
+            )
+            XCTAssertEqual(AppCatalogSection().tabBarVisibility.value(in: defaults), .multipleTabs)
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "tabBarVisibility": "never"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+            wait(for: [invalidIssueReported], timeout: 1)
+            XCTAssertEqual(AppCatalogSection().tabBarVisibility.value(in: defaults), .multipleTabs)
+            XCTAssertTrue(store.configurationIssues.contains { $0.contains("app.tabBarVisibility") })
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "tabBarVisibility": "always"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+            wait(for: [clearedIssueReported], timeout: 1)
+            XCTAssertEqual(AppCatalogSection().tabBarVisibility.value(in: defaults), .always)
+            XCTAssertTrue(store.configurationIssues.isEmpty)
+        }
+    }
+
     func testLegacyWarnBeforeQuitMapsToConfirmQuitWhenConfirmQuitIsAbsent() throws {
         let defaults = UserDefaults.standard
         let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
@@ -1760,6 +1839,89 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             XCTAssertNil(defaults.string(forKey: key))
         }
+    }
+
+    func testWatcherPreservesLastGoodSettingsAcrossInvalidEditAndRecoversAfterDeleteRecreate() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "openBrowser": "cmd+1"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cmux-settings-watcher-\(UUID().uuidString)"))
+        let recorder = SettingsFileDiagnosticRecorder()
+        let invalidEdit = expectation(description: "invalid edit is reported")
+        let deleteEdit = expectation(description: "delete is reported")
+        let recreateEdit = expectation(description: "recreate is reported")
+        var didReportInvalid = false
+        var didReportDelete = false
+        var didReportRecreate = false
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: true,
+            onConfigurationIssue: { messages in
+                recorder.messages.append(messages)
+                if !messages.isEmpty {
+                    if !didReportInvalid {
+                        didReportInvalid = true
+                        invalidEdit.fulfill()
+                    }
+                } else if !FileManager.default.fileExists(atPath: settingsFileURL.path), !didReportDelete {
+                    didReportDelete = true
+                    deleteEdit.fulfill()
+                } else if FileManager.default.fileExists(atPath: settingsFileURL.path),
+                          didReportInvalid,
+                          didReportDelete,
+                          !didReportRecreate {
+                    didReportRecreate = true
+                    recreateEdit.fulfill()
+                }
+            }
+        )
+        XCTAssertEqual(
+            store.override(for: .openBrowser),
+            StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+        )
+
+        try "{\n  \"shortcuts\": {\n".write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        wait(for: [invalidEdit], timeout: 3)
+        XCTAssertEqual(
+            store.override(for: .openBrowser),
+            StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+        )
+        XCTAssertTrue(recorder.messages.contains { $0.first?.contains("\(settingsFileURL.path):") == true })
+
+        try FileManager.default.removeItem(at: settingsFileURL)
+        wait(for: [deleteEdit], timeout: 3)
+        XCTAssertNil(store.override(for: .openBrowser))
+
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "openBrowser": "cmd+2"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        wait(for: [recreateEdit], timeout: 3)
+        XCTAssertEqual(
+            store.override(for: .openBrowser),
+            StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
+        )
     }
 
     private func makeTemporaryDirectory() throws -> URL {

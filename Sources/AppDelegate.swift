@@ -920,6 +920,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             self?.isMainTerminalWindow(window) ?? false
         }
     )
+    private var cmuxConfigDiagnosticMessages: [String: [String]] = [:]
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -10666,6 +10667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore
         )
+        refreshCmuxConfigDiagnostics()
         restoreWindowDockSessionSnapshot(
             forWindowId: windowId,
             from: sessionWindowSnapshot,
@@ -14562,16 +14564,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         GhosttyApp.shared.configurationFilesWillLoad = { [weak self] in
             self?.ghosttyConfigLiveReloadCoordinator.noteConfigurationFilesWillLoad()
         }
-        ghosttyConfigDiagnosticsNoticePresenter.update(
-            diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
-        )
+        updateConfigurationDiagnosticsNotice()
     }
 
     private func ghosttyConfigDidReloadForLiveReload() {
         guard !isRunningUnderXCTestCached else { return }
         ghosttyConfigLiveReloadCoordinator.noteConfigurationDidReload()
+        updateConfigurationDiagnosticsNotice()
+    }
+
+    @MainActor
+    func cmuxConfigDiagnosticsDidReload(source: String, messages: [String]) {
+        cmuxConfigDiagnosticMessages[source] = messages
+        updateConfigurationDiagnosticsNotice()
+    }
+
+    @MainActor
+    private func refreshCmuxConfigDiagnostics() {
+        var messagesByStore: [String: [String]] = [:]
+        for context in mainWindowContexts.values {
+            guard let store = context.cmuxConfigStore else { continue }
+            let messages = store.configurationIssues.compactMap { issue -> String? in
+                guard let path = issue.sourcePath else { return nil }
+                let location = issue.line.map { "\(path):\($0)" } ?? path
+                return "\(location): \(issue.message ?? issue.settingName)"
+            }
+            messagesByStore[String(ObjectIdentifier(store).hashValue)] = messages
+        }
+        messagesByStore[CmuxSettingsFileStore.defaultPrimaryPath] =
+            KeyboardShortcutSettings.settingsFileStore.configurationIssues
+        cmuxConfigDiagnosticMessages = messagesByStore
+        updateConfigurationDiagnosticsNotice()
+    }
+
+    @MainActor
+    private func updateConfigurationDiagnosticsNotice() {
+        var seen = Set<String>()
+        let diagnosticMessages = (
+            GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
+                + cmuxConfigDiagnosticMessages.values.flatMap { $0 }
+        ).filter { seen.insert($0).inserted }
         ghosttyConfigDiagnosticsNoticePresenter.update(
-            diagnosticMessages: GhosttyApp.shared.lastLoadedConfigDiagnosticMessages
+            diagnosticMessages: diagnosticMessages
         )
     }
 
@@ -14670,9 +14704,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @MainActor
     func reloadCmuxConfigStores(source: String) {
         configStoreReloadCoordinator.reload(source: source)
         reconcileSocketListenerConfiguration(source: source)
+        refreshCmuxConfigDiagnostics()
     }
 
     var reloadableConfigStores: [any CmuxConfigStoreReloading] {
