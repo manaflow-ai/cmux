@@ -5,7 +5,7 @@ import { paneLanguage, STRING_TABLES, translate } from "./i18n";
 // The pane's strings come from acpmux/Localizable.xcstrings through the pages' generator
 // (generated/strings.json), in every language the app ships.
 test("every shipped language has every key, with the same placeholders", () => {
-  expect(Object.keys(STRING_TABLES).sort()).toEqual([...LOCALES].sort());
+  expect(Object.keys(STRING_TABLES).sort()).toEqual([...(LOCALES as string[])].sort());
   const keys = Object.keys(STRING_TABLES.en!).sort();
   const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
   for (const [language, table] of Object.entries(STRING_TABLES)) {
