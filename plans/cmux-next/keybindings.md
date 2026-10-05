@@ -310,7 +310,9 @@ differs from a config without user files, only `surfaceKind == terminal && !term
 the keybind itself; elsewhere its routed action runs, never a content action from a hook and
 never a browser chord in a browser context. Removals never take out a Ghostty entry; the
 shortcut recorder notes Ghostty entries instead of listing them as owners; `keybinding.list`
-lists them (`source` `ghostty` / `ghostty-fallback`), the Keyboard Shortcuts page does not yet.
+lists them (`source` `ghostty` / `ghostty-fallback`). The Keyboard Shortcuts page lists them read-only
+as "Ghostty" and "Ghostty default" (a user keybind once: its fallback entry is not a second row;
+`KeybindingReports.pageList`). User docs: docs/ghostty-keybindings.md "Precedence and focus".
 Limits: one chord per action (Ghostty's reverse map), so a default chord rebound to another
 action reads as a default; unrouted Ghostty actions are not entries (filling the routes closes it).
 Test: `GhosttyKeybindPrecedenceTests`.

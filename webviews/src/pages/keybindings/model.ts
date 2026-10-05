@@ -20,11 +20,14 @@ export const SourceLabel: Record<BindingSource | "removed", string> = {
   app: "keybindings.page.source.app",
   user: "keybindings.page.source.user",
   removed: "keybindings.page.source.removed",
-} as Record<BindingSource | "removed", string>;
+  ghostty: "keybindings.page.source.ghostty",
+  "ghostty-fallback": "keybindings.page.source.ghosttyDefault",
+};
 
-/** A row the page cannot change or remove. */
+/** A row the page cannot change or remove: a removed default, or a Ghostty keybind (cmux never
+ *  writes the Ghostty config; the user edits that file). */
 export function isReadOnly(binding: Pick<Binding, "source" | "removed">): boolean {
-  return binding.removed === true;
+  return binding.removed === true || binding.source === "ghostty" || binding.source === "ghostty-fallback";
 }
 
 /** A row's identity across re-lists (ids are positions and move when the table changes). */
