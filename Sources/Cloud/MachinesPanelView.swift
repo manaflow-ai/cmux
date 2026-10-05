@@ -2,6 +2,7 @@ import CmuxCloudBannerCore
 import CmuxCloud
 import AppKit
 import CmuxCloudMachines
+import CmuxControlSocket
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import SwiftUI
