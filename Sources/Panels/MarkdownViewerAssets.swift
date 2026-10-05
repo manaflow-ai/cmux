@@ -14,6 +14,7 @@ final class MarkdownViewerAssets {
     private let highlightDarkCSS: String
     private let githubMarkdownCSS: String
     private let viewerNavigationJS: String
+    private let markdownSanitizerJS: String
     private let shellTemplate: String
     private let localizedStringsJSON: String
 
@@ -26,6 +27,7 @@ final class MarkdownViewerAssets {
         highlightDarkCSS = MarkdownViewerAssets.loadAsset(name: "highlight-github-dark", ext: "css")
         githubMarkdownCSS = MarkdownViewerAssets.loadAsset(name: "github-markdown", ext: "css")
         viewerNavigationJS = MarkdownViewerAssets.loadAsset(name: "viewer-navigation", ext: "js")
+        markdownSanitizerJS = MarkdownViewerAssets.loadAsset(name: "markdown-sanitizer", ext: "js")
         shellTemplate = MarkdownViewerAssets.loadAsset(name: "shell", ext: "html")
         localizedStringsJSON = MarkdownViewerAssets.localizedStringsJSON()
     }
@@ -39,6 +41,7 @@ final class MarkdownViewerAssets {
             .replacingOccurrences(of: "{{markedJS}}", with: markedJS)
             .replacingOccurrences(of: "{{highlightJS}}", with: highlightJS)
             .replacingOccurrences(of: "{{viewerNavigationJS}}", with: viewerNavigationJS)
+            .replacingOccurrences(of: "{{markdownSanitizerJS}}", with: markdownSanitizerJS)
             .replacingOccurrences(of: "{{localizedStringsJSON}}", with: localizedStringsJSON)
     }
 
@@ -136,7 +139,7 @@ final class MarkdownViewerAssets {
 
     private static func loadDeflatedTextAsset(url: URL) -> String? {
         guard let compressed = try? Data(contentsOf: url),
-              let decompressed = MarkdownViewerAssetCompression.inflate(compressed) else {
+              let decompressed = Data.inflateMarkdownViewerAsset(compressed) else {
             return nil
         }
         return String(data: decompressed, encoding: .utf8)

@@ -23,7 +23,7 @@ extension DockSplitStore {
 
         switch action {
         case .rename:
-            _ = promptRenameDockSurface(
+            _ = requestPaletteRenameDockSurface(
                 tabId: tab.id,
                 presentingWindow: dockContextMenuWindow
             )
@@ -31,19 +31,25 @@ extension DockSplitStore {
             _ = setDockPanelCustomTitle(panelId: panelId, title: nil)
         case .copyIdentifiers:
             copyDockIdentifiers(panelId: panelId, paneId: pane)
+        case .close:
+            guard controller.configuration.allowCloseTabs, !tab.isPinned else { return }
+            _ = closePanel(panelId, force: false)
         case .closeToLeft:
+            guard controller.configuration.allowCloseTabs else { return }
             _ = closeDockTabs(
                 dockTabIds(toLeftOf: tab.id, inPane: pane),
                 inPane: pane,
                 confirmationPolicy: .tabsRequiringConfirmation
             )
         case .closeToRight:
+            guard controller.configuration.allowCloseTabs else { return }
             _ = closeDockTabs(
                 dockTabIds(toRightOf: tab.id, inPane: pane),
                 inPane: pane,
                 confirmationPolicy: .tabsRequiringConfirmation
             )
         case .closeOthers:
+            guard controller.configuration.allowCloseTabs else { return }
             _ = closeDockTabs(
                 controller.tabs(inPane: pane).lazy
                     .filter { $0.id != tab.id }
@@ -114,7 +120,17 @@ extension DockSplitStore {
              .forkConversationTop,
              .forkConversationBottom,
              .forkConversationNewTab,
-             .forkConversationNewWorkspace:
+             .forkConversationNewWorkspace,
+             // Dock terminals are local and never carry shared-terminal
+             // presence, so the sizing accessory never offers these.
+             .sizeToMyWindow,
+             .sizeModeLatest,
+             .sizeModeSmallest,
+             .sizeModeLargest,
+             .sizeModePriority,
+             .sizeModeFixed,
+             .toggleSizePanel,
+             .disconnectOtherClients:
             break
         @unknown default:
             break
@@ -166,10 +182,15 @@ extension DockSplitStore {
         let warningStore = CloseTabWarningStore(
             defaults: manager?.closeTabWarningDefaults ?? .standard
         )
-        if warningStore.shouldConfirmClose(
+        let hasActiveProcess = candidates.contains { $0.needsConfirmation }
+        var warningKinds = warningStore.warningKinds(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
-        ) {
+        )
+        if hasActiveProcess {
+            warningKinds.insert(.safety)
+        }
+        if !warningKinds.isEmpty {
             guard let manager else { return false }
             let prompt = CloseOtherTabsConfirmationPrompt(
                 titles: candidates.map(\.title)
@@ -178,7 +199,8 @@ extension DockSplitStore {
                 title: prompt.title,
                 message: prompt.message,
                 scrollableDetails: prompt.details,
-                acceptCmdD: false
+                acceptCmdD: false,
+                dontAskAgain: warningKinds
             ) else {
                 return true
             }
@@ -253,7 +275,10 @@ extension DockSplitStore {
         panelId: UUID,
         movement: SurfacePaneMovement
     ) {
-        focusPanel(panelId)
+        focusPanelFromDockInteraction(
+            panelId,
+            window: dockContextMenuWindow
+        )
         _ = performShortcutCommand(
             .moveSurfaceToPane(
                 movement,
@@ -277,11 +302,12 @@ extension DockSplitStore {
         let sourceBrowser = sourcePanelId.flatMap {
             browserPanel(for: $0)
         }
+        noteKeyboardFocusIntent(window: dockContextMenuWindow)
         guard let panelId = newSurface(
             kind: kind,
             inPane: paneId,
             sourcePanelId: sourcePanelId,
-            focus: true,
+            focus: false,
             preferredProfileID: sourceBrowser?.profileID,
             websiteDataStore:
                 sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
@@ -292,6 +318,10 @@ extension DockSplitStore {
         _ = bonsplitController.reorderTab(
             newTabId,
             toIndex: anchorIndex + 1
+        )
+        focusPanelFromDockInteraction(
+            panelId,
+            window: dockContextMenuWindow
         )
         if let browser = browserPanel(for: panelId) {
             _ = AppDelegate.shared?.focusBrowserAddressBar(in: browser)

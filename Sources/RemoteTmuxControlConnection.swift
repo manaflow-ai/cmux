@@ -83,6 +83,16 @@ final class RemoteTmuxControlConnection {
     /// the moment tmux would redraw its own border. The mirror copies its
     /// windows' subset on reconcile; the view never reads this directly.
     var paneHeaderLabels: [Int: String] = [:]
+    /// Raw pane titles plus tmux's host defaults, refreshed with the pane header
+    /// snapshot and by a dedicated live subscription. Mirrors use this to let
+    /// deliberate pane names through without reviving hostname-only titles.
+    var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] = [:]
+    /// Monotone ordering for live pane-title events. Rectangle snapshots record
+    /// the current revision when sent, so a late reply cannot roll back a title
+    /// that arrived over the live subscription in the meantime.
+    var paneTitleMetadataRevision: UInt64 = 0
+    var paneTitleMetadataLiveRevisionByPane: [Int: UInt64] = [:]
+    var paneTitleMetadataSnapshotRevisions: [RemoteTmuxPaneTitleSnapshotKey: UInt64] = [:]
     /// Configured tmux pane-title placement per window; absence means off.
     var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
@@ -125,6 +135,13 @@ final class RemoteTmuxControlConnection {
     private var ingestTask: Task<Void, Never>?
     private var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
+    /// How many replies this stream has taken off ``pendingCommands``, which is also the
+    /// position of its first entry counted from the start of the stream.
+    var dequeuedCommandCount = 0
+    /// The positions, by that count, of each queued line still waiting on replies. tmux stops
+    /// a queued line at its first failing command, so the commands after it are never
+    /// answered and their slots have to go when the failure arrives.
+    var pendingCommandQueues: [Range<Int>] = []
     var windowListRequestInFlight = false
     var windowListRequestDirty = false
     var windowReorderBatchFailed = false
@@ -190,6 +207,13 @@ final class RemoteTmuxControlConnection {
     var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
     /// Whether the server accepts per-window `refresh-client -C` sizing.
     var supportsPerWindowSize = true
+    // Desired colors survive reconnect; sent colors belong to one control stream.
+    var paneColors: [Int: RemoteTmuxPaneColors] = [:]
+    var sentPaneColors: [Int: RemoteTmuxPaneColors] = [:]
+    var supportsPaneColorReports = true
+    var canSendPaneColorReports: Bool {
+        connectionState == .connected && attachBlockDrained && supportsPaneColorReports
+    }
     /// Instant of the most recent sizing write on this connection — kept for
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?
@@ -297,6 +321,9 @@ final class RemoteTmuxControlConnection {
     /// its pane, the running command changing) — the same moments native
     /// tmux redraws its own header row.
     static let headerSubscriptionPrefix = "cmux_hdr_"
+    /// Per-pane subscription for raw `pane_title`, independent of the user's
+    /// `pane-border-format` (which may omit the title entirely).
+    nonisolated static let paneTitleSubscriptionPrefix = "cmux_title_"
 
     /// Per-WINDOW subscription to `pane-border-status`, the one layout input tmux
     /// changes with no notification of its own.
@@ -408,10 +435,12 @@ final class RemoteTmuxControlConnection {
         #endif
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        pendingCommandQueues.removeAll()
         resetWindowListRequestCoalescing()
         windowReorderBatchFailed = false
         windowReorderRecoveryGeneration = nil
         pendingLayouts.removeAll()
+        paneTitleMetadataSnapshotRevisions.removeAll()
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
@@ -497,7 +526,14 @@ final class RemoteTmuxControlConnection {
         }
         ingestTask = Task { [weak self] in
             for await chunk in stdoutPipeReader.stream {
-                self?.ingest(chunk)
+                // Cancelling this task does not empty the reader's buffer, so a torn-down stream
+                // keeps delivering what it had queued. Those bytes belong to a dead client, and
+                // after the respawn they would land in the next client's parser.
+                guard let self, self.processGeneration == generation else {
+                    stdoutPipeReader.close()
+                    break
+                }
+                self.ingest(chunk)
                 stdoutPipeReader.release(chunk)
             }
             guard !Task.isCancelled else { return }
@@ -536,6 +572,8 @@ final class RemoteTmuxControlConnection {
         // `%exit` or a session found gone on reconnect) notifies exit observers — so
         // detach / quit / window-close (preserve) and transport drops do not.
         connectionState = .ended
+        paneColors.removeAll()
+        sentPaneColors.removeAll()
         cancelScheduledWork()
         teardownProcessHandles()
     }
@@ -646,6 +684,10 @@ final class RemoteTmuxControlConnection {
             beginReconnecting()
             return false
         }
+        if kinds.count > 1 {
+            let first = dequeuedCommandCount + pendingStart
+            pendingCommandQueues.append(first..<(first + kinds.count))
+        }
         return true
     }
 
@@ -736,6 +778,8 @@ final class RemoteTmuxControlConnection {
     func beginReconnecting() {
         guard connectionState == .connected || connectionState == .connecting else { return }
         record("reconnecting")
+        sentPaneColors.removeAll()
+        supportsPaneColorReports = true
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingCommandTransactions()
@@ -885,6 +929,9 @@ final class RemoteTmuxControlConnection {
                     paneHeaderLabels[pane] = nil
                 }
             }
+            paneTitleMetadataSnapshotRevisions = paneTitleMetadataSnapshotRevisions.filter {
+                $0.key.windowId != id
+            }
             activePaneByWindow[id] = nil
             removePublishedPaneOwnership(windowId: id)
             windowsByID[id] = nil
@@ -896,6 +943,7 @@ final class RemoteTmuxControlConnection {
             pendingLayouts[id] = nil
             initialBatchStaged[id] = nil
             finishInitialBatchMember(id)
+            prunePaneState(keeping: paneIDsForStatePruning())
             record("window-close @\(id)")
             // A move of the window's final pane reports the source close before
             // the destination layout. Re-list atomically so observers reconcile
@@ -946,6 +994,11 @@ final class RemoteTmuxControlConnection {
                 if paneHeaderLabels[paneId] != label {
                     paneHeaderLabels[paneId] = label
                     observers.notifyTopologyChanged()
+                }
+            } else if name.hasPrefix(Self.paneTitleSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(Self.paneTitleSubscriptionPrefix.count)) {
+                if updatePaneTitleMetadata(paneId: paneId, wireValue: value) {
+                    observers.emitPaneTitleChanged(paneId)
                 }
             } else if name.hasPrefix(Self.borderStatusSubscriptionPrefix),
                       let windowId = Int(name.dropFirst(Self.borderStatusSubscriptionPrefix.count)) {

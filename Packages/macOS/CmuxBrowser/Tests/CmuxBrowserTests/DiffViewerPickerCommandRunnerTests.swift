@@ -27,6 +27,8 @@ struct DiffViewerPickerCommandRunnerPackageTests {
         await commands.complete(secondStarted)
         #expect(await first.value == "first")
         #expect(await second.value == "second")
+        // The limit is a ceiling on concurrent spawns, not just on admissions.
+        #expect(await commands.maximumActiveCount == 2)
 
         let subsequent = Task { await runner.run(arguments: ["subsequent"]) }
         let subsequentStarted = try #require(await starts.next())
@@ -51,6 +53,7 @@ struct DiffViewerPickerCommandRunnerPackageTests {
 
         #expect(await cancellations.next() == activeID)
         #expect(await active.value == nil)
+        #expect(await commands.startedIDs == ["active"])
 
         let subsequent = Task { await runner.run(arguments: ["subsequent"]) }
         let subsequentID = try #require(await starts.next())
@@ -67,6 +70,8 @@ private actor ControllableDiffViewerPickerCommands: CommandRunning {
     private let cancellationContinuation: AsyncStream<String>.Continuation
     private var completions: [String: CheckedContinuation<Void, Never>] = [:]
     private var cancelledBeforeRegistration: Set<String> = []
+    private var activeCount = 0
+    private(set) var maximumActiveCount = 0
     private(set) var startedIDs: [String] = []
 
     init() {
@@ -81,6 +86,8 @@ private actor ControllableDiffViewerPickerCommands: CommandRunning {
         timeout: TimeInterval?
     ) async -> CommandResult {
         let id = arguments[0]
+        activeCount += 1
+        maximumActiveCount = max(maximumActiveCount, activeCount)
         startedIDs.append(id)
         startContinuation.yield(id)
 
@@ -98,6 +105,7 @@ private actor ControllableDiffViewerPickerCommands: CommandRunning {
             }
         }
 
+        activeCount -= 1
         if Task.isCancelled {
             cancellationContinuation.yield(id)
             return CommandResult(

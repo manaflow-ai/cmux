@@ -1,6 +1,20 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
+
+/// Returns whether a rasterized icon contains a visible alpha pixel.
+@MainActor
+private func containsVisiblePixels(in bitmap: NSBitmapImageRep) -> Bool {
+    for y in 0..<bitmap.pixelsHigh {
+        for x in 0..<bitmap.pixelsWide {
+            if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.01 {
+                return true
+            }
+        }
+    }
+    return false
+}
 
 enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
@@ -19,6 +33,11 @@ enum RenderableSystemSymbol {
     private static var appKitImageCache: [AppKitImageCacheKey: NSImage] = [:]
     @MainActor
     private static var appKitImageCacheInsertionOrder: [AppKitImageCacheKey] = []
+    @MainActor
+    private static var appKitImageRetryCache = AppKitImageRetryCache(
+        limit: appKitImageCacheLimit,
+        retryInterval: negativeRenderabilityRetryInterval
+    )
 
     struct RenderabilityCache {
         private let limit: Int
@@ -94,10 +113,61 @@ enum RenderableSystemSymbol {
         }
     }
 
-    private struct AppKitImageCacheKey: Hashable {
+    struct AppKitImageCacheKey: Hashable {
         let systemName: String
         let rasterSize: CGFloat
         let weightRawValue: CGFloat
+    }
+
+    /// Coalesces repeated blank rasterization attempts until a lifecycle retry is due.
+    struct AppKitImageRetryCache {
+        private let limit: Int
+        private let retryInterval: TimeInterval
+        private let now: () -> Date
+        private var failures: [AppKitImageCacheKey: Date] = [:]
+        private var insertionOrder: [AppKitImageCacheKey] = []
+
+        init(
+            limit: Int,
+            retryInterval: TimeInterval,
+            now: @escaping () -> Date = Date.init
+        ) {
+            self.limit = limit
+            self.retryInterval = retryInterval
+            self.now = now
+        }
+
+        mutating func shouldAttempt(_ key: AppKitImageCacheKey) -> Bool {
+            guard let failedAt = failures[key] else { return true }
+            guard now().timeIntervalSince(failedAt) >= retryInterval else { return false }
+            removeFailure(for: key)
+            return true
+        }
+
+        mutating func recordFailure(for key: AppKitImageCacheKey) {
+            if failures[key] == nil {
+                insertionOrder.append(key)
+            }
+            failures[key] = now()
+            while insertionOrder.count > limit {
+                let evictedKey = insertionOrder.removeFirst()
+                failures.removeValue(forKey: evictedKey)
+            }
+        }
+
+        mutating func recordSuccess(for key: AppKitImageCacheKey) {
+            removeFailure(for: key)
+        }
+
+        mutating func reset() {
+            failures.removeAll()
+            insertionOrder.removeAll()
+        }
+
+        private mutating func removeFailure(for key: AppKitImageCacheKey) {
+            failures.removeValue(forKey: key)
+            insertionOrder.removeAll { $0 == key }
+        }
     }
 
     static func trimmed(_ raw: String?) -> String? {
@@ -192,6 +262,12 @@ enum RenderableSystemSymbol {
         if let cached = appKitImageCache[cacheKey] {
             return cached
         }
+        // This synchronous @MainActor path has no suspension window for a
+        // concurrent materialization; coalesce repeated body evaluations and
+        // let the AppKit lifecycle owner perform the immediate retry.
+        guard appKitImageRetryCache.shouldAttempt(cacheKey) else {
+            return nil
+        }
         if !renderabilityCache.isRenderable(systemName) {
             return nil
         }
@@ -203,12 +279,14 @@ enum RenderableSystemSymbol {
         let configuration = NSImage.SymbolConfiguration(
             pointSize: rasterSize,
             weight: fontWeight
-        )
+        ).applying(.preferringMonochrome())
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
         let imageSize = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
         guard let image = materializedImage(configuredImage, size: imageSize) else {
+            appKitImageRetryCache.recordFailure(for: cacheKey)
             return nil
         }
+        appKitImageRetryCache.recordSuccess(for: cacheKey)
         // Keep the template contract used by the SwiftUI and AppKit callers,
         // while replacing AppKit's lazy symbol representation with a bitmap
         // that cannot be materialized again from an NSWindow layout pass.
@@ -237,6 +315,12 @@ enum RenderableSystemSymbol {
         // on a 1x display (or vice versa).
         for pixelScale in [CGFloat(2), CGFloat(1)] {
             guard let bitmap = materializedBitmap(source, size: size, pixelScale: pixelScale) else {
+                return nil
+            }
+            // A symbol provider can resolve successfully while still drawing
+            // a transparent bitmap during an AppKit window/appearance pass.
+            // Never put that transient result in the process-wide cache.
+            guard containsVisiblePixels(in: bitmap) else {
                 return nil
             }
             image.addRepresentation(bitmap)
@@ -304,7 +388,7 @@ enum RenderableSystemSymbol {
         return naturalSize
     }
 
-    private static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
+    fileprivate static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
         guard let weight else { return .regular }
         if weight == .ultraLight { return .ultraLight }
         if weight == .thin { return .thin }
@@ -323,16 +407,26 @@ enum RenderableSystemSymbol {
         renderabilityCache.reset()
         appKitImageCache.removeAll()
         appKitImageCacheInsertionOrder.removeAll()
+        appKitImageRetryCache.reset()
     }
     #endif
 }
 
+/// SF Symbol drawn by the AppKit-hosted icon renderer with an explicit tint.
+///
+/// `tint` replaces the `.foregroundStyle` / `.foregroundColor` modifier the
+/// SwiftUI symbol image used to inherit: the color is bridged to a dynamic
+/// `NSColor` and baked into the bitmap, the same way the Vault icons pass
+/// `tintColor` to `SessionIndexResolvedSystemSymbolImage`. SwiftUI never
+/// composites the glyph (no raster image, no mask), which is what keeps it
+/// visible on Intel Macs running macOS 15.
 struct CmuxSystemSymbolImage: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     let systemName: String
     let pointSize: CGFloat
     var weight: Font.Weight?
+    let tint: Color
     var alignment: Alignment = .center
     var appliesGlobalFontMagnification = false
 
@@ -340,12 +434,14 @@ struct CmuxSystemSymbolImage: View {
         systemName: String,
         pointSize: CGFloat,
         weight: Font.Weight? = nil,
+        tint: Color,
         alignment: Alignment = .center,
         appliesGlobalFontMagnification: Bool = false
     ) {
         self.systemName = systemName
         self.pointSize = pointSize
         self.weight = weight
+        self.tint = tint
         self.alignment = alignment
         self.appliesGlobalFontMagnification = appliesGlobalFontMagnification
     }
@@ -354,15 +450,25 @@ struct CmuxSystemSymbolImage: View {
         magnified systemName: String,
         pointSize: CGFloat,
         weight: Font.Weight? = nil,
+        tint: Color,
         alignment: Alignment = .center
     ) {
         self.init(
             systemName: systemName,
             pointSize: pointSize,
             weight: weight,
+            tint: tint,
             alignment: alignment,
             appliesGlobalFontMagnification: true
         )
+    }
+
+    /// Bridges a SwiftUI color (including `.primary` / `.secondary` and
+    /// `.opacity` variants) to a dynamic `NSColor` that resolves under the
+    /// renderer's drawing appearance. Equal inputs bridge to equal colors, so
+    /// the hosted image view's render key stays stable across updates.
+    nonisolated static func hostedTintColor(for tint: Color) -> NSColor {
+        NSColor(tint)
     }
 
     var body: some View {
@@ -371,14 +477,35 @@ struct CmuxSystemSymbolImage: View {
             globalFontPercent: globalFontPercent,
             appliesGlobalFontMagnification: appliesGlobalFontMagnification
         )
+        let tintColor = Self.hostedTintColor(for: tint)
+        // The AppKit-hosted renderer owns every symbol draw. The materialized
+        // image only supplies the configured symbol's natural layout size.
         if let image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: systemName,
             pointSize: rasterSize,
             weight: weight
         ) {
-            Image(nsImage: image)
-                .renderingMode(.template)
-                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+            CmuxHostedSystemSymbolImage(
+                systemName: systemName,
+                pointSize: rasterSize,
+                imageSize: image.size,
+                weight: RenderableSystemSymbol.nsFontWeight(for: weight),
+                tintColor: tintColor,
+                slotSize: rasterSize,
+                alignment: alignment
+            )
+        } else if RenderableSystemSymbol.isRenderable(systemName) {
+            // A transient blank materialization gets the same AppKit lifecycle
+            // owner and forced-appearance retry through the hosted renderer.
+            CmuxHostedSystemSymbolImage(
+                systemName: systemName,
+                pointSize: rasterSize,
+                imageSize: NSSize(width: rasterSize, height: rasterSize),
+                weight: RenderableSystemSymbol.nsFontWeight(for: weight),
+                tintColor: tintColor,
+                slotSize: rasterSize,
+                alignment: alignment
+            )
         } else {
             Color.clear
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)

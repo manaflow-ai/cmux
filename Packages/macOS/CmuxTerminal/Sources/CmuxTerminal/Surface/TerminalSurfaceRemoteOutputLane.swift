@@ -30,7 +30,11 @@ final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
     }
 
     /// Enqueues one ordered output batch and its refresh signal.
-    func enqueue(_ data: Data, to surface: ghostty_surface_t) {
+    func enqueue(
+        _ data: Data,
+        to surface: ghostty_surface_t,
+        onApplied: (@MainActor @Sendable () -> Void)? = nil
+    ) {
         guard !data.isEmpty else { return }
         // Raw pointers are represented as bits across the Sendable queue
         // boundary; the lane fence owns the native lifetime until this work
@@ -51,6 +55,9 @@ final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
                     ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
                 }
                 ghostty_surface_refresh(surface)
+                if let onApplied {
+                    Task { @MainActor in onApplied() }
+                }
             }
         }
     }

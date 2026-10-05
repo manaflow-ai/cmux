@@ -362,4 +362,163 @@ struct WorkspaceSessionRestorePolicyServiceTests {
         #expect(service.restorableTmuxStartCommand("hudson omx") == nil)
         #expect(service.restorableTmuxStartCommand("omx hud") == "omx hud")
     }
+
+    @Test("cmux-generated local tmux attach commands are restorable")
+    func restorableTmuxStartCommandAcceptsLocalTmuxMarker() {
+        let service = makeService()
+        let command = localTmuxAttachCommand(
+            executable: "/usr/local/bin/tmux",
+            socket: "/tmp/.cmux/local-tmux/server.sock",
+            sessionID: "$7",
+            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        )
+
+        #expect(service.restorableTmuxStartCommand(command) == command)
+        #expect(service.localTmuxStartCommand(command) == command)
+        let legacyCommand = command.replacingOccurrences(
+            of: "/usr/bin/env TMUX= CMUX_LOCAL_TMUX=1",
+            with: "TMUX= CMUX_LOCAL_TMUX=1 exec"
+        )
+        #expect(service.localTmuxStartCommand(legacyCommand) == command)
+        #expect(service.restorableTmuxStartCommand("CMUX_LOCAL_TMUX=1 exec tmux attach -t work") == nil)
+
+        let malformedCommands = [
+            command.replacingOccurrences(of: "'/tmp/.cmux/local-tmux/server.sock'", with: "'/tmp/.cmux/local-tmux/other.sock'"),
+            command.replacingOccurrences(of: "'/tmp/.cmux/local-tmux/server.sock'", with: "'relative/server.sock'"),
+            command.replacingOccurrences(of: "'$7'", with: "'workbench'"),
+            command.replacingOccurrences(of: "'$7'", with: "'work;rm'"),
+            command.replacingOccurrences(of: "'$7'", with: "'wo\u{0007}rk'"),
+        ]
+        for malformed in malformedCommands {
+            #expect(service.localTmuxStartCommand(malformed) == nil)
+        }
+    }
+
+    @Test("local tmux restore rejects shell substitutions in persisted commands")
+    func localTmuxRestoreRejectsShellSubstitution() {
+        let service = makeService()
+        let safeSocket = "/tmp/.cmux/local-tmux/server.sock"
+        let command = localTmuxAttachCommand(
+            executable: "/usr/local/bin/tmux",
+            socket: safeSocket,
+            sessionID: "$7",
+            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        ).replacingOccurrences(
+            of: "'\(safeSocket)'",
+            with: "/tmp/.cmux/local-tmux/$(touch${IFS}/tmp/pwn)/server.sock"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == nil)
+    }
+
+    @Test("local tmux restore accepts canonical custom executable and state paths")
+    func localTmuxRestoreAcceptsCustomPaths() {
+        let service = makeService()
+        let command = localTmuxAttachCommand(
+            executable: "/custom/bin/session-owner",
+            socket: "/var/tmp/cmux-state/server.sock",
+            sessionID: "$42",
+            serverID: UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+    }
+
+    @Test("cmux-generated local zellij attach commands are restorable")
+    func localZellijAttachCommandIsRestorable() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+        #expect(service.restorableTmuxStartCommand(command) == command)
+        #expect(service.shouldReplaySessionScrollback(hasRestorableAgent: false, tmuxStartCommand: command) == false)
+        #expect(service.localTmuxStartCommand("/usr/bin/env CMUX_LOCAL_ZELLIJ=1 zellij attach work") == nil)
+    }
+
+    @Test("local zellij restore rejects commands cmux did not generate")
+    func localZellijRestoreRejectsTamperedCommands() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work"
+        )
+        let malformedCommands = [
+            command.replacingOccurrences(of: "'work'", with: "'work;rm'"),
+            command.replacingOccurrences(of: "'work'", with: "'wo\u{0007}rk'"),
+            command.replacingOccurrences(of: "'work'", with: "'$(touch /tmp/pwn)'"),
+            command.replacingOccurrences(of: "'work'", with: "work"),
+            command.replacingOccurrences(of: "'work'", with: "'-work'"),
+            command.replacingOccurrences(of: "/local-zellij/sock'", with: "/local-zellij/other'"),
+            command.replacingOccurrences(of: "'/Users/me/.cmux/local-zellij/sock'", with: "'relative/sock'"),
+            command.replacingOccurrences(of: "'/Users/me/.cmux/local-zellij/sock'", with: "/Users/$(id -u)/sock"),
+            command.replacingOccurrences(of: "'/opt/homebrew/bin/zellij'", with: "'/opt/homebrew/bin/../bin/zellij'"),
+            command.replacingOccurrences(of: "'detach'", with: "'quit'"),
+            command + " ; touch /tmp/pwn",
+            command + "\ntouch /tmp/pwn",
+        ]
+        for malformed in malformedCommands {
+            #expect(service.localTmuxStartCommand(malformed) == nil, "\(malformed)")
+        }
+    }
+
+    @Test("local zellij restore accepts quoted apostrophes in paths")
+    func localZellijRestoreAcceptsApostrophePaths() {
+        let service = makeService()
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/o'brien/.cmux/local-zellij/sock",
+            executable: "/Users/o'brien/bin/zellij",
+            sessionName: "dev_1"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+    }
+
+    @Test("local zellij restore accepts Unicode format characters inside quoted paths")
+    func localZellijRestoreAcceptsFormatCharactersInPaths() {
+        let service = makeService()
+        // U+200D joins emoji such as 👨‍💻; inside single quotes it is plain data.
+        let command = localZellijAttachCommand(
+            socketDirectory: "/Users/me/\u{1F468}\u{200D}\u{1F4BB}/.cmux/local-zellij/sock",
+            executable: "/opt/homebrew/bin/zellij",
+            sessionName: "work-3f2a9c1d"
+        )
+
+        #expect(service.localTmuxStartCommand(command) == command)
+        #expect(service.localTmuxStartCommand(command + "\u{2028}touch /tmp/pwn") == nil, "line separators stay rejected")
+    }
+
+    private func localZellijAttachCommand(
+        socketDirectory: String,
+        executable: String,
+        sessionName: String
+    ) -> String {
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let arguments = ["attach", sessionName, "options", "--on-force-close", "detach"]
+            .map(quote)
+            .joined(separator: " ")
+        return "/usr/bin/env ZELLIJ_SOCKET_DIR=\(quote(socketDirectory)) CMUX_LOCAL_ZELLIJ=1 \(quote(executable)) \(arguments)"
+    }
+
+    private func localTmuxAttachCommand(
+        executable: String,
+        socket: String,
+        sessionID: String,
+        serverID: UUID
+    ) -> String {
+        let quote: (String) -> String = {
+            "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        let action = ["attach-session", "-t", sessionID]
+            .map(quote)
+            .joined(separator: " ")
+        let condition = "#{==:#{@cmux_local_server_id},\(serverID.uuidString.lowercased())}"
+        return "/usr/bin/env TMUX= CMUX_LOCAL_TMUX=1 \(quote(executable)) -S \(quote(socket)) if-shell -F \(quote(condition)) \(quote(action)) \(quote("run-shell false"))"
+    }
 }

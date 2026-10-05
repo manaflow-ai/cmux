@@ -58,7 +58,8 @@ fn browser_frame_from_capture(session_id: &str, captured: CapturedFrame) -> Brow
 
 pub struct BrowserFrameStream {
     pub slot: Arc<Mutex<BrowserAttachUpdate>>,
-    pub notify: Receiver<()>,
+    /// Coalescing wake; a stream interrupt can also wake it.
+    pub notify: crate::stream_interrupt::SignalReceiver,
 }
 
 pub(crate) type BrowserResizeOutcome = Result<(), Arc<str>>;
@@ -72,7 +73,7 @@ pub(crate) struct PendingBrowserResize {
 
 struct BrowserFrameTap {
     slot: Arc<Mutex<BrowserAttachUpdate>>,
-    notify: SyncSender<()>,
+    notify: crate::stream_interrupt::SignalSender,
 }
 
 #[derive(Debug, Default)]
@@ -1614,7 +1615,8 @@ fn release_abandoned_pointer_presses(
                 }
             }
         })
-        .map(|(button, _)| button.clone())
+        .map(|(button, _)| button)
+        .cloned()
         .collect::<Vec<_>>();
     for button in expired {
         let Some(press) = failures.active_pointer_presses.remove(&button) else {
@@ -2460,7 +2462,7 @@ impl BrowserSurface {
     }
 
     pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
-        let (tx, rx) = sync_channel(1);
+        let (tx, rx) = crate::stream_interrupt::signal();
         let slot = Arc::new(Mutex::new(BrowserAttachUpdate::default()));
         let mut state = self.state.lock().unwrap();
         let pointer_frame_floor_seq = self.exported_pointer_frame_floor_seq_locked(&state);

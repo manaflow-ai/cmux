@@ -1,5 +1,8 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
+import CmuxBrowser
+import CmuxCore
 import CmuxFoundation
 import CmuxSettings
 import ObjectiveC
@@ -23,6 +26,9 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     let webView: CmuxWebView
     private let browserContext: BrowserPopupBrowserContext
+    var refusesProxyAuthenticationChallenges: Bool {
+        browserContext.refusesProxyAuthenticationChallenges
+    }
     private let panel: NSPanel
     private let urlLabel: NSTextField, urlLabelHeightConstraint: NSLayoutConstraint
     private weak var openerPanel: BrowserPanel?
@@ -34,6 +40,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupUIDelegate: PopupUIDelegate
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
@@ -61,7 +68,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // Create popup web view with WebKit's supplied configuration after
         // overlaying the opener's browser context so OAuth popups keep cmux's
         // shared cookie/storage scope and opener linkage.
-        let webView = CmuxWebView(frame: .zero, configuration: configuration)
+        let webView = CmuxWebView(frame: .zero, configuration: configuration, host: CmuxWebViewAppHost())
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
@@ -123,9 +130,16 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         self.urlLabelHeightConstraint = urlLabel.heightAnchor.constraint(equalToConstant: 16)
 
         // Build delegate objects before super.init so they can be assigned
-        let uiDel = PopupUIDelegate()
-        let navDel = PopupNavigationDelegate()
+        let externalNavigationHandler = BrowserExternalNavigationHandler()
+        self.externalNavigationHandler = externalNavigationHandler
+        let uiDel = PopupUIDelegate(externalNavigationHandler: externalNavigationHandler)
+        let navDel = PopupNavigationDelegate(externalNavigationHandler: externalNavigationHandler)
         let dlDel = BrowserDownloadDelegate()
+        let appLinkHandler: (URL) -> Bool = { [weak openerPanel] url in
+            openerPanel?.openAppLinkInBrowserSplit?(url) ?? false
+        }
+        uiDel.openAppLinkInBrowserSplit = appLinkHandler
+        navDel.openAppLinkInBrowserSplit = appLinkHandler
         self.popupUIDelegate = uiDel
         self.popupNavigationDelegate = navDel
         self.downloadDelegate = dlDel
@@ -191,9 +205,25 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // not as a nested popup. Falls back to system browser if opener is gone.
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             if let opener = self?.openerPanel {
-                opener.openLinkInNewTab(url: url)
-            } else {
-                NSWorkspace.shared.open(url)
+                opener.openContextMenuLinkInNewTab(url: url)
+                return
+            }
+
+            // A popup without an opener cannot create a sibling tab, but a
+            // configured rule still gets the shared canonicalization and
+            // fail-closed opener handling before the system fallback.
+            guard let self else { return }
+            switch self.externalNavigationHandler.openConfiguredExternallyResult(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            ) {
+            case .opened:
+                return
+            case .failed:
+                browserPresentExternalNavigationFailure(for: url, in: self.webView)
+            case .notConfigured:
+                _ = NSWorkspace.shared.open(url)
             }
         }
 
@@ -232,6 +262,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     }
 
     // MARK: - Child popup tracking
+
+    /// This popup's web view and those of its nested popups.
+    var webViewsIncludingChildPopups: [WKWebView] {
+        [webView] + childPopups.flatMap(\.webViewsIncludingChildPopups)
+    }
 
     func addChildPopup(_ child: BrowserPopupWindowController) {
         childPopups.append(child)
@@ -435,8 +470,18 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
 // MARK: - PopupUIDelegate
 
-private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
+@MainActor
+private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     weak var controller: BrowserPopupWindowController?
+    var openAppLinkInBrowserSplit: ((URL) -> Bool)?
+
+    init(externalNavigationHandler: BrowserExternalNavigationHandler) {
+        self.externalNavigationHandler = externalNavigationHandler
+        super.init()
+    }
+
+    deinit {}
 
     func webViewDidClose(_ webView: WKWebView) {
         #if DEBUG
@@ -451,6 +496,34 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
+        if let url = navigationAction.request.url {
+            if navigationAction.navigationType == .linkActivated,
+               navigationAction.targetFrame?.isMainFrame != false,
+               let appLink = BrowserAppLinkOpenRequest(
+                   url: url,
+                   webOrigin: AuthEnvironment.appSessionHandoffOrigin
+               ),
+               openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
+                return nil
+            }
+            switch externalNavigationHandler.openConfiguredExternallyResult(
+                url,
+                navigationType: navigationAction.navigationType,
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+            ) {
+            case .opened:
+                return nil
+            case .failed:
+                browserPresentExternalNavigationFailure(
+                    for: url,
+                    in: webView
+                )
+                return nil
+            case .notConfigured:
+                break
+            }
+        }
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
@@ -614,6 +687,8 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
 
 @MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
+    var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var downloadDelegate: WKDownloadDelegate?
     private let authCallbackNavigationPolicy = BrowserAuthCallbackNavigationPolicy(
         trustedSourcePageOrigin: AuthEnvironment.appSessionHandoffOrigin,
@@ -632,6 +707,13 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     private(set) var activeErrorPageDisplayURL: URL?
     private var activeSSLTrustBypassErrorPageRetryRequest: URLRequest?
     private(set) var activePolicyBlockedURL: URL?
+
+    init(
+        externalNavigationHandler: BrowserExternalNavigationHandler
+    ) {
+        self.externalNavigationHandler = externalNavigationHandler
+        super.init()
+    }
 
     func cancelPendingAuthenticationPrompts() {
         basicAuthPromptCoordinator.cancelAll()
@@ -707,6 +789,40 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
+        }
+
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.targetFrame?.isMainFrame != false,
+           let appLink = BrowserAppLinkOpenRequest(
+               url: url,
+               webOrigin: AuthEnvironment.appSessionHandoffOrigin
+           ),
+           openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
+            decisionHandler(.cancel)
+            return
+        }
+
+        switch externalNavigationHandler.openConfiguredExternallyResult(
+            url,
+            navigationType: navigationAction.navigationType,
+            targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+            onOpened: { [self] in
+                clearAttemptedRequest(discardPendingBypasses: true)
+            }
+        ) {
+        case .opened:
+            decisionHandler(.cancel)
+            return
+        case .failed:
+            clearAttemptedRequest(discardPendingBypasses: true)
+            decisionHandler(.cancel)
+            browserPresentExternalNavigationFailure(
+                for: url,
+                in: webView
+            )
+            return
+        case .notConfigured:
+            break
         }
 
         let isMainFrame = navigationAction.targetFrame?.isMainFrame != false
@@ -1047,6 +1163,14 @@ private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if controller?.refusesProxyAuthenticationChallenges == true {
+            let disposition = ManagedProxySessionDelegate.disposition(for: challenge.protectionSpace)
+            if disposition == .cancelAuthenticationChallenge {
+                completionHandler(disposition, nil)
+                return
+            }
+        }
+
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust,
            BrowserSSLTrustScope(protectionSpace: challenge.protectionSpace) != nil {

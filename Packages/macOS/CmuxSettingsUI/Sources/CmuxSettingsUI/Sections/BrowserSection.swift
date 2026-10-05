@@ -6,9 +6,9 @@ import SwiftUI
 /// **Browser** section — mirrors the legacy in-app section
 /// row-for-row inside a single `SettingsCard`: Enable cmux Browser,
 /// Default Search Engine, conditional Custom Search Engine fields,
-/// Show Search Suggestions, Browser Theme, Browser Memory Saver +
-/// Memory Saver Delay, Open Terminal Links / Intercept open,
-/// conditional Hosts / External Patterns text editors, HTTP Hosts
+/// Show Search Suggestions, Browser Memory Saver rows
+/// (``BrowserMemorySaverSettingsRows``), Open Terminal Links / Intercept open,
+/// conditional Hosts editor and the External Patterns text editor, HTTP Hosts
 /// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
 @MainActor
@@ -22,10 +22,7 @@ public struct BrowserSection: View {
     @State private var customName: DefaultsValueModel<String>
     @State private var customURL: DefaultsValueModel<String>
     @State private var suggestions: DefaultsValueModel<Bool>
-    @State private var theme: DefaultsValueModel<BrowserThemeMode>
     @State private var defaultZoom: DefaultsValueModel<Double>
-    @State private var discardEnabled: DefaultsValueModel<Bool>
-    @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
     @State private var interceptOpen: DefaultsValueModel<Bool>
@@ -54,6 +51,10 @@ public struct BrowserSection: View {
             browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
         )
     @State private var browserURLAllowlistManagedByPolicy = BrowserURLAllowlistPolicy().isManaged
+    /// The effective allowlist policy, re-read on
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so the
+    /// managed note tracks `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`.
+    @State private var urlAllowlistPolicy = BrowserURLAllowlistPolicy()
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -69,10 +70,7 @@ public struct BrowserSection: View {
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
         _suggestions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showSearchSuggestions))
-        _theme = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.theme))
         _defaultZoom = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultZoomLevel))
-        _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
-        _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
@@ -103,7 +101,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, defaultZoom, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -112,6 +110,7 @@ public struct BrowserSection: View {
                 let policy = BrowserURLAllowlistPolicy()
                 let wasManaged = browserURLAllowlistManagedByPolicy
                 browserURLAllowlistManagedByPolicy = policy.isManaged
+                urlAllowlistPolicy = policy
                 if policy.isManaged || wasManaged {
                     urlAllowlistDraft = effectiveURLAllowlistText(
                         for: urlAllowlist,
@@ -134,9 +133,7 @@ public struct BrowserSection: View {
                 String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"),
                 subtitle: browserManagedByPolicy
                     ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                    : !disabled.current
-                    ? String(localized: "settings.browser.enabled.subtitleOn", defaultValue: "Browser tabs, terminal link clicks, and intercepted open commands can use the embedded browser.")
-                    : String(localized: "settings.browser.enabled.subtitleOff", defaultValue: "Browser tabs and link interception are disabled. Links open in your default browser.")
+                    : String(localized: "settings.browser.enabled.subtitle", defaultValue: "Opens browser tabs and links from terminals in the cmux browser.")
             ) {
                 Toggle(
                     "",
@@ -203,23 +200,6 @@ public struct BrowserSection: View {
             }
             SettingsCardDivider()
 
-            // Browser Theme
-            SettingsCardRow(
-                configurationReview: .json("browser.theme"),
-                String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
-                subtitle: browserThemeSubtitle(theme.current),
-                controlWidth: Self.columnWidth
-            ) {
-                Picker("", selection: Binding(get: { theme.current }, set: { theme.set($0) })) {
-                    ForEach(BrowserThemeMode.allCases, id: \.self) { mode in
-                        Text(themeDisplayName(mode)).tag(mode)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-            }
-            SettingsCardDivider()
-
             // Default Page Zoom
             SettingsCardRow(
                 configurationReview: .json("browser.defaultZoomLevel"),
@@ -247,44 +227,8 @@ public struct BrowserSection: View {
             }
             SettingsCardDivider()
 
-            // Browser Memory Saver
-            SettingsCardRow(
-                configurationReview: .json("browser.discardHiddenWebViews"),
-                String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Browser Memory Saver"),
-                subtitle: discardEnabled.current
-                    ? String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOn", defaultValue: "Hidden browser tabs release page memory after the delay below, then restore when shown again.")
-                    : String(localized: "settings.browser.hiddenWebViewDiscard.subtitleOff", defaultValue: "Hidden browser tabs keep page memory until closed.")
-            ) {
-                Toggle("", isOn: Binding(get: { discardEnabled.current }, set: { discardEnabled.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardToggle")
-            }
-            SettingsCardDivider()
-
-            // Memory Saver Delay
-            SettingsCardRow(
-                configurationReview: .json("browser.hiddenWebViewDiscardDelaySeconds"),
-                String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Memory Saver Delay"),
-                subtitle: String(localized: "settings.browser.hiddenWebViewDiscardDelay.subtitle", defaultValue: "How long a browser tab must stay hidden before cmux frees its page memory. Active downloads, popups, developer tools, fullscreen, and loading pages are skipped."),
-                controlWidth: Self.columnWidth
-            ) {
-                HStack(spacing: 8) {
-                    Text(formatDiscardDelay(discardDelay.current))
-                        .cmuxFont(.body, design: .monospaced)
-                        .monospacedDigit()
-                        .frame(width: 56, alignment: .trailing)
-                    Stepper(
-                        "",
-                        value: Binding(get: { discardDelay.current }, set: { discardDelay.set($0) }),
-                        in: 0...3_600,
-                        step: 30
-                    )
-                    .labelsHidden()
-                }
-                .disabled(!discardEnabled.current)
-                .accessibilityIdentifier("SettingsBrowserHiddenWebViewDiscardDelayStepper")
-            }
+            // Browser Memory Saver, mode, budget and delay
+            BrowserMemorySaverSettingsRows(controlWidth: Self.columnWidth)
             SettingsCardDivider()
 
             // Download Save Prompt
@@ -323,7 +267,7 @@ public struct BrowserSection: View {
                     .controlSize(.small)
             }
 
-            // Hosts + External Patterns (only when relevant)
+            // Hosts (only when terminal routing is enabled)
             if openTermLinks.current || interceptOpen.current {
                 SettingsCardDivider()
                 hostnameEditor(
@@ -332,14 +276,14 @@ public struct BrowserSection: View {
                     json: "browser.hostsToOpenInEmbeddedBrowser",
                     model: hosts
                 )
-                SettingsCardDivider()
-                hostnameEditor(
-                    title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
-                    subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
-                    json: "browser.urlsToAlwaysOpenExternally",
-                    model: external
-                )
             }
+            SettingsCardDivider()
+            hostnameEditor(
+                title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
+                subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; `*`/`?` are wildcards, and regex rules containing them must use the `re:` prefix (legacy `.*`/`.+` rules remain supported) (for example: example.com, *example.com*, .*example\\.com.*, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
+                json: "browser.urlsToAlwaysOpenExternally",
+                model: external
+            )
             SettingsCardDivider()
 
             // HTTP Hosts Allowed in Embedded Browser
@@ -530,9 +474,16 @@ public struct BrowserSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available."))
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available. Under a managed policy, localhost and local files stay available unless your organization turns them off."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
+            if browserURLAllowlistManagedByPolicy {
+                Text(managedURLAllowlistNote)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("SettingsBrowserURLAllowlistManagedNote")
+            }
             TextEditor(text: $urlAllowlistDraft)
                 .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
@@ -605,6 +556,34 @@ public struct BrowserSection: View {
         return policy.patterns.map(\.rawValue).joined(separator: "\n")
     }
 
+    /// What a managed list permits beyond its rules, in the admin's own terms:
+    /// localhost and local files are on by default and each can be turned off
+    /// by a profile.
+    private var managedURLAllowlistNote: String {
+        switch (urlAllowlistPolicy.allowsLocalhost, urlAllowlistPolicy.allowsLocalFiles) {
+        case (true, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOn",
+                defaultValue: "Your organization manages this list. localhost (any port) and local files stay available in addition to the rules above."
+            )
+        case (false, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localhostOff",
+                defaultValue: "Your organization manages this list and blocks localhost. Local files stay available."
+            )
+        case (true, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localFilesOff",
+                defaultValue: "Your organization manages this list and blocks local files. localhost (any port) stays available."
+            )
+        case (false, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOff",
+                defaultValue: "Your organization manages this list and blocks localhost and local files."
+            )
+        }
+    }
+
     private var urlAllowlistHint: some View {
         Text(String(localized: "settings.browser.urlAllowlist.hint", defaultValue: "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them."))
             .cmuxFont(.caption)
@@ -663,7 +642,7 @@ public struct BrowserSection: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
                         .cmuxFont(size: 12.5, weight: .semibold)
-                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Import bookmarks, history, and cookies from Safari, Chrome, Firefox, Brave, Edge, or Arc. Already-imported entries are deduped automatically."))
+                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Choose a browser to import bookmarks, history, and cookies. Already-imported entries are deduped automatically."))
                         .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -695,7 +674,7 @@ public struct BrowserSection: View {
                     .controlSize(.small)
                     .disabled(true)
             }
-            .accessibilityIdentifier("SettingsBrowserImportActions")
+            .accessibilityElement(children: .contain).accessibilityIdentifier("SettingsBrowserImportActions")
             Toggle(
                 String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"),
                 isOn: Binding(get: { importHintModel.current }, set: { importHintModel.set($0) })
@@ -710,26 +689,7 @@ public struct BrowserSection: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .accessibilityIdentifier("SettingsBrowserImportSection")
-    }
-
-    private func browserThemeSubtitle(_ mode: BrowserThemeMode) -> String {
-        if mode == .system {
-            return String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
-        }
-        let name = themeDisplayName(mode)
-        return String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(name) forces that color scheme for compatible pages.")
-    }
-
-    private func themeDisplayName(_ mode: BrowserThemeMode) -> String {
-        switch mode {
-        case .system:
-            return String(localized: "theme.system", defaultValue: "System")
-        case .light:
-            return String(localized: "theme.light", defaultValue: "Light")
-        case .dark:
-            return String(localized: "theme.dark", defaultValue: "Dark")
-        }
+        .accessibilityElement(children: .contain).accessibilityIdentifier("SettingsBrowserImportSection")
     }
 
     private func searchEngineLabel(_ engine: BrowserSearchEngine) -> String {
@@ -772,27 +732,8 @@ public struct BrowserSection: View {
         }
     }
 
-    /// Formats the Memory Saver Delay value as `Xm Ys` (or `Ys`) so
-    /// the stepper readout reads naturally for delays measured in
-    /// minutes. Matches the legacy
-    /// `browserHiddenWebViewDiscardDelayLabel` formatter, including
-    /// the localized format strings.
     private func formatZoomPercent(_ zoom: Double) -> String {
         let format = String(localized: "settings.browser.defaultZoomLevel.percent", defaultValue: "%lld%%")
         return String.localizedStringWithFormat(format, Int64((zoom * 100).rounded()))
-    }
-
-    private func formatDiscardDelay(_ seconds: Double) -> String {
-        let total = max(0, Int(seconds.rounded()))
-        if total < 60 {
-            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.seconds", defaultValue: "%llds")
-            return String.localizedStringWithFormat(format, Int64(total))
-        }
-        if total % 60 == 0 {
-            let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutes", defaultValue: "%lldm")
-            return String.localizedStringWithFormat(format, Int64(total / 60))
-        }
-        let format = String(localized: "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds", defaultValue: "%lldm %llds")
-        return String.localizedStringWithFormat(format, Int64(total / 60), Int64(total % 60))
     }
 }

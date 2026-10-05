@@ -27,7 +27,7 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         workingDirectory: String?,
         inheritWorkingDirectory: Bool,
         select: Bool
-    ) -> Tab
+    ) -> Tab?
     /// Creates a member workspace for `createWorkspaceInGroup`, preserving the
     /// initial-surface options and creation-title ownership policy.
     func createWorkspaceForGroup(
@@ -40,13 +40,17 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
         inheritWorkingDirectory: Bool,
         select: Bool,
         applyCreationTitleAsCustomTitle: Bool
-    ) -> Tab
+    ) -> Tab?
     /// Closes a member workspace during group deletion (legacy
     /// `closeWorkspace(_:recordHistory:)`, including its teardown chain).
     func closeWorkspaceForGroupDeletion(_ tab: Tab, recordHistory: Bool)
     /// Selects the workspace through the legacy selection entry point
     /// (DEBUG switch tracing + dismissal context ride along).
     func selectWorkspace(_ tab: Tab)
+
+    /// Returns whether a generated anchor is still an untouched shell.
+    /// Hosts own the terminal-specific definition of explicit use.
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: Tab) -> Bool
 
     // MARK: Sidebar multi-selection sync (CmuxSidebar model, owned app-side)
 
@@ -81,4 +85,16 @@ public protocol WorkspaceGroupHosting<Tab>: WorkspaceOrderHosting {
     /// A group was renamed: refresh window chrome and post the legacy
     /// `workspaceGroupNameDidChange` notification.
     func workspaceGroupNameDidChange()
+
+    /// A generated group anchor owns the group's initial workspace title. Keep
+    /// that app-side title in sync when the group is renamed so persisted and
+    /// projected workspace identities cannot resurrect the old name.
+    func workspaceGroupGeneratedAnchorNameDidChange(_ anchor: Tab, name: String)
+}
+
+public extension WorkspaceGroupHosting {
+    func workspaceGroupGeneratedAnchorIsUntouched(_ anchor: Tab) -> Bool { false }
+
+    /// Hosts that do not persist workspace titles can leave this hook as a no-op.
+    func workspaceGroupGeneratedAnchorNameDidChange(_ anchor: Tab, name: String) {}
 }

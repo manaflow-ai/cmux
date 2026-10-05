@@ -38,7 +38,11 @@ struct SidebarWorkspaceSwitchLayoutFaultTests {
             // the real workspace-switch workload starts belong to this test.
             let logStart = Date.now
             let targets = Array(manager.tabs.prefix(4))
-            for iteration in 0..<12 {
+            // Two full passes over the four workspaces: each one is switched
+            // to once cold (first mount of its portal) and once warm (already
+            // mounted, the state #9612 reported). Further passes repeat the
+            // warm case without reaching a new one.
+            for iteration in 0..<8 {
                 manager.selectTab(targets[iteration % targets.count])
                 await flushDeferredLayoutPasses(window: window)
             }

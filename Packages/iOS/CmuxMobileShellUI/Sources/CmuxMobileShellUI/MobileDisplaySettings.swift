@@ -24,13 +24,19 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     public let haptics: MobileHapticFeedback
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
+    private static let feedShowsTabKey = "cmux.mobile.feedShowsTab"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
+    private static let useLegacyTerminalSizingKey = "cmux.mobile.useLegacyTerminalSizing"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
+    private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
+    private static let feedReplacesNotificationsKey = "cmux.mobile.debug.feedReplacesNotifications.v1"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    private static let taskComposerFullLiquidGlassKey = "cmux.mobile.debug.taskComposerFullLiquidGlass.v1"
+    private static let feedBubbleQuotesKey = "cmux.mobile.debug.feedBubbleQuotes.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
@@ -43,12 +49,33 @@ public final class MobileDisplaySettings {
     /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
     /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
     public static let defaultUnreadIndicatorLeftShift = 1.5
+    /// Debug slider range for the unread count badge's circle diameter, in
+    /// points.
+    public static let unreadBadgeDiameterRange: ClosedRange<Double> = 8...28
+    /// The shipping badge diameter, picked by dogfood in the Unread Indicator
+    /// lab (the Mac sidebar badge is 16pt; the phone reads better at 20pt).
+    public static let defaultUnreadBadgeDiameter = 20.0
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating
     /// this writes through to the injected ``UserDefaults``.
     public var wrapWorkspaceTitles: Bool {
         didSet { defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey) }
+    }
+
+    /// The Feed replaces the Notifications tab; the legacy tab stays hidden
+    /// unless this brings it back from Settings.
+    public var feedReplacesNotifications: Bool {
+        didSet {
+            defaults.set(feedReplacesNotifications, forKey: Self.feedReplacesNotificationsKey)
+        }
+    }
+
+    /// Whether Feed rows show the event's terminal tab after its workspace.
+    /// Defaults to `false` (workspace only), for people who organize agents
+    /// by tab rather than by workspace.
+    public var feedShowsTab: Bool {
+        didSet { defaults.set(feedShowsTab, forKey: Self.feedShowsTabKey) }
     }
 
     /// Whether the alternate-screen sizing notice is shown. Defaults to `true`.
@@ -70,6 +97,14 @@ public final class MobileDisplaySettings {
     /// Mutating this writes through to the injected ``UserDefaults``.
     public var terminalFolderTapEnabled: Bool {
         didSet { defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey) }
+    }
+
+    /// Whether alternate-screen terminals retain the keyboard-independent
+    /// sizing behavior. Defaults to `false`, so full-screen TUIs receive the
+    /// settled fully visible viewport. Mutating this writes through to the
+    /// injected ``UserDefaults``.
+    public var useLegacyTerminalSizing: Bool {
+        didSet { defaults.set(useLegacyTerminalSizing, forKey: Self.useLegacyTerminalSizingKey) }
     }
 
     /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
@@ -117,6 +152,18 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// DEBUG-only layout tuning value, exposed in the Unread Indicator lab:
+    /// the count badge's circle diameter. Rows reserve rail spacing from it,
+    /// so growing the circle pushes the rail/text column right instead of
+    /// overlapping it.
+    public var unreadBadgeDiameter: Double {
+        didSet {
+            let clamped = Self.clamped(unreadBadgeDiameter, to: Self.unreadBadgeDiameterRange)
+            if clamped != unreadBadgeDiameter { unreadBadgeDiameter = clamped }
+            defaults.set(clamped, forKey: Self.unreadBadgeDiameterKey)
+        }
+    }
+
     #if DEBUG
     /// Persisted selection for the debug-only Shell icon lab.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant {
@@ -125,6 +172,26 @@ public final class MobileDisplaySettings {
                 taskComposerShellIconVariant.rawValue,
                 forKey: Self.taskComposerShellIconVariantKey
             )
+        }
+    }
+
+    /// Persisted CMUX Labs switch for comparing the task composer bar with the
+    /// terminal composer’s full Liquid Glass treatment.
+    var taskComposerFullLiquidGlass: Bool {
+        didSet {
+            defaults.set(
+                taskComposerFullLiquidGlass,
+                forKey: Self.taskComposerFullLiquidGlassKey
+            )
+        }
+    }
+
+    /// Persisted CMUX Labs switch for comparing Feed quotes drawn as
+    /// iMessage-style outlined bubbles against the original leading-bar
+    /// quotes. On by default in DEBUG so dogfood sees the new treatment.
+    var feedBubbleQuotes: Bool {
+        didSet {
+            defaults.set(feedBubbleQuotes, forKey: Self.feedBubbleQuotesKey)
         }
     }
 
@@ -146,6 +213,10 @@ public final class MobileDisplaySettings {
     #else
     /// Production builds expose only the shipping Shell icon treatment.
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+    /// The Labs-only treatment is unavailable in production builds.
+    var taskComposerFullLiquidGlass: Bool { false }
+    /// Production builds keep the shipping leading-bar quotes.
+    var feedBubbleQuotes: Bool { false }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -159,9 +230,14 @@ public final class MobileDisplaySettings {
         self.defaults = defaults
         self.haptics = haptics
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
+        self.feedShowsTab = defaults.bool(forKey: Self.feedShowsTabKey)
+        self.feedReplacesNotifications = defaults.object(
+            forKey: Self.feedReplacesNotificationsKey
+        ) as? Bool ?? true
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
+        self.useLegacyTerminalSizing = defaults.object(forKey: Self.useLegacyTerminalSizingKey) as? Bool ?? false
         self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
@@ -173,10 +249,21 @@ public final class MobileDisplaySettings {
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,
             to: Self.unreadIndicatorLeftShiftRange
         )
+        let storedUnreadBadgeDiameter = defaults.object(forKey: Self.unreadBadgeDiameterKey) as? Double
+        self.unreadBadgeDiameter = Self.clamped(
+            storedUnreadBadgeDiameter ?? Self.defaultUnreadBadgeDiameter,
+            to: Self.unreadBadgeDiameterRange
+        )
         #if DEBUG
         self.taskComposerShellIconVariant = defaults.string(
             forKey: Self.taskComposerShellIconVariantKey
         ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.taskComposerFullLiquidGlass = defaults.object(
+            forKey: Self.taskComposerFullLiquidGlassKey
+        ) as? Bool ?? false
+        self.feedBubbleQuotes = defaults.object(
+            forKey: Self.feedBubbleQuotesKey
+        ) as? Bool ?? true
         self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }

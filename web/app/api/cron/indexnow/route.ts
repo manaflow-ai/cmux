@@ -1,17 +1,14 @@
+import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { recentlyModifiedUrls, submitIndexNowUrls } from "../../../lib/indexnow";
 import sitemap from "../../../sitemap";
 
 
 export async function POST(request: Request): Promise<Response> {
-  const triggerSecret = process.env.CRON_SECRET?.trim();
-  if (
-    !triggerSecret ||
-    request.headers.get("authorization") !== `Bearer ${triggerSecret}`
-  ) {
+  if (!authorizeCronRequest(request).ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const urls = recentlyModifiedUrls(sitemap(), new Date());
+  const urls = recentlyModifiedUrls(await sitemap(), new Date());
   if (urls.length === 0) {
     return Response.json({ ok: true, submitted: 0 });
   }

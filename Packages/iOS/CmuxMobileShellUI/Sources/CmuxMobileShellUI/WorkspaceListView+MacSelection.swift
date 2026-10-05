@@ -5,14 +5,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-enum WorkspaceMacSelection: Hashable {
-    case automatic
-    case all
-    /// A pairing id for saved app instances, or a bare device id for an
-    /// unpaired workspace-only computer.
-    case machine(String)
-}
-
 extension WorkspaceListView {
     var displayPairedMacsForPicker: [MobilePairedMac] {
         if let store {
@@ -91,16 +83,25 @@ extension WorkspaceListView {
             names[mac.id] = mac.resolvedName
         }
         guard let buildScope = MobileIOSBuildScope.current() else { return names }
-        return names.mapValues(buildScope.computerDisplayName)
+        return buildScope.computerDisplayNames(
+            names,
+            isExternalHost: { store?.externalHostOwnsHost($0) == true }
+        )
     }
 
     func macBuildLabelsByID() -> [String: String] {
+        let labels: [String: String]
         if let store {
-            return store.pairedMacBuildLabelsByEntryID()
+            labels = store.pairedMacBuildLabelsByEntryID()
+        } else {
+            labels = MobileShellComposite.buildLabelsByEntryID(
+                for: displayPairedMacsForPicker
+            ) { _, _ in nil }
         }
-        return MobileShellComposite.buildLabelsByEntryID(
-            for: displayPairedMacsForPicker
-        ) { _, _ in nil }
+        return WorkspaceMacBuildLabelResolver().labels(
+            workspaces: workspaces,
+            existing: labels
+        )
     }
 
     var filterMenuPresentMachineIDs: [String] {
@@ -128,8 +129,42 @@ extension WorkspaceListView {
         }
     }
 
+    /// The Cloud machine the computers picker is scoped to, when it is one.
+    var scopedExternalHostID: String? {
+        guard case .machine(let id) = macSelectionScope.visibleSelection,
+              store?.externalHostOwnsHost(id) == true else { return nil }
+        return id
+    }
+
+    /// Whether the list's plus control renders at all: it creates on the
+    /// scoped computer when that is allowed, and otherwise still opens the
+    /// menu of Cloud machines. Hiding it entirely on a phone with no Mac
+    /// connected would leave a Cloud-only account no way to create from the
+    /// list.
+    var showsNewWorkspaceControl: Bool {
+        if canCreateWorkspaceForMacSelection || !newWorkspaceComputerTargets.isEmpty {
+            return true
+        }
+        guard createWorkspaceOnCloudMachine != nil else { return false }
+        if store?.externalHostSummaries.contains(where: { !$0.isHidden }) == true {
+            return true
+        }
+        // Keep the entrypoint alive while the host summary catches up with a
+        // catalog that is already rendering Cloud rows.
+        return workspaces.contains { workspace in
+            guard let hostID = workspace.macDeviceID,
+                  store?.externalHostOwnsHost(hostID) == true else { return false }
+            return store?.externalHostIsHidden(hostID) != true
+        }
+    }
+
     var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
+        // A Cloud machine is not the foreground Mac pairing, so the Mac rule
+        // below would always deny it; its own liveness is the gate.
+        if let scopedExternalHostID {
+            return store?.externalHostIsConnected(scopedExternalHostID) == true
+        }
+        return macSelectionScope.canCreateWorkspace(base: canCreateWorkspace)
     }
 
     #if os(iOS)
@@ -163,6 +198,7 @@ extension WorkspaceListView {
                 machines: machineSnapshots.macPickerMachines,
                 canAddDevice: showAddDevice != nil,
                 labelWidth: 155,
+                usesCompactLabelTreatment: horizontalSizeClass != .regular,
                 statusLine: connectionChrome.statusLine
             ),
             actions: WorkspaceMacTitlePickerActions(
@@ -222,7 +258,9 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 } label: {
                     menuRow(
                         title: machine.name,
-                        subtitle: machine.buildLabel,
+                        subtitle: machine.buildLabel.map {
+                            MacAppInstanceDisplayFormatter().localizedBuildLabel($0)
+                        },
                         isSelected: value.selection == selection
                     )
                 }
@@ -244,6 +282,17 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 title: value.title,
                 isLoading: value.isLoading,
                 width: value.labelWidth,
+                truncationMode: {
+                    switch value.selection {
+                    case .machine:
+                        // Device names repeat their prefix ("MacBook Pro …"),
+                        // so the distinguishing suffix must survive.
+                        return .middle
+                    case .automatic, .all:
+                        return .tail
+                    }
+                }(),
+                usesCompactLabelTreatment: value.usesCompactLabelTreatment,
                 statusLine: value.statusLine
             )
             // Put the identity and status on the final combined label element.
@@ -285,40 +334,95 @@ private struct WorkspaceMacTitlePickerLabel: View {
     let title: String
     let isLoading: Bool
     let width: CGFloat
+    let truncationMode: Text.TruncationMode
+    let usesCompactLabelTreatment: Bool
     var statusLine: WorkspaceConnectionStatusLine?
 
     var body: some View {
         VStack(spacing: 1) {
             HStack(spacing: 6) {
-                Spacer(minLength: 0)
-                Text(title)
-                    .font(.headline.weight(.bold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .allowsTightening(true)
-                    .minimumScaleFactor(0.75)
-                    .layoutPriority(1)
-                ZStack {
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.bold))
-                        .opacity(isLoading ? 0 : 1)
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.primary)
-                        .opacity(isLoading ? 1 : 0)
+                if usesCompactLabelTreatment {
+                    // The iPhone keeps its long-standing treatment: the title
+                    // tightens and shrinks (down to 0.75) before truncating,
+                    // and the chevron hugs the text between centering
+                    // spacers. The full-size ellipsis treatment below reads
+                    // as the picker growing on a phone toolbar.
+                    Spacer(minLength: 0)
+                    titleText
+                        .truncationMode(.tail)
+                        .allowsTightening(true)
+                        .minimumScaleFactor(0.75)
+                        .layoutPriority(1)
+                    accessory
+                    Spacer(minLength: 0)
+                } else {
+                    // iPad split toolbar: full-size text on one line with an
+                    // ellipsis. The text stays the flexible item because a
+                    // high layout priority makes a narrow toolbar item ask
+                    // UIKit to hide the entire principal item before SwiftUI
+                    // can insert the ellipsis.
+                    titleText
+                        .truncationMode(truncationMode)
+                        .allowsTightening(false)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    accessory
                 }
-                .frame(width: 12, height: 12)
-                .accessibilityHidden(true)
-                Spacer(minLength: 0)
             }
             if let statusLine {
                 WorkspaceConnectionStatusLineView(line: statusLine)
             }
         }
         .foregroundStyle(.primary)
+        // The regular iPad toolbar label carries a title and a connection
+        // status line. Give both lines breathing room inside the system glass
+        // capsule without changing the compact iPhone picker height.
+        .padding(
+            .horizontal,
+            usesCompactLabelTreatment
+                ? 0
+                : WorkspaceRootToolbarSizing.regularControlHorizontalPadding
+        )
+        .padding(
+            .vertical,
+            usesCompactLabelTreatment
+                ? 0
+                : WorkspaceRootToolbarSizing.regularControlVerticalPadding
+        )
         .frame(width: width, alignment: .center)
+        .frame(
+            minHeight: usesCompactLabelTreatment ? nil : WorkspaceRootToolbarSizing.controlHeight,
+            alignment: .center
+        )
+        // The toolbar can animate its principal item's content when the
+        // connection status line appears or disappears. That transiently
+        // interpolates the two different intrinsic heights and clips the
+        // caption at the edge of the navigation bar. Keep this state change
+        // discrete so the existing one-line and two-line layouts are rendered
+        // at their final sizes without changing either resting appearance.
+        .contentTransition(.identity)
+        .animation(.none, value: statusLine)
         .clipped()
         .contentShape(Rectangle())
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .font(.headline.weight(.bold))
+            .lineLimit(1)
+    }
+
+    private var accessory: some View {
+        ZStack {
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.bold))
+                .opacity(isLoading ? 0 : 1)
+            ProgressView()
+                .controlSize(.mini)
+                .tint(.primary)
+                .opacity(isLoading ? 1 : 0)
+        }
+        .frame(width: 12, height: 12)
+        .accessibilityHidden(true)
     }
 }
 #endif

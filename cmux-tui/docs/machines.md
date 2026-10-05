@@ -64,20 +64,15 @@ See [Configuration](configuration.md#dynamic-machine-provider) for persistent cl
 
 ## Run with npm
 
-Install cmux on a remote Linux or macOS machine so SSH has a stable executable path:
-
-```bash
-npm install --global cmux
-command -v cmux
-```
-
-Put the absolute path printed by `command -v cmux` in the target's `binary` field and set `session` to `agents`. The first managed connection starts that session on demand. After adding the target to the local config, start the client normally:
+Packaged clients install their pinned remote binary after the compatibility probe:
 
 ```bash
 npx cmux
 ```
 
-The local `npx cmux` process renders both rails and opens `ssh -T` only when that machine is selected. It verifies that the remote package and protocol match, then starts or reuses the remote protocol-v12 session. Run `npx cmux ssh dev@buildbox --session agents --upgrade` once when a legacy remote executable is too old to answer the compatibility probe.
+Set the target's `session` to `agents`. The first managed connection starts that session on demand.
+
+The local `npx cmux` process opens SSH only when that machine is selected. It verifies the remote package and protocol, installs a missing or incompatible packaged binary, then starts or reuses the remote protocol-v12 session. Source builds must install the exact matching binary themselves; `--no-install` disables automatic installation. A legacy executable that cannot answer the probe requires `--upgrade`.
 
 For a direct transport check, the equivalent relay is:
 
@@ -92,7 +87,7 @@ This command emits raw JSON-lines protocol traffic, not a second TUI. It checks 
 Start a persistent local session in one terminal or service supervisor:
 
 ```bash
-npx cmux --headless --session agents
+npx cmux server start --session agents
 ```
 
 First verify Cloud host trust and authentication once, then exit back to your local shell. Use the same resolved host, user, port, and identity that the agent will use:

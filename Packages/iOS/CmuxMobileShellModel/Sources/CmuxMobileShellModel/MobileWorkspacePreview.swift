@@ -87,6 +87,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// sidebar's workspace unread badge). Drives the iMessage-style unread dot.
     /// `false` when connected to a Mac old enough not to emit it.
     public var hasUnread: Bool
+    /// The exact unread count behind ``hasUnread`` (the number the Mac sidebar
+    /// badge shows). `nil` when connected to a Mac old enough not to emit it;
+    /// the indicator then falls back to the plain dot.
+    public var unreadCount: Int?
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
     /// Every Mac-rendered surface, in the Mac workspace's spatial order.
@@ -153,6 +157,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
+        unreadCount: Int? = nil,
         terminals: [MobileTerminalPreview],
         surfaces: [MobileSurfacePreview] = [],
         simulators: [MobileSimulatorPanelDescriptor] = []
@@ -173,6 +178,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.previewAt = previewAt
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
+        self.unreadCount = unreadCount
         self.terminals = terminals
         self.surfaces = surfaces
         self.simulators = simulators
@@ -180,6 +186,24 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
 }
 
 extension MobileWorkspacePreview {
+    /// Stable key for device-local per-workspace UI state (the last opened
+    /// tab), mirroring ``MobileWorkspaceGroupPreview/collapseStateID``.
+    ///
+    /// ``id`` cannot key persisted state: aggregation Mac-scopes row ids only
+    /// while more than one Mac is live, so the same workspace flips between a
+    /// plain and a scoped id. This key is always owner-scoped when the owning
+    /// Mac is known, and falls back to the Mac-local id otherwise.
+    public var lastTabStateID: String {
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            return rpcWorkspaceID.rawValue
+        }
+        let ownerID = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: macInstanceTag
+        ).id
+        return "\(ownerID)\u{1F}\(rpcWorkspaceID.rawValue)"
+    }
+
     /// The non-terminal surface the owning Mac currently has focused, when it
     /// reports one. This is separate from the terminal fallback because an
     /// explicitly selected terminal on iOS must remain authoritative.

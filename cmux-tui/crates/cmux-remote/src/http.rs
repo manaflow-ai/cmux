@@ -160,6 +160,12 @@ fn read_workspace_http_token(path: &Path) -> Result<WorkspaceHttpBearerToken, io
     options.custom_flags(libc::O_NOFOLLOW);
     let mut file = options.open(path)?;
     let metadata = file.metadata()?;
+    validate_workspace_http_token_metadata(&metadata)?;
+    read_workspace_http_token_contents(&mut file)
+}
+
+/// Validates the token file type, size, owner, and permissions from one opened descriptor.
+fn validate_workspace_http_token_metadata(metadata: &fs::Metadata) -> Result<(), io::Error> {
     if !metadata.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -184,8 +190,20 @@ fn read_workspace_http_token(path: &Path) -> Result<WorkspaceHttpBearerToken, io
             ));
         }
     }
+    Ok(())
+}
+
+/// Reads at most the configured token bound and rejects growth observed during the read.
+fn read_workspace_http_token_contents(
+    file: &mut fs::File,
+) -> Result<WorkspaceHttpBearerToken, io::Error> {
     let mut encoded = String::new();
-    file.read_to_string(&mut encoded)?;
+    (&mut *file).take(MAX_HTTP_TOKEN_FILE_BYTES + 1).read_to_string(&mut encoded)?;
+    if encoded.len() > MAX_HTTP_TOKEN_FILE_BYTES as usize
+        || file.metadata()?.len() > MAX_HTTP_TOKEN_FILE_BYTES
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "HTTP token file is too large"));
+    }
     let trimmed_length = encoded.trim_end_matches(['\r', '\n']).len();
     encoded.truncate(trimmed_length);
     WorkspaceHttpBearerToken::new(encoded)
@@ -308,6 +326,9 @@ async fn run_workspace_http_server(
     let permits = Arc::new(Semaphore::new(limits.maximum_connections));
     let (connection_shutdown, _) = watch::channel(false);
     let mut connections = JoinSet::new();
+    // Spacing for accept errors that persist (descriptor exhaustion).
+    let mut accept_backoff =
+        cmux_tui_core::backoff::Backoff::new(Duration::from_millis(10), Duration::from_secs(1));
     loop {
         tokio::select! {
             biased;
@@ -344,6 +365,7 @@ async fn run_workspace_http_server(
                 };
                 match accepted {
                     Ok((stream, _)) => {
+                        accept_backoff.reset();
                         let _ = stream.set_nodelay(true);
                         connections.spawn(serve_workspace_http_connection(
                             stream,
@@ -353,12 +375,14 @@ async fn run_workspace_http_server(
                             connection_shutdown.subscribe(),
                         ));
                     }
-                    Err(_) => {
+                    Err(error) => {
                         drop(permit);
-                        tokio::select! {
-                            biased;
-                            _ = &mut shutdown => break,
-                            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                        if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
+                            tokio::select! {
+                                biased;
+                                _ = &mut shutdown => break,
+                                _ = tokio::time::sleep(accept_backoff.next_delay()) => {}
+                            }
                         }
                     }
                 }
@@ -748,6 +772,29 @@ mod tests {
         assert!(bool::from(first.0.as_bytes().ct_eq(second.0.as_bytes())));
         #[cfg(unix)]
         assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn workspace_http_token_reader_bounds_growth_after_metadata_check() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("workspace-http.token");
+        fs::write(&path, b"x").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let mut file = OpenOptions::new().read(true).open(&path).unwrap();
+        let metadata = file.metadata().unwrap();
+        validate_workspace_http_token_metadata(&metadata).unwrap();
+        OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(&vec![b'x'; MAX_HTTP_TOKEN_FILE_BYTES as usize])
+            .unwrap();
+
+        let error = read_workspace_http_token_contents(&mut file).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "HTTP token file is too large");
     }
 
     #[tokio::test]

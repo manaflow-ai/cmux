@@ -10,8 +10,10 @@ import { changelogPath } from "./changelog";
 import {
   englishFallbackContentLocales,
   fallbackContentLocales,
+  jobsContentLocales,
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
@@ -130,9 +132,27 @@ export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
   { path: "/browser", title: "cmux Browser" },
+  { path: "/cua", title: "cmux Computer Use" },
   ...agentReadableDownloadPages,
+  {
+    path: "/jobs",
+    title: "Founding Engineer jobs at cmux",
+    locales: jobsContentLocales,
+  },
+  {
+    path: "/jobs/founding-designer",
+    title: "Founding Designer jobs at cmux",
+    locales: jobsContentLocales,
+  },
+  {
+    path: "/jobs/founding-chromium-engineer",
+    title: "Founding Chromium Engineer jobs at cmux",
+    locales: jobsContentLocales,
+  },
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
+  { path: "/support", title: "Support" },
   { path: "/enterprise", title: "Enterprise" },
+  { path: "/support", title: "Support" },
   { path: "/blog", title: "Blog" },
   {
     path: "/blog/367-billion-tokens",
@@ -192,14 +212,29 @@ export const agentReadablePages = [
   { path: "/docs/keyboard-shortcuts", title: "Keyboard Shortcuts" },
   { path: "/docs/api", title: "CLI Reference" },
   { path: "/docs/browser-automation", title: "Browser Automation" },
+  { path: "/docs/computer-use", title: "Computer Use" },
   { path: "/docs/skills", title: "Skills" },
   { path: "/docs/notifications", title: "Notifications" },
+  { path: "/docs/cloud", title: "cmux Cloud" },
+  { path: "/docs/cloud/machines", title: "Cloud Machines" },
+  { path: "/docs/cloud/workspaces", title: "Cloud Workspaces and Agents" },
+  { path: "/docs/cloud/networking", title: "Cloud Files and Networking" },
+  { path: "/docs/cloud/cli", title: "Cloud CLI Reference" },
+  { path: "/docs/cloud/troubleshooting", title: "Cloud Security and Troubleshooting" },
+  { path: "/docs/coderouter", title: "CodeRouter" },
+  { path: "/docs/coderouter/agents", title: "CodeRouter Agents and Models" },
+  { path: "/docs/coderouter/cli", title: "CodeRouter CLI and Troubleshooting" },
   { path: "/docs/ssh", title: "SSH" },
   { path: "/docs/remote-tmux", title: "Remote tmux", locales: remoteTmuxDocsLocales },
   {
     path: "/docs/managed-policies",
     title: "Managed Policies (MDM)",
     locales: managedPoliciesDocsLocales,
+  },
+  {
+    path: "/docs/cloud-security",
+    title: "Cloud Security",
+    locales: cloudSecurityDocsLocales,
   },
   { path: "/docs/ios", title: "iOS App" },
   {

@@ -1,4 +1,7 @@
 name: cmux-tui Rust Testbox setup
+# The run title names the box, so an approver can bind a waiting run to its
+# Testbox before a runner takes the job (scripts/blacksmith-testbox-approve.sh).
+run-name: cmux-tui Rust Testbox setup ${{ inputs.testbox_id }}
 
 # Main-controlled broker. This workflow runs only from refs/heads/main and
 # hydrates only main, so no candidate branch can edit the guards that run
@@ -25,6 +28,9 @@ concurrency:
 jobs:
   cmux-tui-rust:
     name: cmux-tui Rust setup
+    # A Blacksmith Testbox exists only in the manaflow-ai organization. Skip
+    # elsewhere rather than queue forever for a runner a fork cannot have.
+    if: github.repository_owner == 'manaflow-ai'
     runs-on: blacksmith-32vcpu-ubuntu-2404
     environment:
       # Configure this environment with required reviewers, no secrets, and a
@@ -33,10 +39,12 @@ jobs:
       name: blacksmith-testbox-trusted
     permissions:
       contents: read
-    # Hydration plus three sequential 20-minute bounded remote builds happen
-    # after setup. Keep the GitHub job alive long enough for all stages and
-    # cleanup; the Testbox itself still has its separate idle timeout.
-    timeout-minutes: 120
+    # Hydration takes about two minutes; the rest of the job is the keepalive
+    # holding the VM while `blacksmith testbox run` commands arrive. The
+    # keepalive releases the runner after an idle timeout clamped to 15
+    # minutes, so this is only a hard ceiling for one continuously active
+    # session (observed sessions run 10-60 minutes).
+    timeout-minutes: 90
     steps:
       # Every check here is main-controlled. `blacksmith testbox warmup`
       # resolves both this file and the hydrated source from the same --ref, so
@@ -96,7 +104,12 @@ jobs:
       - name: Checkout hydration commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Full history, but blobless: the full clone of this repository is
+          # ~2.8 GB and took 70-180 s; commits and trees alone are ~135 MB.
+          # Blobs for later `git reset --hard <candidate>` are fetched on
+          # demand from the public origin.
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
           ref: ${{ github.sha }}
 

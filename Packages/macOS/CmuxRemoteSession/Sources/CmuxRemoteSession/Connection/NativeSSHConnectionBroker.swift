@@ -135,7 +135,8 @@ public final class NativeSSHConnectionBroker {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID else { return configuration }
         guard configuration.transport == .ssh else { return configuration }
         let effectiveOptions = sharingOptions.mergingDefaults(
-            into: configuration.sshOptions
+            into: configuration.sshOptions,
+            routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         )
         guard sharingOptions.cmuxOwnedControlPath(
             in: effectiveOptions
@@ -237,12 +238,14 @@ public final class NativeSSHConnectionBroker {
     func reapInheritedControlMaster(
         for configuration: WorkspaceRemoteConfiguration,
         resolvedControlPath: String,
-        metadataProbeCommand: String
+        metadataProbeCommand: String,
+        metadataProbeStdin: Data? = nil
     ) async -> NativeSSHControlMasterReapOutcome {
         await inheritedMasterReapCoordinator.reap(
             for: configuration,
             resolvedControlPath: resolvedControlPath,
-            metadataProbeCommand: metadataProbeCommand
+            metadataProbeCommand: metadataProbeCommand,
+            metadataProbeStdin: metadataProbeStdin
         )
     }
 

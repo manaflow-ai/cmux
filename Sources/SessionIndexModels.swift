@@ -149,11 +149,10 @@ enum OpenCodeDatabaseSnapshot {
         }
     }
 
-    private static let sourcePath = ("~/.local/share/opencode/opencode.db" as NSString).expandingTildeInPath
-
     static func make(prefix: String) throws -> Snapshot? {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else { return nil }
+        let sourceURL = OpenCodePaths(environment: ProcessInfo.processInfo.environment).databaseURL
+        guard fileManager.fileExists(atPath: sourceURL.path) else { return nil }
 
         let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
             "\(prefix)-\(UUID().uuidString)",
@@ -163,7 +162,7 @@ enum OpenCodeDatabaseSnapshot {
 
         let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
         do {
-            try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
+            try fileManager.copyItem(at: sourceURL, to: snapshotDB)
         } catch {
             try? fileManager.removeItem(at: snapshotDir)
             throw error
@@ -171,7 +170,7 @@ enum OpenCodeDatabaseSnapshot {
 
         do {
             for sidecar in ["-wal", "-shm"] {
-                let source = sourcePath + sidecar
+                let source = sourceURL.path + sidecar
                 let destination = snapshotDB.path + sidecar
                 if fileManager.fileExists(atPath: source) {
                     try fileManager.copyItem(atPath: source, toPath: destination)
@@ -202,7 +201,10 @@ enum AgentSpecifics: Hashable, Sendable {
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
-    case registered(CmuxVaultAgentRegistration)
+    case registered(
+        CmuxVaultAgentRegistration,
+        launchCommand: AgentLaunchCommandSnapshot? = nil
+    )
 }
 
 enum ClaudeConfigurationRoot {
@@ -264,10 +266,45 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
     let modified: Date
     let fileURL: URL?
     let specifics: AgentSpecifics
+    /// Session creation time when the source exposes it cheaply (file birth
+    /// time, SQL column); nil otherwise.
+    let created: Date?
+    /// Exact conversation message count when it is knowable without extra
+    /// scanning (whole file inside the metadata read cap, SQL count); nil when
+    /// unknown or approximate.
+    let messageCount: Int?
+
+    init(
+        id: String,
+        agent: SessionAgent,
+        sessionId: String,
+        title: String,
+        cwd: String?,
+        gitBranch: String?,
+        pullRequest: PullRequestLink?,
+        modified: Date,
+        fileURL: URL?,
+        specifics: AgentSpecifics,
+        created: Date? = nil,
+        messageCount: Int? = nil
+    ) {
+        self.id = id
+        self.agent = agent
+        self.sessionId = sessionId
+        self.title = title
+        self.cwd = cwd
+        self.gitBranch = gitBranch
+        self.pullRequest = pullRequest
+        self.modified = modified
+        self.fileURL = fileURL
+        self.specifics = specifics
+        self.created = created
+        self.messageCount = messageCount
+    }
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
-        if case .registered(let registration) = specifics,
+        if case .registered(let registration, _) = specifics,
            registration.cwd == .ignore {
             return nil
         }
@@ -293,7 +330,9 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
                 model: model,
                 permissionMode: permissionMode,
                 configDirectoryForResume: configDirectory
-            )
+            ),
+            created: created,
+            messageCount: messageCount
         )
     }
 
@@ -390,19 +429,20 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
                 model: model,
                 hermesHome: hermesHome
             )
-        case .registered(let registration):
+        case .registered(let registration, let launchCommand):
+            let capturedLaunch = launchCommand ?? AgentLaunchCommandSnapshot(
+                launcher: registration.id,
+                executablePath: nil,
+                arguments: [registration.defaultExecutable],
+                workingDirectory: resumeWorkingDirectory,
+                environment: nil,
+                capturedAt: nil,
+                source: "vault"
+            )
             if let command = AgentResumeCommandBuilder.resumeShellCommand(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
-                launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: registration.id,
-                    executablePath: nil,
-                    arguments: [registration.defaultExecutable],
-                    workingDirectory: resumeWorkingDirectory,
-                    environment: nil,
-                    capturedAt: nil,
-                    source: "vault"
-                ),
+                launchCommand: capturedLaunch,
                 workingDirectory: resumeWorkingDirectory,
                 registrationOverride: registration,
                 includeWorkingDirectoryPrefix: false
@@ -419,7 +459,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
     ) -> String {
         let assignments = environment
             .filter { key, _ in
-                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil
             }
             .sorted { $0.key < $1.key }
             .map { key, value in "\(key)=\(shellQuote(value))" }
@@ -434,7 +474,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         var parts: [String] = []
         let assignments = environment
             .filter { key, _ in
-                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*\z"#, options: .regularExpression) != nil
             }
             .sorted { $0.key < $1.key }
             .map { key, value in "\(key)=\(value)" }

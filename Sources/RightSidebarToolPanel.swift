@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CmuxAppKitSupportUI
+import CmuxCloudMachines
 import SwiftUI
 
 @MainActor
@@ -25,6 +26,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var herdModelStorage: HerdPanelModel?
     private var remoteFileOpenTask: Task<Void, Never>?
     private var workspaceObservationCancellable: AnyCancellable?
+    private var rootSyncTask: Task<Void, Never>?
+    private var rootSyncGeneration: UInt64 = 0
 
     init(
         workspace: Workspace,
@@ -44,6 +47,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     deinit {
         remoteFileOpenTask?.cancel()
+        rootSyncTask?.cancel()
     }
 
     var fileExplorerStore: FileExplorerStore {
@@ -102,6 +106,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     var displayIcon: String? { mode.symbolName }
 
     func reattach(to workspace: Workspace) {
+        rootSyncGeneration &+= 1
+        rootSyncTask?.cancel()
+        rootSyncTask = nil
         self.workspace = workspace
         observeWorkspaceRootChanges(workspace)
         syncWorkspaceRoot(from: workspace)
@@ -143,30 +150,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        if workspace.isRemoteWorkspace {
-            let store = fileExplorerStore
-            Task { [weak workspace, weak store] in
-                guard let workspace, let store else { return }
-                do {
-                    let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
-                        inPane: paneId,
-                        filePaths: [localURL.path],
-                        focus: true,
-                        reuseExisting: true
-                    )
-                } catch {
-                    NSSound.beep()
-                }
-            }
-            return
-        }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true
-        )
+        FileExplorerPreviewCoordinator(store: fileExplorerStore).open(path: filePath, workspace: workspace,
+            pane: paneId, isCurrent: { [weak self, weak workspace] in
+                guard let self, let workspace else { return false }
+                return self.workspace === workspace
+            })
     }
 
     private func openFileInWorkspace(_ filePath: String) {
@@ -208,6 +196,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     func close() {
         remoteFileOpenTask?.cancel()
         remoteFileOpenTask = nil
+        rootSyncGeneration &+= 1
+        rootSyncTask?.cancel(); rootSyncTask = nil
         fileExplorerContainerView = nil
         toolFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
@@ -268,10 +258,17 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+
         )
         .sink { [weak self, weak workspace] _ in
-            Task { @MainActor in
-                guard let self, let workspace else { return }
+            guard let self, let workspace, self.rootSyncTask == nil else { return }
+            self.rootSyncGeneration &+= 1
+            let generation = self.rootSyncGeneration
+            self.rootSyncTask = Task { @MainActor [weak self, weak workspace] in
+                defer { if self?.rootSyncGeneration == generation { self?.rootSyncTask = nil } }
+                guard let self, let workspace,
+                      self.workspace === workspace,
+                      self.rootSyncGeneration == generation else { return }
                 self.syncWorkspaceRoot(from: workspace)
             }
         }
@@ -280,37 +277,37 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
 
-        if workspace.usesRemoteDirectoryProvenance {
-            guard let configuration = workspace.remoteConfiguration,
-                  configuration.transport == .ssh else {
-                store.applyWorkspaceRoot(.none)
-                return
-            }
-            let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
+        // The shared resolver owns Cloud authority, observation and retry.
+        // Local and SSH roots stay pane-local: they follow this pane's terminal directory.
+        let resolved = FileExplorerWorkspaceRootResolver().resolve(workspace)
+        switch resolved {
+        case .remoteCloud:
+            store.syncWorkspaceRoot(from: workspace)
+        case .none:
+            store.applyWorkspaceRoot(.none)
+        case .remoteSSH(let workspaceId, let connection, let displayTarget, _, let isAvailable, let unavailableDetail):
+            store.workspaceRootObservation?.stop()
+            store.workspaceRootObservation = nil
             store.applyWorkspaceRoot(
                 .remoteSSH(
-                    workspaceId: workspace.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: configuration.destination,
-                        port: configuration.port,
-                        identityFile: configuration.identityFile,
-                        sshOptions: configuration.sshOptions
-                    ),
-                    displayTarget: configuration.displayTarget,
+                    workspaceId: workspaceId,
+                    connection: connection,
+                    displayTarget: displayTarget,
                     rootPath: resolvedFileExplorerDirectory(from: workspace),
-                    isAvailable: workspace.remoteConnectionState == .connected,
+                    isAvailable: isAvailable,
                     unavailableDetail: unavailableDetail
                 )
             )
-            return
+        case .local(let workspaceId, let fallbackPath):
+            store.workspaceRootObservation?.stop()
+            store.workspaceRootObservation = nil
+            store.applyWorkspaceRoot(
+                .local(
+                    workspaceId: workspaceId,
+                    path: resolvedFileExplorerDirectory(from: workspace) ?? fallbackPath
+                )
+            )
         }
-
-        guard let directory = resolvedFileExplorerDirectory(from: workspace) else {
-            store.applyWorkspaceRoot(.none)
-            return
-        }
-
-        store.applyWorkspaceRoot(.local(workspaceId: workspace.id, path: directory))
     }
 
     private func resolvedFileExplorerDirectory(from workspace: Workspace) -> String? {
@@ -404,16 +401,32 @@ struct RightSidebarToolPanelView: View {
         case .sessions:
             SessionIndexView(
                 store: panel.sessionIndexStore,
-                chromeBackgroundColor: resolvedChromeBackgroundColor,
                 onResume: { entry in
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                },
+                onOpen: { entry in
+                    SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
+                },
+                activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                onFocus: { entry in
+                    _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
                 }
             )
             .background(
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachToolFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock, .machines, .customSidebar:
+        case .machines:
+            if isVisibleInUI, RightSidebarMode.machines.isAvailable() {
+                MachinesPanelView(
+                    chromeBackgroundColor: resolvedChromeBackgroundColor,
+                    machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
+                    tabManager: tabManager,
+                    activationCoordinator: AppDelegate.shared?.cloudActivationCoordinator
+                        ?? CloudActivationCoordinator.unconfigured()
+                )
+            }
+        case .feed, .dock, .customSidebar:
             EmptyView()
         }
     }
@@ -426,9 +439,9 @@ struct RightSidebarToolPanelView: View {
     private func triggerFocusFlashAnimation() {
         focusFlashAnimationGeneration &+= 1
         let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
+        focusFlashOpacity = FocusFlashPattern.current.values.first ?? 0
 
-        for segment in FocusFlashPattern.segments {
+        for segment in FocusFlashPattern.current.segments {
             DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
                 guard focusFlashAnimationGeneration == generation else { return }
                 withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {

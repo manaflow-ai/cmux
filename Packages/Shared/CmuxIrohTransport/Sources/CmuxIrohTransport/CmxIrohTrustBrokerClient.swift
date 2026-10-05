@@ -279,8 +279,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             case lanRendezvousRotated = "lan_rendezvous_rotated"
         }
     }
-    private struct BrokerError: Decodable { let error: String }
-
     private let baseURL: URL
     private let tokenSource: CmxIrohBrokerTokenSource
     private let transport: any CmxIrohHTTPTransport
@@ -814,8 +812,11 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             // and indistinguishable from an unreachable broker for every
             // caller policy (retry, cached-policy fallback, verified-policy
             // preservation), so classify it as connectivity, not as a
-            // definitive authentication failure.
-            throw CmxIrohTrustBrokerClientError.connectivity
+            // definitive authentication failure. A URL-loading failure from
+            // the source's own refresh call keeps its code for attribution.
+            throw CmxIrohTrustBrokerClientError.connectivity(
+                (error as? URLError).map(CmxIrohBrokerConnectivityCause.init)
+            )
         }
         guard let pair = capturedPair else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
@@ -840,7 +841,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                throw CmxIrohTrustBrokerClientError.connectivity
+                throw CmxIrohTrustBrokerClientError.connectivity(
+                    (error as? URLError).map(CmxIrohBrokerConnectivityCause.init)
+                )
             }
             guard let recovered else { throw error }
             return try await performAuthenticatedRequest(
@@ -925,7 +928,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         do {
             (data, response) = try await transport.data(for: request)
         } catch let error as URLError where Self.isConnectivityFailure(error.code) {
-            throw CmxIrohTrustBrokerClientError.connectivity
+            throw CmxIrohTrustBrokerClientError.connectivity(
+                CmxIrohBrokerConnectivityCause(error)
+            )
         }
         guard let http = response as? HTTPURLResponse else {
             throw CmxIrohTrustBrokerClientError.nonHTTPResponse
@@ -934,12 +939,25 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
         guard (200 ... 299).contains(http.statusCode) else {
-            let code = try? JSONDecoder().decode(BrokerError.self, from: data).error
-            if http.statusCode == 429,
+            let body = try? JSONDecoder().decode(CmxIrohTrustBrokerError.self, from: data)
+            let code = body.map { payload in
+                payload.source.map { "\(payload.error):\($0.rawValue)" } ?? payload.error
+            }
+            if http.statusCode == 429 {
+                let retryAfterSeconds = Self.retryAfterSeconds(
+                    http.value(forHTTPHeaderField: "Retry-After")
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
+                throw CmxIrohTrustBrokerClientError.rateLimited(
+                    code: code,
+                    retryAfterSeconds: retryAfterSeconds
+                )
+            }
+            if (500 ... 599).contains(http.statusCode),
                let retryAfterSeconds = Self.retryAfterSeconds(
                    http.value(forHTTPHeaderField: "Retry-After")
                ) {
-                throw CmxIrohTrustBrokerClientError.rateLimited(
+                throw CmxIrohTrustBrokerClientError.rejectedWithRetryAfter(
+                    statusCode: http.statusCode,
                     code: code,
                     retryAfterSeconds: retryAfterSeconds
                 )
@@ -973,15 +991,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     private static func retryAfterSeconds(_ value: String?) -> Int? {
-        guard let value,
-              !value.isEmpty,
-              value.utf8.allSatisfy({ (48 ... 57).contains($0) }),
-              let seconds = Int(value),
-              (1 ... CmxIrohBrokerCooldown.maximumRetryAfterSeconds).contains(seconds),
-              String(seconds) == value else {
-            return nil
-        }
-        return seconds
+        CmxRetryAfterPolicy().seconds(from: value)
     }
 
     private static func relayTokenResponse(

@@ -1103,7 +1103,9 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(error.code, "mutation.indeterminate");
+        // The close transaction rolled back before any effect ran, so its
+        // failure is committed as the key's durable outcome.
+        assert_eq!(error.code, "operation.failed");
         mux.set_resource_patch_failure_for_test(false);
 
         let replay = dispatch(
@@ -1116,7 +1118,8 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(replay.code, "mutation.indeterminate");
+        assert_eq!(replay.code, error.code);
+        assert_eq!(replay.message, error.message);
 
         assert_eq!(mux.with_state(|state| state.resource_revision), before_resource);
         assert_eq!(mux.with_state(|state| state.workspace_revision), before_workspace);
@@ -1796,6 +1799,159 @@ mod tests {
     }
 
     #[test]
+    fn cloud_rename_authority_preserves_existing_tab_wire_contract() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "rename-wire-contract");
+        let tab = created["value"]["tab_id"].as_str().unwrap();
+        let before = mux.resource_event_epoch();
+        let renamed = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({"name":"Logs / 東京"}),
+                Some("rename-wire-contract-name"),
+            ),
+        )
+        .unwrap();
+        // Released SDKs reject unknown tab siblings but preserve the extension map.
+        let legacy_schema = json!({
+            "type":"object", "additionalProperties":false,
+            "required":["id", "pane_id", "name", "index", "focused", "content_kind", "content_id"],
+            "properties":{
+                "id":{}, "pane_id":{}, "name":{}, "index":{}, "focused":{},
+                "content_kind":{}, "content_id":{}, "extra":{"type":"object"}
+            }
+        });
+        let validator = jsonschema::validator_for(&legacy_schema).unwrap();
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let observed =
+            snapshot["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap();
+        let events = mux.resource_events_after(before).unwrap();
+        let changes = events.batches.last().unwrap().changes.as_array().unwrap();
+        let delta = changes.iter().find(|value| value["id"] == tab).unwrap();
+        let journaled = &delta["value"];
+        for value in [&renamed["value"], observed, journaled] {
+            assert!(validator.is_valid(value), "tab response broke a released SDK: {value}");
+            assert_eq!(value["name"], "Logs / 東京");
+            assert_eq!(value["extra"]["name_source"], "user");
+            assert_eq!(value["extra"]["name_revision"], renamed["revision"]);
+        }
+    }
+
+    #[test]
+    fn cloud_rename_authority_rejects_unversioned_callback() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "unversioned-name");
+        let tab = created["value"]["tab_id"].as_str().unwrap();
+        let before = public_session_snapshot(&mux).unwrap();
+        let error = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({"name":"auto", "source":"auto"}),
+                Some("unversioned-auto"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+        let after = public_session_snapshot(&mux).unwrap();
+        assert_eq!(after["tabs"], before["tabs"]);
+        assert_eq!(after["cursor"], before["cursor"]);
+    }
+
+    #[test]
+    fn cloud_rename_authority_user_name_rejects_automatic_callback() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "rename-authority-user");
+        let tab = created["value"]["tab_id"].as_str().unwrap();
+        let user_name = "API – 東京 🚀 / terminal: 1";
+        let user = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({"name":user_name}),
+                Some("rename-authority-user-name"),
+            ),
+        )
+        .unwrap();
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let automatic = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({
+                    "name":"Calculate 2+2", "source":"auto",
+                    "expected_generation":snapshot["cursor"]["generation"],
+                    "expected_name_revision":user["revision"],
+                }),
+                Some("rename-authority-late-auto"),
+            ),
+        );
+        assert!(automatic.is_err(), "an automatic callback cannot replace an explicit name");
+        let latest = public_session_snapshot(&mux).unwrap();
+        assert_eq!(
+            latest["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()["name"],
+            user_name
+        );
+    }
+
+    #[test]
+    fn cloud_rename_authority_rejects_older_automatic_result() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "rename-authority-auto");
+        let tab = created["value"]["tab_id"].as_str().unwrap();
+        let cleared = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({"name":null}),
+                Some("rename-authority-clear"),
+            ),
+        )
+        .unwrap();
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let fields = |name| {
+            json!({
+                "name":name, "source":"auto",
+                "expected_generation":snapshot["cursor"]["generation"],
+                "expected_name_revision":cleared["revision"],
+            })
+        };
+        let first = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                fields("Calculate 2+2"),
+                Some("rename-authority-new-auto"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(first["value"]["name"], "Calculate 2+2");
+        assert_eq!(first["value"]["extra"]["name_source"], "auto");
+        let delayed = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                fields("Old conversation"),
+                Some("rename-authority-old-auto"),
+            ),
+        );
+        assert!(delayed.is_err(), "one captured name revision accepts at most one rename");
+        let latest = public_session_snapshot(&mux).unwrap();
+        assert_eq!(
+            latest["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()["name"],
+            "Calculate 2+2"
+        );
+    }
+
+    #[test]
     fn pure_topology_mutations_preserve_exact_public_snapshots() {
         let mux = mux();
         let created = terminal_workspace(&mux, "pure-topology");
@@ -1976,5 +2132,67 @@ mod tests {
         )
         .unwrap();
         assert_eq!(focused_workspace["value"]["focused"], true);
+    }
+
+    #[test]
+    fn tab_create_terminal_in_workspace_adds_a_selected_tab_to_its_focused_pane() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "workspace-tab");
+        let workspace = created["value"]["workspace_id"].as_str().unwrap().to_string();
+        let first_pane = created["value"]["pane_id"].as_str().unwrap().to_string();
+        let split = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::PaneSplit,
+                selectors(None, None, Some(&first_pane), None),
+                json!({"direction":"right","ratio":0.5}),
+                Some("workspace-tab-split"),
+            ),
+        )
+        .unwrap();
+        let second_pane = split["value"]["pane_id"].as_str().unwrap().to_string();
+
+        // Focus each pane in turn so the target cannot be the newest pane by
+        // coincidence.
+        for (round, pane) in [&first_pane, &second_pane, &first_pane].into_iter().enumerate() {
+            let focus_key = format!("workspace-tab-focus-{round}");
+            let create_key = format!("workspace-tab-create-{round}");
+            dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::PaneFocus,
+                    selectors(None, None, Some(pane), None),
+                    json!({}),
+                    Some(&focus_key),
+                ),
+            )
+            .unwrap();
+            let tab = dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::TabCreateTerminal,
+                    selectors(Some(&workspace), None, None, None),
+                    json!({"name":"phone tab"}),
+                    Some(&create_key),
+                ),
+            )
+            .unwrap();
+            assert_eq!(tab["value"]["kind"], "terminal");
+            assert_eq!(tab["value"]["workspace_id"], workspace);
+            assert_eq!(tab["value"]["pane_id"], *pane, "round {round}");
+            let tab_id = tab["value"]["tab_id"].as_str().unwrap();
+            let snapshot = dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::TabGet,
+                    selectors(None, None, None, Some(tab_id)),
+                    json!({}),
+                    None,
+                ),
+            )
+            .unwrap();
+            assert_eq!(snapshot["focused"], true, "round {round}: the new tab is selected");
+        }
+        mux.shutdown();
     }
 }

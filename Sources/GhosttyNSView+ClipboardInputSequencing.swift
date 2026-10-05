@@ -68,6 +68,7 @@ extension GhosttyNSView {
         ) { [weak self] deferredInput in
             self?.replayClipboardDeferredInput(deferredInput)
         }
+        scheduleMouseRepairAfterClipboardDrainIfNeeded()
     }
 
     func cancelClipboardRead(
@@ -82,6 +83,7 @@ extension GhosttyNSView {
         ) { [weak self] deferredInput in
             self?.replayClipboardDeferredInput(deferredInput)
         }
+        scheduleMouseRepairAfterClipboardDrainIfNeeded()
     }
 
     func cancelReservedClipboardRead(
@@ -98,6 +100,12 @@ extension GhosttyNSView {
         ) { [weak self] deferredInput in
             self?.replayClipboardDeferredInput(deferredInput)
         }
+        scheduleMouseRepairAfterClipboardDrainIfNeeded()
+    }
+
+    private func scheduleMouseRepairAfterClipboardDrainIfNeeded() {
+        guard !hasClipboardInputDeferral else { return }
+        reconcileGhosttyMouseButtons(reason: "clipboardInputDrained")
     }
 
     func routeInputDuringClipboardRead(_ event: NSEvent) -> Bool {
@@ -124,6 +132,15 @@ extension GhosttyNSView {
     ) rethrows -> Result {
         guard let terminalSurface else { return try body() }
         return try terminalSurface.withRuntimeClipboardPasteIntent(body)
+    }
+
+    func withPointerDispatchIntents<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        guard let terminalSurface else { return try body() }
+        return try terminalSurface.withRuntimeClipboardPasteIntent {
+            try terminalSurface.withPointerSelectionCopyIntent(body)
+        }
     }
 
     private func replayClipboardDeferredInput(

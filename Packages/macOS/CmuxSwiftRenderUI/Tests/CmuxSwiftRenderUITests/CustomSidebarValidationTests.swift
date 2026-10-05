@@ -22,6 +22,37 @@ struct CustomSidebarValidationTests {
         #expect(urls.map(\.lastPathComponent) == ["finder.swift"])
     }
 
+    @Test("prefers a JS file over Swift and JSON with the same name")
+    func discoversJSFirst() throws {
+        let directory = try temporaryDirectory()
+        try """
+        sidebar(() => Text("JS"))
+        """.write(to: directory.appendingPathComponent("finder.js"), atomically: true, encoding: .utf8)
+        try """
+        Text("Swift")
+        """.write(to: directory.appendingPathComponent("finder.swift"), atomically: true, encoding: .utf8)
+
+        let urls = validator.discover(in: directory)
+        #expect(urls.map(\.lastPathComponent) == ["finder.js"])
+
+        let report = validator.validate(directory: directory)
+        #expect(report.errorCount == 0)
+        #expect(report.entries.first?.kind == .js)
+    }
+
+    @Test("reports JS programs that throw")
+    func reportsThrowingJSProgram() throws {
+        let directory = try temporaryDirectory()
+        try """
+        sidebar(() => missingBuilder())
+        """.write(to: directory.appendingPathComponent("broken.js"), atomically: true, encoding: .utf8)
+
+        let report = validator.validate(directory: directory)
+        #expect(report.validCount == 0)
+        #expect(report.errorCount == 1)
+        #expect(report.entries.first?.errorMessage?.isEmpty == false)
+    }
+
     @Test("reports JSON schema errors with root path")
     func reportsMissingJSONVersion() throws {
         let directory = try temporaryDirectory()
@@ -67,10 +98,12 @@ struct CustomSidebarValidationTests {
     func downloadableCustomSidebarExamplesValidate() throws {
         let directory = examplesDirectory()
         let report = validator.validate(directory: directory, dataContext: Self.richSidebarContext)
+        // manifest.json is the built-in template catalog's index, not a sidebar.
+        let sidebars = report.entries.filter { $0.name != "manifest" }
 
-        #expect(report.names.sorted() == ["finder", "status-board"])
-        #expect(report.validCount == 2)
-        #expect(report.errorCount == 0)
+        #expect(sidebars.map(\.name).sorted() == ["activity", "agents-board", "agents-cards", "agents-dense", "agents-focus", "agents-timeline", "btop-agents", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info", "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces"])
+        #expect(sidebars.filter(\.isValid).count == 19)
+        #expect(sidebars.filter { !$0.isValid }.map(\.name) == [])
     }
 
     @MainActor
@@ -152,6 +185,7 @@ struct CustomSidebarValidationTests {
                 "ports": .array([.int(3801), .int(5173)]),
                 "portCount": .int(2),
                 "unread": .int(2),
+                "status": .string("needs-attention"),
                 "tabCount": .int(2),
                 "description": .string("Crash fix"),
                 "color": .string("#0A84FF"),
@@ -177,6 +211,54 @@ struct CustomSidebarValidationTests {
                     "target": .string("aws-m4pro-1"),
                     "state": .string("connected"),
                     "connected": .bool(true),
+                ]),
+                "agents": .array([
+                    .object([
+                        "id": .string("session-claude-1"),
+                        "kind": .string("claude"),
+                        "name": .string("Claude"),
+                        "status": .string("working"),
+                        "sinceEpoch": .int(1_779_999_900),
+                        "lastActivityAt": .int(1_779_999_960),
+                        "title": .string("Fix the crash and add coverage"),
+                        "panelId": .string("panel-terminal"),
+                        "surfaceId": .string("surface-terminal"),
+                        "directory": .string("/Users/me/src/cmux"),
+                        "transcriptPath": .string("/Users/me/.claude/projects/cmux/session-claude-1.jsonl"),
+                        "pid": .int(4242),
+                        "children": .array([
+                            .object([
+                                "id": .string("task-1"),
+                                "label": .string("Explore the render pipeline"),
+                                "running": .bool(true),
+                                "startedEpoch": .int(1_779_999_930),
+                            ]),
+                            .object([
+                                "id": .string("task-2"),
+                                "label": .string("Audit tests"),
+                                "running": .bool(false),
+                                "startedEpoch": .int(1_779_999_905),
+                                "endedEpoch": .int(1_779_999_950),
+                            ]),
+                        ]),
+                    ]),
+                    .object([
+                        "id": .string("session-codex-1"),
+                        "kind": .string("codex"),
+                        "name": .string("Codex"),
+                        "status": .string("needs_input"),
+                        "sinceEpoch": .int(1_779_999_800),
+                        "lastActivityAt": .int(1_779_999_800),
+                        "surfaceId": .string("surface-browser"),
+                    ]),
+                    .object([
+                        "id": .string("session-ended-1"),
+                        "kind": .string("claude"),
+                        "name": .string("Claude"),
+                        "status": .string("ended"),
+                        "lastActivityAt": .int(1_779_990_000),
+                        "title": .string("Earlier refactor"),
+                    ]),
                 ]),
                 "tabs": .array([
                     .object([
@@ -211,6 +293,7 @@ struct CustomSidebarValidationTests {
                 "ports": .array([]),
                 "portCount": .int(0),
                 "unread": .int(2),
+                "status": .string("review"),
                 "tabCount": .int(1),
                 "description": .string("Review branch"),
                 "branch": .string("main"),
@@ -252,6 +335,7 @@ struct CustomSidebarValidationTests {
                 "ports": .array([]),
                 "portCount": .int(0),
                 "unread": .int(0),
+                "status": .string("todo"),
                 "tabCount": .int(0),
                 "description": .string(""),
                 "branch": .string("main"),

@@ -1,13 +1,14 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { openVmPort, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
+import { openVmPort } from "../../../../../services/vms/workflows";
+import { desktopWrapperUrl } from "../../../../../services/vms/desktopWrapper";
 
 
 export async function POST(
@@ -55,19 +56,29 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id, "cmux.vm.port": port });
-      try {
-        const endpoint = await runVmWorkflow(openVmPort({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          port,
-        }));
-        return jsonResponse(endpoint);
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(openVmPort({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        callerPlanId: account.entitlements.planId,
+        modelPlane: vmModelPlaneRevoker(),
+        teamIds: user.teamIds,
+        providerVmId: id,
+        port,
+      }), { request });
+      if (!run.ok) return run.response;
+      const endpoint = run.value;
+      // People see and keep openUrl, so it points at the cmux desktop
+      // wrapper (`cmux_token` on our origin, honest expiry screen); the raw
+      // gateway URL and token stay available for programmatic callers.
+      const wrapped = desktopWrapperUrl({
+        origin: new URL(request.url).origin,
+        vmId: id,
+        upstreamUrl: endpoint.url,
+        token: endpoint.token,
+        expiresAtMs: endpoint.expiresAtMs,
+      });
+      return jsonResponse(wrapped ? { ...endpoint, openUrl: wrapped } : endpoint);
     },
   );
 }

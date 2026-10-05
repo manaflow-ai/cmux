@@ -25,7 +25,8 @@ struct VaultRestoreRelaunchPersistenceTests {
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: snapshot,
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
@@ -49,7 +50,8 @@ struct VaultRestoreRelaunchPersistenceTests {
         let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: data)
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(decoded)
@@ -78,7 +80,8 @@ struct VaultRestoreRelaunchPersistenceTests {
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: snapshot,
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { source.teardownAllPanels() }
         let persisted = source.sessionSnapshot(includeScrollback: false)
@@ -87,7 +90,8 @@ struct VaultRestoreRelaunchPersistenceTests {
 
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(
@@ -114,7 +118,7 @@ struct VaultRestoreRelaunchPersistenceTests {
     }
 
     @Test("Tab manager publishes restored workspaces before releasing terminals")
-    func tabManagerRestoreReleasesDeferredAdmission() throws {
+    func tabManagerRestoreReleasesDeferredAdmission() async throws {
         let launch = try makeLaunch(sessionID: "vault-tab-manager-admission")
         let snapshot = try #require(launch.startupRestoreAgent)
         let defaults = try makeAutoResumeDefaults()
@@ -125,7 +129,8 @@ struct VaultRestoreRelaunchPersistenceTests {
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: snapshot,
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { source.teardownAllPanels() }
         let persistedWorkspace = source.sessionSnapshot(includeScrollback: false)
@@ -145,12 +150,14 @@ struct VaultRestoreRelaunchPersistenceTests {
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredPanelID))
 
         #expect(manager.tabs.contains { $0 === restoredWorkspace })
+        // Tab topology commits synchronously; the fresh ownership scan owns admission.
+        await restoredWorkspace.deferredAgentResumeIndexTask?.value
         #expect(restoredPanel.surface.canCreateRuntimeSurface)
         #expect(restoredPanel.surface.debugInitialInputForTesting() == launch.initialInput)
     }
 
-    @Test("Cancelling a staged relaunch releases its launch claim and closes the terminal")
-    func cancelledRelaunchRestoreReleasesClaimAndClosesTerminal() throws {
+    @Test("Cancelling a staged relaunch needs no pre-exec claim and closes the terminal")
+    func cancelledRelaunchRestoreNeedsNoClaimAndClosesTerminal() throws {
         let sessionID = "vault-cancelled-relaunch-\(UUID().uuidString)"
         let launch = try makeLaunch(sessionID: sessionID)
         let snapshot = try #require(launch.startupRestoreAgent)
@@ -168,7 +175,8 @@ struct VaultRestoreRelaunchPersistenceTests {
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: snapshot,
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { source.teardownAllPanels() }
         let persisted = source.sessionSnapshot(includeScrollback: false)
@@ -176,7 +184,8 @@ struct VaultRestoreRelaunchPersistenceTests {
 
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(
@@ -188,10 +197,14 @@ struct VaultRestoreRelaunchPersistenceTests {
 
         #expect(!restoredPanel.surface.canCreateRuntimeSurface)
         #expect(
-            !AgentResumeLaunchGuard.shared.claimResumeLaunch(
+            AgentResumeLaunchGuard.shared.claimResumeLaunch(
                 kind: snapshot.kind.rawValue,
                 sessionId: sessionID
             )
+        )
+        AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+            kind: snapshot.kind.rawValue,
+            sessionId: sessionID
         )
 
         restored.terminalStartupRestoreCoordinator.cancelPendingRestore(
@@ -199,12 +212,6 @@ struct VaultRestoreRelaunchPersistenceTests {
         )
 
         #expect(restoredPanel.surface.debugTeardownRequest().requestedAt != nil)
-        #expect(
-            AgentResumeLaunchGuard.shared.claimResumeLaunch(
-                kind: snapshot.kind.rawValue,
-                sessionId: sessionID
-            )
-        )
     }
 
     @Test("Cancelling a Vault startup preserves a resume claim owned elsewhere")
@@ -230,7 +237,8 @@ struct VaultRestoreRelaunchPersistenceTests {
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: snapshot,
             initialTerminalStartupRestoreCommitOwner: .tabManagerTopology,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { workspace.teardownAllPanels() }
         let panelID = try #require(workspace.focusedPanelId)
@@ -260,7 +268,8 @@ struct VaultRestoreRelaunchPersistenceTests {
 
         let source = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
@@ -269,7 +278,6 @@ struct VaultRestoreRelaunchPersistenceTests {
             panel: sourcePanel,
             snapshot: snapshot,
             manualResumeAvailable: true,
-            willRunStartupCommand: false,
             willRunStartupInput: false,
             resumeWorkingDirectory: launch.workingDirectory
         )
@@ -288,7 +296,8 @@ struct VaultRestoreRelaunchPersistenceTests {
 
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(persisted)
@@ -385,7 +394,8 @@ struct VaultRestoreRelaunchPersistenceTests {
         }
         let source = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { source.teardownAllPanels() }
         let dockWorkspaceID = UUID()
@@ -393,7 +403,8 @@ struct VaultRestoreRelaunchPersistenceTests {
             workspaceId: dockWorkspaceID,
             baseDirectoryProvider: { nil },
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: resumeIntentRecorder
+            agentChatResumeIntentRecorder: resumeIntentRecorder,
+            restorableAgentIndexProvider: { .empty }
         )
         defer { dock.closeAllPanels() }
         let savedPanelID = UUID()

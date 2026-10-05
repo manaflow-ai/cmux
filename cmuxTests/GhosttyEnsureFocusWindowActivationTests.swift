@@ -116,7 +116,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = tabManager.addWorkspace(select: true)
         let mainPanelID = try #require(workspace.focusedPanelId)
-        let workspaceDock = workspace.dockSplit
+        let workspaceDock = try #require(workspace.dockSplit)
         let dockPane = try #require(workspaceDock.bonsplitController.allPaneIds.first)
         let dockPanelID = try #require(workspaceDock.newSurface(
             kind: .terminal,

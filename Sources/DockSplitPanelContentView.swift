@@ -11,6 +11,10 @@ struct DockSplitPanelContentView: View, Equatable {
         let workspaceID: UUID
         let panelID: UUID
         let panelType: PanelType
+        // Deferred browser placeholders and their materialized BrowserPanel share
+        // the same panel type and stable ID. Include the implementation state so
+        // `.equatable()` rebuilds this slot when WebKit is installed.
+        let isDeferredBrowser: Bool
         let tabID: TabID
         let paneID: PaneID
         let rightSidebarOwnsInputFocus: Bool
@@ -60,6 +64,7 @@ struct DockSplitPanelContentView: View, Equatable {
             workspaceID: store.workspaceId,
             panelID: panel.id,
             panelType: panel.panelType,
+            isDeferredBrowser: panel is DeferredBrowserPanel,
             tabID: tabID,
             paneID: paneID,
             rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
@@ -115,7 +120,13 @@ struct DockSplitPanelContentView: View, Equatable {
             onAutoResumeAgentHibernation: {
                 _ = store.resumeAgentHibernation(panelId: panel.id, focus: false)
             },
-            onTriggerFlash: {}
+            onTriggerFlash: {},
+            onRequestDeferredBrowserMaterialization: {
+                store.requestDeferredBrowserMaterialization(
+                    panelId: panel.id,
+                    isVisibleInUI: isVisibleInUI
+                )
+            }
         )
     }
 }
