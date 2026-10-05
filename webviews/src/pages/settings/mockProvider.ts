@@ -183,6 +183,7 @@ export class MockSettingsProvider {
     ],
     theme: { levels: ["room", "workspace", "terminal"], current: { room: null, workspace: "Dracula", terminal: null } },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
+    ghostty_diagnostics: [],
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
     backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" }],
   };

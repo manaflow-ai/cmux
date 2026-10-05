@@ -8,15 +8,15 @@ import CmuxNextTerminal
 /// The Settings page's Ghostty config group shows the same report.
 @MainActor
 struct GhosttyDiagnosticsControl {
-    /// The applied config's diagnostics (`GhosttyRuntime.configDiagnosticsReport`).
+    /// The applied config's diagnostics (`GhosttyDiagnosticsModel`).
     let diagnostics: @MainActor () -> [GhosttyConfigDiagnostic]
     /// The files behind it, in load order.
     let files: @MainActor () -> [String]
 
     static let methodName = "ghostty.diagnostics"
 
-    init(diagnostics: @escaping @MainActor () -> [GhosttyConfigDiagnostic] = { GhosttyRuntime.shared.configDiagnosticsReport },
-         files: @escaping @MainActor () -> [String] = { GhosttyRuntime.shared.loadedConfigFiles }) {
+    init(diagnostics: @escaping @MainActor () -> [GhosttyConfigDiagnostic] = { GhosttyDiagnosticsModel.shared.diagnostics },
+         files: @escaping @MainActor () -> [String] = { GhosttyDiagnosticsModel.shared.files }) {
         self.diagnostics = diagnostics
         self.files = files
     }

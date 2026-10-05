@@ -14,10 +14,23 @@ final class GhosttyDiagnosticsModel {
     private(set) var files: [String] = []
 
     @ObservationIgnored private let read: @MainActor () -> ([GhosttyConfigDiagnostic], [String])
+    @ObservationIgnored private var observer: (any NSObjectProtocol)?
 
     init(read: @escaping @MainActor () -> ([GhosttyConfigDiagnostic], [String]) = {
         (GhosttyRuntime.shared.configDiagnosticsReport, GhosttyRuntime.shared.loadedConfigFiles)
     }, notifications: NotificationCenter = .default) {
         self.read = read
+        refresh()
+        observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
+            // crash-allow: the observer runs on the main queue (queue: .main), so the main actor holds.
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+    }
+
+    /// Reads the applied config's diagnostics again.
+    func refresh() {
+        let (diagnostics, files) = read()
+        if diagnostics != self.diagnostics { self.diagnostics = diagnostics }
+        if files != self.files { self.files = files }
     }
 }
