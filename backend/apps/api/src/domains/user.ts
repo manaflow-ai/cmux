@@ -78,7 +78,7 @@ export const iosGrantsToMigrate = (state: UserState): Array<string> =>
  */
 export const inboxRefusalFor = (state: UserState, entity: string, principal: Principal, op: string): { code: string; message: string } | undefined => {
   if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
-  if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+  if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
   return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
 }
 
@@ -90,6 +90,9 @@ export const installActive = (state: UserState, p: Principal) => {
   // A chief token (principal.agent): the chief must be this user's and not archived (instant chief revocation).
   return p.agent === undefined || chiefActive(state, p.agent)
 }
+
+/** installActive, and not a VM install: a VM install (kind vm) never reads or changes its creator's account (review P1). */
+export const userPathAllowed = (state: UserState, p: Principal) => installActive(state, p) && (p.install === undefined || state.installs[p.install]?.kind !== "vm")
 
 /** True for an unarchived chief of this user. */
 export const chiefActive = (state: UserState, agent: string): boolean => {
@@ -150,7 +153,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
       confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
-    if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+    if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
     return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now()) ?? confirmRefused()
   },
 

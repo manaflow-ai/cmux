@@ -54,7 +54,7 @@ describe("VM install at bind", { timeout: 60_000 }, () => {
     expect(self.body, JSON.stringify(self.body)).toMatchObject({ value: { machine: { id: s.machine } } })
     expect((await read(s.vmToken, "cloud.vm.self.get", { machine: "vm_00000000000000000009" })).status).toBe(403)
     expect((await read(s.vmToken, "cloud.machine.list", {})).status).toBe(403)
-    expect((await op(s.vmToken, "cloud.machine.link_token", { host: s.bound.body.value.host, services: ["ssh"] })).body.ok).toBe(false)
+    expect((await op(s.vmToken, "cloud.machine.link_token", { host: s.bound.body.value.host, services: ["ssh"] })).status).toBe(403)
     // A person's mac install cannot use the VM ops.
     expect((await read(s.a.installToken, "cloud.vm.self.get", { machine: s.machine })).status).toBe(403)
   })

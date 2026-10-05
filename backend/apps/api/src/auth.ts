@@ -99,13 +99,15 @@ export interface InstallClaims {
   readonly email_domain?: string
   /** A chief of the user this token acts as (claim `agt`); confirmed by UserDO on every request. */
   readonly agent?: string
+  /** A VM install (kind vm): claim `vm`, so every entry point refuses it except the cloud.vm.* ops. */
+  readonly vm?: true
 }
 
 export const mintAccessToken = async (env: Env, c: InstallClaims) => {
   const { key, kid } = await signer(env)
   const now = Math.floor(Date.now() / 1000)
   const exp = now + ACCESS_TOKEN_TTL_SECONDS
-  const token = await new SignJWT({ team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}) })
+  const token = await new SignJWT({ team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}) })
     .setProtectedHeader({ alg: "ES256", kid, typ: "JWT" })
     .setIssuer(issuer(env))
     .setAudience("api")
@@ -124,7 +126,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       audience: "api",
       clockTolerance: 30
     })
-    const { sub, team, inst, grant, exp, sso_team, edom, agt } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown }
+    const { sub, team, inst, grant, exp, sso_team, edom, agt, vm } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown; edom?: unknown; agt?: unknown; vm?: unknown }
     if (typeof sub !== "string" || typeof team !== "string" || typeof inst !== "string" || typeof grant !== "string") return undefined
     return {
       kind: "install",
@@ -136,7 +138,8 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       ...(typeof exp === "number" ? { expires_at: exp * 1000 } : {}),
       ...(typeof sso_team === "string" ? { sso_team } : {}),
       ...(typeof edom === "string" ? { email_domain: edom } : {}),
-      ...(typeof agt === "string" ? { agent: agt } : {})
+      ...(typeof agt === "string" ? { agent: agt } : {}),
+      ...(vm === true ? { install_kind: "vm" } : {})
     }
   } catch {
     return undefined

@@ -20,6 +20,9 @@ export const applyVmStatus = (state: CloudState, params: unknown, ctx: ReduceCon
   const stored = (ctx.rows as RowReader | undefined)?.get<MachineRow>(TABLE_MACHINE, outer.value.machine)
   if (!stored?.row) return reject("cloud.machine.not_found", "no such machine")
   const m = stored.row
+  // A report held from an install the machine no longer names (a re-bind in between) never applies (review P3).
+  const from = (outer.value.report as { install?: unknown } | null)?.install
+  if (typeof from === "string" && m.vm_install !== from) return { ok: true, state, value: { applied: false }, changed: false }
   const daemonChanged = m.daemon?.version !== r.daemon.version || JSON.stringify(m.daemon?.capabilities ?? []) !== JSON.stringify(r.daemon.capabilities)
   const rev = daemonChanged ? state.rev + 1 : state.rev
   const row: MachineRow = {

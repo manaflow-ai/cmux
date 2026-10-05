@@ -44,6 +44,9 @@ type ChallengeResult = { ok: true; nonce: string; expires_at: number } | { ok: f
 
 const env = workerEnv as unknown as Env
 
+/** VM install at bind (review P1): a VM token reaches only the cloud.vm.* ops for its own machine. */
+const vmRefused = (p: Principal, op: string) => p.install_kind === "vm" && !op.startsWith("cloud.vm.")
+
 const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   kind: p.kind,
   identity: p.identity,
@@ -56,7 +59,8 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   ...(p.email !== undefined ? { email: p.email } : {}),
   ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
   ...(p.display_name ? { display_name: p.display_name } : {}),
-  ...(p.sso_team ? { sso_team: p.sso_team } : {})
+  ...(p.sso_team ? { sso_team: p.sso_team } : {}),
+  ...(p.install_kind ? { install_kind: p.install_kind } : {})
 })
 
 const userStub = (user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
@@ -205,6 +209,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
       Effect.gen(function* () {
         const shape = yield* CurrentPrincipal
         const principal = toPrincipal(shape)
+        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
         const notLive = cloudNotLive(def.owner, payload.op)
@@ -368,6 +373,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     .handle("read", ({ payload }) =>
       Effect.gen(function* () {
         const principal = toPrincipal(yield* CurrentPrincipal)
+        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
         const notLive = cloudNotLive(def.owner, payload.op)
@@ -468,7 +474,8 @@ const AuthorizationLive = Layer.succeed(Authorization)(
           ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
           ...(p.display_name ? { display_name: p.display_name } : {}),
           ...(p.sso_team ? { sso_team: p.sso_team } : {}),
-          ...(p.stack_session ? { stack_session: p.stack_session } : {})
+          ...(p.stack_session ? { stack_session: p.stack_session } : {}),
+          ...(authed.install_kind === "vm" ? { install_kind: "vm" } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)
       })

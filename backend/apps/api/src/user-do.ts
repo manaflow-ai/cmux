@@ -6,7 +6,7 @@ import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
-import { chiefActive, grantFor, inboxRefusalFor, installActive, iosGrantsToMigrate, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, inboxRefusalFor, installActive, iosGrantsToMigrate, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
@@ -55,7 +55,7 @@ export class UserDO extends OwnerDO<UserState> {
       // The list order index is derived owner data: its writes never reach subscribers.
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
-      maySubscribe: (_head, principal, entity) => principal.user === entity
+      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.install_kind !== "vm" && !(principal.install !== undefined && this.existing()?.currentState.installs[principal.install]?.kind === "vm")
     }, (ws, a) => this.socketLive(ws, a))
   }
 
@@ -326,7 +326,7 @@ export class UserDO extends OwnerDO<UserState> {
   protected read(state: UserState, op: string, params: unknown, principal: Principal): ReadResult {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
     // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
-    if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
+    if (!userPathAllowed(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
     if (op === "chief.list") {
       const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
       return refused ? { ok: false, ...refused } : { ok: true, value: chiefList(state, Date.now(), (params as { include_archived?: unknown } | null)?.include_archived === true), revision: "" }
@@ -353,7 +353,7 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   protected maySubscribe(state: UserState, principal: Principal): boolean {
-    return (!state.user || state.user.id === principal.user) && installActive(state, principal)
+    return (!state.user || state.user.id === principal.user) && userPathAllowed(state, principal)
   }
 
   /** RPC from other owners (OwnerDO.runInstallChecks): which of these installs (with the token's grant) are active. Never creates an object. */
@@ -492,8 +492,8 @@ export class UserDO extends OwnerDO<UserState> {
     const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
     if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
     // A chief token only for an unarchived chief of this user.
-    if (agent !== undefined && !chiefActive(now, agent)) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
+    if (agent !== undefined && (!chiefActive(now, agent) || inst.kind === "vm")) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
     const emailDomain = emailDomainOf(now.user.email)
-    return { ok: true, user: now.user.id, team: inst.kind === "vm" && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}) }
+    return { ok: true, user: now.user.id, team: inst.kind === "vm" && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}) }
   }
 }

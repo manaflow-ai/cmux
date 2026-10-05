@@ -8,7 +8,7 @@ import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { AccessAudit, connectInfo, mintLinkToken, type MintReply } from "./cloud-connect.ts"
-import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, VmStatusQueue, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import { machineVmInstall, registerVmInstall, revokeVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, VmStatusQueue, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import {
@@ -166,6 +166,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     if (!PROVIDER_OPS.has(frame.op)) return result
     const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return result
+    if (frame.op === "cloud.machine.delete") await ((v) => v && revokeVmInstall(this.env, { creator: v.creator, team: entity, install: v.install, why: "delete" }))(machineVmInstall(this.boundEngine?.rows, (frame.params as { machine?: unknown } | null)?.machine))
     const key = ledgerKey(principal.identity, frame.idempotency_key)
     const row = this.ledger(key)
     // No provider call (a delete the tombstone answered).
@@ -245,7 +246,8 @@ export class CloudDO extends OwnerDO<CloudState> {
     const params = { machine: req.machine, token_sha256, wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, vm_install: vm.id, now }
     // A fresh key per attempt: a second bind with a spent token must reach the reducer and be refused, never replay.
     const reply = this.submitSystem("cloud.machine.bind", params, `bind:${crypto.randomUUID()}`).frames.find((f) => f.t === "result" || f.t === "reject")
-    if (!reply || reply.t === "reject") return { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" }
+    if (!reply || reply.t === "reject") return (await revokeVmInstall(this.env, { creator: m.creator, team: entity, install: this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, req.machine)?.row.vm_install === vm.id ? undefined : vm.id, why: "bind refused" }), { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" })
+    if (m.vm_install && m.vm_install !== vm.id) await revokeVmInstall(this.env, { creator: m.creator, team: entity, install: m.vm_install, why: "re-bind" })
     if (reply.t !== "result") return forbidden
     return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset, install: { id: vm.id, user: m.creator, grant: vm.grant } } }
   }

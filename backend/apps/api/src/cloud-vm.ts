@@ -78,13 +78,14 @@ export const vmStatusReport = (entity: string, p: Principal, params: unknown, ro
   if (!d.ok) return d
   const g = vmGate(entity, p, d.value.machine, rows)
   if (!g.ok) return g
-  const applied = queue.offer(d.value.machine, d.value, now)
-  if (applied) apply(d.value.machine, d.value)
+  const report = { ...d.value, install: p.install }
+  const applied = queue.offer(d.value.machine, report, now)
+  if (applied) apply(d.value.machine, report)
   return { ok: true, value: { applied } }
 }
 
 /** Removes the query string and fragment of every http(s) URL in a text (a9: never query strings). */
-export const stripUrlQueries = (s: string) => s.replace(/(https?:\/\/[^\s?#]*)[?#][^\s]*/g, "$1")
+export const stripUrlQueries = (s: string) => s.replace(/(https?:\/\/[^\s?#]*)[?#][^\s]*/gi, "$1")
 const stripDeep = (v: unknown): unknown =>
   typeof v === "string" ? stripUrlQueries(v) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, stripDeep(x)])) : v
 
@@ -114,7 +115,8 @@ export const vmEventEmit = (entity: string, p: Principal, params: unknown, rows:
   if (!Exit.isSuccess(data)) return { ok: false, code: "validation.invalid", message: `invalid data for ${d.value.kind}` }
   const wait = buckets.take(p.install!, now)
   if (wait !== null) return { ok: false, code: "cloud.rate_limited", message: "too many VM events; slow down", details: { retry_after_ms: wait } }
-  send({ t: "ephemeral", stream: `cloud:${entity}`, event: "cloud.machine.event", data: { machine: g.row.id, host: g.row.host ?? null, kind: d.value.kind, at: d.value.at, data: stripDeep(data.value) } })
+  // The VM's clock is not trusted for ordering: `at` is clamped to the server time plus one minute (review P3).
+  send({ t: "ephemeral", stream: `cloud:${entity}`, event: "cloud.machine.event", data: { machine: g.row.id, host: g.row.host ?? null, kind: d.value.kind, at: Math.min(d.value.at, now + 60_000), data: stripDeep(data.value) } })
   return { ok: true, value: { delivered: true } }
 }
 
@@ -128,7 +130,8 @@ export const registerVmInstall = async (
   a: { creator: string; team: string; machine: string; epoch: number; jwk: { kty: string; crv: string; x: string; y: string } }
 ): Promise<{ ok: true; id: string; grant: string } | { ok: false; code: string; message: string }> => {
   const stub = env.USER_DO.get(env.USER_DO.idFromName(a.creator)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<SubmitResult> }
-  const server: Principal = { identity: `system:cloud:${a.team}`, kind: "system", user: a.creator, team: a.team }
+  // The team vouches for its own machine's VM install: it counts as SSO-registered for that team (review P2).
+  const server: Principal = { identity: `system:cloud:${a.team}`, kind: "system", user: a.creator, team: a.team, sso_team: a.team }
   const frame = {
     t: "op",
     op: "install.register_server",
@@ -152,4 +155,22 @@ export const sendEphemeral = (sockets: ReadonlyArray<WebSocket>, frame: unknown,
       ws.send(text)
     } catch {}
   }
+}
+
+/**
+ * Revokes a VM install (review P2): a refused bind, a re-bind and a machine delete each end the VM
+ * install that no longer speaks for a live machine. Best effort; a failure is logged (the install can
+ * still do nothing: the VM ops need the machine to name it, and every other entry point refuses VM tokens).
+ */
+export const revokeVmInstall = async (env: Env, a: { creator: string; team: string; install: string | undefined; why: string }): Promise<void> => {
+  if (!a.install) return
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(a.creator)) as unknown as { revokeByTeam(e: string, team: string, install: string, by: string, key: string): Promise<{ ok: boolean; code?: string }> }
+  const r = await stub.revokeByTeam(a.creator, a.team, a.install, a.creator, `vm-revoke:${a.install}`).catch(() => ({ ok: false, code: "owner.unreachable" }))
+  if (!r.ok) console.warn(JSON.stringify({ msg: "vm install revoke failed", team: a.team, install: a.install, why: a.why, code: r.code }))
+}
+
+/** The VM install of a machine row, for revocation when the machine is deleted. */
+export const machineVmInstall = (rows: Rows | undefined, machine: unknown): { install: string | undefined; creator: string } | undefined => {
+  const row = typeof machine === "string" ? rows?.get<MachineRow>(TABLE_MACHINE, machine)?.row : undefined
+  return row ? { install: row.vm_install, creator: row.creator } : undefined
 }
