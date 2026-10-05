@@ -742,7 +742,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         for id in staleIDs {
             unregisterMachine(id)
         }
-        await links.retainAddresses(machineIDs: seen.union(retainedForeignIDs))
+        await links.retainAddresses(
+            machineIDs: seen.union(retainedForeignIDs).union(catalog.pendingRestoredMachineIDs)
+        )
         guard !isRetired, generation == refreshGeneration else { return nil }
         for summary in page.vms {
             guard !isRetired else { return nil }
