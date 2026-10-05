@@ -11,11 +11,20 @@ import Foundation
 // isolated to `queue`; callers cross the boundary only with immutable input
 // values and the connection's thread-safe enqueue operation.
 public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
+    private static let maximumInputFrameBytes = 180 * 1024
+
+    private var invalidated = false
     private var surfaceID: UInt64
     private let queue: DispatchQueue
     private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
     private var pendingLines: [Data] = []
+    /// Consecutive byte input is safe to coalesce because the PTY observes one
+    /// ordered byte stream. Keeping it as bytes until the router queue turn
+    /// completes avoids one JSON/base64 frame and one socket enqueue per key
+    /// when a user types quickly.
+    private var pendingByteInput = Data()
+    private var byteFlushScheduled = false
     private let pendingByteLimit = 256 * 1024
     private var pendingByteCount = 0
 
@@ -52,6 +61,11 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             // them is safer than delivering input to a reused surface slot;
             // subsequent keystrokes are encoded for the new ID.
             pendingLines.removeAll(keepingCapacity: true)
+            // A deferred byte flush may still be queued behind this update.
+            // Drop those bytes with the old generation as well; otherwise the
+            // flush would encode them using the replacement surface ID.
+            pendingByteInput.removeAll(keepingCapacity: true)
+            byteFlushScheduled = false
             pendingByteCount = 0
         }
     }
@@ -59,6 +73,8 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// Rebinds pending input to a newly connected transport.
     public func setConnection(_ connection: CloudTuiManualIOConnection?) {
         queue.async { [self, connection] in
+            guard !invalidated else { return }
+            flushPendingByteInput()
             self.connection = connection
             guard let connection else { return }
             for line in pendingLines { connection.send(line: line) }
@@ -70,8 +86,11 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// Stops delivery and discards queued bytes during permanent pane teardown.
     public func invalidate() {
         queue.async { [self] in
+            invalidated = true
             connection = nil
             pendingLines.removeAll(keepingCapacity: false)
+            pendingByteInput.removeAll(keepingCapacity: false)
+            byteFlushScheduled = false
             pendingByteCount = 0
         }
     }
@@ -86,7 +105,13 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         }
         // Image commit shares the input lane. Queue it behind prior manual input,
         // and retain this exact connection rather than replaying it after reconnect.
-        queue.async { connection.send(line: line) }
+        queue.async { [self] in
+            guard !invalidated else { return }
+            // Control requests are ordering barriers. Flush bytes typed before
+            // the request before putting the control line on the transport.
+            flushPendingByteInput()
+            connection.send(line: line)
+        }
         return requestID
     }
 
@@ -96,20 +121,21 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         // callback only copies the already-owned Sendable value and enqueues it
         // on this serial transport lane.
         queue.async { [self, input] in
+            guard !invalidated else { return }
             let command: [String: Any]
             switch input {
             case .bytes(let bytes):
                 guard !bytes.isEmpty else { return }
-                // Request id zero is reserved for untracked input frames. The
-                // mirror session uses positive ids for handshake/resize state,
-                // so an input acknowledgement can never be mistaken for one
-                // of its state-machine responses.
-                command = commandBuilder.input(
-                    surfaceID: surfaceID,
-                    bytes: bytes,
-                    requestID: 0
-                )
+                pendingByteInput.append(bytes)
+                guard !byteFlushScheduled else { return }
+                byteFlushScheduled = true
+                // A later byte already queued on this serial lane is folded
+                // into the same frame. There is no timer or sleep here, so a
+                // single keystroke still takes only one dispatch turn.
+                queue.async { [self] in flushPendingByteInput() }
+                return
             case .namedKey(let name):
+                flushPendingByteInput()
                 guard let key = Self.protocolKeyName(for: name) else { return }
                 command = commandBuilder.namedKey(
                     surfaceID: surfaceID,
@@ -117,19 +143,48 @@ public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
                     requestID: 0
                 )
             }
-            guard let line = commandBuilder.line(command) else { return }
-            if let connection {
-                connection.send(line: line)
-                return
-            }
-            guard pendingByteCount + line.count <= pendingByteLimit else {
-                pendingLines.removeAll(keepingCapacity: true)
-                pendingByteCount = 0
-                return
-            }
-            pendingLines.append(line)
-            pendingByteCount += line.count
+            enqueue(line: commandBuilder.line(command))
         }
+    }
+
+    private func flushPendingByteInput() {
+        guard !invalidated else {
+            pendingByteInput.removeAll(keepingCapacity: false)
+            byteFlushScheduled = false
+            return
+        }
+        guard !pendingByteInput.isEmpty else {
+            byteFlushScheduled = false
+            return
+        }
+        while !pendingByteInput.isEmpty {
+            let byteCount = min(pendingByteInput.count, Self.maximumInputFrameBytes)
+            let bytes = pendingByteInput.prefix(byteCount)
+            pendingByteInput.removeFirst(byteCount)
+            // Request id zero is reserved for untracked input frames. The mirror
+            // session uses positive ids for handshake/resize state, so an input
+            // acknowledgement can never be mistaken for one of its responses.
+            enqueue(line: commandBuilder.line(commandBuilder.input(
+                surfaceID: surfaceID, bytes: Data(bytes), requestID: 0
+            )))
+        }
+        byteFlushScheduled = false
+    }
+
+    private func enqueue(line: Data?) {
+        guard !invalidated else { return }
+        guard let line else { return }
+        if let connection {
+            connection.send(line: line)
+            return
+        }
+        guard pendingByteCount + line.count <= pendingByteLimit else {
+            pendingLines.removeAll(keepingCapacity: true)
+            pendingByteCount = 0
+            return
+        }
+        pendingLines.append(line)
+        pendingByteCount += line.count
     }
 
     public static func protocolKeyName(for name: String) -> String? {

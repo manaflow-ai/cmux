@@ -2395,6 +2395,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// longer the active focus owner.
     private var webViewFocusRequestGeneration: UInt64 = 0
 
+    /// Keeps a Cloud pane's content-focus request alive until its portal host
+    /// has a window. Browser materialization can finish before that attachment.
+    private var pendingContentFocusAfterAttachment = false
+
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
     private var lastSearchNeedle = ""
@@ -3381,6 +3385,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.applyCurrentAppWebTheme(to: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
+                self.focusPendingContentAfterAttachment()
                 self.notePageRestorationLoadFinished(webView)
             }
         }
@@ -5033,6 +5038,33 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
+    /// Focuses Cloud page content now, or retries once when the portal host
+    /// attaches to a window later in the same materialization.
+    func focusContentAfterAttachment() {
+        pendingContentFocusAfterAttachment = true
+        prepareFocusIntentForActivation(.browser(.webView))
+        guard BrowserWindowPortalRegistry.isPresented(webView) else { return }
+        focus()
+        if let window = webView.window,
+           Self.responderChainContains(window.firstResponder, target: webView)
+        {
+            pendingContentFocusAfterAttachment = false
+        }
+    }
+
+    /// Completes a deferred Cloud content-focus request after portal attachment.
+    func focusPendingContentAfterAttachment() {
+        guard pendingContentFocusAfterAttachment else { return }
+        prepareFocusIntentForActivation(.browser(.webView))
+        guard BrowserWindowPortalRegistry.isPresented(webView) else { return }
+        focus()
+        if let window = webView.window,
+           Self.responderChainContains(window.firstResponder, target: webView)
+        {
+            pendingContentFocusAfterAttachment = false
+        }
+    }
+
     @discardableResult
     func requestExplicitWebViewFocus() -> Bool {
         webViewFocusRequestGeneration &+= 1
@@ -5099,6 +5131,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        pendingContentFocusAfterAttachment = false
         webViewFocusRequestGeneration &+= 1
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
@@ -7396,6 +7429,7 @@ extension BrowserPanel {
     }
 
     private func presentNativeFindBar() {
+        pendingContentFocusAfterAttachment = false
         clearBrowserFocusMode(reason: "startFind")
         preferredFocusIntent = .findField
         let created = searchState == nil
@@ -7753,6 +7787,7 @@ extension BrowserPanel {
 #endif
             return nil
         }
+        pendingContentFocusAfterAttachment = false
         // A pending WebView reassertion must not win after an accepted
         // address-bar request. An unavailable address bar leaves the WebView
         // retry intact so callers can fall back without dropping focus.
@@ -7841,6 +7876,7 @@ extension BrowserPanel {
     }
 
     func noteAddressBarFocused() {
+        pendingContentFocusAfterAttachment = false
         clearBrowserFocusMode(reason: "addressBarFocused")
         guard preferredFocusIntent != .addressBar else { return }
         preferredFocusIntent = .addressBar
@@ -7848,6 +7884,7 @@ extension BrowserPanel {
     }
 
     func noteFindFieldFocused() {
+        pendingContentFocusAfterAttachment = false
         clearBrowserFocusMode(reason: "findFieldFocused")
         guard preferredFocusIntent != .findField else { return }
         preferredFocusIntent = .findField
@@ -8033,6 +8070,7 @@ extension BrowserPanel {
         }
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+        pendingContentFocusAfterAttachment = false
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.requestAck panel=\(id.uuidString.prefix(5)) " +

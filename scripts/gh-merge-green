@@ -186,9 +186,11 @@ fi
 
 # Require aggregate checks only when their workflow exists on the base. Otherwise
 # every reported exact-head check and status context must be completed successfully.
+workflow_response=''
 workflow_on_base() {
   local file="$1" response
   if response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null); then
+    workflow_response="$response"
     return 0
   fi
   if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
@@ -199,10 +201,32 @@ workflow_on_base() {
     'restore GitHub contents API access; only HTTP 404 means the workflow is absent'
 }
 
+# ci-status is required only when ci.yml or ci-macos.yml defines that job;
+# a ci.yml with only other jobs (bonsplit's `tests`) gets the all-checks path. Fails closed: a body that is missing, too large for the
+# contents API, or unreadable still requires ci-status.
+reports_ci_status() {
+  python3 -c '
+import base64, json, re, sys
+raw = sys.stdin.read()
+body = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
+try:
+    data = json.loads(body[1])
+    text = base64.b64decode(data["content"]).decode() if data.get("encoding") == "base64" else ""
+except Exception:
+    sys.exit(0)
+if not text.strip():
+    sys.exit(0)
+sys.exit(0 if re.search(r"(?m)^\s+[\x22\x27]?ci-status[\x22\x27]?\s*:", text) else 1)
+' <<<"$workflow_response"
+}
+
 has_ci=0
 has_app_compile=0
-if workflow_on_base ci.yml; then has_ci=1; fi
-if workflow_on_base ci-macos.yml; then has_app_compile=1; fi
+if workflow_on_base ci.yml && reports_ci_status; then has_ci=1; fi
+if workflow_on_base ci-macos.yml; then
+  has_app_compile=1
+  if reports_ci_status; then has_ci=1; fi
+fi
 must=()
 if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
 
@@ -231,11 +255,28 @@ if ! runs=$(jq -r '
   | last
   | [.name,.status,(.conclusion // "")]
   | @tsv
-' <<<"$check_runs_json" 2>/dev/null); then
+  ' <<<"$check_runs_json" 2>/dev/null); then
   refuse \
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
 fi
+
+# Pull requests into feat-cmux-next also run the branch's dedicated cmux-next
+# workflow. Its Release and native app checks are separate check runs, so the
+# legacy ci-status job on that branch cannot stand in for them. Require each
+# one that reported on this exact head; a skipped lane remains a passing
+# conclusion, while a pending or red lane blocks the merge.
+if [ "$base" = feat-cmux-next ]; then
+  for next_check in \
+    "cmux-next Release compile (Xcode 26)" \
+    "cmux app scheme compile (Debug)" \
+    "cmux-next swift test"; do
+    if awk -F '\t' -v expected="$next_check" '$1 == expected { found = 1 } END { exit !found }' <<<"$runs"; then
+      must+=("$next_check")
+    fi
+  done
+fi
+
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
   for required in "${must[@]}"; do

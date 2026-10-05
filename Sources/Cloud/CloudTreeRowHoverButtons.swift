@@ -116,6 +116,12 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }
+        case .display(let resource, _, let remoteView):
+            if let remoteView, remoteView.isCloudDisplayMembershipView {
+                xmark(String(localized: "cloudTree.menu.removeDisplayFromWorkspace", defaultValue: "Remove from Workspace")) {
+                    nodeActions.removeDisplayFromWorkspace(resource, remoteView)
+                }
+            }
         default:
             EmptyView()
         }
@@ -134,6 +140,8 @@ struct CloudTreeRowHoverButtons: View {
             return row.canCreateWorkspacesAndTerminals
         case .terminal(let row):
             return !row.resource.machine.isLocal
+        case .display(_, _, let remoteView):
+            return remoteView?.isCloudDisplayMembershipView == true
         default:
             return false
         }

@@ -859,7 +859,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         let betaTab = app.buttons[betaTitle]
         XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
 
-        let newTerminalButton = app.descendants(matching: .any).matching(identifier: "paneTabBarControl.newTerminal").firstMatch
+        let newTerminalButton = app.descendants(matching: .any).matching(identifier: "paneTabBarControl.custom.cmux.compactTabBar.add").firstMatch
 
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
         XCTAssertTrue(
