@@ -140,18 +140,22 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// The one exception: a browser session's end closes the tabs it created and did not keep
     /// (the host filters out kept, person-driven and paused tabs). It is a normal store close
     /// (`close-tabs`), marked `session_end` so Reopen Closed leaves it out; an older daemon
-    /// without `close-reason-v1` keeps the tab (never an unmarked close).
-    func endSessionTab(_ id: String) {
-        guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return }
+    /// without `close-reason-v1` keeps the tab (never an unmarked close). The host decides which
+    /// tabs a session created and that no person holds (gap: the store does not check it).
+    func endSessionTab(_ id: String) -> Bool {
+        guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
         let daemon = services.daemon
-        guard daemon.supports(DaemonCapabilities.shared.closeReason) else { return }
+        guard daemon.supports(DaemonCapabilities.shared.closeReason) else { return false }
         let surface = tab.surface
-        services.registry.track(Task {
+        let cache: TabContentCache = services.cache
+        // task-owner: one store close; the page goes with it, as after a person's close
+        Task {
             let closed = await daemon.run(CloseTabsRequest.command) { connection in
                 _ = try await connection.closeTabs([surface], endTerminals: false, reason: .sessionEnd)
             }
-            return closed ? nil : "close-tabs (session end) failed (see the app log)"
-        })
+            if closed { cache.release(id) }
+        }
+        return true
     }
 
     /// Selecting a tab changes the person's view: not through the provider.

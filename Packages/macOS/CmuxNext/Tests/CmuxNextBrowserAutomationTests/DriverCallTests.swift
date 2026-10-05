@@ -33,7 +33,12 @@ import WebKit
 
         /// Tabs a session's end closed (`tabs.close {reason: session_end}`).
         var sessionEndCloses: [String] = []
-        func endSessionTab(_ id: String) { sessionEndCloses.append(id) }
+        /// Whether the app closes the next session-end tab.
+        var closesSessionEndTabs = true
+        func endSessionTab(_ id: String) -> Bool {
+            sessionEndCloses.append(id)
+            return closesSessionEndTabs
+        }
     }
 
     struct NonPersistentStores: WebsiteDataStoreFactory {

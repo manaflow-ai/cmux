@@ -35,7 +35,9 @@ public protocol AutomationTabProvider: AnyObject {
     func closeAutomationTab(_ id: BrowserTabID)
     /// A session's end closes tab `id` (either engine), which the session created and did not
     /// keep (`tabs.close {reason: session_end}`): through the store, not offered by Reopen Closed.
-    func endSessionTab(_ id: String)
+    /// False when the app keeps the tab (not one of its drivable tabs, or a daemon that cannot
+    /// mark the close).
+    func endSessionTab(_ id: String) -> Bool
     /// Selects a tab in its pane; only for calls with origin `user` or `focus`.
     func activateAutomationTab(_ id: BrowserTabID)
 }
