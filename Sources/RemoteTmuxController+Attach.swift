@@ -710,6 +710,16 @@ extension RemoteTmuxController {
                     self.resumeReconnectAfterAuthentication(host: host)
                     return
                 }
+                // The watcher reattaches when an ancestor directory changes, and that reattach can
+                // fail the same way the first attach can. The change that caused it is the event
+                // just consumed, so ask again here: a watch with nothing behind it never yields
+                // another event, and this loop would wait on it for good.
+                guard await watcher.isWatchingAncestorDirectory else {
+                    Self.logger.error(
+                        "reconnect-auth: lost the watch on the control socket path; falling back to reconnect retries")
+                    self.resumeReconnectAfterAuthentication(host: host)
+                    return
+                }
             }
         }
     }
