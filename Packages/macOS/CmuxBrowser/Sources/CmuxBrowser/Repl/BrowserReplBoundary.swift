@@ -36,17 +36,21 @@ final class BrowserReplBoundary: @unchecked Sendable {
 
     // MARK: Redaction
 
-    /// The stores whose values JavaScript and output never see: the
-    /// session's own secrets, then the values other sessions typed.
-    private var redactionStores: [BrowserReplSecretStore] {
-        var stores = secrets.isEmpty ? [] : [secrets]
-        if let typed = typedSecrets(), !typed.isEmpty { stores.append(typed) }
-        return stores
+    /// The values JavaScript and output never see, taken together now:
+    /// the session's own secrets (current and retired), then the values
+    /// other sessions typed. One redaction matches all of them against the
+    /// original input, so a value the session registers can never mask
+    /// part of a typed value before that value is looked for. `nil` when
+    /// nothing is masked.
+    private func redaction() -> BrowserReplSecretStore.Redaction? {
+        var stores = [secrets]
+        if let typed = typedSecrets() { stores.append(typed) }
+        return BrowserReplSecretStore.Redaction(stores: stores, at: Date())
     }
 
     /// `text` as JavaScript or output may see it.
     func redact(_ text: String) -> String {
-        redactionStores.reduce(text) { $1.redact($0) }
+        redaction()?.redact(text) ?? text
     }
 
     /// A JSON document as JavaScript may see it, every string (keys too)
@@ -54,30 +58,25 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// - Throws: `invalid` when masking would grow it past the redaction
     ///   limit (``BrowserReplSecretStore/maximumGrowth``).
     func redactJSON(_ json: String) throws -> String {
-        let stores = redactionStores
-        guard !stores.isEmpty else { return json }
-        guard let value = JSONSerialization.browserReplValue(json) else { return redact(json) }
-        let redacted = try stores.reduce(value) { try $1.redactedValue($0) }
-        return JSONSerialization.browserReplString(redacted) ?? redact(json)
+        try redaction()?.redactJSON(json) ?? json
     }
 
     /// Bytes as JavaScript may see them, text or binary.
     /// - Throws: `invalid` when masking would grow them past the redaction
     ///   limit (``BrowserReplSecretStore/maximumGrowth``).
     func redact(_ data: Data) throws -> Data {
-        try redactionStores.reduce(data) { try $1.redact($0) }
+        try redaction()?.redact(data) ?? data
     }
 
     /// What `fs.copyFile` writes in place of a file's bytes while any value
     /// is masked (the session's secrets, or values other sessions typed):
-    /// the bytes redacted with the stores held now, as written files are.
+    /// the bytes redacted with the values held now, as written files are.
     /// `nil` when nothing is masked, so the copy streams the bytes as they are.
     func fileCopyRedaction() -> ((Data) throws -> Data)? {
-        let stores = redactionStores
-        guard !stores.isEmpty else { return nil }
+        guard let redaction = redaction() else { return nil }
         return { data in
             do {
-                return try stores.reduce(data) { try $1.redact($0) }
+                return try redaction.redact(data)
             } catch {
                 throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: copyfile: \(BrowserReplSecretStore.limitMessage(data.count))")
             }
@@ -343,18 +342,17 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// body, text or binary (its bytes go through the secret store's byte redaction),
     /// are redacted.
     func redactFetch(_ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
-        let stores = redactionStores
-        guard !stores.isEmpty else { return result }
+        guard let redaction = redaction() else { return result }
         guard case .success(let json) = result else { return redact(method: "fetch", result) }
         var response = JSONSerialization.browserReplObject(json)
         let body = response.removeValue(forKey: "bodyBase64") as? String
         do {
-            var redacted = try stores.reduce(response as Any) { try $1.redactedValue($0) } as? [String: Any] ?? [:]
+            var redacted = try redaction.redactedValue(response) as? [String: Any] ?? [:]
             if let body {
                 guard let data = Data(base64Encoded: body) else {
                     return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: the response body could not be checked for secrets"))
                 }
-                let masked = try redact(data)
+                let masked = try redaction.redact(data)
                 redacted["bodyBase64"] = masked == data ? body : masked.base64EncodedString()
             }
             return .success(JSONSerialization.browserReplString(redacted) ?? "null")
@@ -370,9 +368,8 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// - Throws: `invalid` when masking would grow them past the redaction
     ///   limit (``BrowserReplSecretStore/maximumGrowth``).
     func redactFileContents(_ base64: String) throws -> String {
-        let stores = redactionStores
-        guard !stores.isEmpty, let data = Data(base64Encoded: base64) else { return base64 }
-        let redacted = try redact(data)
+        guard let redaction = redaction(), let data = Data(base64Encoded: base64) else { return base64 }
+        let redacted = try redaction.redact(data)
         return redacted == data ? base64 : redacted.base64EncodedString()
     }
 }

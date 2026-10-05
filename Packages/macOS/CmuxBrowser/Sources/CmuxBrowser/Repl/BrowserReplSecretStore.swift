@@ -403,24 +403,27 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     }
 
     /// `number`'s key in ``numericMasks``; `-0` is `0`.
-    private static func numericKey(_ number: Double) -> UInt64 {
+    fileprivate static func numericKey(_ number: Double) -> UInt64 {
         (number == 0 ? 0 : number).bitPattern
     }
 
-    /// The scanner for the values registered now and the TOTP codes valid
-    /// at `date`.
-    private func scanner(at date: Date) -> BrowserReplSecretScanner? {
-        let values = lock.withLock { self.values }
-        guard !values.isEmpty else { return nil }
-        let codes = validCodes(at: date).flatMap { entry in
+    /// What this store masks now, with the TOTP codes valid at `date`.
+    fileprivate func snapshot(at date: Date) -> (values: [BrowserReplSecretScanner.Value], codes: [(digits: [UInt8], mask: [UInt8])], numericMasks: [UInt64: String]) {
+        let (values, numericMasks) = lock.withLock { (self.values, self.numericMasks) }
+        let codes = values.isEmpty ? [] : validCodes(at: date).flatMap { entry in
             entry.codes.map { (digits: Array($0.utf8), mask: Array(entry.mask.utf8)) }
         }
-        return BrowserReplSecretScanner(values: values, codes: codes)
+        return (values, codes, numericMasks)
     }
 
     /// Why masking withheld `count` bytes.
     static func limitMessage(_ count: Int) -> String {
         "masking secrets in these \(count) bytes would pass the redaction limit (growing them by more than \(maximumGrowth >> 20) MiB, or more matching work than the session's secrets allow for their length), so they are withheld"
+    }
+
+    /// The error masking `count` bytes past the limit throws.
+    static func limitError(_ count: Int) -> BrowserReplDriverError {
+        BrowserReplDriverError(code: "invalid", message: limitMessage(count))
     }
 
     /// `text` with every registered value and its encodings masked, and the
@@ -431,19 +434,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     }
 
     func redact(_ text: String, at date: Date) -> String {
-        var budget = Self.maximumGrowth
-        return (try? redact(text, at: date, budget: &budget)) ?? "<\(Self.limitMessage(text.utf8.count))>"
-    }
-
-    private func redact(_ text: String, at date: Date, budget: inout Int) throws -> String {
-        guard !text.isEmpty, let scanner = scanner(at: date) else { return text }
-        var text = text
-        let outcome = text.withUTF8 { scanner.redact($0, budget: &budget) }
-        switch outcome {
-        case .unchanged: return text
-        case .redacted(let bytes): return String(decoding: bytes, as: UTF8.self)
-        case .overLimit: throw BrowserReplDriverError(code: "invalid", message: Self.limitMessage(text.utf8.count))
-        }
+        Redaction(stores: [self], at: date)?.redact(text) ?? text
     }
 
     /// `data` with every registered value and its encodings masked, text or
@@ -453,14 +444,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// - Throws: `invalid` when masking would grow the bytes by more than
     ///   ``maximumGrowth``.
     public func redact(_ data: Data) throws -> Data {
-        guard !data.isEmpty, let scanner = scanner(at: Date()) else { return data }
-        var budget = Self.maximumGrowth
-        let outcome = data.withUnsafeBytes { scanner.redact($0.bindMemory(to: UInt8.self), budget: &budget) }
-        switch outcome {
-        case .unchanged: return data
-        case .redacted(let bytes): return Data(bytes)
-        case .overLimit: throw BrowserReplDriverError(code: "invalid", message: Self.limitMessage(data.count))
-        }
+        try Redaction(stores: [self], at: Date())?.redact(data) ?? data
     }
 
     /// A JSON document with every string (keys too) redacted. Text that is
@@ -482,43 +466,134 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// - Throws: `invalid` when masking would grow it by more than
     ///   ``maximumGrowth`` in all.
     public func redactedValue(_ value: Any) throws -> Any {
-        var budget = Self.maximumGrowth
-        return try redactValue(value, at: Date(), budget: &budget)
+        try Redaction(stores: [self], at: Date())?.redactedValue(value) ?? value
     }
 
-    private func redactValue(_ value: Any, at date: Date, budget: inout Int) throws -> Any {
-        switch value {
-        case let text as String:
-            return try redact(text, at: date, budget: &budget)
-        case let list as [Any]:
-            return try list.map { try redactValue($0, at: date, budget: &budget) }
-        case let object as [String: Any]:
-            var out: [String: Any] = [:]
-            for (key, item) in object { out[try redact(key, at: date, budget: &budget)] = try redactValue(item, at: date, budget: &budget) }
-            return out
-        case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
-            // A page can read a value as a number (`Number(field.value)`),
-            // which drops leading zeros: a held value that is this number
-            // is masked whatever its length.
-            let double = number.doubleValue
-            if double.isFinite, let mask = lock.withLock({ numericMasks[Self.numericKey(double)] }) {
-                budget -= max(0, mask.utf8.count - number.stringValue.utf8.count)
-                guard budget >= 0 else { throw invalid(Self.limitMessage(number.stringValue.utf8.count)) }
-                return mask
+    /// One masking of the values of one or more stores, taken at once:
+    /// every value and TOTP code they hold is matched in a single pass over
+    /// the original input (``BrowserReplSecretScanner``), so one store's
+    /// mask never replaces part of another store's value before that value
+    /// is looked for (a session registering a prefix of a value another
+    /// session typed). A value several stores hold keeps the first store's
+    /// mask.
+    struct Redaction {
+        private let scanner: BrowserReplSecretScanner
+        private let numericMasks: [UInt64: String]
+
+        /// `nil` when the stores mask nothing.
+        init?(stores: [BrowserReplSecretStore], at date: Date) {
+            let snapshots = stores.map { $0.snapshot(at: date) }.filter { !$0.values.isEmpty }
+            guard !snapshots.isEmpty else { return nil }
+            // Each store's values are longest first; merge them keeping that
+            // order, and the first store's value first among equal lengths.
+            var values = snapshots[0].values
+            var numericMasks = snapshots[0].numericMasks
+            for snapshot in snapshots.dropFirst() {
+                var merged: [BrowserReplSecretScanner.Value] = []
+                merged.reserveCapacity(values.count + snapshot.values.count)
+                var left = 0
+                var right = 0
+                while left < values.count || right < snapshot.values.count {
+                    if right == snapshot.values.count
+                        || (left < values.count && values[left].utf8.count >= snapshot.values[right].utf8.count) {
+                        merged.append(values[left])
+                        left += 1
+                    } else {
+                        merged.append(snapshot.values[right])
+                        right += 1
+                    }
+                }
+                values = merged
+                numericMasks.merge(snapshot.numericMasks) { first, _ in first }
             }
-            // A TOTP code it reads that way drops a leading zero too.
-            var forms = [number.stringValue]
-            let integer = number.int64Value
-            if Double(integer) == number.doubleValue, (0..<1_000_000).contains(integer) {
-                forms.append(String(format: "%06lld", integer))
+            scanner = BrowserReplSecretScanner(values: values, codes: snapshots.flatMap(\.codes))
+            self.numericMasks = numericMasks
+        }
+
+        /// `text` masked; text that masking would grow by more than
+        /// ``BrowserReplSecretStore/maximumGrowth`` is replaced by a note
+        /// saying it was withheld.
+        func redact(_ text: String) -> String {
+            var budget = BrowserReplSecretStore.maximumGrowth
+            return (try? redact(text, budget: &budget)) ?? "<\(BrowserReplSecretStore.limitMessage(text.utf8.count))>"
+        }
+
+        private func redact(_ text: String, budget: inout Int) throws -> String {
+            guard !text.isEmpty else { return text }
+            var text = text
+            let outcome = text.withUTF8 { scanner.redact($0, budget: &budget) }
+            switch outcome {
+            case .unchanged: return text
+            case .redacted(let bytes): return String(decoding: bytes, as: UTF8.self)
+            case .overLimit: throw BrowserReplSecretStore.limitError(text.utf8.count)
             }
-            for form in forms {
-                let masked = try redact(form, at: date, budget: &budget)
-                if masked != form { return masked }
+        }
+
+        /// `data` masked, text or binary alike.
+        /// - Throws: `invalid` when masking would grow it by more than
+        ///   ``BrowserReplSecretStore/maximumGrowth``.
+        func redact(_ data: Data) throws -> Data {
+            guard !data.isEmpty else { return data }
+            var budget = BrowserReplSecretStore.maximumGrowth
+            let outcome = data.withUnsafeBytes { scanner.redact($0.bindMemory(to: UInt8.self), budget: &budget) }
+            switch outcome {
+            case .unchanged: return data
+            case .redacted(let bytes): return Data(bytes)
+            case .overLimit: throw BrowserReplSecretStore.limitError(data.count)
             }
-            return value
-        default:
-            return value
+        }
+
+        /// A JSON document with every string (keys too) masked; text that
+        /// is not JSON is masked as text.
+        /// - Throws: `invalid` when masking would grow it by more than
+        ///   ``BrowserReplSecretStore/maximumGrowth`` in all.
+        func redactJSON(_ json: String) throws -> String {
+            guard let value = JSONSerialization.browserReplValue(json) else { return redact(json) }
+            return JSONSerialization.browserReplString(try redactedValue(value)) ?? redact(json)
+        }
+
+        /// `value` (decoded JSON) with every string masked.
+        /// - Throws: `invalid` when masking would grow it by more than
+        ///   ``BrowserReplSecretStore/maximumGrowth`` in all.
+        func redactedValue(_ value: Any) throws -> Any {
+            var budget = BrowserReplSecretStore.maximumGrowth
+            return try redactValue(value, budget: &budget)
+        }
+
+        private func redactValue(_ value: Any, budget: inout Int) throws -> Any {
+            switch value {
+            case let text as String:
+                return try redact(text, budget: &budget)
+            case let list as [Any]:
+                return try list.map { try redactValue($0, budget: &budget) }
+            case let object as [String: Any]:
+                var out: [String: Any] = [:]
+                for (key, item) in object { out[try redact(key, budget: &budget)] = try redactValue(item, budget: &budget) }
+                return out
+            case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
+                // A page can read a value as a number (`Number(field.value)`),
+                // which drops leading zeros: a held value that is this number
+                // is masked whatever its length.
+                let double = number.doubleValue
+                if double.isFinite, let mask = numericMasks[BrowserReplSecretStore.numericKey(double)] {
+                    budget -= max(0, mask.utf8.count - number.stringValue.utf8.count)
+                    guard budget >= 0 else { throw BrowserReplSecretStore.limitError(number.stringValue.utf8.count) }
+                    return mask
+                }
+                // A TOTP code it reads that way drops a leading zero too.
+                var forms = [number.stringValue]
+                let integer = number.int64Value
+                if Double(integer) == number.doubleValue, (0..<1_000_000).contains(integer) {
+                    forms.append(String(format: "%06lld", integer))
+                }
+                for form in forms {
+                    let masked = try redact(form, budget: &budget)
+                    if masked != form { return masked }
+                }
+                return value
+            default:
+                return value
+            }
         }
     }
 
