@@ -1224,7 +1224,9 @@ final class BrowserReplTabAttachment {
         var payload: [String: Any] = [
             "targetId": created.id.uuidString,
             "openerTargetId": targetID,
-            "url": url.absoluteString,
+            // The page chose it: only the opener's live creator reads its
+            // credentials.
+            "url": pageURL(url.absoluteString),
         ]
         if forInputSession != nil { payload["userOwned"] = true }
         for sink in recipients.values {

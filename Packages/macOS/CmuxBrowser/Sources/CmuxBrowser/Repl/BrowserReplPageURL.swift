@@ -97,8 +97,15 @@ public struct BrowserReplDriverOutput: Sendable {
     }
 
     /// An event payload as JSON text; `nil` when it is not JSON.
+    ///
+    /// Every event's `url` is a page's or a tab's, so one a driver left a
+    /// plain string is taken as a page URL no reader gets as written: only
+    /// a ``BrowserReplPageURL`` naming the reader as the tab's creator
+    /// reaches it with its credentials.
     public func event(_ payload: [String: Any]) -> String? {
-        JSONSerialization.browserReplString(resolve(payload))
+        var payload = payload
+        if let url = payload["url"] as? String { payload["url"] = BrowserReplPageURL(url, creator: nil) }
+        return JSONSerialization.browserReplString(resolve(payload))
     }
 
     /// `value` with every page URL and header set in the reader's form.
