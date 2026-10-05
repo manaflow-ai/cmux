@@ -80,4 +80,42 @@ import Testing
         #expect(!f.escape(), "Escape goes on to that tab")
         #expect(f.answers.isEmpty && f.open.count == 1, "the asking tab's question stays")
     }
+
+    /// nxdog46-v1: a click on the sidebar moves the window's keyboard out of
+    /// every tab; Escape then still answers the focused pane's dialog. A
+    /// real window, its focus coordinator and the app-wide key interceptor.
+    @Test func escapeAfterASidebarClickDeniesTheFocusedPanesRead() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.windows.ordersWindowsIn = false
+        services.daemon.store.apply(snapshot: try BrowserTabTests.tree())
+        let workspace = try #require(services.daemon.store.workspaces.first)
+        let main = try #require(services.windows.openWindow(workspaces: [workspace.id]))
+        services.windows.didActivate(main)
+        defer { main.teardown() }
+        await BrowserTabTests.settle { main.content != nil }
+        let content = try #require(main.content)
+        let paneModel = try #require(workspace.screens.first?.panes.first)
+        let paneID = LayoutPaneIDFixture.id(paneModel)
+        await BrowserTabTests.settle { content.panes[paneID] != nil }
+        if content.panes[paneID] == nil { _ = content.makeContentView(for: paneID) }
+        let pane = try #require(content.panes[paneID])
+        content.layoutModel.focus(paneID)
+        let shell = try #require(main.window)
+        let tab = Focusable(frame: pane.view.bounds)
+        pane.view.addSubview(tab)
+        var answers: [Bool] = []
+        let ask = TerminalClipboardReadService.dialogAsk(center: .shared) { _ in .init(terminalTitle: "build", scope: .tab(tab)) }
+        let close = ask(ClipboardReadPrompt(requestID: "r2", terminalID: "term_2", location: .standard,
+                                            host: ClipboardReadHost(kind: .local))) { answers.append($0) }
+        defer { close() }
+        main.focus.send(.focusTarget(.sidebar(keyboard: false), source: .mouse))
+        shell.makeFirstResponder(nil)
+        #expect(main.focus.state.resolved == .sidebar, "the sidebar has the window's keyboard")
+        let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                     windowNumber: shell.windowNumber, context: nil, characters: "\u{1B}",
+                                     charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53)!
+        #expect(services.keyRouter.interceptKeyDown(event, in: shell), "Escape is the focused pane's dialog")
+        #expect(answers == [false], "Escape answers Deny")
+        withExtendedLifetime((services, ask)) {}
+    }
 }

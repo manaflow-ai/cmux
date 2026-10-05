@@ -47,6 +47,23 @@ import Testing
         #expect(store.loadOrCreate() == nil)
     }
 
+    /// A tag's first launch: its state directory does not exist yet when
+    /// the launcher asks for the key (`server ensure` makes it later). The
+    /// store still makes the key, in an owner-only directory, so the daemon
+    /// this launch starts gets it and the app's connection is verified
+    /// (nxdog46-v1: without it every verified-app feature, such as the
+    /// clipboard-read broker, was refused until the next launch).
+    @Test func aFreshTagsFirstLaunchStillGetsAKey() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("fik-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let state = base.appendingPathComponent("tags/fresh/tui", isDirectory: true)
+        let store = FileFrontendInstallKeyStore(file: state.appendingPathComponent("frontend-install-key"))
+        let key = try #require(store.loadOrCreate(), "the first launch has a key")
+        #expect(store.loadOrCreate() == key)
+        let mode = try FileManager.default.attributesOfItem(atPath: state.path)[.posixPermissions] as? Int
+        #expect(mode == 0o700, "the state directory is owner-only, as server ensure makes it")
+    }
+
     @Test func ensureSendsTheKeyOnStdinOnly() async throws {
         var configuration = DaemonLauncher.Configuration(binary: URL(fileURLWithPath: "/bin/cat"), session: "s")
         #expect(!DaemonLauncher.ensureArguments(configuration).contains("--install-key-stdin"))
