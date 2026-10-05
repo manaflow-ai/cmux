@@ -30,7 +30,7 @@ fn default_tab_into_end() -> f64 {
     TAB_INTO_END
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SectionId {
     Pinned,
