@@ -21,14 +21,16 @@ struct CloudDirectoryLifecycleTests {
         let before = fixture.workspace.cloudBindingState.revision
         let directories = fixture.workspace.panelDirectories
 
-        try fixture.changeDirectory("/home/cmux/first", terminal: 0)
+        try fixture.install(paths: ["/home/cmux/first", "/home/cmux/second"], revision: 3,
+                            lifecycles: ["running", "running"])
 
         #expect(fixture.workspace.panelDirectories == directories)
         #expect(fixture.workspace.cloudBindingState.revision > before,
                 "A lifecycle-only delta must wake the sidebar's Cloud observation stream")
         #expect(try fixture.sidebarText().contains("cwd-machine · /home/cmux/first"))
         let settled = fixture.workspace.cloudBindingState.revision
-        try fixture.changeDirectory("/home/cmux/first", terminal: 0)
+        try fixture.install(paths: ["/home/cmux/first", "/home/cmux/second"], revision: 4,
+                            lifecycles: ["running", "running"])
         #expect(fixture.workspace.cloudBindingState.revision == settled,
                 "An identical presentation must not invalidate the sidebar again")
     }
