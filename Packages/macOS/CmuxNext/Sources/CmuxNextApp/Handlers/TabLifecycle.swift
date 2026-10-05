@@ -44,16 +44,22 @@ enum TabLifecycle {
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
     /// MCP) always get the same kind, whatever the user's setting.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
-        guard let pane = ctx.daemonPane(invocation) else {
-            // Cmd-T can arrive while the active workspace is still empty and
-            // has no pane controller. Repair that exact workspace through the
-            // shared first-terminal owner; callers awaiting tracked work then
-            // observe the pane mount without switching workspaces.
+        // A named tab or pane that resolves to nothing is refused by the
+        // lookup. Without one, a missing focused pane is not a refusal yet:
+        // the active workspace may still be empty (below).
+        let named = ctx.namesPane(invocation)
+        guard let pane = named ? ctx.daemonPane(invocation) : ctx.services.windows.active?.focusedPane?.pane else {
+            guard !named else { return }
+            // Cmd-T (and Cmd-I through it) can arrive while the active
+            // workspace is still empty and has no pane controller. Repair
+            // that exact workspace through the shared first-terminal owner;
+            // callers awaiting tracked work then observe the pane mount
+            // without switching workspaces.
             guard invocation.target == nil,
                   let workspace = ctx.scope(invocation).workspace,
                   let key = workspace.key,
                   let daemon = ctx.services.machines.daemon(forWorkspace: workspace.id),
-                  let connection = daemon.connection else { return }
+                  let connection = daemon.connection else { ctx.registry.refuse(MiscHandlerStrings.noPane); return }
             let repair = ctx.services.machines.emptyWorkspaceRepair(daemon.machineID, local: ctx.services.emptyWorkspaces)
             guard repair.states[key] == nil else { return }
             ctx.registry.track(Task { @MainActor in
