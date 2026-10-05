@@ -22,6 +22,18 @@ import Testing
         #expect(json["origin"] == .string("user"))
     }
 
+    /// The wire encoder converts field names to snake case; an op's args
+    /// are the app's own JSON and go out byte for byte (keys unchanged).
+    @Test func appsRunSendsItsArgsVerbatim() throws {
+        let args: JSONValue = .object(["openToken": .string("t"), "nested": .object(["camelKey": .number(1)]), "snake_key": .bool(true)])
+        let request = AppsRunRequest(app: "cmux/cloud", op: "cloud.machine.connect", args: args, idempotencyKey: "k2", origin: .script)
+        let data = try WireCoding.encodeRequest(request, id: 4)
+        let json = try JSONDecoder().decode(JSONValue.self, from: data)
+        #expect(json["args"] == args)
+        #expect(json["idempotency_key"] == .string("k2"))
+        #expect(json["cmd"] == .string("apps-run"))
+    }
+
     @Test func theAnswerIsTheOpResultInsideValue() throws {
         // The daemon wraps every op result: `{"value": result}` (apps/servers.rs, apps/hosts.rs).
         let line = Data(#"{"id":3,"ok":true,"data":{"value":{"machine":"vm_1","state":"up","socket":"/tmp/x/l.sock"}}}"#.utf8)
