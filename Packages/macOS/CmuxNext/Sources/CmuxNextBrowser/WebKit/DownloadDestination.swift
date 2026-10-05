@@ -12,7 +12,7 @@ public nonisolated enum DownloadDestination {
         in directory: URL,
         suggestedFilename: String,
         exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }
-    ) -> URL {
+    ) -> URL? {
         let name = sanitizedFilename(suggestedFilename)
         let base = (name as NSString).deletingPathExtension
         let ext = (name as NSString).pathExtension

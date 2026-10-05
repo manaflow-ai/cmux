@@ -15,8 +15,15 @@ public nonisolated enum BrowserDownloadPolicy {
     /// (`DownloadDestination.sanitizedFilename`, then ` (1)`, ` (2)`, ... on
     /// a collision).
     public static func destination(chosen: URL?, suggestedFilename: String, directory: URL,
-                                   exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }) -> URL {
+                                   exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) }) -> URL? {
         chosen ?? DownloadDestination.uniqueURL(in: directory, suggestedFilename: suggestedFilename, exists: exists)
+    }
+
+    /// Red stub: no temporary file, no reservation.
+    @MainActor
+    public static func place(chosen: URL?, suggestedFilename: String, directory: URL,
+                             reservations: BrowserDownloadReservations = .shared) -> BrowserDownloadPlacement? {
+        destination(chosen: chosen, suggestedFilename: suggestedFilename, directory: directory).map(BrowserDownloadPlacement.init(finalURL:))
     }
 
     /// What happens to a finished file.

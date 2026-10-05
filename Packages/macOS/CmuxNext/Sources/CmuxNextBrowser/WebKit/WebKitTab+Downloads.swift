@@ -47,6 +47,7 @@ extension WebKitTab: WKDownloadDelegate, BrowserURLSaving {
         if let chosen { try? FileManager.default.removeItem(at: chosen) }
         let destination = BrowserDownloadPolicy.destination(chosen: chosen, suggestedFilename: suggestedFilename,
                                                             directory: downloadsDirectory)
+            ?? downloadsDirectory.appending(path: "download")
         if let item = self.download(for: download) {
             item.filename = destination.lastPathComponent
             item.destination = destination
