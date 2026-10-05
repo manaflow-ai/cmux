@@ -187,6 +187,8 @@ struct InternalPageTabTests {
             Issue.record("a Settings tab shows the React page")
             return
         }
+        // Set when the page joins its window.
+        await BrowserTabTests.settle { page.window != nil && page.liveDocumentAttributes["app-sidebar"] != nil }
         #expect(page.liveDocumentAttributes["app-sidebar"] == "shown")
         window.sidebar.model.toggle()
         await BrowserTabTests.settle { page.liveDocumentAttributes["app-sidebar"] == "hidden" }

@@ -31,7 +31,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness
     private let bridge: any PageHostBridge
-    private var loaded = false
+    private(set) var loaded = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
@@ -48,6 +48,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
+    /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again
+    /// on every new document.
+    public internal(set) var liveDocumentAttributes: [String: String] = [:]
+
     public var themeSurface: SurfaceKind? {
         didSet { if themeSurface != oldValue { applyTheme() } }
     }
@@ -273,6 +277,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyTheme()
+        windowDidChangeChrome()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -323,6 +328,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
         applyTheme(force: true)
+        applyLiveDocumentAttributes()
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
