@@ -1127,6 +1127,12 @@ struct RestorableAgentSessionIndex: Sendable {
         terminationProcessIDs: Set<Int>,
         containsUnrelatedProcess: Bool
     )
+    /// The panel's cmux-scoped processes and the fresh process-tree scope
+    /// around a live hook-recorded agent PID.
+    typealias HookProcessScope = (
+        processIDs: Set<Int>,
+        scope: HibernationProcessScope
+    )
 
     private struct SessionKey: Hashable {
         let kind: RestorableAgentKind
@@ -1752,6 +1758,7 @@ struct RestorableAgentSessionIndex: Sendable {
         registry: CmuxVaultAgentRegistry,
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         hibernationProcessScopes: [PanelKey: HibernationProcessScope] = [:],
+        hookProcessScopeProvider: ((PanelKey, Int) -> HookProcessScope?)? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
@@ -2230,24 +2237,52 @@ struct RestorableAgentSessionIndex: Sendable {
                     }
                     return processPresenceProvider(processID) != .absent
                 }()
-                let entry = Entry(
-                    snapshot: snapshot,
-                    lifecycle: effectiveRecord.agentLifecycle,
-                    updatedAt: effectiveRecord.updatedAt,
-                    processLiveness: processObservation.liveness,
-                    hasRecordedProcessID: effectiveRecord.pid != nil,
-                    processIDs: liveProcessID.map { [$0] } ?? [],
-                    processIdentities: liveProcessIdentities,
-                    agentProcessIDs: liveProcessID.map { [$0] } ?? [],
-                    agentProcessIdentities: liveProcessIdentities,
-                    hibernationPanelProcessIDs: liveProcessID.map { [$0] } ?? [],
-                    terminationProcessIDs: liveProcessID.map { [$0] } ?? [],
-                    terminationProcessIdentities: liveProcessIdentities,
-                    // A saved hook PID proves liveness but cannot prove the
-                    // surrounding pane is exclusive. Critical-pressure
-                    // termination requires a fresh process-tree detection.
-                    containsUnrelatedProcess: liveProcessID != nil || presentMismatchedProcess
-                )
+                // A saved hook PID proves liveness but cannot prove the
+                // surrounding pane is exclusive. A fresh process-tree scope
+                // around that PID can, as it does for process-detected agents.
+                // Without one, the entry stays unsafe to reclaim.
+                let hookScope = liveProcessID.flatMap { hookProcessScopeProvider?(key, $0) }
+                let entry: Entry
+                if let liveProcessID, let hookScope {
+                    let processIDs = hookScope.processIDs.union([liveProcessID])
+                    entry = Entry(
+                        snapshot: snapshot,
+                        lifecycle: effectiveRecord.agentLifecycle,
+                        updatedAt: effectiveRecord.updatedAt,
+                        processLiveness: processObservation.liveness,
+                        hasRecordedProcessID: true,
+                        processIDs: processIDs,
+                        processIdentities: Self.processIdentities(
+                            for: processIDs,
+                            processIdentityProvider: processIdentityForRecord
+                        ),
+                        agentProcessIDs: [liveProcessID],
+                        agentProcessIdentities: liveProcessIdentities,
+                        hibernationPanelProcessIDs: hookScope.scope.panelProcessIDs,
+                        terminationProcessIDs: hookScope.scope.terminationProcessIDs,
+                        terminationProcessIdentities: Self.processIdentities(
+                            for: hookScope.scope.terminationProcessIDs,
+                            processIdentityProvider: processIdentityForRecord
+                        ),
+                        containsUnrelatedProcess: hookScope.scope.containsUnrelatedProcess
+                    )
+                } else {
+                    entry = Entry(
+                        snapshot: snapshot,
+                        lifecycle: effectiveRecord.agentLifecycle,
+                        updatedAt: effectiveRecord.updatedAt,
+                        processLiveness: processObservation.liveness,
+                        hasRecordedProcessID: effectiveRecord.pid != nil,
+                        processIDs: liveProcessID.map { [$0] } ?? [],
+                        processIdentities: liveProcessIdentities,
+                        agentProcessIDs: liveProcessID.map { [$0] } ?? [],
+                        agentProcessIdentities: liveProcessIdentities,
+                        hibernationPanelProcessIDs: liveProcessID.map { [$0] } ?? [],
+                        terminationProcessIDs: liveProcessID.map { [$0] } ?? [],
+                        terminationProcessIdentities: liveProcessIdentities,
+                        containsUnrelatedProcess: liveProcessID != nil || presentMismatchedProcess
+                    )
+                }
                 if shouldReplaceHookEntry(
                     existing: hookCandidatesByPanelAndKind[panelKindKey],
                     incoming: entry
