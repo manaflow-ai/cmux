@@ -8,6 +8,7 @@
     "browser-host-provider-v1",
     "browser-profiles-v1",
     "close-reason-v1",
+    "cloud-conversations-v1",
     "conversation-search-v1",
     "conversation-tabs-v1",
     "creation-attempt-keys-v1",

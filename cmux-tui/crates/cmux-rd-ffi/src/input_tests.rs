@@ -37,6 +37,7 @@ fn blank(kind: u32) -> CmuxRdInputEvent {
         button: 0,
         down: 0,
         precise: 0,
+        service_flags: 0,
     }
 }
 
@@ -348,4 +349,38 @@ fn flag_bytes_other_than_zero_and_one_are_refused() {
     // Flags of kinds that do not use them are ignored.
     let pointer = CmuxRdInputEvent { x: 1, down: 9, precise: 9, ..blank(CMUX_RD_INPUT_POINTER) };
     assert_eq!(push(&h, &pointer).0, CMUX_RD_OK);
+}
+
+#[test]
+fn service_events_carry_bytes_and_refuse_bad_flags_and_sizes() {
+    let h = input(CMUX_RD_CARRIER_DATAGRAM);
+    let payload = [7u8, 0, 9, 255];
+    let event = CmuxRdInputEvent {
+        text: payload.as_ptr(),
+        text_len: payload.len(),
+        service_flags: CMUX_RD_INPUT_MUST_DELIVER,
+        ..blank(CMUX_RD_INPUT_SERVICE)
+    };
+    assert_eq!(push(&h, &event).0, CMUX_RD_OK);
+    let sent = packets(&h, 0);
+    assert_eq!(
+        decode(&sent[0]).events,
+        vec![InputEvent::Service { must_deliver: true, bytes: payload.to_vec() }]
+    );
+    let h = input(CMUX_RD_CARRIER_DATAGRAM);
+    let unknown_bit = CmuxRdInputEvent { service_flags: 0x02, ..event };
+    assert_eq!(push(&h, &unknown_bit).0, CMUX_RD_ERR_INVALID);
+    let empty = CmuxRdInputEvent { text_len: 0, ..event };
+    assert_eq!(push(&h, &empty).0, CMUX_RD_ERR_INVALID);
+    let big = vec![1u8; CMUX_RD_INPUT_MAX_SERVICE + 1];
+    let too_big = CmuxRdInputEvent { text: big.as_ptr(), text_len: big.len(), ..event };
+    assert_eq!(push(&h, &too_big).0, CMUX_RD_ERR_INVALID);
+    assert_eq!(deadline(&h), u64::MAX, "nothing was queued");
+    // The largest service event still fits one datagram of the smallest session.
+    let max = vec![2u8; CMUX_RD_INPUT_MAX_SERVICE];
+    let largest = CmuxRdInputEvent { text: max.as_ptr(), text_len: max.len(), ..event };
+    assert_eq!(push(&h, &largest).0, CMUX_RD_OK);
+    let sent = packets(&h, 0);
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].len() <= MAX_DATAGRAM_VPC);
 }

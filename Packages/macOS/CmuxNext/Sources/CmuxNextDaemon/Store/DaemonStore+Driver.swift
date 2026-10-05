@@ -56,7 +56,7 @@ final class EventInbox: Sendable {
         case .connected, .disconnected, .daemonShutdown, .sessionState:
             // Session state: not in the snapshot the collapse refetches.
             state.events.append(envelope)
-        case .bookmarksChanged, .conversationChanged, .conversationTyping,
+        case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled:
             // Not part of the tree snapshot a resync refetches.
             state.events.append(envelope)
