@@ -6,7 +6,7 @@ import Observation
 
 /// The live agent cursor visibility: resolves a target tab against the
 /// current models (`AgentCursorSnapshotBuilder` + the pure resolver), hands
-/// each workspace content's cursor stack its `AgentCursorTargetResolving`,
+/// each window's cursor host its `AgentCursorTargetResolving`,
 /// and tells `onChange` when a tracked target's visibility changes between
 /// input events (a column scrolls, a window minimizes, a workspace or tab
 /// switches).
@@ -58,18 +58,6 @@ final class AgentCursorVisibilitySource {
     /// layer): placements in the window's content-view coordinates, flipped.
     func resolver(forWindow windowID: String) -> any AgentCursorTargetResolving {
         AgentCursorWindowResolver(windowID: windowID, source: self)
-    }
-
-    /// The resolver of one workspace content's cursor stack (until the host
-    /// moves to the window layer): it draws only while that content is the
-    /// one its window shows, with rects moved into its layout root.
-    func resolver(for content: WorkspaceContentController) -> any AgentCursorTargetResolving {
-        AgentCursorContentResolver(content: content, source: self)
-    }
-
-    /// The window that shows `content` now, if any.
-    func windowID(showing content: WorkspaceContentController) -> String? {
-        services?.windows.controllers.first { $0.content === content }?.state.id
     }
 
     // MARK: Invalidation
@@ -138,35 +126,6 @@ final class AgentCursorVisibilitySource {
             guard let root = controller.content?.layoutView, hookedRoots[ObjectIdentifier(root)] == nil else { continue }
             let observation = root.observeOverlaySync { [weak self] in self?.reresolve() }
             hookedRoots[ObjectIdentifier(root)] = LayoutRootHook(root: root, observation: observation)
-        }
-    }
-}
-
-/// One workspace content's `AgentCursorTargetResolving`: resolves through
-/// the shared source and keeps only what this content's plane draws.
-final class AgentCursorContentResolver: AgentCursorTargetResolving {
-    private weak var content: WorkspaceContentController?
-    private weak var source: AgentCursorVisibilitySource?
-
-    init(content: WorkspaceContentController, source: AgentCursorVisibilitySource) {
-        self.content = content
-        self.source = source
-    }
-
-    func placement(forTarget targetID: String) -> AgentCursorPlacement {
-        guard let source, let content, let window = source.windowID(showing: content),
-              let contentView = content.layoutView.window?.contentView else { return .elsewhere }
-        let space = AgentCursorContentSpace(contentView)
-        let root: NSView = content.layoutView
-        switch source.resolve(targetID).placement(forWindow: window) {
-        case let .visible(viewport, clip, zoom, magnification):
-            return .visible(content: space.rect(viewport, to: root), clip: space.rect(clip, to: root), zoom: zoom,
-                            magnification: magnification)
-        case let .hidden(anchor):
-            // A sidebar row lies outside the layout plane and draws only once the host is window-level.
-            return .hidden(anchor: space.rect(anchor, to: root))
-        case .elsewhere:
-            return .elsewhere
         }
     }
 }

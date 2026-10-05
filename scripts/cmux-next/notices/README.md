@@ -30,3 +30,13 @@ Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache
 of the build), release-time regeneration in nightly-next, and the exact `cargo tree`
 closure where cargo runs.
+
+Release source archive: `ghostty_source_archive.py` (build, verify, offer) and
+`scripts/cmux-next/build-ghostty-source-archive.sh` (CI only: it runs zig) make
+`cmux-next-source-<build>.tar.gz`, deterministic, with Ghostty at its revision
+and every Zig package of the build. The z2d MPL-2.0 source offer names that
+release asset and the public tag `cmux-next-src-<commit, 11 characters>`.
+nightly-next builds and verifies it on every build, ships the Ghostty license
+tree in `Contents/Resources/ghostty-licenses/`, and publishes the archive and
+the tag only while `vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE` is 1.
+`cmux-next-source-archive.yml` is the dry run (artifact only).
