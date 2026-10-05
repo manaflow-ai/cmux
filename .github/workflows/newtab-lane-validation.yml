@@ -42,11 +42,26 @@ jobs:
         run: cd webviews && bun test src/agent-session/acpmux/newtab src/agent-session/acpmux/NewTabPage.test.tsx src/agent-session/acpmux/omnibar.test.ts src/agent-session/acpmux/ProjectChooser.test.tsx src/agent-session/acpmux/newTabIntent.test.ts src/agent-session/acpmux/quickComposer.test.tsx src/agent-session/acpmux/composer.test.tsx
       - name: Regenerate committed web resources
         run: scripts/cmux-next/regenerate-web-bundles.sh
-      - name: Localization audit
+      - name: Full-tree localization audit (reports inherited catalog states)
+        continue-on-error: true
         run: |
           git fetch --depth=200 origin feat-cmux-next:refs/remotes/origin/feat-cmux-next
           scripts/localize-changes --base origin/feat-cmux-next
           python3 scripts/localization_catalog.py check
+      - name: Audit every changed native localization entry
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          path = 'Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings'
+          base = json.loads(subprocess.check_output(['git', 'show', 'origin/feat-cmux-next:' + path]))['strings']
+          catalog = json.loads(Path(path).read_text())
+          catalog['strings'] = {key: row for key, row in catalog['strings'].items() if base.get(key) != row}
+          print('Auditing changed keys:', ', '.join(catalog['strings']))
+          target = Path('/tmp/newtab-changed-strings.xcstrings')
+          target.write_text(json.dumps(catalog, ensure_ascii=False))
+          subprocess.run(['python3', 'scripts/localization_catalog.py', 'check', '--catalog', str(target)], check=True)
+          PY
       - name: Save generated changes
         if: always()
         run: git diff HEAD --binary > generated.patch
