@@ -15,7 +15,8 @@ extension KeyRouter {
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
         if decided.contains(event) { return false }
         let context = keyContext(for: focus, facts: Facts())
-        if let winner = resolve(event, context: context), registry.keyTier(for: winner.command) == .content,
+        // A Ghostty keybind never runs a content action from a hook (the terminal runs its own).
+        if let winner = resolve(event, context: context), !winner.source.isGhostty, registry.keyTier(for: winner.command) == .content,
            !isPageKey(event, id: winner.command), Self.allows(.content, id: winner.command, focus: focus) {
             return RegistryKeyBindings(registry).run(winner, keyContext: context.bits)
         }

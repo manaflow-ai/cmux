@@ -44,7 +44,7 @@ extension ActionRegistry {
     /// Whether `shortcut` can become `id`'s shortcut, and what it collides
     /// with. Owners come from the binding table the key router resolves
     /// through (``RegistryKeyBindings/table``): catalog keys, cmux.json and
-    /// keybindings.json entries, minus negative entries.
+    /// keybindings.json entries, minus negatives; no Ghostty keybinds (noted).
     public func assessShortcut(_ shortcut: Shortcut, for id: ActionID, environment: ShortcutEditEnvironment) -> ShortcutAssessment {
         let id = canonicalID(for: id)
         if descriptor(for: id)?.shortcutFamily != nil { return .refused(.editsNumberedFamily) }
@@ -55,7 +55,7 @@ extension ActionRegistry {
         // app never sees them (PaletteKeyMap): the two key spaces cannot collide.
         let inPalette = descriptor(for: id)?.requires.contains(.paletteOpen) == true
         let entries = RegistryKeyBindings(self).table.entries.filter {
-            $0.keys == [shortcut] && $0.command != id && Self.isPaletteKeySpace($0.when) == inPalette
+            $0.keys == [shortcut] && $0.command != id && !$0.source.isGhostty && Self.isPaletteKeySpace($0.when) == inPalette
         }
         let sameScope = { (entry: KeyBinding) in entry.when == scope }
         let familyEntries = entries.filter { $0.argument != nil }

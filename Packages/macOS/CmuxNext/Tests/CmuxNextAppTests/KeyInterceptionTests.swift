@@ -108,7 +108,7 @@ struct KeyInterceptionTests {
         // A chord no cmux default binds (Ctrl-Cmd-H/J/K/L resize panes since #17281).
         let bind = GhosttyHostKeybind(key: .unicode(UInt32(("b" as Unicode.Scalar).value)), modifiers: [.command, .control],
                                       action: .gotoSplit(.left))
-        router.ghosttyHostAction = { bind.matches($0) ? bind.action : nil }
+        router.loadGhosttyKeybinds([bind], defaults: [])
         let chord = try Self.key("b", keyCode: 11, [.command, .control])
         let candidate = try #require(router.candidate(for: chord, focus: Self.page))
         #expect(candidate == Self.ghosttyFocusLeft)

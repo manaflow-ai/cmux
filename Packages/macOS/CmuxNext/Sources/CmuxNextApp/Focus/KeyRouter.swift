@@ -14,11 +14,11 @@ import CmuxNextTerminal
 /// 1. an input method composing (marked text): the key goes to it;
 /// 2. an armed chord (`["ctrl+b", "c"]`, the Cmd-J leader with its which-key
 ///    overlay): the key completes or cancels it;
-/// 3. the binding table (`RegistryKeyBindings.table`: defaults, then
-///    user entries; the last entry whose `when` holds and whose action can
-///    run wins), with the context keys of the window the key goes to; else
-///    the user's Ghostty keybinds for window, tab and split actions when no
-///    terminal has the keyboard;
+/// 3. the binding table (`RegistryKeyBindings.table`: Ghostty fallbacks,
+///    defaults, app entries, the user's terminal Ghostty keybinds, then user
+///    entries; the last entry whose `when` holds and whose action can run
+///    wins), with the context keys of the window the key goes to; a winning
+///    Ghostty keybind goes to a focused terminal, which runs it itself;
 /// 4. the action's tier decides whether it may take the key from this focus
 ///    (system always; navigation unless browser focus mode; content only
 ///    when its content has the keyboard, never a text field): run it;
@@ -39,9 +39,6 @@ final class KeyRouter: BrowserKeyRouting {
     /// A key that is not a Command or Control chord goes on to `window`'s
     /// focused view: the user types into that pane (notification dismissal).
     var onTyping: ((NSWindow?) -> Void)?
-    /// The user's Ghostty host keybinds (`GhosttyRuntime.hostAction`),
-    /// injectable for tests.
-    var ghosttyHostAction: (NSEvent) -> TerminalHostAction? = { GhosttyRuntime.shared.hostAction(forKeyDown: $0) }
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
     private var resignObserver: (any NSObjectProtocol)?

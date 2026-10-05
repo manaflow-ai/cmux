@@ -12,10 +12,12 @@ public struct RegistryKeyBindings {
     /// The binding table, rebuilt when a binding changes (same lifetime as
     /// the registry's shortcut index).
     ///
-    /// Layers: defaults (the tab-switch entries of ``KeyBindingDefaults``,
-    /// then the catalog's default keys), then app entries, then user
-    /// entries (cmux.json, then keybindings.json; ``KeyBindingLayers``). A
-    /// later entry wins. Inside a layer, entries are ordered by the number
+    /// Layers (GHOSTTY-CONFIG keybind order): Ghostty fallbacks (every
+    /// routed Ghostty keybind), defaults (the tab-switch entries of
+    /// ``KeyBindingDefaults``, then the catalog's default keys), app
+    /// entries, the keybinds the user's Ghostty config changed (terminal
+    /// only), then user entries (cmux.json, then keybindings.json;
+    /// ``KeyBindingLayers``). A later entry wins. Inside a layer, entries are ordered by the number
     /// of context facts their action requires, so a more specific default
     /// (Cmd-R Reload in a page) comes after a general one (Cmd-R Rename
     /// Tab), and catalog order breaks a tie (the first catalog action wins).
@@ -72,25 +74,31 @@ public struct RegistryKeyBindings {
             guard let shortcut = registry.effectiveShortcut(for: id) else { continue }
             for (key, argument) in expandFamily(id, shortcut) { add([key], argument: argument, source: source(id, shortcut)) }
         }
+        let extra = registry.keyBindingLayers
+        let enabled = { (entry: KeyBinding) in registry.disabledFeature(for: entry.command) == nil }
+        let fallbacks = extra.ghostty.filter { $0.source == .ghosttyFallback && enabled($0) }
         var entries = KeyBindingDefaults.entries(registry: registry)
-        let removals = registry.keyBindingLayers.removals
+        let removals = extra.removals
+        // A removal takes out default and app entries, never a Ghostty keybind.
+        let isRemoved = { (entry: KeyBinding) in !entry.source.isGhostty && removals.contains { $0.removes(entry) } }
         var removed: [KeyBinding] = []
         for source in KeyBinding.Source.allCases {
             if source == .user, !removals.isEmpty {
-                removed = entries.filter { entry in removals.contains { $0.removes(entry) } }
-                entries.removeAll { entry in removals.contains { $0.removes(entry) } }
+                removed = entries.filter(isRemoved)
+                entries.removeAll(where: isRemoved)
             }
             let ranked = (layers[source] ?? []).sorted { lhs, rhs in
                 lhs.specificity != rhs.specificity ? lhs.specificity < rhs.specificity : lhs.order > rhs.order
             }
             entries += ranked.map(\.binding)
             switch source {
-            case .default: break
-            case .app: entries += registry.keyBindingLayers.app.filter { registry.disabledFeature(for: $0.command) == nil }
-            case .user: entries += registry.keyBindingLayers.user.filter { registry.disabledFeature(for: $0.command) == nil }
+            case .ghosttyFallback, .default: break
+            case .app: entries += extra.app.filter(enabled)
+            case .ghostty: entries += extra.ghostty.filter { $0.source == .ghostty && enabled($0) }
+            case .user: entries += extra.user.filter(enabled)
             }
         }
-        return KeyBindingTable(entries, removed: removed)
+        return KeyBindingTable(fallbacks + entries, removed: removed)
     }
 
     /// A user override equal to the catalog default stays a default entry,
