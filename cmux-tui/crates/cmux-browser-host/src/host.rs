@@ -330,10 +330,7 @@ impl Host {
         let name = Self::session_name(params)?;
         let removed = self.sessions().remove(&name);
         if let Some(session) = &removed {
-            *session.events.lock().unwrap_or_else(PoisonError::into_inner) = None;
-            // The leases go now: a reset reopens this name at once, and the
-            // old engine may live on until an eval in flight returns.
-            session.gate.end_session();
+            end_session(session);
         }
         let removed = removed.is_some();
         Ok(json!({"session": name, "closed": removed}))
@@ -352,6 +349,27 @@ impl Host {
 /// The fs root for a session: the caller's directory when it is a real,
 /// narrow directory (not `/`, not the home directory or an ancestor of it),
 /// else a private directory for the session under the host's state.
+/// Ends a session that left the map. Clearing the event slot breaks the
+/// cycle slot -> gate -> (driver, input emitter) -> session sink -> slot,
+/// so the engine, its tee and its app channel are freed. The leases go
+/// now: a reset reopens the name at once, and the old engine may live on
+/// until an eval in flight returns.
+fn end_session(session: &Session) {
+    *session.events.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    session.gate.end_session();
+}
+
+/// Every end path ends its sessions: `browser.repl.close`, and the host's
+/// own end with sessions still open.
+impl Drop for Host {
+    fn drop(&mut self) {
+        let sessions = std::mem::take(&mut *self.sessions());
+        for session in sessions.values() {
+            end_session(session);
+        }
+    }
+}
+
 fn session_root(caller: Option<&str>, fallback_base: &str, session: &str) -> String {
     let broad = |path: &std::path::Path| {
         let home = std::env::var_os("HOME")
