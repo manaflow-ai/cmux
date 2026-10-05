@@ -8,6 +8,13 @@
 //! empty value, two headers, a value in the first frame or the query) stays
 //! `Origin::Web`.
 //!
+//! Transport (PEER-ORIGIN-TRANSPORT): the connection must also come from a
+//! loopback address, the end of an `ssh -W` tunnel or of a TLS terminator on
+//! this machine. The listener itself has no TLS, so a plain `ws://`
+//! connection from another address stays `Origin::Web` even with the right
+//! token: that token crossed a network in clear. Connecting daemons never
+//! send it over such a connection (`peer::carries_peer_token`).
+//!
 //! The peer token is 32 random bytes made at every daemon start, kept only
 //! in `ACPMUX_HOME/run/peer.token` (mode 0600, created with `O_EXCL` and
 //! `O_NOFOLLOW` in a private directory, removed at stop), and never
@@ -39,14 +46,17 @@ impl PeerAuth {
         Ok(Self { token, path })
     }
 
-    /// Whether the `x-acpmux-peer-token` values of an upgrade request (which
-    /// passed the dashboard token check) prove a peer: exactly one, equal to
-    /// this launch's token.
-    pub fn is_peer(&self, presented: &[String]) -> bool {
-        match presented {
+    /// Whether an upgrade request (which passed the dashboard token check)
+    /// from `from` with these `x-acpmux-peer-token` values proves a peer: a
+    /// loopback address, and exactly one value equal to this launch's token.
+    pub fn is_peer(&self, from: std::net::SocketAddr, presented: &[String]) -> bool {
+        let token = match presented {
             [one] => !one.is_empty() && cmux_local_auth::tokens_match(one, &self.token),
             _ => false,
-        }
+        };
+        // RED: the transport is not checked yet.
+        let _ = from;
+        token
     }
 
     /// The file this launch's token is in (removed when the daemon stops).
@@ -70,16 +80,33 @@ mod tests {
         (auth, token)
     }
 
+    fn lo() -> std::net::SocketAddr {
+        "127.0.0.1:50000".parse().unwrap()
+    }
+
     #[test]
     fn only_one_exact_token_proves_a_peer() {
         let (auth, token) = auth("one");
-        assert!(auth.is_peer(std::slice::from_ref(&token)));
-        assert!(!auth.is_peer(&[]));
-        assert!(!auth.is_peer(&[String::new()]));
-        assert!(!auth.is_peer(&["0".repeat(64)]));
-        assert!(!auth.is_peer(&[token.clone(), token.clone()]));
+        assert!(auth.is_peer(lo(), std::slice::from_ref(&token)));
+        assert!(!auth.is_peer(lo(), &[]));
+        assert!(!auth.is_peer(lo(), &[String::new()]));
+        assert!(!auth.is_peer(lo(), &["0".repeat(64)]));
+        assert!(!auth.is_peer(lo(), &[token.clone(), token.clone()]));
         let (_, other) = auth_again();
-        assert!(!auth.is_peer(&[other]), "another launch's token");
+        assert!(!auth.is_peer(lo(), &[other]), "another launch's token");
+    }
+
+    #[test]
+    fn a_plain_connection_from_another_address_is_never_a_peer() {
+        let (auth, token) = auth("transport");
+        let one = std::slice::from_ref(&token);
+        for from in ["127.0.0.1:1", "[::1]:1", "[::ffff:127.0.0.1]:1"] {
+            assert!(auth.is_peer(from.parse().unwrap(), one), "{from}: the end of a tunnel");
+        }
+        for from in ["10.0.0.7:1", "192.168.1.5:1", "100.89.225.106:1", "[fd00::1]:1", "0.0.0.0:1"]
+        {
+            assert!(!auth.is_peer(from.parse().unwrap(), one), "{from}: plain ws over a network");
+        }
     }
 
     fn auth_again() -> (PeerAuth, String) {
@@ -97,7 +124,7 @@ mod tests {
         let second = PeerAuth::create(&home).unwrap();
         let b = std::fs::read_to_string(token_path(&home)).unwrap();
         assert_ne!(a, b);
-        assert!(!second.is_peer(&[a]));
+        assert!(!second.is_peer(lo(), &[a]));
         drop(first);
     }
 }

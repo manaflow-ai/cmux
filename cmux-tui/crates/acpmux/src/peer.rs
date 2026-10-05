@@ -56,6 +56,9 @@ pub struct Peer {
     /// The origin the peer serves this daemon as (its initialize reply):
     /// `peer` when it accepted the peer token, `remote` (Web) otherwise.
     served_as: StdMutex<Option<String>>,
+    /// The peer token was held back: the transport is plain `ws://` to a
+    /// host that is not loopback (`carries_peer_token`). Logged once.
+    withheld: AtomicBool,
     attached: StdMutex<HashSet<String>>,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
@@ -90,6 +93,7 @@ impl Peer {
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
             served_as: StdMutex::new(None),
+            withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
@@ -195,6 +199,7 @@ impl Peer {
             "remoteBuild": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone()),
             "localBuild": crate::hub::BUILD,
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+            "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
         })
     }
@@ -279,7 +284,17 @@ impl Peer {
             .map_err(|e| e.to_string())?;
             return self.serve(ws, out_rx).await;
         }
-        let req = self.ws_request(&self.url, self.token.as_deref(), self.peer_token.as_deref())?;
+        // The peer token never crosses a network in clear.
+        let peer_token = match self.peer_token.as_deref() {
+            Some(_) if !carries_peer_token(&self.url) => {
+                if !self.withheld.swap(true, Ordering::SeqCst) {
+                    tracing::warn!(peer = %self.name, "the peer runs as remote (Web): its transport is plain ws:// to a host that is not loopback, so the peer token is not sent; use ssh:// or wss://");
+                }
+                None
+            }
+            other => other,
+        };
+        let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let (ws, _) =
             tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(req))
                 .await
@@ -538,6 +553,17 @@ pub fn read_config_argv(destination: &str) -> Vec<String> {
     .collect()
 }
 
+/// Whether a direct (not ssh) peer URL may carry the peer token: `wss://`,
+/// or `ws://` to a loopback host. Over plain `ws://` to any other host the
+/// token would cross a network in clear, and the peer serves it as Web
+/// anyway (`server/peer_auth.rs`). An `ssh://` peer connects through a
+/// tunnel to the remote's loopback, so it always may.
+pub fn carries_peer_token(url: &str) -> bool {
+    // RED: every transport carries it yet.
+    let _ = url;
+    true
+}
+
 /// The output of `read_config_argv`: the config bytes and the peer token
 /// (None when absent or not a 64-digit hex token).
 pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>) {
@@ -627,6 +653,24 @@ mod ssh_tests {
         assert_eq!(split_remote_read(b"{}\0").1, None);
         assert_eq!(split_remote_read(b"{}").1, None);
         assert_eq!(split_remote_read(b"{}\0not a token").1, None);
+    }
+
+    #[test]
+    fn the_peer_token_crosses_only_loopback_or_tls() {
+        for url in
+            ["ws://127.0.0.1:1/", "ws://[::1]:1/", "ws://localhost:1", "wss://box.example:1/"]
+        {
+            assert!(carries_peer_token(url), "{url}");
+        }
+        for url in [
+            "ws://10.0.0.7:1/",
+            "ws://box.example:1/",
+            "ws://100.89.225.106:47811",
+            "http://127.0.0.1:1/",
+            "nonsense",
+        ] {
+            assert!(!carries_peer_token(url), "{url}");
+        }
     }
 
     #[test]

@@ -342,7 +342,7 @@ pub async fn serve_ws_with(
             let mut first = None;
             let presented =
                 std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
-            if peer_auth.as_ref().is_some_and(|a| a.is_peer(&presented)) {
+            if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
                 origin = Origin::Peer;
             } else if let Some(auth) = &local_app {
                 let frame = tokio::time::timeout(FIRST_FRAME, async {
