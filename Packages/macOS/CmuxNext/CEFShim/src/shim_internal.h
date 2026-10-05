@@ -179,9 +179,10 @@ CefRefPtr<CefClient> DefaultClient();
 // Popups a page asked for (OnBeforePopup), waiting for their
 // OnAfterCreated: the disposition and window features go with the new tab's
 // AFTER_CREATED event (shim_windows.mm).
-void RememberPopup(int opener, int disposition, const CefPopupFeatures& features);
-// Returns opener << 32 | disposition for AFTER_CREATED's b, and the window
-// features ("x,y,width,height" or ""). Takes the opener's oldest popup.
+void RememberPopup(int opener, int disposition, bool user_gesture, const CefPopupFeatures& features);
+// Returns opener << 32 | user_gesture << 16 | disposition for AFTER_CREATED's
+// b, and the window features ("x,y,width,height" or ""). Takes the opener's
+// oldest popup.
 int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features);
 void ForgetPopups(int opener);
 // Chromium commands that would open a window of Chromium's own.
@@ -203,6 +204,11 @@ std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title
 // the Chrome Web Store's origin, or null for any other URL (shim_webstore.mm).
 CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url);
 bool IsWebStoreURL(const std::string& url);
+
+// Downloads (shim_downloads.mm, UI thread). The page clients' download
+// handler: every download waits for the host's path (DOWNLOAD_STARTED,
+// cmux_shim_download_continue) and reports its progress and end.
+CefRefPtr<CefDownloadHandler> DownloadHandler();
 
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);

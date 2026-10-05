@@ -16,9 +16,17 @@ enum BrowserHitStrings {
         String(format: t("browserHits.menu.lookUp", "Look Up “%@”"), snippet)
     }
 
+    /// The notice over a tab when its download ends (`BrowserDownloadList`).
+    static func downloadFinished(_ name: String) -> String {
+        String(format: t("browserHits.download.finished", "Downloaded “%@”"), name)
+    }
+
+    static func downloadFailed(_ name: String) -> String {
+        String(format: t("browserHits.download.failed", "Could not download “%@”"), name)
+    }
+
     static var urlRequired: String { t("browserHits.error.url", "This action needs a web address (url).") }
     static var textRequired: String { t("browserHits.error.text", "This action needs text.") }
-    static var chromiumSave: String { t("browserHits.error.chromiumSave", "Chromium tabs save from the page's right-click menu for now.") }
     static var imageCopyFailed: String { t("browserHits.error.image", "The image could not be copied.") }
     static var noPage: String { t("browserHits.error.noPage", "No browser page is open here.") }
 }
