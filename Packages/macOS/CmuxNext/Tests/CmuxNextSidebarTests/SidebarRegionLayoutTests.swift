@@ -21,8 +21,7 @@ import Testing
 
     @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
         let bands = defaults.bands(room: nil)
-        #expect(bands.above.flatMap(\.items).map(\.ref)
-            == [.app("cmux/home"), .app("cmux/app-store"), .builtIn(.newWorkspace), .builtIn(.importSync)])
+        #expect(bands.above.flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
         #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
     }
 
