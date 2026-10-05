@@ -134,7 +134,8 @@ jobs:
           # open on a transient ref lookup failure so a real head still gets
           # its compile and nightly promotion.
           if [[ "$EVENT_NAME" == push && "$REF" == refs/heads/feat-cmux-next ]]; then
-            remote_sha="$(git -c "http.extraHeader=Authorization: Bearer $GH_TOKEN" \
+            authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+            remote_sha="$(timeout 15 git -c "http.extraHeader=Authorization: Basic $authorization" \
               ls-remote "${SERVER_URL}/${REPOSITORY}.git" "$REF" 2>/dev/null | awk 'NR==1{print $1}')" || remote_sha=""
             if [[ -n "$remote_sha" && "$remote_sha" != "$SHA" ]]; then
               superseded=true
@@ -173,7 +174,9 @@ jobs:
 
           # Main still needs commit-addressed artifacts and latest/ updates.
           # Other trusted refs only spend macOS time for a new tree.
-          if [[ "$tree_ready" == true && "$REF" != refs/heads/main ]]; then
+          if [[ "$tree_ready" == true && "$REF" != refs/heads/main &&
+                "$EVENT_NAME" != workflow_dispatch &&
+                "$REF" != refs/heads/cmux-tui-pin-* ]]; then
             run_macos=false
           fi
           echo "run_macos=$run_macos" >> "$GITHUB_OUTPUT"
