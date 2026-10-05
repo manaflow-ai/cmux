@@ -2395,6 +2395,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// longer the active focus owner.
     private var webViewFocusRequestGeneration: UInt64 = 0
 
+    /// Keeps a Cloud pane's content-focus request alive until its portal host
+    /// has a window. Browser materialization can finish before that attachment.
+    private var pendingContentFocusAfterAttachment = false
+
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
     private var lastSearchNeedle = ""
@@ -5031,6 +5035,25 @@ final class BrowserPanel: Panel, ObservableObject {
         if window.makeFirstResponder(webView) {
             noteWebViewFocused()
         }
+    }
+
+    /// Focuses Cloud page content now, or retries once when the portal host
+    /// attaches to a window later in the same materialization.
+    func focusContentAfterAttachment() {
+        pendingContentFocusAfterAttachment = true
+        prepareFocusIntentForActivation(.browser(.webView))
+        focus()
+        if webView.window != nil, !webView.isHiddenOrHasHiddenAncestor {
+            pendingContentFocusAfterAttachment = false
+        }
+    }
+
+    /// Completes a deferred Cloud content-focus request after portal attachment.
+    func focusPendingContentAfterAttachment() {
+        guard pendingContentFocusAfterAttachment else { return }
+        pendingContentFocusAfterAttachment = false
+        prepareFocusIntentForActivation(.browser(.webView))
+        focus()
     }
 
     @discardableResult
