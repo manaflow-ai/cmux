@@ -3,7 +3,8 @@ public import CoreGraphics
 /// The pure visibility rules for an agent cursor target (a browser tab).
 /// No AppKit: the App builds an `AgentCursorVisibilitySnapshot` from the live
 /// models and asks here. Shared vectors: schemas/agent-cursor-visibility.
-public nonisolated enum AgentCursorVisibilityResolver {
+public nonisolated struct AgentCursorVisibilityResolver {
+    public nonisolated init() {}
     /// Thickness of an edge anchor (column edge, window edge).
     public static let edgeThickness: CGFloat = 4
 

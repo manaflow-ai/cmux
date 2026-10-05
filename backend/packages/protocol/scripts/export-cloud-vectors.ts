@@ -337,7 +337,7 @@ kase(
   "machine.link_token.install_refused",
   "cloud.machine.link_token",
   { host: host(1), services: ["ssh"] },
-  [mintErr("cloud.link.install_refused", "only the cli, mac app and ios installs mint link tokens", { install_kind: "vm", allowed: ["cli", "mac", "ios"] })],
+  [mintErr("cloud.link.install_refused", "only the cli, mac app and ios installs mint link tokens", { install_kind: "web", allowed: ["cli", "mac", "ios"] })],
   { mutation: true, note: "CLOUD-LINK-FOLLOWUPS (2): a vm, daemon or web install never mints; the check runs before the machine lookup." }
 )
 backendOnly.push(...backendOnlyCases({ TEAM, INSTALL_P, vm, host, readErr }))

@@ -45,6 +45,8 @@ export const jwkThumbprint = (jwk: { crv: string; kty: string; x: string; y: str
 const ALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute", "send-external", "money", "destructive"] as const
 /** An install's default grant: its own user's interactive rights, minus account management (destructive). */
 const INSTALL_CLASSES = ["read", "mutate-own", "mutate-shared", "execute"] as const
+/** Install kinds only the server creates (CLOUD-LINK-FOLLOWUPS 4). */
+const SERVER_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon"])
 
 export const grantFor = (state: UserState, p: Principal) => (p.grant ? state.grants[p.grant] : undefined)
 
@@ -109,7 +111,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
-    // A system principal exists only inside a DO (TeamDO's revoke of a bound install); internal ops only. Also push.target.drop.
+    // A system principal is built only by server code (a DO, or the Worker for pairing's install.register_server, sent by DO RPC that only Worker code reaches); internal ops only. Also push.target.drop.
     const confirm = USER_CONFIRM_OPS.has(op)
     const confirmRefused = () =>
       confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
@@ -143,11 +145,16 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }]
         }
       }
-      case "install.register": {
+      case "install.register":
+      case "install.register_server": {
         if (!state.user) return reject("validation.invalid", "call user.ensure first")
         const d = decodeParams<typeof InstallRegister.params.Type>(InstallRegister, params)
         if (!d.ok) return d
         const v = d.value
+        // Server kinds are created only by the server (pairing, Cloud bind), never declared by a client.
+        const reserved = SERVER_INSTALL_KINDS.has(v.kind)
+        if (op === "install.register" && reserved) return reject("install.kind_reserved", `install kind ${v.kind} is created by the server, not registered by a client`)
+        if (op === "install.register_server" && (!reserved || p.kind !== "system")) return reject("validation.invalid", "install.register_server takes only a server kind from the server")
         const thumbprint = jwkThumbprint(v.public_jwk)
         if (Object.values(state.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
           return reject("validation.invalid", "this public key is already registered")
@@ -175,7 +182,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           name: v.name,
           device_name: v.device_name,
           platform: v.platform,
-          ...(p.kind === "session" && p.sso_team ? { sso_team: p.sso_team } : {}),
+          ...((p.kind === "session" || (op === "install.register_server" && p.kind === "system")) && p.sso_team ? { sso_team: p.sso_team } : {}),
           public_jwk: v.public_jwk,
           thumbprint,
           grant,

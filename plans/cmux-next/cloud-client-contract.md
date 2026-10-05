@@ -215,12 +215,17 @@ it read the stamp, not the time the control plane issued the token, so a held st
 link moves the 24 h / 72 h limits later than the token allows.
 
 Hard gates before ANY link token format goes live (the daemon refuses to start with
-`control_plane` until both hold; `CheckBinding::BUILT` names them and tests prove the refusal):
+`control_plane` until G1 and G2 hold, and G3 and G4 land before that code can start; `CheckBinding::BUILT` names them and tests prove the refusal):
 - G1 (Linux): the entry binds `check` to the supervised link child: the stamp's writer must be the
   link process the daemon's supervisor started, named by its SO_PEERCRED pid AND that process's
   start time (so a reused pid fails). Fix F1.
 - G2 (every OS): the recorded check uses the token's issue time (`iat`, carried in the stamp by the
   link after the verifier accepted the token) instead of the time the entry read the stamp. Fix F2.
+- G3 (every OS, ad349 2026-10-04): the daemon logs its verifier mode (`deny_all` or
+  `control_plane`) ONCE at start, with no token or secret in the line.
+- G4 (every OS, ad349 2026-10-04): the daemon strips `CMUX_LINK_TOKEN_VERIFIER` from the
+  environment it passes to terminals and other children, in `daemon_env.rs` (the one place that
+  builds child env), with a test that a child never sees it.
 
 Limits that remain: (1) the host uses `DenyAllTokens` until a token format ships, so no Cloud
 stream reaches the entry yet, and G1/G2 block a real verifier until F1 and F2 land; (2) a paired

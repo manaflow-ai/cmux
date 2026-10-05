@@ -359,10 +359,31 @@ fn a_checked_stamp_under_deny_all_tokens_is_closed_and_records_nothing() {
     send(&mut later, &stamp_inst_9(false));
     send(&mut later, r#"{"id":1,"cmd":"ping"}"#);
     assert!(closed(&mut later_reader), "the rejected stamp recorded no check for inst_9");
+    // The fixture checked inst_1 at t0; the clock now reads one hour later,
+    // so a refresh by the forged stamp would move the check time.
+    let checked_at = good_check_time(&entry.mux, "inst_1");
+    assert!(checked_at.is_some(), "the fixture checked inst_1");
+    let later_clock = Instant::now() + Duration::from_secs(3600);
+    entry.mux.set_remote_revocation_clock(Arc::new(FixedClock(later_clock))).unwrap();
     let checked = STAMP.replace("}}", r#"},"check":"link_token"}"#);
     let (mut known, mut known_reader) = connect_as_link(&entry);
     send(&mut known, &checked);
     send(&mut known, r#"{"id":1,"cmd":"ping"}"#);
     assert!(closed(&mut known_reader), "a checked stamp is malformed for a checked install too");
     assert!(remote_clients(&entry.mux).is_empty());
+    assert_eq!(good_check_time(&entry.mux, "inst_1"), checked_at, "no refresh of the check time");
+}
+
+/// A revocation clock that always reads one instant.
+struct FixedClock(Instant);
+
+impl crate::remote_relay_state::RevocationClock for FixedClock {
+    fn now(&self) -> Instant {
+        self.0
+    }
+}
+
+/// The time of `install`'s last good check.
+fn good_check_time(mux: &Mux, install: &str) -> Option<Instant> {
+    mux.remote_relay().revocation.lock().unwrap().good_check_time(install)
 }
