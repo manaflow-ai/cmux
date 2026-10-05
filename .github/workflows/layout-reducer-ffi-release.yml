@@ -84,8 +84,11 @@ jobs:
             [[ " $archs " == *" $arch "* ]] || { echo "::error::$lib has no $arch slice" >&2; exit 1; }
           done
           # Every C entry point in the header is exported from the archive.
+          # nm's output is read once: `nm | grep -q` under pipefail fails on
+          # the SIGPIPE grep -q causes when it matches early.
+          symbols="$(nm -g "$lib" 2>/dev/null || true)"
           for symbol in $(grep -oE '\bcmux_layout_reducer_[a-z0-9_]+\(' cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h | tr -d '(' | sort -u); do
-            nm -g "$lib" 2>/dev/null | grep -q " T _$symbol\$" || { echo "::error::$lib does not export $symbol" >&2; exit 1; }
+            grep -q " T _$symbol\$" <<<"$symbols" || { echo "::error::$lib does not export $symbol" >&2; exit 1; }
           done
           dist="$RUNNER_TEMP/dist"
           rm -rf "$dist"; mkdir -p "$dist"
