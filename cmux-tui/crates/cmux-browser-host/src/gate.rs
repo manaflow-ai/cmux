@@ -162,7 +162,8 @@ impl Gate {
             let (policy, filtered, remote) =
                 (self.policy.clone(), self.filtered.clone(), self.grants.remote);
             // The session's policy is the same for every tab it drives.
-            let filter: crate::driver::RequestFilter = Arc::new(move |_target: &str, url: &str| {
+            let filter: crate::driver::RequestFilter = Arc::new(move |request| {
+                let url = request.url;
                 let parsed = url::Url::parse(url).ok()?;
                 let reason = {
                     let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
