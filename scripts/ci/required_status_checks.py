@@ -62,6 +62,7 @@ REQUIRED_CHECKS = (
     "CLA Assistant",
     "CLA policy guard",
     "Web complexity",
+    "backend migrations applied",
     "ci-status",
     "web-validation",
 )

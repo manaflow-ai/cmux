@@ -35,10 +35,7 @@ on:
         default: false
         type: boolean
 
-permissions:
-  actions: read
-  issues: write
-  contents: read
+permissions: {}
 
 # The report refreshes one comment in place, so two runs must not read the same
 # comment and then overwrite each other.
@@ -48,6 +45,10 @@ concurrency:
 
 jobs:
   report:
+    permissions:
+      actions: read
+      issues: write
+      contents: read
     name: Report CI health
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Measured against this repo: a window's run listings plus ~160 job

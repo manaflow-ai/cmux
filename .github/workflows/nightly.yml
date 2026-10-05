@@ -94,10 +94,7 @@ concurrency:
   group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  attestations: write
-  id-token: write
+permissions: {}
 
 env:
   CREATE_DMG_VERSION: 8.0.0
@@ -105,6 +102,10 @@ env:
 
 jobs:
   decide:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
@@ -574,6 +575,10 @@ jobs:
             core.notice(`Promoted ${target} to ${sha}; its push run publishes it.`);
 
   probe-nightly-tag-permission:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     if: github.event_name == 'workflow_dispatch' && (inputs.probe_mode || 'off') != 'off'
     uses: ./.github/workflows/nightly-tag-permission-probe.yml
     with:
@@ -582,6 +587,10 @@ jobs:
     secrets: inherit
 
   refresh-compilation-cache:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     needs: decide
     # The schedule skips this Blacksmith warmer while owned pools serve pull
     # requests (CI_PR_POOL_OWNED is 1). build-nightly-app saves the same key on
@@ -746,6 +755,10 @@ jobs:
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
 
   refresh-test-compilation-cache:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     needs: decide
     # The schedule skips this Blacksmith seeder while owned pools serve pull
     # requests (CI_PR_POOL_OWNED is 1): admission then runs on owned minis that
@@ -987,6 +1000,10 @@ jobs:
           key: ${{ steps.derived-data-seed-key.outputs.scoped }}${{ needs.decide.outputs.head_sha }}
 
   build-nightly-ghostty-cli-helper:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
@@ -1043,6 +1060,10 @@ jobs:
           retention-days: 1
 
   build-nightly-app:
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     needs: decide
     outputs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
