@@ -38,6 +38,7 @@
   "zig": [
     {
       "version": "0.16.0",
+      "ci_version": "0.16.0",
       "file": "zig-0.16.0/LICENSE",
       "sha256": "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177",
       "source": "zig-0.16.0/LICENSE in https://ziglang.org/download/0.16.0/zig-0.16.0.tar.xz (sha256 43186959edc87d5c7a1be7b7d2a25efffd22ce5807c7af99067f86f99641bfdf in https://ziglang.org/download/index.json)",

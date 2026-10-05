@@ -46,6 +46,12 @@ A Web source (fork, load, resume, handoff) is accepted only with no mode or a mo
 
 `webAskingModes` in config.json (written by the local user, never over a WebSocket) adds modes per family. WARNING: a mode added there lets paired devices start that mode without a per-action prompt. If `webAskingModes` ever gets a Settings row, the Settings lead must show the same warning.
 
+### Ignored config entries and mode drift
+
+The table lives in `src/web_modes.rs`, with `NON_ASKING_MODES` (the "Not accepted" column) next to it under the same sources. A `webAskingModes` entry that names a non-asking mode, for any family, is ignored with a warning. The daemon logs the merged table once at start and once on each config reload (`web asking modes: claude=[default,plan] codex=[read-only] ...`).
+
+Default deny on drift: every mode change of a session is checked against the table, whether it comes from `current_mode_update`, a config option update (the harness may change its own mode), or a successful set_mode or set_config_option. When the mode leaves the table, Web control of that session ends at once and the session log records `remote_control_ended`. The Web is then refused `session/prompt`, `_acpmux/permission_respond`, `_acpmux/permission_group_respond`, `session/set_mode` and `session/set_config_option`, with error data `{"reason": "remote.mode_left_asking_table", "mode": ...}`. Web reads (attach, watch, events, info) stay allowed. The unix socket and LocalApp keep full control. A return to the table does not restore Web control by itself. Only a set_mode or set_config_option from the unix socket or LocalApp to an asking mode restores it (`remote_control_restored`). A prompt or permission answer for a peer's session is not checked here: it goes to the peer, whose guard checks that connection.
+
 ### Sources and resolution
 
 Web fork, load, resume, handoff_prepare, set_mode and set_config_option resolve their session like the handler (`session_key`: sessionId, session or name; then `hub.resolve`), check a stored session from its stored meta, and refuse a source that cannot be resolved (unknown, ambiguous prefix, a peer's session). A source whose effective policy skips asking or whose mode the table does not list is refused, not downgraded (a downgrade cannot reach a mode held inside the harness, which a fork copies).
@@ -61,10 +67,12 @@ A Web cwd or `additionalDirectories` entry must be inside a root, compared by pa
 - 2026-10-04: ssh peer URLs are plain names only; `--` before every ssh/scp destination (`73f2abafe96`).
 - 2026-10-04: the remote guard (`d2cd0de282e`); skip-ask policies, peer changes and directory listings (`eb73a743741`); allow lists, `deny-all` stays for Web (`6a8a05c133f`).
 - 2026-10-05: absent policy means ask, refuse-not-downgrade, roots (`34648165301`); handler resolution, mode fields, the per-harness table (`7086e1a60d9`).
+- 2026-10-05: non-asking `webAskingModes` entries are ignored with a warning; Web control ends on mode drift and only a local set restores it.
 - 2026-10-05: Web loads of peer sessions stay refused; `webAskingModes` stays, local user only; Web Codex `read-only` and Web opencode `plan` are accepted for now.
 
 ## Follow-ups
 
 - (a) A per-action prompt that the Web user answers, so paired devices can run Codex and opencode with edits. This is the long-term target and replaces the read-only and plan limits.
 - (b) Check the source on the owning daemon for peer loads, so a Web load of a peer's session can be served.
+- (d) A session created locally in a non-asking mode, which never changes mode, still accepts Web prompts: the drift rule watches changes only. Refusing Web control of every session whose current mode does not ask closes this gap, but it also blocks peers from prompting such sessions.
 - (c) `$/cancel_request` does nothing over a socket: requests run as spawned tasks, so a cancelled `session/new` still completes (the in-process case is covered by the pool's ClaimGuard).

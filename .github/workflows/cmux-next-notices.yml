@@ -20,6 +20,8 @@ on:
       - "scripts/cmux-next/generate-third-party-notices.sh"
       - "scripts/cmux-next/notices/**"
       - "scripts/cmux-next/bundle-cli-resources.sh"
+      - "scripts/install-zig-ci.sh"
+      - "cmux-tui/bindings/zig/build.zig.zon"
       - "cmux-tui/dist/notices/**"
       - "cmux-tui/dist/scripts/package_notices.py"
       - "cmux-tui/dist/scripts/test_package_notices.py"
@@ -72,6 +74,7 @@ jobs:
           python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
           python3 scripts/cmux-next/notices/test_vt_link_graph.py
           python3 cmux-tui/dist/scripts/test_package_notices.py
+          python3 tests/test_install_zig_ci_reviewed_version.py
           python3 cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py
 
       - name: Rust and Zig standard library notices match the toolchain pins
