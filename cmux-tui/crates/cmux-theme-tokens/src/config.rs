@@ -36,6 +36,14 @@ pub struct Env {
     /// empty one, replaces it). The app sets it from
     /// [`Env::default_theme_spec`] and loads the same line into the terminal.
     pub default_theme: Option<String>,
+    /// A `theme` spec loaded after the user's files and their includes, like
+    /// cmux-next's `GhosttyRuntime.themeOverride` (cmux.json
+    /// `appearance.theme`) and `themeConfig(named:)` (a space, workspace or
+    /// terminal theme): it replaces the files' `theme`, and colors the files
+    /// set explicitly still win. Set it with [`Env::with_theme_override`];
+    /// [`load`] ignores, with a diagnostic, a value that
+    /// [`theme_override_value`] refuses.
+    pub theme_override: Option<String>,
 }
 
 /// cmux-next's default terminal theme (`GhosttyRuntime+DefaultTheme.swift`):
@@ -60,7 +68,18 @@ impl Env {
             exe_dir: std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)),
             only_file: non_empty_path("CMUX2_TEST_GHOSTTY_CONFIG"),
             default_theme: None,
+            theme_override: None,
         }
+    }
+
+    /// This environment with `spec` (a theme name, an absolute theme path or
+    /// a `light:A,dark:B` pair) loaded over the user's config (see
+    /// [`Env::theme_override`]). None when `spec` could inject another
+    /// config line ([`theme_override_value`]); cmux-next then builds no
+    /// config and the level inherits.
+    pub fn with_theme_override(self, spec: &str) -> Option<Self> {
+        let value = theme_override_value(spec)?.to_owned();
+        Some(Env { theme_override: Some(value), ..self })
     }
 
     /// cmux-next's default theme as a Ghostty `theme` value with absolute
@@ -231,6 +250,59 @@ fn parse_text(text: &str, path: &Path) -> Vec<Entry> {
     out
 }
 
+/// Longest theme override cmux-next accepts.
+pub const THEME_OVERRIDE_MAX_CHARS: usize = 200;
+
+/// A theme override as the `theme = <value>` line cmux-next writes
+/// (`GhosttyRuntime.themeOverrideLine`): `value` without surrounding spaces
+/// and tabs, or None when that is empty, longer than
+/// [`THEME_OVERRIDE_MAX_CHARS`], or holds a character that could end the
+/// line or start another key (a control or format character, `#`, `=`,
+/// `"`).
+pub fn theme_override_value(value: &str) -> Option<&str> {
+    let value = value.trim_matches(is_horizontal_space);
+    let safe = |c: char| !is_control_or_format(c) && !matches!(c, '#' | '=' | '"');
+    (!value.is_empty()
+        && value.chars().count() <= THEME_OVERRIDE_MAX_CHARS
+        && value.chars().all(safe))
+    .then_some(value)
+}
+
+/// Foundation's `CharacterSet.whitespaces`: tab and the space separators
+/// (Unicode Zs).
+fn is_horizontal_space(c: char) -> bool {
+    c == '\t' || (c.is_whitespace() && !c.is_control() && !matches!(c, '\u{2028}' | '\u{2029}'))
+}
+
+/// Foundation's `CharacterSet.controlCharacters`: Unicode Cc and Cf.
+fn is_control_or_format(c: char) -> bool {
+    const FORMAT: &[(u32, u32)] = &[
+        (0x00AD, 0x00AD),
+        (0x0600, 0x0605),
+        (0x061C, 0x061C),
+        (0x06DD, 0x06DD),
+        (0x070F, 0x070F),
+        (0x0890, 0x0891),
+        (0x08E2, 0x08E2),
+        (0x180E, 0x180E),
+        (0x200B, 0x200F),
+        (0x202A, 0x202E),
+        (0x2060, 0x2064),
+        (0x2066, 0x206F),
+        (0xFEFF, 0xFEFF),
+        (0xFFF9, 0xFFFB),
+        (0x110BD, 0x110BD),
+        (0x110CD, 0x110CD),
+        (0x13430, 0x1343F),
+        (0x1BCA0, 0x1BCA3),
+        (0x1D173, 0x1D17A),
+        (0xE0001, 0xE0001),
+        (0xE0020, 0xE007F),
+    ];
+    let n = u32::from(c);
+    c.is_control() || FORMAT.iter().any(|&(lo, hi)| (lo..=hi).contains(&n))
+}
+
 /// The theme name for `appearance` from a `theme` value: `Name`, or
 /// `light:A,dark:B` (either order; a missing side uses the other).
 pub fn theme_for(value: &str, appearance: Appearance) -> Option<String> {
@@ -316,13 +388,18 @@ pub fn load(env: &Env, appearance: Appearance) -> Loaded {
         read(&path, optional, &mut entries, &mut pending, &mut diagnostics);
     }
 
-    // The theme: last `theme` wins; an empty value resets it. Without one,
-    // the app's default (cmux-next: Apple System Colors) applies.
-    let theme_value = entries
-        .iter()
-        .rev()
-        .find(|e| e.key == "theme")
-        .map(|e| e.value.clone())
+    // The theme: an override loaded after the files wins; else the last
+    // `theme` in the files (an empty value resets it); else the app's
+    // default (cmux-next: Apple System Colors).
+    let theme_override = env.theme_override.as_deref().and_then(|raw| {
+        let value = theme_override_value(raw);
+        if value.is_none() {
+            diagnostics.push(format!("theme override {raw:?} ignored: not one config value"));
+        }
+        value.map(str::to_owned)
+    });
+    let theme_value = theme_override
+        .or_else(|| entries.iter().rev().find(|e| e.key == "theme").map(|e| e.value.clone()))
         .or_else(|| env.default_theme.clone())
         .unwrap_or_default();
     let theme = theme_for(&theme_value, appearance);
