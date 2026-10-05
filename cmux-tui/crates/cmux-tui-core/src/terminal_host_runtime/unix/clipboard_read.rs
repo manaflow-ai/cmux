@@ -462,7 +462,6 @@ impl ControlResponses {
     }
 
     /// Installs the broker's handler for this connection's reads.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the layer-3 daemon broker installs it"))]
     pub(crate) fn set_clipboard_read_handler(&self, handler: ClipboardReadHandler) {
         *lock(&self.clipboard_reads.handler) = Some(handler);
     }
@@ -551,10 +550,42 @@ impl HostAttachment {
         token: u64,
         text: Option<&[u8]>,
     ) -> std::io::Result<bool> {
-        if !self.control_responses.take_clipboard_read(token) {
+        self.clipboard_replier().complete(token, text)
+    }
+
+    /// This connection's answering side, for the daemon broker.
+    pub(crate) fn clipboard_replier(&self) -> ClipboardReplier {
+        ClipboardReplier {
+            writer: Arc::downgrade(&self.writer),
+            responses: Arc::downgrade(&self.control_responses),
+            protocol_version: self.protocol_version,
+        }
+    }
+}
+
+/// Answers one connection's reads without the surface's runtime lock, so
+/// the broker may refuse a read on the frame reader thread. It holds the
+/// connection weakly: once the attachment is gone it sends nothing, and it
+/// never keeps the host socket open.
+#[derive(Clone)]
+pub(crate) struct ClipboardReplier {
+    writer: Weak<Mutex<UnixStream>>,
+    responses: Weak<ControlResponses>,
+    protocol_version: u16,
+}
+
+impl ClipboardReplier {
+    /// As [`HostAttachment::complete_clipboard_read`].
+    pub(crate) fn complete(&self, token: u64, text: Option<&[u8]>) -> std::io::Result<bool> {
+        let (Some(writer), Some(responses)) = (self.writer.upgrade(), self.responses.upgrade())
+        else {
+            return Ok(false);
+        };
+        if !responses.take_clipboard_read(token) {
             return Ok(false);
         }
-        self.send(MessageKind::ClipboardReadReply, &encode_clipboard_read_reply(token, text))?;
+        let reply = encode_clipboard_read_reply(token, text);
+        send_host_frame(&writer, self.protocol_version, MessageKind::ClipboardReadReply, &reply)?;
         Ok(true)
     }
 }

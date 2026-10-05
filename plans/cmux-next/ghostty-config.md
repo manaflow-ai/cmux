@@ -138,9 +138,14 @@ only); logs never contain clipboard content. Needs the full window, after agent-
    `ClipboardReadRequest{token, location}` to that connection and takes `ClipboardReadReply{token, text|refusal}`;
    pending reads are refused on a one-shot 60 s timer, owner disconnect and terminal end; one open read per terminal,
    further reads refused at once.
-3. Daemon broker: `terminal-clipboard-subscribe`, event `terminal-clipboard-read`, `terminal-clipboard-reply`,
-   capability `terminal-clipboard-read-v1`; single subscribed frontend or refuse; origin must be the frontend user
-   path (agents and the socket cannot answer); logs carry no clipboard text.
+3. Done (2026-10-05): daemon broker (`server/clipboard_read.rs`), capability `terminal-clipboard-read-v1`:
+   `terminal-clipboard-subscribe {terminal_ids}`, targeted events `terminal-clipboard-read {request_id, terminal_id,
+   location, host}` and `terminal-clipboard-read-cancelled {request_id}`, `terminal-clipboard-reply {request_id,
+   text?}`. Single live subscribed frontend or refuse at once; one open read per terminal; 16 open reads per
+   frontend; only client kind `frontend` with origin `user` (else `origin.forbidden`); a hosted surface signals
+   the broker from its frame reader and answers through a weak per-connection replier; no clipboard text in logs.
+   The daemon sends `host.kind` `local` only (its hosts are local); remote and Cloud naming is the frontend's.
+   Open: local in-process PTY surfaces (surface/spawn.rs) still ignore OSC 52 reads (not wired to the broker).
 4. Mac: Ghostty `clipboard-read` allow applies to local terminals only; remote and Cloud terminals ask unless an
    explicit setting (default off) allows; the sheet names the terminal and its host.
 

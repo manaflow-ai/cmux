@@ -57,6 +57,8 @@ public final class Events {
     public static final EventMetadata TAB_CHANGED = new EventMetadata("tab-changed", 12, "tab-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata TAB_CLOSED = new EventMetadata("tab-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata TAB_RENAMED = new EventMetadata("tab-renamed", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata TERMINAL_CLIPBOARD_READ = new EventMetadata("terminal-clipboard-read", 12, "terminal-clipboard-read-v1", List.of("control"), true);
+    public static final EventMetadata TERMINAL_CLIPBOARD_READ_CANCELLED = new EventMetadata("terminal-clipboard-read-cancelled", 12, "terminal-clipboard-read-v1", List.of("control"), true);
     public static final EventMetadata TERMINAL_REAPED = new EventMetadata("terminal-reaped", 12, "terminal-reap-v1", List.of("subscribe"), true);
     public static final EventMetadata TERMINAL_REGISTRY_CHANGED = new EventMetadata("terminal-registry-changed", 9, null, List.of("subscribe"), true);
     public static final EventMetadata TITLE_CHANGED = new EventMetadata("title-changed", 5, null, List.of("subscribe"), true);
@@ -119,6 +121,8 @@ public final class Events {
         values.put("tab-changed", TAB_CHANGED);
         values.put("tab-closed", TAB_CLOSED);
         values.put("tab-renamed", TAB_RENAMED);
+        values.put("terminal-clipboard-read", TERMINAL_CLIPBOARD_READ);
+        values.put("terminal-clipboard-read-cancelled", TERMINAL_CLIPBOARD_READ_CANCELLED);
         values.put("terminal-reaped", TERMINAL_REAPED);
         values.put("terminal-registry-changed", TERMINAL_REGISTRY_CHANGED);
         values.put("title-changed", TITLE_CHANGED);

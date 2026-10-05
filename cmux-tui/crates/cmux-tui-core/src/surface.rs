@@ -2683,6 +2683,7 @@ impl Surface {
             viewport: Mutex::new(TerminalViewportState::default()),
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
+        Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface, frame_rx)?;
 
         // Keep exact-child rollback ownership armed through the final thread
@@ -3285,6 +3286,7 @@ impl Surface {
                             &surface,
                             &replacement_control_responses,
                         );
+                        Self::install_clipboard_read_handler(&surface);
 
                         let replacement_reader = {
                             let mut runtime = pty.runtime.lock().unwrap();

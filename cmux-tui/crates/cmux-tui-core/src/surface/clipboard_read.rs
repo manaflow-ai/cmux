@@ -3,12 +3,56 @@
 //! daemon broker (layer 3) decides who may answer; nothing here logs or keeps
 //! clipboard text.
 
+use std::sync::Arc;
+
 use ghostty_vt::ClipboardReadRequest;
 
 use super::{PtyRuntime, Surface};
-use crate::terminal_host_runtime::HostAttachment;
+use crate::server::clipboard_read::{HostRead, HostSignal};
+use crate::terminal_host_runtime::{ClipboardReadSignal, HostAttachment};
 
 impl Surface {
+    /// Routes the current host connection's clipboard reads to the daemon
+    /// broker as they arrive, on that connection's frame reader thread. Runs
+    /// at spawn and again for each replacement connection. Answers go
+    /// through the connection's own replier, so a refusal never waits on the
+    /// runtime lock and a read never outlives its connection.
+    pub(super) fn install_clipboard_read_handler(surface: &Arc<Surface>) {
+        let Some(pty) = surface.as_pty() else { return };
+        let Some((responses, replier)) =
+            surface.with_host(|host| (host.control_responses(), host.clipboard_replier()))
+        else {
+            return;
+        };
+        let id = pty.meta.id;
+        let terminal = surface.terminal_public_id().map(|terminal| terminal.as_str().to_string());
+        let mux = pty.mux.clone();
+        responses.set_clipboard_read_handler(Arc::new(move |signal| {
+            let signal = match signal {
+                ClipboardReadSignal::Request(request) => {
+                    let replier = replier.clone();
+                    HostSignal::Request(HostRead {
+                        surface: id,
+                        terminal: terminal.clone(),
+                        token: request.token,
+                        location: request.location,
+                        complete: Box::new(move |text| {
+                            replier.complete(request.token, text.as_deref()).unwrap_or(false)
+                        }),
+                    })
+                }
+                ClipboardReadSignal::Cancel(token) => HostSignal::Cancel { surface: id, token },
+            };
+            match (mux.upgrade(), signal) {
+                (Some(mux), signal) => mux.control_clients.clipboard_reads.handle(signal),
+                (None, HostSignal::Request(read)) => {
+                    let _ = (read.complete)(None);
+                }
+                (None, HostSignal::Cancel { .. }) => {}
+            }
+        }));
+    }
+
     fn with_host<T>(&self, f: impl FnOnce(&HostAttachment) -> T) -> Option<T> {
         let pty = self.as_pty()?;
         let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -113,7 +113,7 @@ mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
-mod clipboard_read;
+pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod conversation_tabs_wire;
 mod conversations;
@@ -1039,6 +1039,13 @@ enum Command {
     UrlOpenResult {
         request_id: String,
         opened: bool,
+    },
+    TerminalClipboardSubscribe {
+        terminal_ids: Vec<String>,
+    },
+    TerminalClipboardReply {
+        request_id: String,
+        text: Option<String>,
     },
     PasteImage {
         surface: SurfaceId,
@@ -5175,6 +5182,7 @@ pub(crate) struct ClientRegistry {
     /// reaper starts that terminal's unattached period).
     detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     url_opens: url_open::URLRequests,
+    pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
@@ -5193,6 +5201,7 @@ impl ClientRegistry {
             detach_waker: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
+            clipboard_reads: Default::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
@@ -6240,6 +6249,7 @@ impl ClientRegistry {
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
+        self.clipboard_reads.disconnect(client);
         self.loopback.disconnect(client);
         self.apps.disconnect(client);
         // Safety: a removal never grants access; on a poisoned registry the
@@ -12670,6 +12680,10 @@ fn handle_command_with_cancellation(
         cmd @ (Command::UrlOpenSubscribe { .. }
         | Command::UrlOpenClaim { .. }
         | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
+        cmd @ (Command::TerminalClipboardSubscribe { .. }
+        | Command::TerminalClipboardReply { .. }) => {
+            clipboard_read::handle(mux, client, cmd, writer)
+        }
         Command::UrlOpen { .. } => {
             anyhow::bail!("URL opening requires the asynchronous request path")
         }

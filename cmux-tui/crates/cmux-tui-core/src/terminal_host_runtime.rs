@@ -845,7 +845,6 @@ mod unix {
     mod control_responses;
     mod host_parser;
     mod standby;
-    #[cfg(test)]
     pub(crate) use clipboard_read::ClipboardReadSignal;
     use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
     use clipboard_read::{owner_rights_allowed, owner_rights_for};
@@ -1002,6 +1001,26 @@ mod unix {
         })
     }
 
+    /// One frame on a daemon-to-host connection's writer.
+    fn send_host_frame(
+        writer: &Mutex<UnixStream>,
+        protocol_version: u16,
+        kind: MessageKind,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
+        let mut writer = writer.lock().unwrap();
+        let mut frame = Frame::new(kind, payload.to_vec());
+        frame.version = protocol_version;
+        let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+        if result.is_err() {
+            // A timed-out write may have emitted only part of a frame.
+            // Poison this connection so the reader takes a fresh atomic
+            // Snapshot instead of ever appending to a corrupt stream.
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+        result
+    }
+
     impl HostAttachment {
         pub fn take_reader(&mut self) -> anyhow::Result<UnixStream> {
             self.reader.take().ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))
@@ -1012,17 +1031,7 @@ mod unix {
         }
 
         pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
-            let mut writer = self.writer.lock().unwrap();
-            let mut frame = Frame::new(kind, payload.to_vec());
-            frame.version = self.protocol_version;
-            let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
-            if result.is_err() {
-                // A timed-out write may have emitted only part of a frame.
-                // Poison this connection so the reader takes a fresh atomic
-                // Snapshot instead of ever appending to a corrupt stream.
-                let _ = writer.shutdown(std::net::Shutdown::Both);
-            }
-            result
+            send_host_frame(&self.writer, self.protocol_version, kind, payload)
         }
 
         pub(crate) fn begin_input_confirmed(
@@ -9873,15 +9882,10 @@ mod unix {
 
 #[cfg(unix)]
 pub use unix::unadoptable::*;
-#[cfg(all(unix, test))]
-pub(crate) use unix::{
-    ClipboardReadSignal, acquire_terminal_host_publication_lock, input_ack_surface_fixture,
-    prepare_terminal_host_publication_lock,
-};
 #[cfg(unix)]
 pub(crate) use unix::{
-    ControlResponses, DecodedHostResize, DeferredCellPixelResolution, StandbyTerminalHost,
-    acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
+    ClipboardReadSignal, ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
+    StandbyTerminalHost, acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
     decode_host_resize_payload_for_version, launch_terminal_host_from,
     load_terminal_host_records_for_reset,
 };
@@ -9893,6 +9897,11 @@ pub use unix::{
     load_terminal_host_records, remove_stale_terminal_host_record, serve_terminal_host_stdio,
     terminal_host_exit_record, terminal_host_record_liveness, terminal_host_root,
     validate_terminal_host_exit_record, validate_terminal_host_record,
+};
+#[cfg(all(unix, test))]
+pub(crate) use unix::{
+    acquire_terminal_host_publication_lock, input_ack_surface_fixture,
+    prepare_terminal_host_publication_lock,
 };
 
 #[cfg(not(unix))]

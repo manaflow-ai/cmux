@@ -400,6 +400,8 @@
       "url-open-subscribe",
       "url-open-claim",
       "url-open-result",
+      "terminal-clipboard-subscribe",
+      "terminal-clipboard-reply",
       "snapshot-request"
     ],
     "local-admin": [
@@ -743,6 +745,18 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read-cancelled",
       "streams": [
         "control"
       ]
