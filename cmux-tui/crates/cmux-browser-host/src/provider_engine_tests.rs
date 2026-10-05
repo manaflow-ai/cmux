@@ -238,7 +238,8 @@ fn request_filters_apply_per_app_tab_on_cef_relays() {
     let b = session(&provider, "cef", "b");
     let seen = Arc::new(Mutex::new(Vec::<String>::new()));
     let record = seen.clone();
-    let filter: crate::driver::RequestFilter = Arc::new(move |target: &str, url: &str| {
+    let filter: crate::driver::RequestFilter = Arc::new(move |request| {
+        let (target, url) = (request.target, request.url);
         record.lock().unwrap().push(target.to_owned());
         url.contains("evil.test").then(|| "prohibited by evil.test".to_owned())
     });
@@ -273,7 +274,7 @@ fn request_filters_apply_per_app_tab_on_cef_relays() {
     assert!(app.cdp_messages("C").iter().any(|m| m["method"] == "Fetch.disable"));
     // WebKit tabs cannot take a filter yet: the gate fails closed.
     let w = session(&provider, "webkit", "w");
-    assert!(!w.set_request_filter(Some(Arc::new(|_: &str, _: &str| None))));
+    assert!(!w.set_request_filter(Some(Arc::new(|_| None))));
 }
 
 #[test]

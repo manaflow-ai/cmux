@@ -8,13 +8,33 @@ use std::sync::Arc;
 /// block on a driver call.
 pub type EventSink = Arc<dyn Fn(DriverEvent) + Send + Sync>;
 
-/// Decides one network request: `(target id, url)`, `Some(reason)` blocks
-/// it. The target id is the tab the request belongs to as the session names
-/// it (the app's tab id on provider engines, never the page's CDP id), or ""
-/// for a request no tab owns (a shared worker): a filter keyed by tab must
-/// decide those fail-closed. Called on a driver worker thread; it must not
-/// make driver calls.
-pub type RequestFilter = Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>;
+/// One network request for the [`RequestFilter`].
+#[derive(Debug, Clone, Copy)]
+pub struct RequestInfo<'a> {
+    /// The tab the request belongs to as the session names it (the app's
+    /// tab id on provider engines, never the page's CDP id), or "" for a
+    /// request no tab owns (a shared worker): a filter keyed by tab must
+    /// decide those fail-closed.
+    pub target: &'a str,
+    pub url: &'a str,
+    pub kind: RequestKind,
+}
+
+/// What kind of request it is. It changes only how a refusal is logged,
+/// never whether the request is allowed.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestKind {
+    /// A main-frame or sub-frame document, each redirect hop included
+    /// (CDP resourceType "Document"; the provider's navigation checks).
+    Document,
+    /// Everything else (scripts, fetch, WebSocket, ping, prefetch, unknown).
+    Subresource,
+}
+
+/// Decides one network request: `Some(reason)` blocks it. Called on a
+/// driver worker thread; it must not make driver calls.
+pub type RequestFilter = Arc<dyn Fn(&RequestInfo<'_>) -> Option<String> + Send + Sync>;
 
 /// One engine behind the driver protocol. Calls block the calling thread
 /// until the result arrives or the call's deadline (`timeoutMs`, else

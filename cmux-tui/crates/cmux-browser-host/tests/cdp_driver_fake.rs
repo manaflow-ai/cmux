@@ -742,12 +742,11 @@ fn a_request_filter_intercepts_and_decides_every_request() {
     // The filter sees the tab each request belongs to.
     let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
     let record = seen.clone();
-    let filter: cmux_browser_host::driver::RequestFilter =
-        Arc::new(move |target: &str, url: &str| {
-            record.lock().unwrap().push((target.to_owned(), url.to_owned()));
-            url.contains("evil.test")
-                .then(|| "not in session.allowedDomains (example.com)".to_owned())
-        });
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(move |request| {
+        let (target, url) = (request.target, request.url);
+        record.lock().unwrap().push((target.to_owned(), url.to_owned()));
+        url.contains("evil.test").then(|| "not in session.allowedDomains (example.com)".to_owned())
+    });
     let mark = h.mark();
     assert!(h.driver.set_request_filter(Some(filter)));
     let enabled = h.sent_since(mark);
@@ -797,7 +796,7 @@ fn a_request_filter_intercepts_and_decides_every_request() {
 fn workers_and_prerenders_are_intercepted_before_they_run() {
     let h = Harness::new();
     h.open(None);
-    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_: &str, _: &str| None);
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_| None);
     assert!(h.driver.set_request_filter(Some(filter)));
     let mark = h.mark();
     for (session, kind, subtype) in [("W1", "worker", ""), ("P1", "page", "prerender")] {
