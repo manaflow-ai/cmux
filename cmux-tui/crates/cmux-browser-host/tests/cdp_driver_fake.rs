@@ -521,12 +521,25 @@ fn page_world_handles_move_through_backend_nodes() {
     assert_eq!(sent[0].1["executionContextId"], 20, "handles resolve in the agent world");
     assert_eq!(sent[0].1["returnByValue"], false);
     assert_eq!(sent[1].1["objectId"], "obj-h7");
+    let group = sent[0].1["objectGroup"].clone();
     assert_eq!(
         sent[2].1,
-        json!({"backendNodeId": 42, "executionContextId": 10, "objectGroup": "cmux-handles"})
+        json!({"backendNodeId": 42, "executionContextId": 10, "objectGroup": group})
     );
     assert_eq!(sent[3].1["executionContextId"], 10);
     assert_eq!(sent[3].1["arguments"], json!([{"objectId": "page-42"}]));
+    assert_eq!(sent[4].1["objectGroup"], group, "the call releases its own group");
+    // Frames in one process share a session: a call that released a shared
+    // group killed a concurrent call's objects (parity 31 lost a frame), so
+    // every call has a group of its own.
+    let mark = h.mark();
+    h.call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "(el) => el.id", "handles": ["h7"]}),
+    );
+    let again = h.sent_since(mark);
+    assert_ne!(again[0].1["objectGroup"], group, "each call has its own object group");
+    assert_eq!(again[4].1["objectGroup"], again[0].1["objectGroup"]);
 }
 
 #[test]
