@@ -13,7 +13,7 @@ import Testing
 @MainActor @Suite(.serialized) struct VideoInlineTests {
     let them = Fixture2.them
 
-    private func host() throws -> (NSWindow, HomeProjection, ChatController, PartRef, Recorder) {
+    private func host() throws -> (NSWindow, HomeProjection, ChatController, MessagesLabHome.PartRef, Recorder) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 900), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -33,11 +33,11 @@ import Testing
         p.apply(items: Fixture2.history(3) + [item], summary: Fixture2.summary(lastSeq: 4), typing: [], hasOlder: false)
         c.host.layoutSubtreeIfNeeded()
         c.demo.collection.layoutIfNeeded()
-        return (window, p, c, PartRef(messageId: "vid", partIndex: 0), asked)
+        return (window, p, c, MessagesLabHome.PartRef(messageId: "vid", partIndex: 0), asked)
     }
 
     /// The visible cell of a part row, and its bubble's centre in host coordinates.
-    private func cell(_ c: ChatController, _ ref: PartRef) throws -> (RowCell, CGPoint) {
+    private func cell(_ c: ChatController, _ ref: MessagesLabHome.PartRef) throws -> (RowCell, CGPoint) {
         let cell = try #require(c.demo.collection.visibleCells.compactMap { $0 as? RowCell }.first {
             if let spec = $0.spec, case let .part(p) = spec.kind { return p.ref == ref }
             return false
@@ -70,7 +70,7 @@ import Testing
         defer { window.close() }
         let (_, point) = try cell(c, ref)
         let menu = try #require(c.menu(at: point))
-        let titles = menu.items.map(\.title)
+        let titles = menu.items.map { (item: NSMenuItem) in item.title }
         #expect(titles.contains("Play Video"))
         #expect(titles.contains("Open in Default App"))
         #expect(p.videoState(ref) == .poster, "the menu itself plays nothing")
