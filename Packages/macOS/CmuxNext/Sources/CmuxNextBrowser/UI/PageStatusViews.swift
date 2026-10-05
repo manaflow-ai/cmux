@@ -43,12 +43,13 @@ final class PageStatusViews {
         goneView.isHidden = true
         unresponsiveView.isHidden = true
         errorView.onRetry = { tab()?.reload() }
-        errorView.onProceed = { (tab() as? any BrowserCertificateBypassing)?.proceedPastCertificateError() }
-        errorView.onBack = {
-            guard let tab = tab() else { return }
-            // Nowhere to go back to (the bad page was the first): a blank page.
-            if tab.state.canGoBack { tab.goBack() } else if let blank = URL(string: BrowserNewTabPage.blankURL) { tab.load(blank) }
+        // The warning page's buttons run their registry action when routed.
+        let send: (CertificateWarningCommand) -> Void = { [weak self] command in
+            if let router = self?.certificateWarningRouter, router(command) { return }
+            if let tab = tab() { command.perform(on: tab) }
         }
+        errorView.onProceed = { send(.proceed) }
+        errorView.onBack = { send(.goBack) }
         goneView.onReload = { tab()?.reload() }
         unresponsiveView.onWait = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: false) }
         unresponsiveView.onExit = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: true) }

@@ -30,11 +30,29 @@ extension CertificateWarningCommand {
     /// Why the command cannot run on `tab` now, or nil.
     @MainActor
     public func unavailableReason(on tab: (any BrowserTab)?) -> String? {
-        nil
+        guard let tab else { return Strings.certificateWarningNotShown }
+        // Chromium's interstitial is its own page, not cmux's LoadErrorView.
+        guard tab.engineKind == .webkit, tab is any BrowserCertificateBypassing else { return Strings.certificateWarningChromium }
+        guard let error = tab.state.loadError, error.isCertificateError, error.failingURL?.host() != nil else {
+            return Strings.certificateWarningNotShown
+        }
+        return nil
     }
 
     /// Runs the command on `tab`: the warning page's buttons and the
     /// action handlers both call this.
     @MainActor
-    public func perform(on tab: any BrowserTab) {}
+    public func perform(on tab: any BrowserTab) {
+        switch self {
+        case .proceed:
+            (tab as? any BrowserCertificateBypassing)?.proceedPastCertificateError()
+        case .goBack:
+            // Nowhere to go back to (the bad page was the first): a blank page.
+            if tab.state.canGoBack {
+                tab.goBack()
+            } else if let blank = URL(string: BrowserNewTabPage.blankURL) {
+                tab.load(blank)
+            }
+        }
+    }
 }
