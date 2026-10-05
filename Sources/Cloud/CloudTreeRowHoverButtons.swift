@@ -16,7 +16,7 @@ struct CloudTreeRowHoverButtons: View {
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
         case .coderouterSection:
             plus(String(localized: "coderouter.addAccount", defaultValue: "Add account")) {
-                nodeActions.showHint(String(localized: "coderouter.addAccount.help", defaultValue: "Use cmux coderouter claude add to add an account."))
+                nodeActions.addCoderouterAccount()
             }
         case .cloudMachinesSection(let canCreateMachine, _):
             if canCreateMachine {

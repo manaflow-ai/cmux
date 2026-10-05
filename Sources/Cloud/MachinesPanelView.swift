@@ -23,6 +23,7 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
+    @State private var isShowingCoderouterAccountSheet = false
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -125,6 +126,9 @@ struct MachinesPanelView: View {
         .onDisappear {
             viewModel.stopPolling()
             viewModel.cancelCloudAgentTask()
+        }
+        .sheet(isPresented: $isShowingCoderouterAccountSheet) {
+            CoderouterAccountSheet(teamID: accountFlow?.confirmedTeamID)
         }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
@@ -428,6 +432,9 @@ struct MachinesPanelView: View {
             )
         }
         nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
+        nodeActions.addCoderouterAccount = { [self] in
+            isShowingCoderouterAccountSheet = true
+        }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],

@@ -70,6 +70,8 @@ struct CloudTreeNodeActions {
     var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Presents an inline Cloud action explanation without starting a remote operation.
     var showHint: @MainActor (_ message: String) -> Void = { _ in }
+    /// Presents the native CodeRouter account-management sheet.
+    var addCoderouterAccount: @MainActor () -> Void = {}
     /// Explains why a display cannot open in the currently selected workspace.
     var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
     /// Opens the New Machine flow through the same action as Cmd-Y.
