@@ -725,6 +725,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show a confirmation before closing a tab."
         },
+        "warnBeforeClosingAgentSession": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing an agent session while it is mid-turn."
+        },
         "warnBeforeClosingTabXButton": {
           "type": "boolean",
           "default": false,
