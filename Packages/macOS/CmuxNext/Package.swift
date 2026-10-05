@@ -783,7 +783,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSidebar",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")] + layoutReducerDependency,
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")] + layoutReducerDependency,
             resources: [
                 .process("Resources"),
             ],
@@ -791,7 +791,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources"] + layoutReducerDependency,
+            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources", "CmuxNextIcons"] + layoutReducerDependency,
             swiftSettings: uiSwiftSettings + layoutReducerSettings
         ),
         .target(
