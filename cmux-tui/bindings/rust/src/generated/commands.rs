@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47.
+// cmux-tui mux protocol 12, IR 0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1536,6 +1536,9 @@ pub struct NewConversationTabRequest {
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -1548,6 +1551,9 @@ pub struct NewConversationTabResult {
     pub replayed: bool,
     pub surface: T::Id,
     pub tab_resource_id: Nullable<String>,
+    /// The request's transaction, when it sent one.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -3509,6 +3515,9 @@ impl CmuxClient {
     pub fn new_conversation_tab(&mut self, request: NewConversationTabRequest) -> Result<NewConversationTabResult> {
         if !request.agent_session.is_missing() {
             self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
+        }
+        if !request.transaction.is_missing() {
+            self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;
         }
         self.execute(&NEW_CONVERSATION_TAB_METADATA, &request)
     }

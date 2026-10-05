@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47";
+pub const ir_sha256 = "0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -5072,6 +5072,8 @@ pub const NewConversationTabRequest = struct {
     owner: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
+    /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
+    transaction: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
@@ -5081,6 +5083,12 @@ pub const NewConversationTabResult = struct {
     replayed: bool,
     surface: Id,
     tab_resource_id: wire.Nullable([]const u8),
+    /// The request's transaction, when it sent one.
+    transaction: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "transaction",
+    };
 };
 
 pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !wire.Decoded(NewConversationTabResult) {
@@ -5093,6 +5101,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
             .capability = "conversation-tabs-v1",
             .fields = &.{
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
+                .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
             },
         },
         request,
