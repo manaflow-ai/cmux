@@ -282,6 +282,33 @@ class LinkGraphTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("other-1.0.0-XXXX", result.stderr)
 
+    def test_a_linked_package_without_a_notice_fails(self) -> None:
+        work = Path(self._tmp.name)
+        fixture = Fixture(work, "ghostty-next")
+        graph = self.graph(work, fixture, {"aarch64-macos": [UUCODE, Z2D]})
+        result = fixture.run("--license-manifest", fixture.manifest(work, [UUCODE, SIMD]), "--link-graph", graph)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"linked Zig package z2d {Z2D} is in no license manifest", result.stderr)
+
+    def test_check_link_graph_passes_for_the_gitlink_commit(self) -> None:
+        work = Path(self._tmp.name)
+        fixture = Fixture(work, "ghostty-next")
+        result = fixture.run("--check-link-graph", self.graph(work, fixture, {"aarch64-macos": [UUCODE]}))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_gitlink_change_with_a_stale_graph_fails(self) -> None:
+        # check-repo: a ghostty-next bump lands only with a regenerated graph.
+        work = Path(self._tmp.name)
+        fixture = Fixture(work, "ghostty-next")
+        graph = self.graph(work, fixture, {"aarch64-macos": [UUCODE]})
+        git(fixture.cmux, "update-index", "--cacheinfo", f"160000,{fixture.other_commit},ghostty-next")
+        git(fixture.cmux, "commit", "-q", "-m", "bump ghostty-next")
+        result = fixture.run("--check-link-graph", graph)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(fixture.other_commit, result.stderr)
+        self.assertIn("vt_link_graph.py generate", result.stderr)
+        self.assertIn("testbox", result.stderr.lower())
+
     def test_an_unattributed_source_path_fails(self) -> None:
         result = self.run_graph(SIMD, unattributed=["/opt/elsewhere/x.c"])
         self.assertEqual(result.returncode, 1)
