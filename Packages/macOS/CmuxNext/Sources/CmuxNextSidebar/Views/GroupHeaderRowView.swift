@@ -173,7 +173,7 @@ final class GroupHeaderRowView: SidebarRowView {
             trailing -= cw + Metrics.space2
         }
         // The name starts where workspace titles start (FlatSidebarTests).
-        let nx = SidebarStyle.horizontalInset
+        let nx = SidebarStyle.titleLeading
         let nh = ceil(name.intrinsicContentSize.height)
         let dotSide = SidebarStyle.dotSize
         let dotRoom = color == .grey ? 0 : dotSide + Metrics.space3

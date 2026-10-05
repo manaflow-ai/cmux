@@ -152,6 +152,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], cliName: "settings import-classic-sessions"
             ),
             ActionDescriptor(
+                id: "importAndSync.show",
+                title: String(localized: "action.importAndSync.show", defaultValue: "Import and Sync…", bundle: .module),
+                keywords: ["import", "sync", "classic", "session", "workspace", "chat", "onboarding"], category: .settings,
+                symbol: "square.and.arrow.down", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
                 id: "palette.onboardingGallery",
                 title: String(localized: "action.palette.onboardingGallery", defaultValue: "Onboarding Gallery", bundle: .module),
                 keywords: ["onboarding", "variants", "design", "gallery"], category: .settings, symbol: "square.grid.3x3",

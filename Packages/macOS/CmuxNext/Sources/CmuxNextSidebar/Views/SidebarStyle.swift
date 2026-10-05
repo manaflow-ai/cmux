@@ -34,6 +34,9 @@ enum SidebarStyle {
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
     static var subtitleFont: NSFont { Typography.caption }
+    /// Where workspace titles start: past the leading type glyph every row
+    /// reserves. Group headers start their name here too.
+    static var titleLeading: CGFloat { horizontalInset + iconBox + Metrics.space3 }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .regular) }
