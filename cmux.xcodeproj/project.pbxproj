@@ -3238,6 +3238,7 @@
 		9212A0069212A0069212A006 /* SidebarEmptyAreaWindowDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */; };
 		9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9212B0059212B0059212B005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift */; };
 		F8AC4A10987CFE25626C91BF /* SidebarExtensionAgentSessionBindingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC26ED0C813DB6567EF1039 /* SidebarExtensionAgentSessionBindingCoordinator.swift */; };
+		9E1653966409C710AD9AA692 /* SidebarExtensionClassicMenuCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77AA67FF62F054E61C09C571 /* SidebarExtensionClassicMenuCoordinator.swift */; };
 		00FB8C043F64F57553961924 /* SidebarExtensionImportanceMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A84FCFFD5F8091F8A0E4522B /* SidebarExtensionImportanceMenu.swift */; };
 		1FD22D85D0F1A31988024FAA /* SidebarExtensionManagementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C94E2AE8EA709974FC644D25 /* SidebarExtensionManagementCoordinator.swift */; };
 		B666105EB2B72C59B5BC19EF /* SidebarExtensionModeHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7276FF6E4A26AC262E8D9376 /* SidebarExtensionModeHeader.swift */; };
@@ -7659,6 +7660,7 @@
 		9212B0069212B0069212B006 /* SidebarEmptyAreaWindowDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarEmptyAreaWindowDragTests.swift; sourceTree = "<group>"; };
 		9212B0059212B0059212B005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarEmptyAreaWindowDragTrackingEvent.swift; sourceTree = "<group>"; };
 		DCC26ED0C813DB6567EF1039 /* SidebarExtensionAgentSessionBindingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionAgentSessionBindingCoordinator.swift; sourceTree = "<group>"; };
+		77AA67FF62F054E61C09C571 /* SidebarExtensionClassicMenuCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SidebarExtensionClassicMenuCoordinator.swift; path = "integrations/native-sidebar-parity/Sources/SidebarExtensionClassicMenuCoordinator.swift"; sourceTree = SOURCE_ROOT; };
 		A84FCFFD5F8091F8A0E4522B /* SidebarExtensionImportanceMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionImportanceMenu.swift; sourceTree = "<group>"; };
 		C94E2AE8EA709974FC644D25 /* SidebarExtensionManagementCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionManagementCoordinator.swift; sourceTree = "<group>"; };
 		7276FF6E4A26AC262E8D9376 /* SidebarExtensionModeHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarExtensionModeHeader.swift; sourceTree = "<group>"; };
@@ -11962,6 +11964,7 @@
 				DCC26ED0C813DB6567EF1039 /* SidebarExtensionAgentSessionBindingCoordinator.swift */,
 				A84FCFFD5F8091F8A0E4522B /* SidebarExtensionImportanceMenu.swift */,
 				C94E2AE8EA709974FC644D25 /* SidebarExtensionManagementCoordinator.swift */,
+				77AA67FF62F054E61C09C571 /* SidebarExtensionClassicMenuCoordinator.swift */,
 				7276FF6E4A26AC262E8D9376 /* SidebarExtensionModeHeader.swift */,
 				2F36DD65422EEAE317C1843A /* SidebarExtensionRuntimeProjector.swift */,
 				1A0FDB842FB0A5062DF9544D /* SidebarExtensionWorkspaceContextCoordinator.swift */,
@@ -16035,6 +16038,7 @@
 				9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */,
 				9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */,
 				F8AC4A10987CFE25626C91BF /* SidebarExtensionAgentSessionBindingCoordinator.swift in Sources */,
+				9E1653966409C710AD9AA692 /* SidebarExtensionClassicMenuCoordinator.swift in Sources */,
 				00FB8C043F64F57553961924 /* SidebarExtensionImportanceMenu.swift in Sources */,
 				1FD22D85D0F1A31988024FAA /* SidebarExtensionManagementCoordinator.swift in Sources */,
 				B666105EB2B72C59B5BC19EF /* SidebarExtensionModeHeader.swift in Sources */,

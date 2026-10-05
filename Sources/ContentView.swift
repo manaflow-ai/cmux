@@ -12900,6 +12900,8 @@ struct VerticalTabsSidebar: View, Equatable {
             .onReceive(SidebarSelectedWorkspaceRefresh.events(from: tabManager.selectedTabIdPublisher)) { _ in
                 refreshExtensionSidebarSnapshot()
             }
+            .onChange(of: selectedTabIds) { _, _ in refreshExtensionSidebarSnapshot() }
+            .onChange(of: lastSidebarSelectionIndex) { _, _ in refreshExtensionSidebarSnapshot() }
             .sidebarCloudBindingObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.cloudBindingState)) { refreshExtensionSidebarSnapshot() }
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
             .sidebarAgentRuntimeObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)) { _ in refreshExtensionSidebarSnapshot() }
@@ -12937,7 +12939,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
                 unreadSource: sidebarUnread,
-                actionHandler: { await handleCMUXSidebarExtensionAction($0) },
+                actionHandler: { await handleCMUXSidebarExtensionAction($0, renderContext: renderContext) },
                 onUseDefaultSidebar: {
                     CmuxExtensionSidebarSelection.setProviderId(CmuxSidebarProviderDescriptor.defaultWorkspacesID)
                 }
@@ -13273,6 +13275,10 @@ struct VerticalTabsSidebar: View, Equatable {
             sequence: snapshot.sequence,
             windowID: snapshot.windowId,
             selectedWorkspaceID: snapshot.selectedWorkspaceId,
+            selectedWorkspaceIDs: tabs.compactMap { selectedTabIds.contains($0.id) ? $0.id : nil },
+            selectionAnchorWorkspaceID: lastSidebarSelectionIndex.flatMap { index in
+                tabs.indices.contains(index) ? tabs[index].id : nil
+            },
             workspaces: snapshot.workspaces.map { workspace in
                 let live = liveWorkspacesByID[workspace.id]
                 return CmuxSidebarWorkspace(
@@ -13325,13 +13331,36 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
     private func handleCMUXSidebarExtensionAction(
-        _ action: CmuxSidebarAction
+        _ action: CmuxSidebarAction,
+        renderContext: WorkspaceListRenderContext
     ) async -> CmuxSidebarActionResult {
+        if case .classicMenu(let request) = action {
+            return SidebarExtensionClassicMenuCoordinator(
+                tabManager: tabManager, notificationStore: notificationStore,
+                colorScheme: renderContext.environment.colorScheme,
+                readSelectedIDs: { selectedTabIds }, writeSelectedIDs: { selectedTabIds = $0 },
+                readSelectionIndex: { lastSidebarSelectionIndex }, writeSelectionIndex: { lastSidebarSelectionIndex = $0 },
+                selectTabs: { selection = .tabs }, refreshSnapshot: { refreshExtensionSidebarSnapshot() },
+                groupConfiguration: { id in
+                    appKitWorkspaceTableRows(renderContext: renderContext).first { $0.groupId == id && $0.isGroupHeader }
+                }
+            ).perform(request)
+        }
         if let result = SidebarExtensionManagementCoordinator(
             tabManager: tabManager,
             notificationStore: notificationStore
         ).perform(action) { return result }
         switch action {
+        case .selectWorkspaceRow(let workspaceID, let requestedModifiers):
+            guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceID }) else {
+                return .rejected(String(localized: "sidebar.extensions.action.workspaceNotFound", defaultValue: "Workspace not found"))
+            }
+            var modifiers: NSEvent.ModifierFlags = []
+            if requestedModifiers.command { modifiers.insert(.command) }
+            if requestedModifiers.shift { modifiers.insert(.shift) }
+            selectWorkspaceRow(tabManager.tabs[index], index: index, modifiers: modifiers)
+            refreshExtensionSidebarSnapshot()
+            return .accepted
         case .analyzeWorkspaceContexts(let workspaceIDs):
             return await tabManager.sidebarOrganizationCoordinator.analyze(tabManager: tabManager, workspaceIDs: workspaceIDs)
         case .createWorkspace(let title, let workingDirectory, let select):

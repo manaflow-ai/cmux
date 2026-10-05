@@ -5,6 +5,9 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
     public var sequence: UInt64
     public var windowID: UUID?
     public var selectedWorkspaceID: UUID?
+    /// Native sidebar multi-selection, in workspace order. Focus can be separate.
+    public var selectedWorkspaceIDs: [UUID]
+    public var selectionAnchorWorkspaceID: UUID?
     public var grantedReadScopes: Set<CmuxExtensionScope>
     public var grantedActionScopes: Set<CmuxExtensionActionScope>
     public var workspaces: [CmuxSidebarWorkspace]
@@ -16,6 +19,8 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         sequence: UInt64,
         windowID: UUID? = nil,
         selectedWorkspaceID: UUID?,
+        selectedWorkspaceIDs: [UUID]? = nil,
+        selectionAnchorWorkspaceID: UUID? = nil,
         grantedReadScopes: Set<CmuxExtensionScope> = [],
         grantedActionScopes: Set<CmuxExtensionActionScope> = [],
         workspaces: [CmuxSidebarWorkspace],
@@ -25,6 +30,8 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         self.sequence = sequence
         self.windowID = windowID
         self.selectedWorkspaceID = selectedWorkspaceID
+        self.selectedWorkspaceIDs = selectedWorkspaceIDs ?? selectedWorkspaceID.map { [$0] } ?? []
+        self.selectionAnchorWorkspaceID = selectionAnchorWorkspaceID
         self.grantedReadScopes = grantedReadScopes
         self.grantedActionScopes = grantedActionScopes
         self.workspaces = workspaces
@@ -37,6 +44,9 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         sequence = try container.decode(UInt64.self, forKey: .sequence)
         windowID = try container.decodeIfPresent(UUID.self, forKey: .windowID)
         selectedWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .selectedWorkspaceID)
+        selectedWorkspaceIDs = try container.decodeIfPresent([UUID].self, forKey: .selectedWorkspaceIDs)
+            ?? selectedWorkspaceID.map { [$0] } ?? []
+        selectionAnchorWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .selectionAnchorWorkspaceID)
         grantedReadScopes = try container.decodeLossySetIfPresent(CmuxExtensionScope.self, forKey: .grantedReadScopes)
         grantedActionScopes = try container.decodeLossySetIfPresent(CmuxExtensionActionScope.self, forKey: .grantedActionScopes)
         workspaces = try container.decode([CmuxSidebarWorkspace].self, forKey: .workspaces)
@@ -65,6 +75,8 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
             sequence: sequence,
             windowID: scopeSet.contains(.workspaceMetadata) ? windowID : nil,
             selectedWorkspaceID: scopeSet.contains(.workspaceMetadata) ? selectedWorkspaceID : nil,
+            selectedWorkspaceIDs: scopeSet.contains(.workspaceMetadata) ? selectedWorkspaceIDs : [],
+            selectionAnchorWorkspaceID: scopeSet.contains(.workspaceMetadata) ? selectionAnchorWorkspaceID : nil,
             grantedReadScopes: scopeSet,
             grantedActionScopes: actionScopeSet,
             workspaces: workspaces.map { workspace in
