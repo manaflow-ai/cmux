@@ -7,6 +7,8 @@ extension AgentJournalLifecycleCenter {
     struct LifecycleApplication: Sendable {
         let assignment: AgentLifecycleAssignment
         let workspaceHint: String?
+        let sessionID: String?
+        let sessionState: AgentSessionLifecycleState?
     }
 
     static func reduceIngest(
@@ -33,7 +35,9 @@ extension AgentJournalLifecycleCenter {
                 agentKey: canonical.agentKey,
                 phase: state.combinedPhase(surfaceId: surfaceId, agentKey: canonical.agentKey)
             ),
-            workspaceHint: canonical.draft.workspaceId
+            workspaceHint: canonical.draft.workspaceId,
+            sessionID: canonical.draft.sessionId,
+            sessionState: state.sessions[surfaceId]?[canonical.agentKey]?[AgentLifecycleReducerState.sessionKey(for: canonical.draft)]
         )
     }
 
@@ -160,7 +164,17 @@ extension AgentJournalLifecycleCenter {
     }
 
     @MainActor
-    static func apply(_ assignment: AgentLifecycleAssignment, workspaceHint: String?) {
+    static func apply(_ application: LifecycleApplication) {
+        let observedAt = application.sessionState?.activityObservedAtMs.map { Date(timeIntervalSince1970: Double($0) / 1_000) }
+        apply(application.assignment, workspaceHint: application.workspaceHint, observedAt: observedAt)
+        guard let panelID = UUID(uuidString: application.assignment.surfaceId),
+              let sessionID = application.sessionID, let state = application.sessionState,
+              let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID, preferredWorkspaceId: application.workspaceHint.flatMap(UUID.init(uuidString:))) else { return }
+        located.workspace.sidebarAgentRuntimeObservation.recordJournalEvidence(panelID: panelID, statusKey: application.assignment.agentKey, sessionID: sessionID, state: state)
+    }
+
+    @MainActor
+    static func apply(_ assignment: AgentLifecycleAssignment, workspaceHint: String?, observedAt: Date? = nil) {
         guard AgentHibernationLifecycleStatusKeys.isAllowed(assignment.agentKey) else { return }
         guard let panelId = UUID(uuidString: assignment.surfaceId) else { return }
         let owner: ControlSidebarPanelOwner?
@@ -196,7 +210,8 @@ extension AgentJournalLifecycleCenter {
             owner.setAgentLifecycle(
                 key: assignment.agentKey,
                 panelId: panelId,
-                lifecycle: Self.lifecycle(for: phase)
+                lifecycle: Self.lifecycle(for: phase),
+                observedAt: observedAt ?? .distantPast
             )
         } else {
             owner.clearAgentLifecycle(key: assignment.agentKey, panelId: panelId)

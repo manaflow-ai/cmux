@@ -154,7 +154,8 @@ extension Workspace {
             let stalePanelKeys = agentPIDKeysByPanelId[panelId]?.filter {
                 $0 != key &&
                 isStructuredAgentHookPIDKey($0) &&
-                agentStatusKey(forAgentPIDKey: $0) != statusKey
+                agentStatusKey(forAgentPIDKey: $0) != statusKey &&
+                agentPIDProcessIdentitiesByKey[$0] == agentPIDProcessIdentitiesByKey[key]
             } ?? []
             for staleKey in stalePanelKeys {
                 _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false)
@@ -165,11 +166,12 @@ extension Workspace {
     }
 
     @discardableResult
-    private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
+    private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String, processIdentity: AgentPIDProcessIdentity?) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
         let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
-        for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
+        for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey)
+            && processIdentity != nil && agentPIDProcessIdentitiesByKey[staleKey] == processIdentity {
             if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
@@ -183,9 +185,9 @@ extension Workspace {
             pid: agentPIDs[key],
             identity: agentPIDProcessIdentitiesByKey[key]
         )
-        var didClearOtherStructuredAgentRuntime = false
-        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
         let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
+        var didClearOtherStructuredAgentRuntime = false
+        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key, processIdentity: processIdentity) }
         if key == "claude_code", let panelId, let processIdentity { AgentHibernationController.shared.disarmSessionEndPreservationIfSuperseded(panelKey: AgentHibernationPanelKey(workspaceId: id, panelId: panelId), processIdentity: processIdentity) }
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity

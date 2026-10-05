@@ -6194,6 +6194,8 @@ extension TabManager {
             // changes.
             hasher.combine(workspace.isMuted)
             hasher.combine(workspace.importance)
+            // Context edits have their own native revision even when the title is unchanged.
+            hasher.combine(workspace.workspaceContext.context.revision)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)

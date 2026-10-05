@@ -113,6 +113,7 @@ enum AgentHibernationLifecycleStatusKeys {
         "claude_code",
         "codebuddy",
         "codex",
+        "commandcode",
         "copilot",
         "cursor",
         "factory",

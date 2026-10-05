@@ -192,6 +192,7 @@ extension Workspace {
             guard !trimmed.isEmpty else { return false }
             if hasCustomTitle, (customTitleSource ?? .user) != .auto { return false }
         }
+        let previousDisplayTitle = self.title
         if trimmed.isEmpty {
             if customTitle != nil {
                 sidebarProcessTitleObservation.cancelPendingProcessTitleChange()
@@ -205,6 +206,7 @@ extension Workspace {
             customTitleSource = source
             self.title = trimmed
         }
+        workspaceContext.recordRename(from: previousDisplayTitle, to: self.title)
 #if DEBUG
         cmuxDebugLog(
             "workspace.customTitle.write workspace=\(id.uuidString.prefix(8)) " +

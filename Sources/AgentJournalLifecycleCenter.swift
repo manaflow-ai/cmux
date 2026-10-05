@@ -94,10 +94,11 @@ final class AgentJournalLifecycleCenter: Sendable {
                 guard let eventAliases = resolver(store) else { return false }
                 let canonical = Self.canonicalized(event, aliases: eventAliases)
                 let decision = notifications.apply(canonical)
-                if decision.disposition != .stale, decision.projectsLifecycle,
-                   let application = Self.reduceIngest(notifications.lifecycleEvent(canonical), aliases: eventAliases,
+                if decision.disposition != .stale,
+                   decision.projectsLifecycle || canonical.draft.declaredMode != nil || canonical.draft.declaredActivity != nil,
+                   let application = Self.reduceIngest(decision.projectsLifecycle ? notifications.lifecycleEvent(canonical) : canonical, aliases: eventAliases,
                        reducer: reducer, state: &state) {
-                    await MainActor.run { Self.apply(application.assignment, workspaceHint: application.workspaceHint) }
+                    await MainActor.run { Self.apply(application) }
                 }
                 Self.clearInvalidatedNotifications(canonical, decision: decision)
                 let notificationEvent = Self.canonicalized(decision.notificationEvent ?? canonical, aliases: eventAliases)

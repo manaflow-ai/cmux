@@ -1,3 +1,4 @@
+import CmuxAgentJournal
 import Darwin
 import Foundation
 import Observation
@@ -15,6 +16,21 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         let observedAt: Date
         let isError: Bool
     }
+
+    /// One reduced native session, bound to the process identity that owned it at receipt.
+    struct JournalEvidence: Equatable, Sendable {
+        let agentPIDKey: String
+        let processIdentity: AgentPIDProcessIdentity
+        let sessionID: String
+        let statusKey: String
+        let state: AgentSessionLifecycleState
+    }
+
+    @ObservationIgnored private let now: @Sendable () -> Date
+    @ObservationIgnored private(set) var processSampledAtByKey: [String: Date] = [:]
+    @ObservationIgnored private(set) var journalEvidenceByPanelID: [UUID: [String: JournalEvidence]] = [:]
+
+    init(now: @escaping @Sendable () -> Date = { Date() }) { self.now = now }
 
     @ObservationIgnored
     private(set) var lifecycleEvidenceByPanelID: [UUID: [String: LifecycleEvidence]] = [:]
@@ -49,6 +65,8 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentPIDs(_ newValue: [String: pid_t]) {
         guard agentPIDs != newValue else { return }
         agentPIDs = newValue
+        for key in newValue.keys { processSampledAtByKey[key] = now() }
+        processSampledAtByKey = processSampledAtByKey.filter { newValue[$0.key] != nil }
         pruneLifecycleEvidence()
         notifyChanged()
     }
@@ -56,6 +74,7 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
     func setAgentPIDProcessIdentitiesByKey(_ newValue: [String: AgentPIDProcessIdentity]) {
         guard agentPIDProcessIdentitiesByKey != newValue else { return }
         agentPIDProcessIdentitiesByKey = newValue
+        for key in newValue.keys { processSampledAtByKey[key] = now() }
         pruneLifecycleEvidence()
         notifyChanged()
     }
@@ -85,6 +104,7 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         guard lifecycleEvidenceByPanelID[panelID]?[statusKey] != evidence else { return }
         if let evidence {
             lifecycleEvidenceByPanelID[panelID, default: [:]][statusKey] = evidence
+            processSampledAtByKey[evidence.agentPIDKey] = now()
         } else {
             lifecycleEvidenceByPanelID[panelID]?.removeValue(forKey: statusKey)
             if lifecycleEvidenceByPanelID[panelID]?.isEmpty == true { lifecycleEvidenceByPanelID.removeValue(forKey: panelID) }
@@ -92,7 +112,27 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         notifyChanged()
     }
 
+    /// Records only exact registered SID/tool/process evidence; absent bindings remain unknown.
+    func recordJournalEvidence(panelID: UUID, statusKey: String, sessionID: String, state: AgentSessionLifecycleState) {
+        let key = statusKey + "." + sessionID
+        guard !sessionID.isEmpty, agentPIDPanelIdsByKey[key] == panelID,
+              let pid = agentPIDs[key], let identity = agentPIDProcessIdentitiesByKey[key], identity.pid == pid else { return }
+        let evidence = JournalEvidence(agentPIDKey: key, processIdentity: identity, sessionID: sessionID, statusKey: statusKey, state: state)
+        guard journalEvidenceByPanelID[panelID]?[key] != evidence else { return }
+        journalEvidenceByPanelID[panelID, default: [:]][key] = evidence
+        processSampledAtByKey[key] = now()
+        notifyChanged()
+    }
+
     private func pruneLifecycleEvidence() {
+        journalEvidenceByPanelID = journalEvidenceByPanelID.reduce(into: [:]) { result, entry in
+            let surviving = entry.value.filter { key, evidence in
+                agentPIDPanelIdsByKey[key] == entry.key && agentPIDs[key] == evidence.processIdentity.pid
+                    && agentPIDProcessIdentitiesByKey[key] == evidence.processIdentity
+            }
+            if !surviving.isEmpty { result[entry.key] = surviving }
+        }
+
         var survivingByPanel: [UUID: [String: LifecycleEvidence]] = [:]
         for (panelID, states) in lifecycleEvidenceByPanelID {
             let surviving = states.filter { statusKey, evidence in

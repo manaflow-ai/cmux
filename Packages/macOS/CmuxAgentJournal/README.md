@@ -47,3 +47,25 @@ let assignments = state.snapshot().assignments(since: previousSnapshot)
 ```
 
 `swift test --package-path Packages/macOS/CmuxAgentJournal`
+
+## Per-session activity and mode
+
+`state.sessions[surfaceID]?[toolID]?[sessionID]` retains rich activity independently
+for every native session. The legacy combined phase remains available for older
+consumers; it must not replace these separate observations in API 2.2.
+
+Native schema-1 producers may add `declared_activity`, `declared_reason`,
+`declared_mode`, and `process_generation`. Activity and mode have separate
+sequence watermarks. A mode-only `plan` event leaves activity unknown; an explicit
+`agent.plan_review.requested` creates needs-input with the plan-review reason.
+`build` mode normalizes to `execution`. Activity is never inferred from prose.
+
+Original event, transition, and mode timestamps are preserved. A current process
+sample is separate evidence and never refreshes those times. Native projection
+requires a registered session/tool identity and a current process birth; replay
+from an older process generation cannot establish current activity or mode.
+The generation is process start seconds × 1,000,000 + start microseconds.
+
+Exact question/permission replies and rejections retire their request identity.
+A later coarse busy observation cannot hide an unresolved request, and a late
+replay of an already resolved question cannot reopen it.

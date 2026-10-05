@@ -957,6 +957,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(scope: CmuxExtensionScope) -> String {
         switch scope {
+        case .workspaceContext:
+            return String(localized: "sidebar.extensions.permission.workspaceContext.detail", defaultValue: "Read project tags, former names, summaries, and analyzed proposals")
         case .workspaceGroups:
             return String(localized: "sidebar.extensions.permission.workspaceGroups.detail", defaultValue: "Read native groups, membership, and collapsed state")
         case .agentRuntime:
@@ -980,6 +982,10 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(actionScope: CmuxExtensionActionScope) -> String {
         switch actionScope {
+        case .bindAgentSession:
+            return String(localized: "sidebar.extensions.permission.bindAgentSession.detail", defaultValue: "Bind an explicit session ID to its verified current process")
+        case .editWorkspaceContext:
+            return String(localized: "sidebar.extensions.permission.editWorkspaceContext.detail", defaultValue: "Edit project context, review proposals, reject tags, and undo changes")
         case .renameWorkspace:
             return String(localized: "sidebar.extensions.permission.renameWorkspace.detail", defaultValue: "Rename workspaces using native title ownership")
         case .renameSurface:
@@ -1110,6 +1116,8 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 private extension CmuxExtensionScope {
     var displayName: String {
         switch self {
+        case .workspaceContext:
+            return String(localized: "sidebar.extensions.scope.workspaceContext", defaultValue: "Project context")
         case .workspaceGroups:
             return String(localized: "sidebar.extensions.scope.workspaceGroups", defaultValue: "Workspace groups")
         case .agentRuntime:
@@ -1135,6 +1143,10 @@ private extension CmuxExtensionScope {
 private extension CmuxExtensionActionScope {
     var displayName: String {
         switch self {
+        case .bindAgentSession:
+            return String(localized: "sidebar.extensions.actionScope.bindAgentSession", defaultValue: "Bind agent sessions")
+        case .editWorkspaceContext:
+            return String(localized: "sidebar.extensions.actionScope.editWorkspaceContext", defaultValue: "Edit project context")
         case .renameWorkspace:
             return String(localized: "sidebar.extensions.actionScope.renameWorkspace", defaultValue: "Rename workspaces")
         case .renameSurface:

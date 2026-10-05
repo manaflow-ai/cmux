@@ -20,6 +20,8 @@ struct SidebarExtensionManagementCoordinator {
     }
 
     func perform(_ action: CmuxSidebarAction) -> CmuxSidebarActionResult? {
+        if let result = SidebarExtensionAgentSessionBindingCoordinator(tabManager: tabManager).perform(action) { return result }
+        if let result = SidebarExtensionWorkspaceContextCoordinator(tabManager: tabManager).perform(action) { return result }
         switch action {
         case .renameWorkspace(let id, let title):
             guard let workspace = workspace(id) else { return missingWorkspace }

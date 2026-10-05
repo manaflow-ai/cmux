@@ -27,6 +27,10 @@ extension CMUXCLI {
         pendingWork: Bool = false,
         nativeEvent: String?,
         declaredPhase: AgentLifecyclePhase? = nil,
+        declaredActivity: AgentSessionActivity? = nil,
+        declaredReason: AgentRuntimeReason? = nil,
+        declaredMode: AgentExecutionMode? = nil,
+        processGeneration: UInt64? = nil,
         detail: String? = nil,
         attention: AgentAttentionContext? = nil,
         occurredAtMs: Int64? = nil,
@@ -63,7 +67,11 @@ extension CMUXCLI {
             nativeEvent: nativeEvent,
             declaredPhase: declaredPhase,
             detail: detail,
-            attention: attention
+            attention: attention,
+            declaredActivity: declaredActivity,
+            declaredReason: declaredReason,
+            declaredMode: declaredMode,
+            processGeneration: processGeneration
         )
         if let problem = draft.validationProblem() {
             recordAgentJournalDeliveryFailure(

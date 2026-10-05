@@ -198,6 +198,7 @@ extension Workspace {
             surfaceProjections: surfaceProjectionRecordsForSession,
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
+        snapshot.workspaceContext = workspaceContext.persisted
         snapshot.captureTodoState(from: self)
         snapshot.dock = _dockSplit?.sessionSnapshot(
             includeScrollback: includeScrollback,
@@ -333,6 +334,7 @@ extension Workspace {
         )
 
         restoreTitleState(from: snapshot, restoredPanelIds: oldToNewPanelIds)
+        workspaceContext.restore(snapshot.workspaceContext)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
@@ -3244,6 +3246,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var restoredPanelTitleBoundariesByPanelId: [UUID: RestoredPanelTitleBoundary] = [:]
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    /// Native authority for project tags, former names, summaries, and proposals.
+    let workspaceContext = WorkspaceContextModel()
     let cloudBindingState = WorkspaceCloudBindingState()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()

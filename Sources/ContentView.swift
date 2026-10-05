@@ -10998,6 +10998,8 @@ enum CmuxExtensionSidebarSelection {
 
     static func isCortexBundle(_ bundleID: String, hostBundleID: String? = Bundle.main.bundleIdentifier) -> Bool {
         if bundleID == "fr.yoyaku.cortex.sessions" || bundleID == "fr.yoyaku.cortex.sessions.debug" { return true }
+        // Tagged native hosts embed the extension under their own bundle identity.
+        if let hostBundleID, hostBundleID.hasPrefix("com.cmuxterm.app.debug."), bundleID == hostBundleID + ".sessions" { return true }
         let prefix = "fr.yoyaku.cortex.sessions.dogfood."
         guard bundleID.hasPrefix(prefix), let hostBundleID else { return false }
         let tag = String(bundleID.dropFirst(prefix.count))
@@ -12777,9 +12779,13 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext, providerId: String? = nil) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext, providerId: providerId ?? effectiveExtensionSidebarProviderId)
+            .onReceive(SidebarSelectedWorkspaceRefresh.events(from: tabManager.selectedTabIdPublisher)) { _ in
+                refreshExtensionSidebarSnapshot()
+            }
             .sidebarCloudBindingObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.cloudBindingState)) { refreshExtensionSidebarSnapshot() }
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
             .sidebarAgentRuntimeObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)) { _ in refreshExtensionSidebarSnapshot() }
+            .sidebarWorkspaceContextObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.workspaceContext)) { refreshExtensionSidebarSnapshot() }
             .onChange(of: tabManager.workspaceGroups) { _, _ in refreshExtensionSidebarSnapshot() }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
@@ -13154,7 +13160,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     groupID: membership[workspace.id] ?? nil,
                     importance: CmuxSidebarWorkspaceImportance(rawValue: live?.importance.rawValue ?? "none") ?? .none,
                     isMuted: live?.isMuted ?? false,
-                    customColorHex: live?.customColor
+                    customColorHex: live?.customColor,
+                    context: live?.workspaceContext.context
                 )
             },
             workspaceGroups: groups.map { group in
@@ -13182,7 +13189,8 @@ struct VerticalTabsSidebar: View, Equatable {
                 isPinned: liveWorkspace.isPanelPinned(panelId),
                 unreadCount: liveWorkspace.manualUnreadPanelIds.contains(panelId) ? 1 : 0,
                 workingDirectory: liveWorkspace.reportedPanelDirectory(panelId: panelId),
-                runtime: SidebarExtensionRuntimeProjector().observation(workspace: liveWorkspace, panelID: panelId)
+                runtime: SidebarExtensionRuntimeProjector().observation(workspace: liveWorkspace, panelID: panelId),
+                runtimeObservations: SidebarExtensionRuntimeProjector().observations(workspace: liveWorkspace, panelID: panelId)
             )
         }
     }

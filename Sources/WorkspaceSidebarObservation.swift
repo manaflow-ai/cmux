@@ -5,6 +5,17 @@ import Foundation
 import CmuxSidebar
 import SwiftUI
 
+enum SidebarSelectedWorkspaceRefresh {
+    /// Emits once per actual selection change, ignoring the subject's initial value.
+    static func events(from publisher: CurrentValueSubject<UUID?, Never>) -> AnyPublisher<Void, Never> {
+        publisher
+            .removeDuplicates()
+            .dropFirst()
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+}
+
 private struct SidebarPanelObservationState: Equatable {
     let panelIds: [UUID]
 
@@ -77,6 +88,29 @@ extension View {
                 for model in models {
                     let changes = model.changes()
                     group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Observes native context owners above the lazy row boundary.
+    func sidebarWorkspaceContextObservations(
+        ids: [UUID],
+        models: [WorkspaceContextModel],
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for model in models {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        // Reconcile the subscription gap before waiting for changes.
+                        onChange()
                         for await _ in changes {
                             if Task.isCancelled { break }
                             onChange()

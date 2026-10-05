@@ -7,6 +7,7 @@ const net = require("node:net");
 const os = require("node:os");
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
 const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
@@ -62,6 +63,8 @@ export const CMUXFeed = async (ctx) => {
         lastUserMessage: null,
         assistantPreamble: null,
         cwd: null,
+        executionMode: null,
+        runtimeStatus: null,
       });
     }
     return sessions.get(key);
@@ -423,18 +426,17 @@ export const CMUXFeed = async (ctx) => {
   const base = (sessionId, extra) => {
     const state = sessionState(sessionId);
     const context = extra?.context || contextForSession(sessionId);
-    const workspaceId =
-      typeof process.env.CMUX_WORKSPACE_ID === "string" && process.env.CMUX_WORKSPACE_ID.trim()
-        ? process.env.CMUX_WORKSPACE_ID.trim()
-        : null;
     const event = {
       session_id: `opencode-${sessionId}`,
       _source: "opencode",
       _ppid: process.pid,
+      event_id: crypto.randomUUID(),
+      occurred_at_ms: Date.now(),
       cwd: extra?.cwd || state.cwd || ctx?.directory,
       ...extra,
     };
-    if (workspaceId) event.workspace_id = workspaceId;
+    // A daemon environment can belong to another session. Exact native
+    // session/PID ownership in the host decides the workspace and surface.
     if (context) event.context = context;
     return event;
   };
@@ -510,8 +512,28 @@ export const CMUXFeed = async (ctx) => {
     });
   };
 
+  const modeFromProperties = (props = {}) => {
+    const raw = firstString(props.execution_mode, props.mode, props.agent?.name,
+      typeof props.agent === "string" ? props.agent : null,
+      props.info?.execution_mode, props.info?.mode, props.info?.agent);
+    if (raw === "plan") return "plan";
+    if (raw === "build" || raw === "execution") return "execution";
+    return null;
+  };
+
+  const observeMode = (sid, props) => {
+    if (!sid) return;
+    const mode = modeFromProperties(props);
+    const state = sessionState(sid);
+    if (!mode || state.executionMode === mode) return;
+    state.executionMode = mode;
+    pushTelemetry(base(sid, { hook_event_name: "Notification", declared_mode: mode }));
+  };
+
   return {
     event: async ({ event }) => {
+      const propsForMode = event.properties || {};
+      observeMode(sessionIdFromProperties(propsForMode), propsForMode);
       const tracked = trackMessage(event);
       if (tracked) {
         pushTelemetry(tracked);
@@ -532,17 +554,47 @@ export const CMUXFeed = async (ctx) => {
         }
         case "session.status": {
           const props = event.properties || {};
-          if (!sessionStatusIsIdle(props.status)) break;
           const sid = sessionIdFromProperties(props);
           if (!sid) break;
+          const status = typeof props.status === "string" ? props.status
+            : firstString(props.status?.type, props.status?.status, props.status?.state);
+          if (!status) break;
+          const state = sessionState(sid);
+          state.runtimeStatus = status.toLowerCase();
+          if (sessionStatusIsIdle(props.status)) {
+            pushTelemetry(base(sid, { hook_event_name: "Stop" }));
+          } else if (state.runtimeStatus === "busy") {
+            pushTelemetry(base(sid, { hook_event_name: "Notification", declared_activity: "working" }));
+          } else if (state.runtimeStatus === "retry") {
+            pushTelemetry(base(sid, { hook_event_name: "Notification", declared_activity: "waiting", declared_reason: "networkRetry" }));
+          }
+          break;
+        }
+        case "question.replied":
+        case "question.rejected":
+        case "permission.replied":
+        case "permission.rejected": {
+          const props = event.properties || {};
+          const sid = sessionIdFromProperties(props);
+          const requestId = firstString(props.requestID, props.requestId, props.id);
+          if (!sid || !requestId) break;
           pushTelemetry(base(sid, {
-            hook_event_name: "Stop",
+            hook_event_name: "PostToolUse",
+            _opencode_request_id: requestId,
+            pending_work: sessionState(sid).runtimeStatus === "busy",
           }));
+          resolvePending(requestId, { status: "resolved_externally" });
+          break;
+        }
+        case "session.error": {
+          const sid = sessionIdFromProperties(event.properties || {});
+          if (sid) pushTelemetry(base(sid, { hook_event_name: "PostToolUseFailure", declared_activity: "failed" }));
           break;
         }
         case "session.idle": {
           const sid = sessionIdFromProperties(event.properties || {});
           if (!sid) break;
+          sessionState(sid).runtimeStatus = "idle";
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
           }));

@@ -2964,6 +2964,7 @@ class TerminalController {
         case "notification.create_for_caller":
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
+        case "agent.runtime.list": return v2Result(id: id, self.v2AgentRuntimeList(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
         case "debug.notification.status":
@@ -3363,7 +3364,7 @@ class TerminalController {
             "pane.join",
             "pane.last",
             "notification.create",
-            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
+            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.runtime.list", "agent.hibernation.session_end",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
