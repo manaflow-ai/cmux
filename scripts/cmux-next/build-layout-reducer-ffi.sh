@@ -28,6 +28,12 @@ for target in "${targets[@]}"; do
   grep -Fxq "$target" <<<"$installed" || { echo "error: Rust target $target is not installed; repair via REPAIR.md" >&2; exit 1; }
 done
 export CARGO_TARGET_DIR="$out_root/cargo"
+# Machine code only: Apple's ld and nm (Xcode's LLVM) cannot read bitcode
+# from a newer rustc ("Unknown attribute kind"), so a bitcode archive builds
+# green and fails to link. Same rule as the cmux-terminal-client xcframework.
+export CARGO_PROFILE_RELEASE_LTO="${CARGO_PROFILE_RELEASE_LTO:-off}"
+export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-26.0}"
 for target in "${targets[@]}"; do
   (cd "$crate_dir" && cargo build --release --target "$target")
   lib="$out_root/cargo/$target/release/libcmux_layout_reducer_ffi.a"

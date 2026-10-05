@@ -63,8 +63,10 @@ extension CEFRuntime {
             logger.info("CEF context initialized")
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
-        case .popup(let opener, let url, let disposition, _):
-            windowRequests.linkClicks.notePopup(opener: opener, disposition: CEFDisposition(raw: disposition), url: url)
+        case .popup:
+            // AFTER_CREATED of the popup's tab carries its URL, disposition
+            // and gesture (the shim's pending popups).
+            break
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):

@@ -992,11 +992,60 @@ fn a_cell_timeout_cancels_its_fetches_and_frees_their_slots() {
             );
         }
         assert_eq!(cancels(&driver), 16, "every running fetch is cancelled in the engine");
-        let queued = fetch_in_cell(&gate, 1).expect_err("the timed-out cell starts no fetch");
-        assert_eq!(queued.code, ErrorCode::Timeout, "{queued}");
         driver.release_fetches();
         fetch_in_cell(&gate, 2).expect("another cell's fetch runs in a freed slot");
     });
+}
+
+fn waiting(gate: &Gate, cell: u64) -> usize {
+    gate.fetches.lock().unwrap().waiting(cell)
+}
+
+/// A queued fetch of a timed-out cell fails at once and never reaches the
+/// engine.
+#[test]
+fn a_cell_timeout_fails_its_queued_fetches() {
+    let (gate, driver) = blocked_fetch_gate();
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..16).map(|_| scope.spawn(|| fetch_in_cell(&gate, 2))).collect();
+        wait_for_in_flight(&driver, 16);
+        let queued = scope.spawn(|| fetch_in_cell(&gate, 1));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while waiting(&gate, 1) == 0 {
+            assert!(std::time::Instant::now() < deadline, "the fetch never queued");
+            std::thread::yield_now();
+        }
+        gate.cancel_fetches(1);
+        let error = queued.join().unwrap().expect_err("the cell timed out");
+        assert_eq!(error.code, ErrorCode::Timeout, "{error}");
+        assert_eq!(error.message, CELL_TIMED_OUT_TEXT);
+        assert_eq!(methods(&driver).iter().filter(|m| *m == "net.fetch").count(), 16);
+        driver.release_fetches();
+        for fetch in running {
+            fetch.join().unwrap().expect("another cell's fetches run");
+        }
+    });
+}
+
+const CELL_TIMED_OUT_TEXT: &str = "fetch: cancelled because the cell that started it timed out";
+
+/// No unbounded per-session set: a timed-out cell is kept only while it has
+/// a queued or running fetch.
+#[test]
+fn timed_out_cells_are_forgotten_once_their_fetches_end() {
+    let (gate, driver) = blocked_fetch_gate();
+    gate.cancel_fetches(7);
+    assert_eq!(gate.fetches.lock().unwrap().cancelled_cells(), 0, "a cell with no fetch");
+    std::thread::scope(|scope| {
+        let running: Vec<_> = (0..2).map(|_| scope.spawn(|| fetch_in_cell(&gate, 1))).collect();
+        wait_for_in_flight(&driver, 2);
+        gate.cancel_fetches(1);
+        for fetch in running {
+            let error = fetch.join().unwrap().expect_err("cancelled");
+            assert_eq!(error.message, CELL_TIMED_OUT_TEXT, "the cancel still wins");
+        }
+    });
+    assert_eq!(gate.fetches.lock().unwrap().cancelled_cells(), 0, "the cell stayed");
 }
 
 /// Classic main (close()): the session's end cancels running fetches in the
