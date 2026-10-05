@@ -18,10 +18,10 @@ describe("link_token install kinds", { timeout: 60_000 }, () => {
     }
   })
 
-  it("answers the vector shape through the Worker for a vm install", async () => {
+  it("answers the vector shape through the Worker for a web install (vm installs are server-made)", async () => {
     const v = (vectors as unknown as { cases: Array<{ name: string; responses: Array<{ http: { status: number }; body: any }> }> }).cases.find((c) => c.name === "machine.link_token.install_refused")
     expect(v, "vector machine.link_token.install_refused").toBeDefined()
-    const a = await signedInWithInstall("cloud-bind-4", "vm")
+    const a = await signedInWithInstall("cloud-bind-4", "web")
     const r = await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host: "host_h0000000000000000009", services: ["ssh"] }, origin: "cli" })
     expect(r.status).toBe(v!.responses[0]!.http.status)
     expect(r.body.error).toMatchObject({ code: "cloud.link.install_refused", details: v!.responses[0]!.body.error.details })
