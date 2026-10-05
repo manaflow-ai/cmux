@@ -55,10 +55,10 @@ final class CaptureSceneRegistry {
         let start = ContinuousClock.now
         frames.start()
         let settled = await frames.settled(
-            until: {
+            until: { [self] in
                 // Workspace creation and agent-tab insertion are asynchronous production paths.
                 // A display frame alone is not evidence that the fixture is visible.
-                services.showcase.workspaces.count >= 3 && !services.showcase.agentTabs.isEmpty
+                self.services.showcase.workspaces.count >= 3 && !self.services.showcase.agentTabs.isEmpty
             },
             start: start,
             window: 100,
