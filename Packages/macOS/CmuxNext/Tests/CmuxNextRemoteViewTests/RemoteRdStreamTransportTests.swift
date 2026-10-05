@@ -154,9 +154,9 @@ struct RemoteRdStreamTransportTests {
         let host = try FakeRdHost()
         defer { host.stop() }
         let port = try await host.start()
+        let endpoint = try #require(RemoteRdLoopbackEndpoint(port: port))
         let transport = try #require(RemoteRdStreamTransport(
-            endpoint: try #require(RemoteRdLoopbackEndpoint(port: port)),
-            hello: RemoteRdHello(user: "u", install: "i", token: nil, service: "rb/1"), startKey: "tab"
+            endpoint: endpoint, hello: RemoteRdHello(user: "u", install: "i", token: nil, service: "rb/1"), startKey: "tab"
         ))
         let statuses = transport.statusUpdates()
         var hostFrames = host.frames.makeAsyncIterator()
