@@ -214,6 +214,30 @@ describe("following links", () => {
     expect(store.getState().canForward).toBe(false);
   });
 
+  test("zero latency: a followed markdown link names its file before anything loads", async () => {
+    const { router, store } = await setup();
+    const states: Array<string | null> = [];
+    store.subscribe(() => states.push(store.getState().navigating));
+    const following = router.follow("docs/b.md");
+    // Synchronously, in the click's frame: the toolbar already names the target.
+    expect(store.getState().navigating).toBe("docs/b.md");
+    await following;
+    expect(store.getState().navigating).toBe(null);
+    expect(store.getState().navigationFailed).toBe(null);
+    expect(store.getState().config?.path).toBe("/w/docs/b.md");
+    // Named first, cleared exactly once when the file is shown.
+    expect(states[0]).toBe("docs/b.md");
+    expect(states.filter((value) => value === null).length).toBeGreaterThan(0);
+  });
+
+  test("zero latency: a link whose file does not open reverts and says so", async () => {
+    const { router, store } = await setup();
+    await router.follow("gone.md");
+    expect(store.getState().navigating).toBe(null);
+    expect(store.getState().navigationFailed).toBe("gone.md");
+    expect(store.getState().config?.path).toBe("/w/a.md");
+  });
+
   test("leaving a file saves its edits first; changes of the file left behind are ignored", async () => {
     const { router, host, store, editor } = await setup();
     editor.text = "# A edited\n";

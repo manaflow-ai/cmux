@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { EffortTrack } from "./EffortTrack";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
@@ -23,6 +23,7 @@ export function EffortPicker({
   onPick(value: string): void;
   chevron?: React.ReactNode;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
   const id = useId();

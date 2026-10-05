@@ -107,44 +107,37 @@ export function VirtualGrid<T>({
           {docked}
         </div>
       )}
-      <div className="icon-grid-scroll" ref={containerRef} role="grid" aria-label={label} id={id}>
+      <div className="icon-grid-scroll" ref={containerRef} aria-label={label} id={id}>
         {layout.items.length === 0 ? (
           <div className="icon-grid-empty">{empty}</div>
         ) : (
           <div className="icon-grid-body" style={{ height: layout.height }}>
             {rows.map((row) =>
               row.kind === "header" ? (
-                <div
-                  key={row.key}
-                  className="icon-grid-header"
-                  style={{ transform: `translateY(${row.top}px)` }}
-                  role="row"
-                >
-                  <span role="columnheader">{row.title}</span>
+                <div key={row.key} className="icon-grid-header" style={{ transform: `translateY(${row.top}px)` }}>
+                  <span>{row.title}</span>
                 </div>
               ) : (
-                <div
-                  key={row.key}
-                  className="icon-grid-row"
-                  style={{ transform: `translateY(${row.top}px)` }}
-                  role="row"
-                >
+                <div key={row.key} className="icon-grid-row" style={{ transform: `translateY(${row.top}px)` }}>
                   {row.items.map((item, offset) => {
                     const index = row.first + offset;
                     return (
-                      <div
+                      // A button outside the tab order: focus stays in the search field, which
+                      // names the active cell with aria-activedescendant.
+                      <button
                         key={index}
+                        type="button"
+                        tabIndex={-1}
                         id={`${id}-cell-${index}`}
                         className="icon-cell"
-                        role="gridcell"
-                        aria-selected={index === active}
+                        aria-pressed={index === active}
                         data-active={index === active || undefined}
                         onMouseDown={(event) => event.preventDefault()}
                         onMouseEnter={() => onHover(index)}
                         onClick={() => onPick(index)}
                       >
                         {renderCell(item)}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

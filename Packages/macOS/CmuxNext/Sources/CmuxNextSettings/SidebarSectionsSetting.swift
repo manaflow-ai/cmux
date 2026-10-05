@@ -25,7 +25,7 @@ public nonisolated enum SidebarSectionsSetting {
                               SettingChoice(SidebarMinimalMode.top.rawValue, SettingsText.keyed("settings.choice.minimalTop", "Top Sections")),
                               SettingChoice(SidebarMinimalMode.both.rawValue, SettingsText.keyed("settings.choice.minimalBoth", "Top and Bottom")),
                           ]),
-                          default: .string(SidebarMinimalMode.off.rawValue),
+                          default: .string(SidebarSectionsPreferences.defaults.minimalMode.rawValue),
                           keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"])
     }
 

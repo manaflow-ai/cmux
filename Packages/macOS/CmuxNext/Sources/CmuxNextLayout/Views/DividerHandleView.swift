@@ -28,6 +28,11 @@ final class DividerHandleView: NSView {
     var showsIdleLine = true {
         didSet { if showsIdleLine != oldValue { applyColors() } }
     }
+    /// Shows the line on hover and while dragging. Off under
+    /// `layout.paneSeparation` none: the resize cursor is the only cue.
+    var showsActiveLine = true {
+        didSet { if showsActiveLine != oldValue { applyColors() } }
+    }
     var onDrag: ((DragEvent) -> Void)?
 
     private let line = CALayer()
@@ -114,6 +119,9 @@ final class DividerHandleView: NSView {
         }
     }
 
+    /// The line's color as drawn now.
+    var lineColor: CGColor? { line.backgroundColor }
+
     /// Hover reported by a click-catching panel above a Chromium page (the
     /// pointer is over that panel, so this view's tracking area sees nothing).
     func setForwardedHover(_ hovered: Bool) { isHovered = hovered }
@@ -151,7 +159,7 @@ final class DividerHandleView: NSView {
     private func applyColors() {
         let isEdge = isColumnEdge
         performWithTheme {
-            let active = isHovered || isDragging
+            let active = (isHovered || isDragging) && showsActiveLine
             let color: NSColor
             if isEdge {
                 color = active ? Palette.focusRing.withAlphaComponent(0.45) : .clear

@@ -20,29 +20,31 @@ nonisolated enum NewTabSubmit: Equatable {
 
     static let action: ActionID = "newTab.submit"
 
-    static func plan(text: String, mode: NewTabIntent.Mode, agent: String?, resolver: OmniboxResolver,
+    /// `search` is the explicit web-search choice (the field's search row):
+    /// it searches any text but a `!` command (R86: no Search/Ask mode).
+    static func plan(text: String, search: Bool, agent: String?, resolver: OmniboxResolver,
                      home: URL? = FileManager.default.homeDirectoryForCurrentUser) -> NewTabSubmit {
-        switch NewTabIntent.classify(text, mode: mode, home: home) {
-        case .none: .page
-        case .terminal(let command): .terminal(command: command)
-        case .url(let address): URL(string: address).map(NewTabSubmit.browser) ?? .page
-        case .search(let query): resolver.searchEngine.searchURL(for: query).map(NewTabSubmit.browser) ?? .page
-        case .prompt(let prompt): .chat(prompt: prompt, harness: agent.flatMap { $0.isEmpty ? nil : $0 })
+        switch NewTabIntent.classify(text, home: home) {
+        case .none: return .page
+        case .terminal(let command): return .terminal(command: command)
+        case .url(let address) where !search: return URL(string: address).map(NewTabSubmit.browser) ?? .page
+        case .prompt(let prompt) where !search: return .chat(prompt: prompt, harness: agent.flatMap { $0.isEmpty ? nil : $0 })
+        case .url, .prompt:
+            let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return resolver.searchEngine.searchURL(for: query).map(NewTabSubmit.browser) ?? .page
         }
     }
 }
 
 extension NewTabSubmit {
-    /// Runs the action in the invocation's pane. The mode defaults to the
-    /// one the user last left the screen in, else Ask.
+    /// Runs the action in the invocation's pane.
     @MainActor
     static func run(_ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let pane = ctx.paneController(invocation) else { return }
         let services = ctx.services
         let text = invocation.arguments["text"]?.stringValue ?? ""
-        let mode = invocation.arguments["mode"]?.stringValue.flatMap(NewTabIntent.Mode.init(rawValue:))
-            ?? services.newTabChoices.mode.flatMap { NewTabIntent.Mode(rawValue: $0.rawValue) } ?? .ask
-        let plan = plan(text: text, mode: mode, agent: invocation.arguments["agent"]?.stringValue,
+        let search = invocation.arguments["search"]?.boolValue == true
+        let plan = plan(text: text, search: search, agent: invocation.arguments["agent"]?.stringValue,
                         resolver: services.cache.suggestionEngine.resolver)
         let cwd = pane.selectedTab?.cwd
         switch plan {
@@ -57,7 +59,7 @@ extension NewTabSubmit {
         case .chat(let prompt, let harness):
             services.newTabKinds.record(.agent, folder: cwd)
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: prompt, harness: harness))
-            pane.showAgentTab(services.agentTabs.open(in: pane.paneKey, of: pane.daemon.store, seed: seed))
+            pane.openAgentTab(seed: seed)
         }
     }
 }

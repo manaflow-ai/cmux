@@ -60,8 +60,9 @@ body,
   height: 100%;
 }
 
+/* R139: the page selects nothing by default (shared/desktop.css); the document (.md-doc) is
+   `.selectable` and the source textarea is a field. */
 body {
-  user-select: text;
   font-size: var(--cmux-md-ui-font-size);
 }
 
@@ -108,7 +109,8 @@ body {
 
 .md-status {
   flex: 0 0 auto;
-  color: var(--cmux-md-faint-color);
+  /* Muted, not faint: status text must keep 4.5:1 contrast (WCAG AA). */
+  color: var(--cmux-md-muted-color);
   font-size: var(--cmux-md-toolbar-font-size);
 }
 
@@ -134,7 +136,11 @@ body {
   background: var(--cmux-md-accent-background);
 }
 
-.md-mode-button {
+.md-history-button:dir(rtl) {
+  transform: scaleX(-1);
+}
+
+.md-mode .ui-toggle {
   border: 0;
   padding: 2px 10px;
   border-radius: 4px;
@@ -143,7 +149,7 @@ body {
   font-size: var(--cmux-md-toolbar-font-size);
 }
 
-.md-mode-button[aria-pressed="true"] {
+.md-mode .ui-toggle[aria-pressed="true"] {
   background: var(--page-elevated);
   color: var(--cmux-md-text-color);
   box-shadow: 0 0 0 1px var(--cmux-md-border-color);
@@ -674,6 +680,12 @@ body {
   font-size: var(--cmux-md-ui-font-size);
 }
 
-.md-history-button:disabled {
+.md-history-button[data-disabled] {
   color: var(--cmux-md-faint-color);
+}
+
+/* A followed link is loading: the toolbar already names the new file (zero-latency rule a). */
+.md-page[data-navigating] .md-doc {
+  opacity: 0.55;
+  transition: opacity 120ms ease-out 80ms;
 }

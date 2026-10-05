@@ -11,41 +11,36 @@ import Foundation
 /// Owns Settings (Settings…, Cmd-, the app menu, the palette, `settings.open`). R82: Settings is
 /// the React page (cmux-page://cmux.settings/, `SettingsPageProvider`), opened as an internal
 /// page tab in the active window. One page view is kept and shown again on reopen, so a reopen
-/// does not load the page again. Keyboard goes to the Keyboard Shortcuts page.
-///
-/// INTERIM (R82 B): the sections the React page does not draw yet (accounts, rooms, machines),
-/// and Settings with no main window open, still open the Swift Settings window with its model.
-/// That path goes when those sections reach the page.
+/// does not load the page again. Keyboard goes to the Keyboard Shortcuts page. With no main
+/// window the request waits for one: a closed window comes back (or a new one opens) and the
+/// first window that mounts a pane opens the tab (`windowDidShowContent`, called by
+/// `WorkspaceContentController`).
 @MainActor
-final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
+final class SettingsWindowService: InternalPageProvider {
     unowned let services: AppServices
-    private var controller: SettingsWindowController?
-    private var sharedModel: SettingsWindowModel?
 
     init(services: AppServices) {
         self.services = services
     }
 
-    /// The open model, and the window that shows Settings: its own window,
-    /// else the main window with a Settings tab (debug and tests).
-    var model: SettingsWindowModel? { sharedModel }
+    /// The window whose tab shows Settings, if any.
     var window: NSWindow? {
-        controller?.window ?? services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
+        services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
     }
 
     /// The kept React page (a reopen shows it again with no reload); nil before the first show.
     private var webPage: PageWebView?
     /// The route the next page view opens on.
     private var pendingRoute: String?
-
-    /// Sections only the Swift window draws (R82 B, interim).
-    static let swiftSections: Set<SettingsSection> = [.accounts, .rooms, .machines]
+    /// A show that waits for a main window with a workspace.
+    private var waiting: (section: SettingsSection?, setting: String?, focus: Bool)?
+    var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
     /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
     /// nothing. `focus` false (automation) opens the tab without selecting it.
     func show(section: SettingsSection?, setting: String? = nil, focus: Bool = true) throws {
-        guard let settings = services.settings else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
+        guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         var anchor: SettingsAnchor?
         if let setting {
             guard let found = SettingsAnchor(key: setting) else {
@@ -61,16 +56,28 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
             }
             return
         }
-        if let target, Self.swiftSections.contains(target) {
-            return showWindow(settings: settings, section: section, anchor: anchor)
+        guard let windows = services.windows, let window = windows.active, Self.hasPane(window) else {
+            waiting = (target, setting, focus)
+            if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
+            return
         }
+        waiting = nil
         let route = Self.route(section: target, setting: setting)
-        guard let window = services.windows.active else {
-            return showWindow(settings: settings, section: section, anchor: anchor)
-        }
         pendingRoute = route
         let view = services.pages.show(.settings, in: window, focus: focus)
         if let route, let page = view?.content as? PageWebView, page.route != route { page.open(route: route) }
+    }
+
+    /// A window installed its workspace content or mounted a pane: a show that waited for a window
+    /// with a pane runs now.
+    func windowDidShowContent() {
+        guard let request = waiting, let window = services.windows?.active, Self.hasPane(window) else { return }
+        waiting = nil
+        try? show(section: request.section, setting: request.setting, focus: request.focus)
+    }
+
+    private static func hasPane(_ window: WindowController) -> Bool {
+        window.content.map { !$0.panes.isEmpty } ?? false
     }
 
     /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
@@ -82,32 +89,10 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
         return section.map { "#/settings/\($0.rawValue)" }
     }
 
-    /// The Swift Settings window (interim, R82 B).
-    private func showWindow(settings: SettingsController, section: SettingsSection?, anchor: SettingsAnchor?) {
-        let model = sharedModel ?? SettingsWindowModel(settings: settings, registry: services.registry, host: self)
-        sharedModel = model
-        if controller == nil {
-            let controller = SettingsWindowController(model: model)
-            controller.onClose = { [weak self] in
-                self?.controller = nil
-                self?.dropModelWhenUnused()
-            }
-            self.controller = controller
-        }
-        controller?.setThemeScope(services.windows.active?.themeScope ?? .app)
-        controller?.present(section: section, anchor: anchor)
-    }
-
-    private func dropModelWhenUnused() {
-        guard controller == nil else { return }
-        sharedModel?.cancelRecording()
-        sharedModel = nil
-    }
-
     // MARK: InternalPageProvider
 
     var page: InternalPageID { .settings }
-    var title: String { SettingsWindowModel.paneTitle }
+    var title: String { SettingsPaneTitle.text }
     var symbol: String { "gearshape" }
 
     /// The kept page when no other tab shows it, else a new one (a second window's tab).
@@ -124,30 +109,18 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
-        dropModelWhenUnused()
+        // A live preview left by a closed page (mid-drag) must not stay applied.
+        services.settings?.endPreview()
     }
 
-    // MARK: SettingsWindowHost
-
-    var systemWideRefusals: Set<ActionID> { services.globalHotKeys.conflicts }
-
-    /// Escape in the focused Settings page closes that page tab. Cmd-W uses
-    /// the shared close-tab action path, so both gestures remove the same
-    /// internal page and leave no popup behind.
-    func closeSettingsPane() {
-        guard let pane = services.windows.active?.focusedPane,
-              let selected = pane.stripModel.selectedID,
-              LocalPageTab.page(of: selected.rawValue) == .settings else { return }
-        pane.close([selected])
-    }
+    // MARK: Host facts (the page's host lists)
 
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
         guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
-            SettingsListRow(id: room.id.rawValue, title: room.name, subtitle: nil,
-                            symbol: room.icon ?? "square.stack", isActive: room.id == current)
+            SettingsListRow.space(id: room.id.rawValue, title: room.name, icon: room.icon, isActive: room.id == current)
         }
     }
 
@@ -182,8 +155,6 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     func derivedNumber(at path: [String]) -> Double? {
         path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).input.backgroundOpacity : nil
     }
-
-    var shortcutEditor: (any ShortcutRecorderEditing)? { services.paletteShortcutEditor }
 
     var browserProfiles: [SettingsBrowserProfileRow] {
         services.browserProfiles.ordered.map { record in

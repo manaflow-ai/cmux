@@ -1,13 +1,11 @@
 // The new tab screen's strings in English and Japanese, in the pane's language
-// (`paneLanguage`, which follows the app's preferred localizations).
-import { paneLanguage } from "../i18n";
+// (`usePaneLanguage`, which follows the app's preferred localizations). Components read them
+// through `useNt()` so a language change re-renders them; `translateNewTab` is for code
+// outside render.
+import { currentLanguage, type PaneLanguage, usePaneLanguage } from "../i18n";
 
 const en = {
   placeholder: "Search or type a URL",
-  tabHint: "Tab to switch",
-  modeLabel: "Search or ask",
-  "mode.search": "Search",
-  "mode.ask": "Ask",
   suggestions: "Suggestions",
   "row.search": "Search the web",
   "row.open": "Open",
@@ -31,10 +29,6 @@ export type NewTabStringKey = keyof typeof en;
 
 const ja: Record<NewTabStringKey, string> = {
   placeholder: "検索またはURLを入力",
-  tabHint: "Tabで切り替え",
-  modeLabel: "検索または質問",
-  "mode.search": "検索",
-  "mode.ask": "質問",
   suggestions: "候補",
   "row.search": "ウェブを検索",
   "row.open": "開く",
@@ -56,7 +50,24 @@ const ja: Record<NewTabStringKey, string> = {
 
 export const NEW_TAB_STRING_TABLES: Record<"en" | "ja", Record<NewTabStringKey, string>> = { en, ja };
 
-export function nt(key: NewTabStringKey, values: Record<string, string> = {}, language = paneLanguage()): string {
-  const text = NEW_TAB_STRING_TABLES[language][key] ?? en[key];
+export type NewTabTranslate = (key: NewTabStringKey, values?: Record<string, string>) => string;
+
+/** A new tab string, with `{name}` placeholders filled. Outside render only; components use `useNt()`. */
+export function translateNewTab(
+  key: NewTabStringKey,
+  values: Record<string, string> = {},
+  lang: PaneLanguage = currentLanguage(),
+): string {
+  const text = NEW_TAB_STRING_TABLES[lang][key] ?? en[key];
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => values[name] ?? whole);
+}
+
+const translators: Record<PaneLanguage, NewTabTranslate> = {
+  en: (key, values) => translateNewTab(key, values, "en"),
+  ja: (key, values) => translateNewTab(key, values, "ja"),
+};
+
+/** The new tab translator for the pane's current language; re-renders the caller when it changes. */
+export function useNt(): NewTabTranslate {
+  return translators[usePaneLanguage()];
 }

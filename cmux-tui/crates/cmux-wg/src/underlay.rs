@@ -224,11 +224,11 @@ impl<S: DatagramSocket> SocketPath<S> {
     pub fn peer(&self) -> Option<SocketAddr> {
         self.peer
     }
-}
 
-impl<S: DatagramSocket> Underlay for SocketPath<S> {
-    fn send(&mut self, datagram: &[u8]) {
-        let Some(peer) = self.peer else { return };
+    /// Send one datagram to `peer`, or queue it behind earlier ones while
+    /// the socket is unwritable. The mesh addresses each peer this way on
+    /// one shared socket.
+    pub(crate) fn send_to(&mut self, datagram: &[u8], peer: SocketAddr) {
         if !self.pending.is_empty() {
             self.flush();
         }
@@ -246,6 +246,14 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
                 self.pending.push_back((datagram.to_vec(), peer));
             }
             Err(error) => eprintln!("wireguard UDP send to {peer} failed: {error}"),
+        }
+    }
+}
+
+impl<S: DatagramSocket> Underlay for SocketPath<S> {
+    fn send(&mut self, datagram: &[u8]) {
+        if let Some(peer) = self.peer {
+            self.send_to(datagram, peer);
         }
     }
 

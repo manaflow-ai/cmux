@@ -304,7 +304,23 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   the member check and before any reach RPC, so a flood never fans out to TeamDOs, other users'
   UserDOs or ConversationDOs; every attempt counts, also a refused one. A spent budget is
   `home.rate_limited`, retryable, `details.retry_after_ms` (until the oldest counted attempt
-  leaves the hour). Reach lookups are capped at 64 targets per op after the gate.
+  leaves the hour). Reach lookups are capped at 64 targets per op after the gate (TeamDO checks
+  the cap too). `dm.open` with a user peer spends the `conversation.create` budget.
+  All of an owner's chiefs together also share a total of 3x the per-actor limit per hour (180
+  and 360): every `agent_` actor counted in the owner's UserDO counts toward it, and the owner's
+  own budget is separate, so archiving and creating chiefs mints no fresh budget.
+  Before the budget, the Worker asks the target conversation whether the key is decided; a
+  decided key goes straight to the owner with the plain principal (no unit, no reach RPC) and the
+  exact frame the first call sent: its stored result, or `idempotency.conflict` for other params.
+  `dm.open` create params carry no display names (the owner takes them from the principal). A refused `dm.open` with a user peer still reopens the caller's existing DM
+  (inbox peer index, no charge; not for a chief). A caller whose UserDO never served them (no `user.ensure`) gets
+  `home.user_not_ready`, not retryable. A create the owner refuses (reach, policy) opens an empty
+  ConversationDO: the refusal is decided on the initial state and writes no storage or ledger.
+  Open follow-up: `conversation.import` with a new `local_id` and `dm.open` with an address peer
+  have no Worker budget yet (only the per-network limits below).
+  Open follow-up (accepted for now): with the budget spent, the DM reopen still lets a client
+  write one idempotency entry per new key into its own DM (the same size as an entry on the
+  budget path, and only in the caller's own DM). A chief never reopens through its owner's inbox.
 - Per network: Cloudflare rate limiting on `invite.create`, `dm.open` with an address, and
   `invite.preview`: 30 per minute per IP.
 - Content: inviter text appears in the invite only for trusted inviters (verified email, account
@@ -435,6 +451,12 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   not exist yet: `messageDeleteWrites` (message retention) and `ConversationDO.deleteAttachmentStorage`
   (conversation storage deletion; it drops open slots, so it schedules a second prefix delete at
   the latest dropped slot's expiry plus `UPLOADING_GRACE_MS`, which removes a late presigned PUT). Attachments in `conversation.import` remain C-13.
+- Attachment drops (2026-10-04, `home-attachment-gc.ts`): a record the GC forgets waits in the
+  private `home_attachment_drops` table until its R2 delete and its uploader's stored-bytes release
+  succeed (30 s doubling backoff, at most 1 h). After 10 failed attempts (about 3 h) it is
+  dead-lettered: kept with `dead = 1`, no wake time, logged as the error event
+  `attachment.drop.dead_letter` with ids only. Follow-up (tracked): an admin op that lists the dead
+  drops of a conversation and resets them for another attempt.
 
 ## 11. Self-hosted implementation (cmux server, team VM)
 

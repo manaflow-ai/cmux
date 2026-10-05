@@ -200,7 +200,7 @@ Daemon (cmux-tui) under capability `rows-v1`:
   | `zoom-pane` | allowed; zoom is per screen and shows the pane over every row |
   | `set-ratio`, `set-split-ratio` on a real split inside a row | allowed |
   | `set-ratio`, `set-split-ratio` on a synthetic (row) split | refused, `row-split-compat-readonly` |
-  | `set-viewport-pane-width`, `set-column-sticky` | allowed (column fields) |
+  | `set-viewport-pane-width`, `set-column-dock` | allowed (column fields) |
   | `undo-layout` | allowed; snapshots carry rows, so undo restores rows even for an old client |
   | `apply-layout` with a `columns[].layout` tree (blueprints) | refused on a screen with rows, `rows-layout-replace-unsupported`, until layouts carry rows; `export-layout` exports rows only with `rows-v1` |
   | v2 state ops of PR 16174 (`pane.split`, `tab.move`, and the rest) | the same mapping through `Destination`; a v2 op that names a synthetic split is refused the same way |

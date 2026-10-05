@@ -3788,7 +3788,8 @@
         "family" : "digits",
         "key" : "1",
         "modifiers" : [
-          "ctrl"
+          "ctrl",
+          "opt"
         ]
       },
       "id" : "space.selectByNumber",
@@ -6021,8 +6022,7 @@
         "family" : "digits",
         "key" : "1",
         "modifiers" : [
-          "ctrl",
-          "opt"
+          "ctrl"
         ]
       },
       "id" : "selectSurfaceByNumber",
@@ -6466,6 +6466,29 @@
       "title" : "Go to Home",
       "title_key" : "action.home.show",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home attach",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.attachFiles",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Attach Files…",
+      "title_key" : "action.home.attachFiles",
+      "title_table" : "HomeActions"
     },
     {
       "cli" : "offered",
@@ -9669,13 +9692,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "g",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "toggleReactGrab",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -9921,6 +9938,29 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action passwords-open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "passwords.open",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Passwords",
+      "title_key" : "action.passwords.open",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "unimplemented",
       "cli_name" : "browser enable",
       "context_menu" : "noObject",
@@ -9964,29 +10004,6 @@
       },
       "title" : "Disable cmux Browser",
       "title_key" : "action.palette.disableBrowser",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "liveInput",
-      "cli_name" : "browser open-link-in-new-tab",
-      "context_menu" : "noTargetSurface",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "openLinkInNewTab",
-      "mcp" : "liveInput",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Link in New Tab",
-      "title_key" : "action.openLinkInNewTab",
       "title_table" : "ActionCatalog"
     },
     {
@@ -10204,59 +10221,6 @@
       },
       "title" : "Reveal File in Finder",
       "title_key" : "action.filePreviewRevealInFinder",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "unimplemented",
-      "cli_name" : "browser open-diff-viewer",
-      "context_menu" : "unimplemented",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "g",
-        "modifiers" : [
-          "ctrl",
-          "shift",
-          "cmd"
-        ]
-      },
-      "id" : "openDiffViewer",
-      "mcp" : "unimplemented",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Diff Viewer",
-      "title_key" : "action.openDiffViewer",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "unimplemented",
-      "cli_name" : "browser open-directory-diff-viewer",
-      "context_menu" : "unimplemented",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.openDirectoryDiffViewer",
-      "mcp" : "unimplemented",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Directory Diff Viewer",
-      "title_key" : "action.palette.openDirectoryDiffViewer",
       "title_table" : "ActionCatalog"
     },
     {
@@ -10619,6 +10583,639 @@
       },
       "title" : "Allow Agents in This Tab…",
       "title_key" : "action.browser.allowAgentWithExtensions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser choose-profile",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.profile.choose",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Choose Browser Profile…",
+      "title_key" : "action.browser.profile.choose",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser more-actions",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.overflow.menu",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "More Browser Actions…",
+      "title_key" : "action.browser.overflow.menu",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action omnibar-open-in-background-tab",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "\r",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "omnibar.openInBackgroundTab",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Address in New Background Tab",
+      "title_key" : "action.omnibar.openInBackgroundTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action omnibar-open-in-foreground-tab",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "\r",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "omnibar.openInForegroundTab",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Address in New Tab",
+      "title_key" : "action.omnibar.openInForegroundTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser stop-loading",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : ".",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "browserStop",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Stop Loading",
+      "title_key" : "action.browserStop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action browser-copy-u-r-l",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "c",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "browser.copyURL",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy Page URL",
+      "title_key" : "action.browser.copyURL",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "familyMember",
+      "cli_name" : "action browser-find-previous",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "browser.findPrevious",
+      "mcp" : "familyMember",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Find Previous in Page",
+      "title_key" : "action.browser.findPrevious",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-link-in-new-tab",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.openInNewTab",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Link in New Tab",
+      "title_key" : "action.browser.link.openInNewTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-link-in-new-window",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.openInNewWindow",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Link in New Window",
+      "title_key" : "action.browser.link.openInNewWindow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-link-in-new-space",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.openInNewSpace",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Link in New Space",
+      "title_key" : "action.browser.link.openInNewSpace",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-link-in-new-workspace",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.openInNewWorkspace",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Link in New Workspace",
+      "title_key" : "action.browser.link.openInNewWorkspace",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-link-in-split",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.openInSplit",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Link in Split Right",
+      "title_key" : "action.browser.link.openInSplit",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-link-in-incognito-window",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.openInIncognitoWindow",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Link in Incognito Window",
+      "title_key" : "action.browser.link.openInIncognitoWindow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-link-save-as",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.saveAs",
+      "mcp" : "guiOnly",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Save Link As…",
+      "title_key" : "action.browser.link.saveAs",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action browser-link-copy",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.copy",
+      "mcp" : "clipboard",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy Link",
+      "title_key" : "action.browser.link.copy",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action browser-link-copy-text",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserLink"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.link.copyText",
+      "mcp" : "clipboard",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy Link Text",
+      "title_key" : "action.browser.link.copyText",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-image-in-new-tab",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserImage"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.image.openInNewTab",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Image in New Tab",
+      "title_key" : "action.browser.image.openInNewTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-image-save-as",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserImage"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.image.saveAs",
+      "mcp" : "guiOnly",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Save Image As…",
+      "title_key" : "action.browser.image.saveAs",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action browser-image-copy",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserImage"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.image.copy",
+      "mcp" : "clipboard",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy Image",
+      "title_key" : "action.browser.image.copy",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action browser-image-copy-address",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserImage"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.image.copyAddress",
+      "mcp" : "clipboard",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy Image Address",
+      "title_key" : "action.browser.image.copyAddress",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action browser-selection-copy",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserSelection"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.selection.copy",
+      "mcp" : "clipboard",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy",
+      "title_key" : "action.browser.selection.copy",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser search-web",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserSelection"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.selection.search",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Search the Web",
+      "title_key" : "action.browser.selection.search",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action browser-selection-look-up",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserSelection"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.selection.lookUp",
+      "mcp" : "guiOnly",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Look Up",
+      "title_key" : "action.browser.selection.lookUp",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-diff-viewer",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "openDiffViewer",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Diff Viewer",
+      "title_key" : "action.openDiffViewer",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-directory-diff-viewer",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.openDirectoryDiffViewer",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Diff Viewer in Folder…",
+      "title_key" : "action.palette.openDirectoryDiffViewer",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-markdown-file",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "openMarkdownFile",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Markdown File…",
+      "title_key" : "action.openMarkdownFile",
       "title_table" : "ActionCatalog"
     },
     {
@@ -15338,6 +15935,29 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "settings show-crash-logs",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.showCrashLogs",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Crash Logs",
+      "title_key" : "action.help.showCrashLogs",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "settings feature-flags",
       "context_menu" : "noObject",
@@ -18793,6 +19413,164 @@
       "title" : "Add Server…",
       "title_key" : "action.server.addServer",
       "title_table" : "ServerActions"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-save",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "s",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownSave",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Save",
+      "title_key" : "action.markdownSave",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-link",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "k",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownLink",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Insert Link",
+      "title_key" : "action.markdownLink",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-back",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "[",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownBack",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Back",
+      "title_key" : "action.markdownBack",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-forward",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "]",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownForward",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Forward",
+      "title_key" : "action.markdownForward",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action list-next",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "list.next",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Next Item",
+      "title_key" : "action.list.next",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action list-previous",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "list.previous",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Previous Item",
+      "title_key" : "action.list.previous",
+      "title_table" : "ActionCatalog"
     }
   ],
   "version" : 1

@@ -36,7 +36,7 @@ export class IncrementalMarkdown {
     if (!source.startsWith(this.source.slice(0, this.closedEnd))) this.reset();
     this.source = source;
     this.lastParsedLength = 0;
-    const boundary = this.lastBoundary(source);
+    const boundary = lastBlockBoundary(source, this.closedEnd);
     if (boundary > this.closedEnd) {
       this.closed.push(...this.parse(source.slice(this.closedEnd, boundary), this.closed.length));
       this.closedEnd = boundary;
@@ -66,31 +66,34 @@ export class IncrementalMarkdown {
       return open && sameBlock(open.block, block) ? open : { key, block };
     });
   }
+}
 
-  /// The last boundary after the closed text, or the closed end when there is none.
-  private lastBoundary(source: string): number {
-    let boundary = this.closedEnd;
-    let fenced = false;
-    let display = false;
-    // The closed end always follows a blank line.
-    let previousBlank = true;
-    let start = this.closedEnd;
-    while (start < source.length) {
-      const newline = source.indexOf("\n", start);
-      if (newline < 0) break; // The last line is still streaming.
-      const line = source.slice(start, newline).replace(/\r$/, "");
-      if (start > this.closedEnd && previousBlank && !fenced && !display && /^\S/.test(line) && !LIST_START.test(line))
-        boundary = start;
-      if (FENCE.test(line) && !display) fenced = !fenced;
-      else if (!fenced) {
-        if (display) display = !DISPLAY_CLOSE.test(line);
-        else if (DISPLAY_OPEN.test(line)) display = !DISPLAY_CLOSE.test(line.replace(DISPLAY_OPEN, ""));
-      }
-      previousBlank = !line.trim();
-      start = newline + 1;
+/// The last block boundary of `source` after `from` (itself a boundary, or 0), or `from` when
+/// there is none: the start of a complete line after a blank line, outside a code fence and an
+/// open `\[` display, that starts a block on its own. Text before it parses the same alone, in
+/// this renderer and in the estimator's lexer.
+export function lastBlockBoundary(source: string, from: number): number {
+  let boundary = from;
+  let fenced = false;
+  let display = false;
+  // The closed end always follows a blank line.
+  let previousBlank = true;
+  let start = from;
+  while (start < source.length) {
+    const newline = source.indexOf("\n", start);
+    if (newline < 0) break; // The last line is still streaming.
+    const line = source.slice(start, newline).replace(/\r$/, "");
+    if (start > from && previousBlank && !fenced && !display && /^\S/.test(line) && !LIST_START.test(line))
+      boundary = start;
+    if (FENCE.test(line) && !display) fenced = !fenced;
+    else if (!fenced) {
+      if (display) display = !DISPLAY_CLOSE.test(line);
+      else if (DISPLAY_OPEN.test(line)) display = !DISPLAY_CLOSE.test(line.replace(DISPLAY_OPEN, ""));
     }
-    return boundary;
+    previousBlank = !line.trim();
+    start = newline + 1;
   }
+  return boundary;
 }
 
 /// Whether two parsed blocks draw the same (blocks are plain data).

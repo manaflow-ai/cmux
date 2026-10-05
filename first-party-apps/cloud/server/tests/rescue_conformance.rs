@@ -1,22 +1,28 @@
-//! Conformance vectors for `cmux.terminal.backend/1` (bytes mode), run
-//! against the Cloud rescue backend with a fake transport.
+//! Conformance vectors for `cmux.terminal.backend/1` (bytes mode, the
+//! shared `cmux-terminal-iface` crate), run against the Cloud rescue backend
+//! with a fake transport.
 //!
-//! The `vectors` module is COPIED from
-//! `samples/apps/ssh-terminal/server/tests/conformance.rs` at commit
-//! 1aecb243404 (unchanged through c2c11692927). Only the import path
-//! changed (`ssh_terminal::iface` to `cmux_cloud::rescue::iface`). Keep it
-//! byte-equal otherwise; when the real crate lands, both copies move to it.
-//! The bottom of this file runs every vector against [`RescueBackend`] over
-//! a fake transport that runs the tiny shell of the sample README
-//! ("Conformance"): `echo X` answers `X\r\n`; `exit N` exits with N;
-//! `flood N` answers N KiB of output.
+//! The `vectors` module started as a copy of
+//! `samples/apps/ssh-terminal/server/tests/conformance.rs` (1aecb243404).
+//! It now drives the shared frame shapes (data, credit, end), which the
+//! sample's mirror does not have yet; when the sample moves to the shared
+//! crate, both should share one copy. The bottom of this file runs every
+//! vector against [`RescueBackend`] over a fake transport that runs the tiny
+//! shell of the sample README ("Conformance"): `echo X` answers `X\r\n`;
+//! `exit N` exits with N; `flood N` answers N KiB of output.
+//!
+//! The sample's two resume vectors are not here: the rescue backend has
+//! capability `resume: false`, so they returned at once (attach_rescue.rs
+//! checks that resume is `unsupported`).
+
+mod frames_common;
 
 pub mod vectors {
-    use cmux_cloud::rescue::iface::{
-        BackendError, ByteEvent, ByteTerminal, Close, ExitStatus, Grid, Input, OpenRequest,
-        OpenToken, ResumeRequest, Signal, TerminalBackend,
+    use super::frames_common::{Host, MAX_FRAME, end, last_offset, not_open, output};
+    use cmux_terminal_iface::{
+        BackendError, Close, Direction, End, ExitStatus, FrameBody, Grid, Lost, OpenRequest,
+        Signal, TerminalBackend, check_closed,
     };
-    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     const WAIT: Duration = Duration::from_secs(10);
@@ -30,8 +36,6 @@ pub mod vectors {
         /// An open request for `kind` (or any other kind), a target that
         /// works and a fresh `open_token`.
         fn request(&self, kind: &str, terminal: &str, grid: Grid) -> OpenRequest;
-        /// A fresh `open_token` for a resume.
-        fn open_token(&self) -> OpenToken;
         /// Input bytes the far end received so far, in arrival order.
         fn received(&self) -> Vec<u8>;
         /// The `(cols, rows)` the far end knows now (open size, then each resize).
@@ -40,19 +44,17 @@ pub mod vectors {
         fn signals(&self) -> Vec<String>;
         /// Breaks the transport without a goodbye.
         fn drop_transport(&self);
-        /// The most delivered output bytes the backend keeps for `resume`.
-        fn retained_bytes(&self) -> usize;
     }
 
     fn take_until(
-        t: &mut dyn ByteTerminal,
+        host: &mut Host,
         what: &str,
-        done: impl Fn(&[ByteEvent]) -> bool,
-    ) -> Vec<ByteEvent> {
+        done: impl Fn(&[FrameBody]) -> bool,
+    ) -> Vec<FrameBody> {
         let deadline = Instant::now() + WAIT;
         let mut all = Vec::new();
         loop {
-            all.extend(t.take_events());
+            all.extend(host.take());
             if done(&all) {
                 return all;
             }
@@ -69,57 +71,19 @@ pub mod vectors {
         }
     }
 
-    fn output(events: &[ByteEvent]) -> Vec<u8> {
-        let mut out = Vec::new();
-        for event in events {
-            if let ByteEvent::Output { bytes, .. } = event {
-                out.extend_from_slice(bytes);
-            }
-        }
-        out
-    }
-
-    /// The offset after the last output chunk in `events`.
-    fn last_offset(events: &[ByteEvent]) -> Option<u64> {
-        events.iter().rev().find_map(|e| match e {
-            ByteEvent::Output { offset, .. } => Some(*offset),
-            _ => None,
-        })
-    }
-
-    /// Every output chunk starts where the one before it ended.
-    fn assert_contiguous(from: u64, events: &[ByteEvent]) {
-        let mut at = from;
-        for event in events {
-            if let ByteEvent::Output { offset, bytes } = event {
-                assert!(!bytes.is_empty(), "an output event carries bytes");
-                assert_eq!(*offset, at + bytes.len() as u64, "a gap or an overlap after {at}");
-                at = *offset;
-            }
-        }
-    }
-
     fn has(bytes: &[u8], needle: &str) -> bool {
         bytes.windows(needle.len()).any(|w| w == needle.as_bytes())
     }
 
-    fn input(seq: u64, text: &str) -> Input {
-        Input { seq, bytes: text.as_bytes().to_vec() }
-    }
-
-    fn is_end(event: &ByteEvent) -> bool {
-        matches!(event, ByteEvent::Exit(_) | ByteEvent::Lost { .. })
-    }
-
-    fn not_open(result: Result<(), BackendError>) -> bool {
-        matches!(result, Err(BackendError::Invalid { .. }))
+    fn ended(frames: &[FrameBody]) -> bool {
+        end(frames).is_some()
     }
 
     const GRID: Grid = Grid::new(80, 24);
 
-    fn open(far: &mut dyn FarEnd, terminal: &str) -> Box<dyn ByteTerminal> {
+    fn open(far: &mut dyn FarEnd, terminal: &str) -> Host {
         let request = far.request(&far.kind(), terminal, GRID);
-        far.backend().open(request).expect("open")
+        Host::new(far.backend().open(request).expect("open"))
     }
 
     /// Default deny: a kind outside `options.kinds` is refused.
@@ -135,166 +99,167 @@ pub mod vectors {
         assert!(!far.backend().capabilities().answers_queries);
     }
 
-    /// Input reaches the far end; its output comes back as `output` events.
+    /// Input reaches the far end; its output comes back as data frames.
     pub fn echo_round_trip(far: &mut dyn FarEnd) {
-        let mut t = open(far, "t-echo");
-        t.write(input(0, "echo hi\n")).expect("write");
-        let events = take_until(t.as_mut(), "hi", |e| has(&output(e), "hi"));
-        assert!(has(&output(&events), "hi\r\n"));
+        let mut host = open(far, "t-echo");
+        host.write(b"echo hi\n").expect("write");
+        let frames = take_until(&mut host, "hi", |f| has(&output(f), "hi"));
+        assert!(has(&output(&frames), "hi\r\n"));
     }
 
-    /// `output.offset` is the running byte total after each chunk, with no
-    /// gap and no overlap, also over many chunks.
+    /// Output offsets are the running byte total after each frame, with no
+    /// gap and no overlap (the host checks each frame), also over many frames.
     pub fn output_offsets_are_contiguous(far: &mut dyn FarEnd) {
-        let mut t = open(far, "t-offsets");
-        t.write(input(0, "flood 200\n")).expect("write");
+        let mut host = open(far, "t-offsets");
+        host.write(b"flood 200\n").expect("write");
         let want = 200 * 1024;
-        let events = take_until(t.as_mut(), "200 KiB", |e| output(e).len() >= want);
-        assert!(events.iter().filter(|e| matches!(e, ByteEvent::Output { .. })).count() > 1);
-        assert_contiguous(0, &events);
-        assert_eq!(last_offset(&events), Some(output(&events).len() as u64));
+        let frames = take_until(&mut host, "200 KiB", |f| output(f).len() >= want);
+        assert!(frames.iter().filter(|f| matches!(f, FrameBody::Data { .. })).count() > 1);
+        assert_eq!(last_offset(&frames), Some(output(&frames).len() as u64));
     }
 
-    /// Writes from many threads, with seqs out of order, arrive in seq order.
-    pub fn concurrent_writes_keep_seq_order(far: &mut dyn FarEnd) {
-        let t: Arc<Mutex<Box<dyn ByteTerminal>>> = Arc::new(Mutex::new(open(far, "t-order")));
-        let (threads, per_thread) = (8u64, 8u64);
-        let mut joins = Vec::new();
-        for lane in 0..threads {
-            let t = t.clone();
-            joins.push(std::thread::spawn(move || {
-                // Each lane writes its seqs from the highest down, so most
-                // chunks arrive before an earlier seq.
-                for i in (0..per_thread).rev() {
-                    let seq = lane + i * threads;
-                    t.lock()
-                        .expect("terminal")
-                        .write(input(seq, &format!("<{seq:03}>")))
-                        .expect("w");
-                }
-            }));
+    /// Output never passes the `out` credit: past one window it waits for
+    /// the host's credit, then goes on where it stopped.
+    pub fn output_waits_for_out_credit(far: &mut dyn FarEnd) {
+        let mut host = open(far, "t-credit");
+        let window = host.terminal.window_bytes() as usize;
+        host.grant = false;
+        host.write(b"flood 600\n").expect("write");
+        let first = take_until(&mut host, "one window", |f| output(f).len() >= window);
+        assert_eq!(output(&first).len(), window, "no byte past the credit");
+        assert!(output(&host.take()).is_empty(), "nothing more without credit");
+        host.grant = true;
+        host.consume();
+        let rest = take_until(&mut host, "the rest", |f| output(f).len() >= 600 * 1024 - window);
+        assert_eq!(output(&rest).len(), 600 * 1024 - window);
+        assert_eq!(last_offset(&rest), Some(600 * 1024));
+    }
+
+    /// Input frames reach the far end in offset order; the backend grants
+    /// `in` credit as it writes, so more than one window goes through.
+    pub fn input_in_offset_order_reaches_the_far_end(far: &mut dyn FarEnd) {
+        let mut host = open(far, "t-order");
+        let window = host.terminal.window_bytes() as usize;
+        let total = 2 * window + 100;
+        let want: Vec<u8> = (0..total).map(|i| b'a' + (i % 26) as u8).collect();
+        for chunk in want.chunks(MAX_FRAME) {
+            host.write(chunk).expect("within the `in` credit");
+            host.take();
         }
-        for join in joins {
-            join.join().expect("writer thread");
-        }
-        let total = threads * per_thread;
-        let want: String = (0..total).map(|seq| format!("<{seq:03}>")).collect();
-        wait_far("every chunk", || far.received().len() >= want.len());
-        assert_eq!(String::from_utf8_lossy(&far.received()), want);
-        let again = t.lock().expect("terminal").write(input(3, "x"));
-        assert!(not_open(again.clone()), "a seq is written once: {again:?}");
+        wait_far("every byte", || far.received().len() >= want.len());
+        assert_eq!(far.received(), want);
+    }
+
+    /// A gap in the input offsets ends the terminal with `lost`, not retryable.
+    pub fn an_input_gap_is_lost(far: &mut dyn FarEnd) {
+        let mut host = open(far, "t-gap");
+        let offset = host.next_offset(2) + 1;
+        host.push(FrameBody::Data { offset, bytes: b"ab".to_vec() }).expect("answered by end");
+        let frames = take_until(&mut host, "lost", ended);
+        assert_eq!(end(&frames), Some(&End::Lost(Lost::new("gap", false))));
+        assert!(far.received().is_empty(), "nothing after a gap reaches the far end");
+        assert!(not_open(host.write(b"late")));
+    }
+
+    /// An overlap (a repeated input frame) ends the terminal with `lost`.
+    pub fn an_input_overlap_is_lost(far: &mut dyn FarEnd) {
+        let mut host = open(far, "t-overlap");
+        host.write(b"ab").expect("write");
+        host.push(FrameBody::Data { offset: 2, bytes: b"ab".to_vec() }).expect("answered by end");
+        let frames = take_until(&mut host, "lost", ended);
+        assert_eq!(end(&frames), Some(&End::Lost(Lost::new("overlap", false))));
+        wait_far("the first frame", || far.received() == b"ab");
+    }
+
+    /// Credit for the wrong direction, or more than one window of `out`
+    /// credit, ends the terminal with `lost`.
+    pub fn bad_credit_is_lost(far: &mut dyn FarEnd) {
+        let mut host = open(far, "t-in-credit");
+        let wrong = FrameBody::Credit { direction: Direction::In, bytes: 1 };
+        host.push(wrong).expect("answered by end");
+        let frames = take_until(&mut host, "lost", ended);
+        assert_eq!(end(&frames), Some(&End::Lost(Lost::new("credit direction", false))));
+        let mut host = open(far, "t-too-much");
+        let too_much = FrameBody::Credit { direction: Direction::Out, bytes: 1 };
+        host.push(too_much).expect("answered by end");
+        let frames = take_until(&mut host, "lost", ended);
+        assert_eq!(end(&frames), Some(&End::Lost(Lost::new("credit", false))));
     }
 
     /// The open size and every resize reach the far end.
     pub fn resize_reaches_far_end(far: &mut dyn FarEnd) {
-        let t = open(far, "t-resize");
+        let mut host = open(far, "t-resize");
         wait_far("the open grid", || far.grid() == Some((80, 24)));
-        t.resize(Grid::new(132, 43)).expect("resize");
+        host.terminal.resize(Grid::new(132, 43)).expect("resize");
         wait_far("the new grid", || far.grid() == Some((132, 43)));
     }
 
     /// A signal reaches the far end by name.
     pub fn signal_reaches_far_end(far: &mut dyn FarEnd) {
-        let t = open(far, "t-signal");
-        t.signal(Signal::Interrupt).expect("signal");
+        let mut host = open(far, "t-signal");
+        host.terminal.signal(Signal::Interrupt).expect("signal");
         wait_far("INT", || far.signals().iter().any(|s| s == "INT"));
     }
 
-    /// A far-end exit gives `exit` with the status, then nothing is accepted.
+    /// A far-end exit gives `end` with the exit status after the last
+    /// output, then nothing is accepted.
     pub fn far_exit_gives_exit_status(far: &mut dyn FarEnd) {
-        let mut t = open(far, "t-exit");
-        t.write(input(0, "exit 3\n")).expect("write");
-        let events = take_until(t.as_mut(), "exit", |e| e.iter().any(is_end));
+        let mut host = open(far, "t-exit");
+        host.write(b"echo bye\nexit 3\n").expect("write");
+        let frames = take_until(&mut host, "exit", ended);
         let want = ExitStatus { code: Some(3), signal: None, core_dumped: false, message: None };
-        assert_eq!(events.iter().find(|e| is_end(e)), Some(&ByteEvent::Exit(want)));
-        assert!(not_open(t.write(input(1, "late\n"))));
-        assert!(t.take_events().is_empty(), "nothing after the end event");
+        assert_eq!(end(&frames), Some(&End::Exit(want)));
+        assert!(matches!(frames.last(), Some(FrameBody::End(_))), "the end comes last");
+        assert!(has(&output(&frames), "bye"), "the output before the exit: {frames:?}");
+        assert!(not_open(host.write(b"late\n")));
+        assert!(host.take().is_empty(), "nothing after the end");
     }
 
     /// A broken transport gives `lost {reason, retryable}`, never `exit`.
     pub fn transport_drop_gives_lost(far: &mut dyn FarEnd) {
-        let mut t = open(far, "t-lost");
-        t.write(input(0, "echo up\n")).expect("write");
-        take_until(t.as_mut(), "up", |e| has(&output(e), "up"));
+        let mut host = open(far, "t-lost");
+        host.write(b"echo up\n").expect("write");
+        take_until(&mut host, "up", |f| has(&output(f), "up"));
         far.drop_transport();
-        let events = take_until(t.as_mut(), "lost", |e| e.iter().any(is_end));
+        let frames = take_until(&mut host, "lost", ended);
         assert!(
-            matches!(events.last(), Some(ByteEvent::Lost { reason, .. }) if !reason.is_empty()),
-            "{events:?}"
+            matches!(frames.last(), Some(FrameBody::End(End::Lost(l))) if !l.reason.is_empty()),
+            "{frames:?}"
         );
-        assert!(not_open(t.write(input(1, "late\n"))));
+        assert!(not_open(host.write(b"late\n")));
     }
 
     /// After `close` every call is refused and nothing queues.
     pub fn close_refuses_later_calls(far: &mut dyn FarEnd) {
-        let t = open(far, "t-close");
-        t.close(Close::Graceful).expect("close");
-        assert!(not_open(t.write(input(0, "echo no\n"))));
-        assert!(not_open(t.resize(Grid::new(10, 10))));
-        assert!(not_open(t.signal(Signal::Interrupt)));
-        assert!(not_open(t.close(Close::Now)));
+        let mut host = open(far, "t-close");
+        host.terminal.close(Close::Graceful).expect("close");
+        assert!(not_open(host.write(b"echo no\n")));
+        assert!(not_open(host.terminal.resize(Grid::new(10, 10))));
+        assert!(not_open(host.terminal.signal(Signal::Interrupt)));
+        assert!(not_open(host.terminal.close(Close::Now)));
+        let credit = FrameBody::Credit { direction: Direction::Out, bytes: 1 };
+        assert!(not_open(host.push(credit)));
+        assert!(host.take().is_empty());
     }
 
-    /// With capability `resume`: a token taken after some output resumes at
-    /// that offset (no repeat, offsets go on), input seqs go on, and a token
-    /// of a closed terminal gives `lost`.
-    pub fn resume_continues_at_offset(far: &mut dyn FarEnd) {
-        if !far.backend().capabilities().resume {
-            return;
-        }
-        let mut t = open(far, "t-resume");
-        t.write(input(0, "echo one\n")).expect("write");
-        let first = take_until(t.as_mut(), "one", |e| has(&output(e), "one"));
-        let at = last_offset(&first).expect("offset");
-        let token = t.resume_token().expect("token");
-        drop(t);
-        let resume = |far: &mut dyn FarEnd| {
-            let request =
-                ResumeRequest { resume_token: token.clone(), open_token: far.open_token() };
-            far.backend().resume(request)
-        };
-        let resumed = resume(far).expect("resume");
-        assert_eq!(resumed.offset, at, "resume continues where the host stopped reading");
-        let mut again = resumed.terminal;
-        again.write(input(1, "echo two\n")).expect("write after resume");
-        let events = take_until(again.as_mut(), "two", |e| has(&output(e), "two"));
-        assert!(!has(&output(&events), "one"), "resume repeats nothing: {events:?}");
-        assert_contiguous(at, &events);
-        let twice = resume(far).err();
-        assert!(matches!(twice, Some(BackendError::Invalid { .. })), "attached: {twice:?}");
-        again.close(Close::Now).expect("close");
-        let mut gone = resume(far).expect("resume after close").terminal;
-        let lost = take_until(gone.as_mut(), "lost", |e| !e.is_empty());
-        assert!(matches!(lost.as_slice(), [ByteEvent::Lost { .. }]), "{lost:?}");
-    }
-
-    /// A resume from an offset older than the kept output gives `lost`.
-    pub fn resume_with_a_stale_offset_is_lost(far: &mut dyn FarEnd) {
-        if !far.backend().capabilities().resume {
-            return;
-        }
-        let mut t = open(far, "t-stale");
-        t.write(input(0, "echo early\n")).expect("write");
-        take_until(t.as_mut(), "early", |e| has(&output(e), "early"));
-        let stale = t.resume_token().expect("token");
-        let kib = far.retained_bytes() / 1024 + 64;
-        t.write(input(1, &format!("flood {kib}\n"))).expect("write");
-        take_until(t.as_mut(), "the flood", |e| output(e).len() >= kib * 1024);
-        drop(t);
-        let request = ResumeRequest { resume_token: stale, open_token: far.open_token() };
-        let mut lost = far.backend().resume(request).expect("resume answers").terminal;
-        let events = take_until(lost.as_mut(), "lost", |e| !e.is_empty());
-        assert!(matches!(events.as_slice(), [ByteEvent::Lost { .. }]), "{events:?}");
-        assert!(not_open(lost.write(input(2, "echo no\n"))));
+    /// End after close (the shared crate's rule, `check_closed`): output and
+    /// an exit the far end sent before the close but the host did not take
+    /// yet never arrive, and no `end` follows the close.
+    pub fn no_end_follows_a_close(far: &mut dyn FarEnd) {
+        let mut host = open(far, "t-close-end");
+        host.write(b"echo late\nexit 3\n").expect("write");
+        wait_far("the far end read the exit", || has(&far.received(), "exit 3"));
+        host.terminal.close(Close::Graceful).expect("close");
+        assert_eq!(check_closed(&mut *host.terminal), Ok(()));
     }
 }
 
 // --- The rescue backend over a fake transport that runs the tiny shell. ---
 
-use cmux_cloud::rescue::iface::{
+use cmux_cloud::rescue::{RESCUE_KIND, RescueBackend, RescueTransport, StreamId, TransportEvent};
+use cmux_terminal_iface::{
     BackendError, ExitStatus, Grid, OpenRequest, OpenToken, Signal, TerminalBackend,
 };
-use cmux_cloud::rescue::{RESCUE_KIND, RescueBackend, RescueTransport, StreamId, TransportEvent};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use vectors::FarEnd;
@@ -404,16 +369,13 @@ impl FarEnd for RescueFar {
             kind: kind.into(),
             terminal: terminal.into(),
             target: "vm-alpha01".into(),
-            open_token: self.open_token(),
+            open_token: OpenToken("open-token-test".into()),
             command: None,
             cwd: None,
             env: Vec::new(),
             grid,
             actor: None,
         }
-    }
-    fn open_token(&self) -> OpenToken {
-        OpenToken("open-token-test".into())
     }
     fn received(&self) -> Vec<u8> {
         self.shell.lock().received.clone()
@@ -431,10 +393,6 @@ impl FarEnd for RescueFar {
             let reason = "the network dropped".to_owned();
             shell.events.push((stream, TransportEvent::Dropped { reason, retryable: true }));
         }
-    }
-    fn retained_bytes(&self) -> usize {
-        // No resume (capability `resume: false`): nothing is kept.
-        0
     }
 }
 
@@ -464,8 +422,28 @@ fn rescue_output_offsets_are_contiguous() {
 }
 
 #[test]
-fn rescue_concurrent_writes_keep_seq_order() {
-    vectors::concurrent_writes_keep_seq_order(&mut far());
+fn rescue_output_waits_for_out_credit() {
+    vectors::output_waits_for_out_credit(&mut far());
+}
+
+#[test]
+fn rescue_input_in_offset_order_reaches_the_far_end() {
+    vectors::input_in_offset_order_reaches_the_far_end(&mut far());
+}
+
+#[test]
+fn rescue_an_input_gap_is_lost() {
+    vectors::an_input_gap_is_lost(&mut far());
+}
+
+#[test]
+fn rescue_an_input_overlap_is_lost() {
+    vectors::an_input_overlap_is_lost(&mut far());
+}
+
+#[test]
+fn rescue_bad_credit_is_lost() {
+    vectors::bad_credit_is_lost(&mut far());
 }
 
 #[test]
@@ -494,11 +472,6 @@ fn rescue_close_refuses_later_calls() {
 }
 
 #[test]
-fn rescue_resume_continues_at_offset() {
-    vectors::resume_continues_at_offset(&mut far());
-}
-
-#[test]
-fn rescue_resume_with_a_stale_offset_is_lost() {
-    vectors::resume_with_a_stale_offset_is_lost(&mut far());
+fn rescue_no_end_follows_a_close() {
+    vectors::no_end_follows_a_close(&mut far());
 }

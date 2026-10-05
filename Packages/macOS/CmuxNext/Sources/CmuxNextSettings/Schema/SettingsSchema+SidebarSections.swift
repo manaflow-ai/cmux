@@ -1,11 +1,27 @@
 public import CmuxNextDesign
 /// Sidebar section settings (plans/cmux-next/sidebar-sections.md 7) in the
 /// Appearance section's Sidebar group.
-extension SettingsSchema {
-    static var sidebarSections: [SettingDescriptor] {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum SidebarSectionSettingsSchema {
+    static var descriptors: [SettingDescriptor] {
         let sidebar = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         let share = SettingNumber(SidebarSectionsPreferences.shareRange, step: 0.05, unit: .fraction)
         return [
+            SettingDescriptor(
+                SidebarBorderSetting.borderPath, section: .appearance, group: sidebar,
+                title: SettingsText.keyed("settings.sidebar.border", "Border"),
+                help: SettingsText.keyed("settings.sidebar.border.help",
+                                        "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it."),
+                kind: .toggle, default: .bool(false), keywords: ["sidebar", "border", "edge", "line", "separator", "seam"]
+            ),
+            SettingDescriptor(
+                SidebarBorderSetting.widthPath, section: .appearance, group: sidebar,
+                title: SettingsText.keyed("settings.sidebar.borderWidth", "Border Width"),
+                kind: .number(SettingNumber(Double(SidebarBorder.widthRange.lowerBound)...Double(SidebarBorder.widthRange.upperBound),
+                                            step: 0.5, unit: .points, placeholder: 1)),
+                default: nil, defaultLabel: SettingsText.keyed("settings.default.onePixel", "One pixel"),
+                keywords: ["sidebar", "border", "edge", "line", "width", "thickness"]
+            ),
             SettingDescriptor(
                 SidebarSectionsSetting.lookPath, section: .appearance, group: sidebar,
                 title: SettingsText.keyed("settings.sidebar.sectionLook", "Section Look"),
@@ -43,6 +59,8 @@ extension SettingsSchema {
             ),
             SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
+            ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
+            ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
         ]
     }
 }

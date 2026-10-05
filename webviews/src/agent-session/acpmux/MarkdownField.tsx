@@ -41,6 +41,14 @@ export type MarkdownFieldHandle = {
   focused(): boolean;
   /// The field's element, which composition events from the prompt pass through.
   element(): HTMLElement | null;
+  /// The prompt as plain text (no Markdown markers or escaping), blocks joined by newlines.
+  plainText(): string;
+  /// Inserts `text` at the caret as typing would: through `onBeforeInput` first (tests, automation).
+  insertTyped(text: string): void;
+  /// Pastes `text` as the clipboard would: through `onBeforeInput` first.
+  pasteText(text: string): void;
+  /// Replaces the prompt without reporting it as the user's edit (a new tab adopted, a chat sent).
+  reset(markdown?: string): void;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -59,6 +67,17 @@ export type MarkdownFieldProps = {
   /// Runs before the editor's own keys; preventDefault keeps the editor from handling the key.
   onKeyDown?(event: KeyboardEvent): void;
   onCompositionChange?(composing: boolean): void;
+  /// Typed or pasted text before the editor inserts it, and whether the prompt was empty and an
+  /// IME composition runs; true consumes it (the new tab's "!" rule converts the tab instead).
+  onBeforeInput?(data: string, state: { empty: boolean; composing: boolean }): boolean;
+  /// Enter (with `cmd` for Cmd-Enter) that `onKeyDown` did not take; unset, Enter is the editor's.
+  onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
+  /// The user's first edit (the new tab's `newTab.touched`).
+  onFirstInput?(): void;
+  /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
+  plugins?: Plugin[];
+  /// Shift-Enter adds a line (default true).
+  multiline?: boolean;
   placeholder?: string;
   className?: string;
   /// Attributes for the editable element (aria-label, role=combobox, aria-expanded...).
@@ -118,15 +137,35 @@ function plainPosition(doc: ProseNode, offset: number): number {
 /// new block, a new list item inside a list. The composer reads and writes markdown through
 /// `value` / `onChange`, so its slash menu, mention and draft logic stay as they were.
 export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownFieldProps>(function MarkdownField(
-  { value, onChange, onCaret, onKeyDown, onCompositionChange, placeholder, className, attributes },
+  {
+    value,
+    onChange,
+    onCaret,
+    onKeyDown,
+    onCompositionChange,
+    onBeforeInput,
+    onSubmit,
+    onFirstInput,
+    plugins = [],
+    multiline = true,
+    placeholder,
+    className,
+    attributes,
+  },
   ref,
 ) {
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
   // The markdown the field last emitted or applied; a different `value` comes from outside.
   const known = useRef(value);
-  const latest = useRef({ onChange, onCaret, onKeyDown, onCompositionChange });
-  latest.current = { onChange, onCaret, onKeyDown, onCompositionChange };
+  const latest = useRef({ onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput });
+  latest.current = { onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput };
+  const composing = useRef(false);
+  const touched = useRef(false);
+  // Focus asked for before the editor exists is applied once it does.
+  const pendingFocus = useRef(false);
+  const surfacePlugins = useRef(plugins);
+  const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
   const attrs = useRef(attributes);
   attrs.current = attributes;
@@ -141,6 +180,13 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     if (empty.current) empty.current.hidden = markdown !== "";
   };
 
+  /// Asks the surface about typed or pasted text first; true when it consumed it.
+  const beforeInput = (editorView: EditorView, text: string) =>
+    latest.current.onBeforeInput?.(text, {
+      empty: editorView.state.doc.textContent === "",
+      composing: composing.current || editorView.composing,
+    }) === true;
+
   const mount = useCallback((root: HTMLDivElement | null) => {
     if (!root) return;
     let disposed = false;
@@ -152,17 +198,29 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             handleDOMEvents: {
               keydown: (_view, event) => {
                 latest.current.onKeyDown?.(event);
-                return event.defaultPrevented;
+                if (event.defaultPrevented) return true;
+                const submit = latest.current.onSubmit;
+                if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !event.isComposing) {
+                  event.preventDefault();
+                  submit(known.current, { cmd: event.metaKey || event.ctrlKey });
+                  return true;
+                }
+                return false;
               },
               compositionstart: () => {
+                composing.current = true;
                 latest.current.onCompositionChange?.(true);
                 return false;
               },
               compositionend: () => {
+                composing.current = false;
                 latest.current.onCompositionChange?.(false);
                 return false;
               },
             },
+            handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
+            handlePaste: (editorView, _event, slice) =>
+              beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n")),
           },
           // Report every document and caret change; the composer's menu follows the caret.
           view: () => ({
@@ -176,6 +234,10 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               // A value applied from outside comes back unchanged: not the user's edit.
               if (markdown === known.current) return;
               known.current = markdown;
+              if (!touched.current) {
+                touched.current = true;
+                latest.current.onFirstInput?.();
+              }
               latest.current.onChange(markdown, caretOf(next));
             },
           }),
@@ -184,6 +246,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     const blockKeys = $prose(() =>
       keymap({
         "Shift-Enter": (state, dispatch, editorView) => {
+          if (!lines.current) return true;
           const item = state.schema.nodes.list_item;
           const enter = baseKeymap.Enter!;
           return chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(state, dispatch, editorView);
@@ -202,6 +265,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         ctx.update(editorViewOptionsCtx, (options) => ({ ...options, attributes: { class: "acpmux-md" } }));
       })
       .use(composerKeys)
+      .use(surfacePlugins.current.map((plugin) => $prose(() => plugin)))
       .use(blockKeys)
       .use(commonmark)
       .use(gfm)
@@ -217,6 +281,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         view.current = made.ctx.get(editorViewCtx);
         showPlaceholder(known.current);
         applyAttributes();
+        if (pendingFocus.current) view.current.focus();
         window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
       });
     return () => {
@@ -254,7 +319,10 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     ref,
     () =>
       (handle.current = {
-        focus: () => view.current?.focus(),
+        focus: () => {
+          if (view.current) view.current.focus();
+          else pendingFocus.current = true;
+        },
         setCaret: (offset) => {
           const current = view.current;
           if (!current) return;
@@ -317,6 +385,28 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         },
         focused: () => view.current?.hasFocus() ?? false,
         element: () => wrapper.current,
+        plainText: () => {
+          const doc = view.current?.state.doc;
+          return doc ? doc.textBetween(0, doc.content.size, "\n", "\n") : known.current;
+        },
+        insertTyped: (text) => {
+          const current = view.current;
+          if (!current) return;
+          const { from, to } = current.state.selection;
+          if (beforeInput(current, text)) return;
+          current.dispatch(current.state.tr.insertText(text, from, to));
+        },
+        pasteText: (text) => {
+          const current = view.current;
+          if (!current) return;
+          if (beforeInput(current, text)) return;
+          current.pasteText(text);
+        },
+        reset: (markdown = "") => {
+          known.current = markdown;
+          showPlaceholder(markdown);
+          if (editor.current) setDocument(markdown);
+        },
       }),
     [],
   );

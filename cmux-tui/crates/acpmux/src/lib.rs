@@ -11,9 +11,15 @@
 
 pub mod adopt;
 pub mod agent;
+#[cfg(test)]
+mod agent_exit_tests;
+pub mod agent_host;
+#[cfg(test)]
+mod agent_replay_tests;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;
+pub mod clock;
 pub mod config;
 pub mod daemon;
 pub mod hub;
@@ -24,6 +30,7 @@ pub mod rpc;
 pub mod schema;
 pub mod server;
 pub mod session_name;
+pub mod sha256;
 pub mod store;
 pub mod transcript;
 pub mod trust;

@@ -742,7 +742,7 @@ mod tests {
         let detached_id = host_id(&mux, &detached);
         let public_id = detached.terminal_public_id().cloned().unwrap().to_string();
         close_workspace_of(&mux, &detached);
-        // Any later full projection (a tab drag, a sticky column) republishes
+        // Any later full projection (a tab drag, a docked column) republishes
         // the terminal whose last tab closed; clients decode `lifecycle` as
         // required on every terminal record.
         let projection = mux.resource_effect_projection().unwrap();

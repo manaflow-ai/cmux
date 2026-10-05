@@ -9,7 +9,8 @@ import { parseLink, type LinkResolver, type ResolvedLink } from "./links";
 import type { HistoryEntry, MarkdownStore } from "./store";
 
 export interface RouterDeps {
-  store: Pick<MarkdownStore, "getState" | "navigate" | "go">;
+  store: Pick<MarkdownStore, "getState" | "navigate" | "go"> &
+    Partial<Pick<MarkdownStore, "beginNavigation" | "endNavigation">>;
   client: PageClient | null;
   resolver: Pick<LinkResolver, "get">;
   scrollToAnchor(anchor: string): boolean;
@@ -35,9 +36,22 @@ export class LinkRouter {
       await client.call(MARKDOWN_OPEN_LINK_OP, { path: from, href, kind: link.kind }).catch(() => undefined);
       return;
     }
+    // A markdown link names its file in the toolbar now; resolving, saving and loading follow.
+    if (link.kind === "markdown") store.beginNavigation?.(link.path);
+    try {
+      await this.followFile(from, href, link);
+    } finally {
+      store.endNavigation?.();
+    }
+  }
+
+  private async followFile(from: string, href: string, link: ReturnType<typeof parseLink>): Promise<void> {
+    const { store, client } = this.deps;
     const resolved = this.deps.resolver.get(link.path) ?? (await this.resolve(from, link.path));
     if (!resolved?.exists || !resolved.path) return;
+    if (!client) return;
     if (link.kind === "file" || resolved.kind !== "markdown") {
+      store.endNavigation?.(false);
       await client
         .call(MARKDOWN_OPEN_LINK_OP, { path: from, href, kind: "file", target: resolved.path })
         .catch(() => undefined);

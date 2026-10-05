@@ -1,6 +1,6 @@
 import React from "react";
 import { Counts } from "../changes/Counts";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { isEmptySummary, type SessionSummary } from "./sessionSummary";
@@ -21,6 +21,7 @@ export function SummaryPopover({
   onOpenOutput?: (path: string) => void;
   onFollow?: () => void;
 }) {
+  const t = useT();
   if (isEmptySummary(summary)) return <p className="acpmux-summary-empty">{t("summary.empty")}</p>;
   return (
     <>

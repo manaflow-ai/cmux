@@ -153,6 +153,7 @@ final class ScreenContentView: NSView {
             }
             view.lineThickness = context.style.dividerThickness
             view.showsIdleLine = context.style.showsDividerLine
+            view.showsActiveLine = context.style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
                 frame.setTarget(target.rect, alpha: 1)
                 if !animateFrames { frame.snap() }
@@ -254,9 +255,11 @@ final class ScreenContentView: NSView {
 
     /// The dividers' drawn lines, in this view's coordinates: native UI that
     /// Chromium pages leave uncovered (they sit in the gap between panes).
+    /// A divider that never draws (`layout.paneSeparation` none) leaves no
+    /// hole, so neighboring pages meet with no seam.
     var dividerLineRects: [CGRect] {
         dividerViews.values.compactMap { view in
-            guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
+            guard !view.isHidden, view.alphaValue > 0.01, view.showsIdleLine || view.showsActiveLine else { return nil }
             let rect = view.lineFrameInSuperview.intersection(bounds)
             return rect.isNull || rect.isEmpty ? nil : rect
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
@@ -334,19 +337,20 @@ final class ScreenContentView: NSView {
 
     /// Drop target, its highlight rect and the region it belongs to (the
     /// whole pane content rect, or the column gap), in local coordinates.
-    func dropTarget(at localPoint: NSPoint) -> (target: DropTarget, highlight: CGRect, region: CGRect)? {
+    /// `removing`: the pane the drag empties (frees room; the commit obeys).
+    func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil) -> (target: DropTarget, highlight: CGRect, region: CGRect)? {
         // The top band starts below the tab bar of the pane under the pointer.
-        let topInset = pane(at: localPoint).flatMap { context.hosts[$0]?.headerHeight } ?? 0
+        let (topInset, bottomInset) = dockInsets(at: localPoint)
         if context.model.acceptsEdgeDockDrops,
            let dock = DropZoneGeometry.dockTarget(atView: localPoint, screen: screenID, geometry: geometry, style: context.style,
-                                                  topInset: topInset),
+                                                  topInset: topInset, bottomInset: bottomInset),
            let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
             return (dock, rect, rect)
         }
-        let headers = geometry.panes.keys.reduce(into: [PaneID: CGFloat]()) { $0[$1] = context.hosts[$1]?.headerHeight }
+        let (headers, footers) = paneChromeBands()
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
-                                                headers: headers, style: context.style) else { return nil }
-        let target = roomAdjusted(hit)
+                                                headers: headers, footers: footers, style: context.style) else { return nil }
+        let target = roomAdjusted(hit, removing: removing)
         guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }
         // A strip target's highlight never draws over a docked column.
@@ -363,9 +367,9 @@ final class ScreenContentView: NSView {
 
     /// An edge drop that cannot split for lack of room becomes a new column
     /// beside the pane's column (columns screen, side edge) or joins the pane.
-    private func roomAdjusted(_ target: DropTarget) -> DropTarget {
+    private func roomAdjusted(_ target: DropTarget, removing: PaneID?) -> DropTarget {
         guard case let .pane(pane, zone) = target, let axis = zone.splitAxis else { return target }
-        switch splitPlacement(splitting: pane, axis: axis, removing: nil) {
+        switch splitPlacement(splitting: pane, axis: axis, removing: removing == pane ? nil : removing) {
         case .split:
             return target
         case .newColumn:

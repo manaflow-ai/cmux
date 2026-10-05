@@ -68,7 +68,7 @@ enum DockColumnHandlers {
             let docks = DaemonCapabilities.shared.edgeDocks
             guard content.daemon.supports(docks) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(docks)) }
             guard let controller = content.panes[pane], let tab = controller.selectedTab else {
-                throw ActionFailure.invalidTarget(RefusalStrings.focusedPaneHasNoTab)
+                throw ActionFailure.noTarget(RefusalStrings.focusedPaneHasNoTab)
             }
             // The column keeps a tab to scroll: the pane keeps another tab,
             // the column keeps another pane, or a fresh tab stays behind.

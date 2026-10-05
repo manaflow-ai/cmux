@@ -21,6 +21,7 @@ final class SidebarBridge {
     private var profileObservation: Task<Void, Never>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
+    var cardsObservation: Task<Void, Never>?
     /// True once the sidebar shows real content: saved rows, the first
     /// live rows, or a settled empty or unavailable state, which marks the
     /// sidebar region ready for `LaunchReveal`.
@@ -35,6 +36,10 @@ final class SidebarBridge {
     /// Once incognito, never saved, even after the window leaves the
     /// incognito set on its way out.
     private var everIncognito = false
+    /// Rows of the spaces beside the current one, for swipe pages (R99).
+    let spaceCache = SpaceSectionsCache()
+    /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
+    var sectionStepCursor: (item: LayoutItemID, workspace: String?)?
 
     init(services: AppServices, state: WindowState) {
         self.services = services
@@ -63,6 +68,7 @@ final class SidebarBridge {
         services.launchReveal.hold(container, until: .sidebar)
         observe()
         observeSections()
+        observeCards()
     }
 
     func teardown() {
@@ -71,6 +77,7 @@ final class SidebarBridge {
         widthObservation?.cancel()
         profileObservation?.cancel()
         sectionsObservation?.cancel()
+        cardsObservation?.cancel()
     }
 
     private func observe() {
@@ -93,6 +100,14 @@ final class SidebarBridge {
                  Self.isLaunching(machines.local, registry: registry))
             }) {
                 self?.showProfiles(profiles, active: active, launching: launching)
+            }
+        }
+        // R99: the rows of another space, for the page beside the current one during a swipe.
+        model.spaceSections = { [weak windowState, spaceCache] key in
+            guard let windowState else { return [] }
+            return spaceCache.sections(for: key) {
+                Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
+                              hidesHome: Self.hidesHome(layout.document))
             }
         }
         let state = windowState

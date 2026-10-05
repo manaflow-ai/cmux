@@ -12,6 +12,8 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     /// Reports `size`, then claims canonical geometry.
     func sendClaim(reporting size: CellSize)
     func sendReleaseGeometry()
+    /// Asks for a fresh READY + history on this attach.
+    func sendSnapshotRequest(reason: SnapshotRequestReason)
     /// Detaches and closes the connection; its `events` then finish.
     /// Idempotent.
     func detachNow()
@@ -116,6 +118,12 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// The daemon reports the terminal running again after a dead report.
     public func processRevived() { send(.processRevived) }
     public func close() { send(.close) }
+    /// The view's local history did not match the host's: ask the live link
+    /// for READY + history (`snapshot-request`, reason gap). Not a machine
+    /// event: the link and its geometry stay as they are.
+    public func requestResync() {
+        core.withLock { $0.machine.liveLink }?.link.sendSnapshotRequest(reason: .gap)
+    }
 
     // MARK: Diagnostics
 
@@ -201,7 +209,12 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
                 switch step {
                 case .replay: owner.value?.send(.replayDelivered(ref))
                 // A link's first READY is its replay; later ones are no-ops there.
-                case .snapshot(let frame) where frame.phase == .ready: owner.value?.send(.replayDelivered(ref))
+                case .snapshot(let frame) where frame.phase == .ready:
+                    // A local-history READY is also the grid change (no .grid step).
+                    if frame.localHistory != nil, let cols = frame.cols, let rows = frame.rows {
+                        owner.value?.send(.gridAnnounced(ref, CellSize(cols: cols, rows: rows)))
+                    }
+                    owner.value?.send(.replayDelivered(ref))
                 case .grid(let columns, let rows): owner.value?.send(.gridAnnounced(ref, CellSize(cols: columns, rows: rows)))
                 case .output, .snapshot, .exited, .status: break
                 }
@@ -264,4 +277,5 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 extension TerminalAttachment: TerminalAttachLink {
     public nonisolated func sendInput(_ data: Data) { enqueueInput(data) }
     public nonisolated func sendClaim(reporting size: CellSize) { claimGeometry(reporting: size) }
+    public nonisolated func sendSnapshotRequest(reason: SnapshotRequestReason) { requestSnapshot(reason: reason) }
 }

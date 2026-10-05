@@ -118,7 +118,17 @@ r2_key="$(field "${prefix}r2_key")"
 
 root="$("$SCRIPT_DIR/cef-cache-root.sh")"
 dest="$root/$version$suffix"
+# The framework's GN args (archive.json gn_args): DCHECKs must be off, or a
+# DCHECK that web content reaches aborts cmux (crash-elimination.md). A warning
+# until the manifest sets "require_dcheck_off": true (the cmux.17 pin).
+check_build_flags() { # <cef folder>
+  local require=()
+  case "$(field require_dcheck_off)" in true|True|1) require=(--require) ;; esac
+  python3 "$SCRIPT_DIR/cef_build_flags.py" "$1" ${require[@]+"${require[@]}"} >&2 ||
+    fail "CEF $version was built with DCHECKs on; pin a framework built with dcheck_always_on=false"
+}
 if [[ -f "$dest/.verified" && "$(cat "$dest/.verified")" == "$sha" && -d "$dest/$FRAMEWORK" ]]; then
+  check_build_flags "$dest"
   echo "$dest"
   exit 0
 fi
@@ -247,6 +257,7 @@ fetch_store || fetch_r2 || fetch_github ||
 mkdir -p "$tmp/x"
 tar -xJf "$archive" -C "$tmp/x"
 [[ -d "$tmp/x/$version/$FRAMEWORK" ]] || fail "archive $asset has no $version/$FRAMEWORK"
+check_build_flags "$tmp/x/$version"
 printf '%s' "$sha" > "$tmp/x/$version/.verified"
 rm -rf "$dest"
 mv "$tmp/x/$version" "$dest"

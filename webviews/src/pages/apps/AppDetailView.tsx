@@ -3,7 +3,7 @@
 // permissions with reasons (grant switches once installed), versions, repository.
 import type { Strings } from "../shared/i18n";
 import { GrantsPanel } from "./GrantsPanel";
-import { orderScopes, RiskLabel, TierLabel } from "./model";
+import { isRemovable, orderScopes, RiskLabel, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 
@@ -49,16 +49,26 @@ export function AppDetailView({
                 {t("store.action.open")}
               </button>
             )}
-            <button
-              type="button"
-              className={`apps-button${detail.installed ? "" : " primary"}`}
-              onClick={() => void (detail.installed ? store.uninstall(detail.id) : store.install(detail.id))}
-            >
-              {t(detail.installed ? "store.action.remove" : "store.action.install")}
-            </button>
+            {!detail.installed ? (
+              <button type="button" className="apps-button primary" onClick={() => void store.install(detail.id)}>
+                {t("store.action.install")}
+              </button>
+            ) : isRemovable(detail) ? (
+              <button type="button" className="apps-button" onClick={() => void store.uninstall(detail.id)}>
+                {t("store.action.remove")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="apps-button"
+                onClick={() => void store.setHidden(detail.id, !detail.hidden)}
+              >
+                {t(detail.hidden ? "store.action.show" : "store.action.hide")}
+              </button>
+            )}
           </div>
         </header>
-        <p className="apps-detail-description">{detail.description}</p>
+        <p className="apps-detail-description selectable">{detail.description}</p>
         {detail.screenshots.length > 0 && (
           <section className="apps-section">
             <h2>{t("store.detail.screenshots")}</h2>
@@ -84,7 +94,7 @@ export function AppDetailView({
                   <code>{scope.scope}</code>
                   {scope.risk !== "standard" && <Badge text={t(RiskLabel[scope.risk])} />}
                   {scope.optional && <Badge text={t("store.detail.optional")} />}
-                  <span className="apps-muted">{scope.reason}</span>
+                  <span className="apps-muted selectable">{scope.reason}</span>
                 </li>
               ))}
             </ul>

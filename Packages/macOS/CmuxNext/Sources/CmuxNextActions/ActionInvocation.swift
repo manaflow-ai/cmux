@@ -37,6 +37,11 @@ public nonisolated enum ActionOrigin: String, Sendable, Hashable, CaseIterable {
     case script
     /// Another client (a phone, another Mac).
     case remote
+    /// A first-party web page in this app (a control the page drew). Never the user's own gesture
+    /// by itself: rules that need the user (destructive confirmation, view changes without a
+    /// focus request) treat it like automation; only a native confirmation sheet raises a page
+    /// call to `user` (PageCallContext.confirmed).
+    case page
 }
 
 /// Everything a handler needs for one run: the target (right-clicked object,

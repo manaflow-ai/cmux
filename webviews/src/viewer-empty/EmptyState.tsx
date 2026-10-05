@@ -1,7 +1,8 @@
 // The shared layout of the viewer empty states (diff without a repository, markdown without a
 // file): a centered column with a title, a line of help, the primary action, the recent items and
 // a drop target over the whole page. DiffEmptyState and MarkdownEmptyState own the host calls.
-import { useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Listbox } from "../ui/Listbox";
 import type { Strings } from "../pages/shared/i18n";
 import { dragMayOpen, droppedItem, type DroppedItem } from "./drop";
 import { EmptyIcon, type EmptyIconName } from "./icons";
@@ -10,7 +11,7 @@ import { E } from "./strings";
 import { relativeTime } from "./time";
 
 export interface EmptyStateProps {
-  kind: "diff" | "markdown";
+  kind: "diff" | "markdown" | "editor";
   title: string;
   subtitle: string;
   /** The text over the page while something is dragged onto it. */
@@ -87,7 +88,7 @@ export interface RecentListProps {
   onOpen(item: RecentItem): void;
 }
 
-/** The recent items: a listbox; Up, Down, Home and End move, Return or a click opens. */
+/** The recent items: a listbox (ui/Listbox); arrows, Home, End and typeahead move, Return opens. */
 export function RecentList({
   items,
   home,
@@ -99,64 +100,26 @@ export function RecentList({
   autoFocus = true,
   onOpen,
 }: RecentListProps) {
-  const [highlight, setHighlight] = useState(0);
-  const focused = useRef(false);
   if (items == null) return <div className="ve-recents" aria-busy="true" />;
-  const listId = `ve-recents-${icon}`;
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.metaKey || event.altKey || event.ctrlKey) return;
-    const last = items.length - 1;
-    const moves: Record<string, number> = {
-      ArrowDown: Math.min(last, highlight + 1),
-      ArrowUp: Math.max(0, highlight - 1),
-      Home: 0,
-      End: last,
-    };
-    if (event.key in moves) {
-      event.preventDefault();
-      setHighlight(moves[event.key]);
-    } else if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      const item = items[highlight];
-      if (item) onOpen(item);
-    }
-  };
   return (
     <section className="ve-recents" aria-label={label}>
       <h2 className="ve-section-title">{strings.t(E.recentHeading)}</h2>
       {items.length === 0 ? (
         <p className="ve-recents-empty">{emptyText}</p>
       ) : (
-        <div
-          ref={(element) => {
-            if (!element || !autoFocus || focused.current) return;
-            focused.current = true;
-            element.focus({ preventScroll: true });
-          }}
+        <Listbox
+          items={items}
+          getKey={(item) => item.path}
+          textValue={(item) => item.name || baseName(item.path)}
+          label={label}
+          // oxlint-disable-next-line jsx-a11y/no-autofocus -- the list is the page's only control when it shows; arrows and Return work at once.
+          autoFocus={autoFocus}
+          onOpen={onOpen}
           className="ve-recent-list"
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="listbox"
-          tabIndex={0}
-          aria-label={label}
-          aria-activedescendant={`${listId}-${Math.min(highlight, items.length - 1)}`}
-          onKeyDown={onKeyDown}
-        >
-          {items.map((item, index) => (
-            <div
-              key={item.path}
-              id={`${listId}-${index}`}
-              className="ve-recent"
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              role="option"
-              tabIndex={-1}
-              aria-selected={index === highlight}
-              title={item.path}
-              onMouseMove={() => index !== highlight && setHighlight(index)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                onOpen(item);
-              }}
-            >
+          rowClassName="ve-recent"
+          itemAttributes={(item) => ({ title: item.path })}
+          renderItem={(item) => (
+            <>
               <EmptyIcon name={icon} />
               <span className="ve-recent-text">
                 <span className="ve-recent-name">{item.name || baseName(item.path)}</span>
@@ -166,9 +129,9 @@ export function RecentList({
                 </span>
               </span>
               <span className="ve-recent-time">{relativeTime(item.openedAt, now, strings.language)}</span>
-            </div>
-          ))}
-        </div>
+            </>
+          )}
+        />
       )}
     </section>
   );

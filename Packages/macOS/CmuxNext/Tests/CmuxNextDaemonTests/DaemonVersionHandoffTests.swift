@@ -5,7 +5,10 @@ import Testing
 /// UP (plans/cmux-next/durable-sessions.md section 3): an updated app finds
 /// the daemon its previous build started. It must hand that daemon off to
 /// the bundled build, and every running terminal must survive the handoff.
-@Suite struct DaemonVersionHandoffTests {
+/// Runs with any cmux-tui binary: the launcher passes only the `server
+/// ensure` options the binary lists (LauncherReapGraceCapabilityTests).
+@Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .liveDaemon)
+struct DaemonVersionHandoffTests {
     @Test func aDaemonOfAnotherBuildIsReplacedAndItsTerminalsSurvive() async throws {
         let binary = try #require(RealBinary.url)
         let id = UUID().uuidString.prefix(8).lowercased()

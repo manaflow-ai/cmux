@@ -130,6 +130,23 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             {t("keybindings.page.conflictsOnly")}
           </button>
           {snap.recording && <span className="keys-hint">{t("keybindings.page.recordHint")}</span>}
+          <span className="keys-spacer" />
+          <button
+            type="button"
+            className="keys-toggle keys-import"
+            disabled={disconnected}
+            onClick={() => void store.importKeymap()}
+          >
+            {t("keybindings.page.importKeymap")}
+          </button>
+          <button
+            type="button"
+            className="keys-toggle keys-export"
+            disabled={disconnected}
+            onClick={() => void store.exportKeymap()}
+          >
+            {t("keybindings.page.exportKeymap")}
+          </button>
         </div>
       </header>
       {snap.notice && (

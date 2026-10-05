@@ -12,6 +12,7 @@ extension SidebarView {
     func setChromeRevealed(_ revealed: Bool) {
         let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
+        cardStack.revealed = revealed
         let alpha: CGFloat = revealed ? 1 : 0
         let mode = DesignSettings.shared.sidebarSections.minimalMode
         let above: CGFloat = revealed || !mode.hidesTop ? 1 : 0

@@ -9,7 +9,7 @@ import { EditDiff } from "./EditDiff";
 import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -27,6 +27,7 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 /// A live group stays closed as calls join it, so the transcript's height holds still; its
 /// glyph turns while any call runs.
 export function ToolGroupRow({ kind, items }: { kind: ToolGroupKind; items: readonly AcpmuxActivity[] }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const tools = useMemo(() => items.map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
@@ -45,6 +46,7 @@ export function ToolGroupRow({ kind, items }: { kind: ToolGroupKind; items: read
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : groupIcon(kind)}</span>
         <span className="cv-tool__text">
           {toolGroupLabel(
+            t,
             kind,
             items,
             files.map((file) => file.path),

@@ -1,7 +1,8 @@
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum FeedSettingsSchema {
     /// GitHub inbox preferences under Notifications. The schema supplies the
     /// Settings window, palette setting editor, and validated config writes.
-    static var feed: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.githubInbox", "GitHub Inbox")
         let defaults = FeedGitHubSettings()
         return [

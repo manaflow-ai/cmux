@@ -4,7 +4,7 @@ import Foundation
 /// `appearance.theme` in cmux.json: cmux's own theme, one Ghostty theme name
 /// (`Nord`) or a light/dark pair (`light:Rose Pine Dawn,dark:Rose Pine`).
 /// Absent or empty means the Ghostty config's theme. Onboarding, the
-/// Settings window and the appearance studio write it; the App applies it
+/// Settings page and the palette write it; the App applies it
 /// as a Ghostty override, so terminals and chrome follow live.
 public struct AppThemeSetting: Sendable {
     public let configPath = ["appearance", "theme"]

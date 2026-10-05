@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextDaemon
 import CmuxNextTerminal
 import Testing
@@ -22,6 +23,19 @@ struct ShellIntegrationSettingsTests {
         // No config loaded: Ghostty's defaults.
         let defaults = AppEnvironment.shellIntegration(nil, resources: "/R/ghostty", binary: nil)
         #expect(defaults.mode == .detect && defaults.features == .ghosttyDefault)
+    }
+
+    /// The app tells the daemon it resolved the integration only when the
+    /// resources really hold the scripts; otherwise the daemon integrates.
+    @Test func resolvesOnlyWithTheIntegrationScripts() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-si-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        #expect(!AppEnvironment.resolvesShellIntegration(resources: root.path))
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("shell-integration"),
+                                                withIntermediateDirectories: true)
+        #expect(AppEnvironment.resolvesShellIntegration(resources: root.path))
+        #expect(!AppEnvironment.resolvesShellIntegration(resources: nil))
     }
 
     /// The loaded default config (`GhosttyRuntime.shared`) reports Ghostty's

@@ -38,7 +38,10 @@ Object.assign(globals, {
 });
 /// The pane width query. Starts narrow, so the session list is an overlay; `resize` flips it.
 const media = { matches: true, addEventListener() {}, removeEventListener() {} };
+// The same stub answers prefers-reduced-motion: no-preference, so Search chats animates.
 Object.assign(dom.window, { matchMedia: () => media });
+// WebKit has AnimationEvent; without it React listens for the prefixed webkitAnimationEnd.
+(dom.window as unknown as Record<string, unknown>).AnimationEvent ??= dom.window.Event;
 afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
@@ -86,13 +89,23 @@ test("the app's searchChats command toggles Search chats, and a pick selects the
       "Port the sidebar",
       "New chat",
     ]);
+    // The sheet plays its exit animation (CSS is not loaded here, so the test ends it).
+    const exit = async () => {
+      expect(container.querySelector(".acpmux-search-layer.is-closing")).not.toBeNull();
+      const sheet = container.querySelector(".acpmux-search")!;
+      await act(async () => void sheet.dispatchEvent(new dom.window.Event("animationend", { bubbles: true })));
+      expect(container.querySelector(".acpmux-search")).toBeNull();
+    };
     await act(async () => rows[1]!.click());
     expect(selected).toEqual(["s2"]);
-    expect(container.querySelector(".acpmux-search")).toBeNull();
-    // A second command closes it again.
+    await exit();
+    // A second command closes it again; a command during the exit reopens it.
     await act(async () => host.cmuxAcpmuxBridge!.command!("searchChats"));
     await act(async () => host.cmuxAcpmuxBridge!.command!("searchChats"));
-    expect(container.querySelector(".acpmux-search")).toBeNull();
+    await act(async () => host.cmuxAcpmuxBridge!.command!("searchChats"));
+    expect(container.querySelector(".acpmux-search-layer.is-closing")).toBeNull();
+    await act(async () => host.cmuxAcpmuxBridge!.command!("searchChats"));
+    await exit();
   } finally {
     await act(async () => root.unmount());
   }

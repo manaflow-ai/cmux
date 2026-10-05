@@ -24,4 +24,11 @@ struct TerminalGridLock {
             _ = ghostty_surface_set_grid(surface, columns, rows, generation)
         }
     }
+
+    /// Records `grid` as locked without sending it: a local-history snapshot
+    /// restore resized the terminal and its lock to `grid` itself (Ghostty
+    /// keeps the lock's generation).
+    mutating func adopt(_ grid: TerminalGridSize) {
+        locked = grid
+    }
 }

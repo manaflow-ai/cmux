@@ -66,38 +66,46 @@ extension PaletteModel {
         case .list(let page):
             searchGeneration += 1
             let searchID = searchGeneration
-            if FuzzyQuery(state.query).isEmpty {
+            if FuzzyQuery(state.query).isEmpty || !page.filtersByQuery {
                 searchTask = nil
-                let ranked = PaletteRanker.rankEmpty(
+                let ranked = ranker.rankEmpty(
                     entries: state.entries,
                     sectionOrders: state.sectionOrders,
                     frecency: frecency,
                     now: now(),
                     showsRecent: page.showsRecent
                 )
-                deliver(state.resolve(ranked), to: state, generation: generation)
+                deliver(Self.leading(page.queryItems?(state.query), state.resolve(ranked)), to: state, generation: generation)
                 return
             }
             let request = (query: state.query, entries: state.entries, version: state.version,
                            orders: state.sectionOrders, frecency: frecency, now: now(), recent: page.showsRecent,
-                           keepsOrder: page.keepsSectionOrder)
+                           keepsOrder: page.keepsSectionOrder, prefixFirst: page.ranksPrefixFirst)
             let searcher = searcher
             searchTask = Task { [weak self, weak state] in
                 await searcher.install(entries: request.entries, version: request.version)
                 let result = await searcher.search(
                     query: request.query, generation: searchID, sectionOrders: request.orders,
                     frecency: request.frecency, now: request.now, showsRecent: request.recent,
-                    keepsSectionOrder: request.keepsOrder
+                    keepsSectionOrder: request.keepsOrder, ranksPrefixFirst: request.prefixFirst
                 )
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
-                self.deliver(state.resolve(result.sections), to: state, generation: generation)
+                self.deliver(Self.leading(page.queryItems?(request.query), state.resolve(result.sections)), to: state,
+                             generation: generation)
                 if self.pendingClose {
                     self.pendingClose = false
                     self.handle(.closeItem)
                 }
             }
         }
+    }
+
+    /// `sections` after the page's rows made from the query, if any.
+    static func leading(_ items: [PaletteItem]?, _ sections: [PaletteResultSection]) -> [PaletteResultSection] {
+        guard let items, !items.isEmpty else { return sections }
+        let rows = items.map { PaletteRow(item: $0, highlights: [], score: 0) }
+        return [PaletteResultSection(section: items[0].section, rows: rows)] + sections
     }
 
     /// A page's rows for `generation`: cached on the page, shown when the

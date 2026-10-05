@@ -56,14 +56,7 @@ impl Package {
     /// its catalog fragment (`catalog: "<file>"`, cmux-app-catalog.schema.json,
     /// which validate_package checks at install).
     pub fn catalog_ops(&self) -> Vec<(String, Value)> {
-        let Some(file) = self.manifest.get("catalog").and_then(Value::as_str) else {
-            return Vec::new();
-        };
-        let Some(catalog) =
-            self.read(file).and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-        else {
-            return Vec::new();
-        };
+        let Some(catalog) = self.catalog_fragment() else { return Vec::new() };
         catalog
             .get("operations")
             .and_then(Value::as_array)
@@ -71,6 +64,67 @@ impl Package {
             .flatten()
             .filter_map(|e| Some((e.get("name")?.as_str()?.to_string(), e.clone())))
             .collect()
+    }
+
+    /// The app's catalog fragment (`catalog: "<file>"`).
+    fn catalog_fragment(&self) -> Option<Value> {
+        let file = self.manifest.get("catalog").and_then(Value::as_str)?;
+        self.read(file).and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+    }
+
+    /// The fragment's `family` and the entry of `op`.
+    pub fn catalog_op(&self, op: &str) -> Option<(String, Value)> {
+        let catalog = self.catalog_fragment()?;
+        let family = catalog.get("family").and_then(Value::as_str)?.to_string();
+        let entry = catalog
+            .get("operations")?
+            .as_array()?
+            .iter()
+            .find(|e| e.get("name").and_then(Value::as_str) == Some(op))?
+            .clone();
+        Some((family, entry))
+    }
+
+    /// The catalog ops whose user runs get an open token: `options.openOps`
+    /// of the app's terminal backend and connector implementations.
+    pub fn open_ops(&self) -> BTreeSet<String> {
+        ["cmux.terminal.backend/1", "cmux.terminal.connector/1"]
+            .iter()
+            .filter_map(|interface| {
+                self.manifest.get("implements")?.get(*interface)?.pointer("/options/openOps")
+            })
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(|op| op.as_str().map(str::to_string))
+            .collect()
+    }
+
+    /// The fragment name of `op`. Full names are canonical: for a
+    /// first-party app `cmux.<name>` resolves to its op `<name>`
+    /// (`cmux.cloud.machine.list` -> `cloud.machine.list`), and the short
+    /// name stays accepted. A third-party op name is already its namespace
+    /// (`<publisher>.<name>.<verb>`), so nothing is stripped.
+    pub fn resolve_op<'a>(&self, op: &'a str) -> &'a str {
+        match op.strip_prefix("cmux.") {
+            Some(short)
+                if self.tier == Tier::FirstParty
+                    && self.catalog_op(op).is_none()
+                    && self.catalog_op(short).is_some() =>
+            {
+                short
+            }
+            _ => op,
+        }
+    }
+
+    /// The full name of a server event `name` of this app: `cmux.<name>`
+    /// for a first-party app, unchanged for a third-party one.
+    pub fn full_name(&self, name: &str) -> String {
+        if self.tier == Tier::FirstParty && !name.starts_with("cmux.") {
+            format!("cmux.{name}")
+        } else {
+            name.to_string()
+        }
     }
 
     /// The export behind a catalog op of the app.

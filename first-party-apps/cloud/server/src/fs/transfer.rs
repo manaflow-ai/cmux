@@ -1,33 +1,27 @@
-//! `cloud.file.push` and `cloud.file.pull` (cloud-app.md 3.5): file transfer
-//! over SSH to the machine with a key made for this one transfer.
+//! `cloud.file.push` and `cloud.file.pull` (contract 2.4): file transfer
+//! through the machine's cmux daemon on the link, behind the `fs-v1` gate
+//! (super::link_files). No SSH key, no scp, no Cloud API route.
 //!
-//! 1. The server makes a fresh Ed25519 key in memory ([`TransferKey`]).
-//! 2. `POST /api/vm/:id/scp-endpoint {publicKey}` authorizes its public half
-//!    for 15 minutes (`restrict`, no PTY) and answers the guest's host key.
-//! 3. The bytes go through the machine's link: a one-shot forward on
-//!    127.0.0.1 to the guest's SSH port (the same path as `cloud.port.*`), so
-//!    no private-network route is needed on this Mac.
-//! 4. [`Transfer`] runs the copy with the host key pinned. The real one is
-//!    [`OpenSshTransfer`]; tests use a fake.
+//! A pull reads the file in [`CHUNK_BYTES`] ranges (`fs.read {path, offset,
+//! max_bytes}`) into a hidden landing file and publishes it with a hard
+//! link; a push is one `fs.write` (mode `create`, never overwrite) of at
+//! most [`super::MAX_WRITE_BYTES`] until the daemon has a write stream.
+//! [`Transfer`] runs the copy on a worker; the real one is
+//! [`DaemonTransfer`], tests use a fake.
 
 use super::cancel::Cancel;
-use super::key::TransferKey;
-pub use super::openssh::host_alias;
+use super::link_files::{DaemonFiles, DialTarget, write_reconciled};
 use super::path::{guest_arg, local_arg};
 use super::running::{CancelAnswer, Running, TRANSFER_BUSY};
-use crate::api::{CloudError, ControlPlane, Origin, args, codes};
-use crate::app_env::SshFiles;
+use super::{FILE_TOO_LARGE, MAX_WRITE_BYTES};
+use crate::api::{CloudError, ControlPlane, Origin, args};
 use crate::ops::Server;
-use crate::ports::listener::Listener;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use serde::Deserialize;
 use serde_json::{Value, json};
-use std::net::SocketAddr;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-pub use super::openssh::OpenSshTransfer;
 
 pub const TRANSFER_FAILED: &str = "cmux.cloud.transfer_failed";
 /// The code of a transfer that `cloud.file.transfer.cancel` stopped (its
@@ -38,9 +32,8 @@ pub(crate) const LIST: &str = "cloud.file.transfer.list";
 /// `cloud.file.transfer.cancel {transfer}`.
 pub(crate) const CANCEL: &str = "cloud.file.transfer.cancel";
 pub const LOCAL_EXISTS: &str = "cmux.cloud.local_exists";
-/// The answer named no host key to pin. A host key the Cloud API did not
-/// give needs the user's host key sheet (not built yet): the transfer stops.
-pub const HOST_KEY_UNPINNED: &str = "cmux.cloud.host_key_unpinned";
+/// One pull read (the daemon's own cap on one `fs.read`).
+pub const CHUNK_BYTES: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -48,54 +41,6 @@ pub enum Direction {
     Push,
     /// The machine to this Mac.
     Pull,
-}
-
-/// The `scp-endpoint` answer, checked (shapes from
-/// `web/services/vms/drivers/types.ts` `SCPEndpoint`).
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScpEndpoint {
-    pub host: String,
-    pub port: u16,
-    pub username: String,
-    /// `ssh-ed25519 <base64>`: the only host key the transfer accepts.
-    pub host_public_key: String,
-    pub expires_at_unix: i64,
-}
-
-impl ScpEndpoint {
-    /// Refuses anything but user `cmux` with one valid Ed25519 host key and
-    /// an expiry in the future (`now` is Unix seconds).
-    pub fn decode(answer: Value, now: i64) -> Result<Self, CloudError> {
-        let bad = |why: &str| CloudError::new(codes::BAD_RESPONSE, format!("scp-endpoint: {why}"));
-        let key = answer.get("hostPublicKey").and_then(Value::as_str).unwrap_or_default();
-        if key.trim().is_empty() {
-            return Err(CloudError::new(
-                HOST_KEY_UNPINNED,
-                "cmux Cloud gave no host key for this machine; a new host key needs your confirmation in cmux",
-            ));
-        }
-        let endpoint: Self = serde_json::from_value(answer).map_err(|e| bad(&e.to_string()))?;
-        if endpoint.username != "cmux" || endpoint.port == 0 {
-            return Err(bad("unexpected user or port"));
-        }
-        if !valid_host_key(&endpoint.host_public_key) {
-            return Err(bad("the host key is not one Ed25519 key"));
-        }
-        if endpoint.expires_at_unix <= now {
-            return Err(bad("the transfer grant has already expired"));
-        }
-        Ok(endpoint)
-    }
-}
-
-pub(crate) fn valid_host_key(text: &str) -> bool {
-    let Some(encoded) = text.strip_prefix("ssh-ed25519 ") else { return false };
-    let Ok(blob) = STANDARD.decode(encoded) else { return false };
-    blob.len() == 51
-        && blob[..4] == [0, 0, 0, 11]
-        && &blob[4..15] == b"ssh-ed25519"
-        && blob[15..19] == [0, 0, 0, 32]
 }
 
 /// One transfer, ready to run.
@@ -106,42 +51,137 @@ pub struct TransferJob {
     pub local: PathBuf,
     /// Absolute guest path without glob characters.
     pub guest: String,
-    pub endpoint: ScpEndpoint,
-    /// Where the guest's SSH port is reachable from here (127.0.0.1).
-    pub route: SocketAddr,
-    /// The whole environment of each OpenSSH child (crate::app_env).
-    pub env: Vec<(String, String)>,
-    /// The app's OpenSSH config and pinned known_hosts.
-    pub ssh: SshFiles,
-    /// Folder for the transfer's short-lived agent socket.
-    pub temp_dir: PathBuf,
+    /// The machine's daemon on the link (no credential).
+    pub target: DialTarget,
 }
 
-/// A failed transfer. `message` never holds key material.
+/// A failed transfer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransferError {
     pub message: String,
     pub retryable: bool,
 }
 
-pub trait Transfer: Send + Sync {
-    /// Copies one file. The key is the one whose public half the endpoint
-    /// authorized; the implementation must not store it. On `cancel` the
-    /// implementation stops the copy (it registers a hook that kills each
-    /// child it starts) and returns an error; the loop then removes a
-    /// pull's partial file.
-    fn run(
-        &self,
-        job: &TransferJob,
-        key: &TransferKey,
-        cancel: &Cancel,
-    ) -> Result<u64, TransferError>;
+impl From<CloudError> for TransferError {
+    fn from(error: CloudError) -> Self {
+        Self { message: error.message, retryable: error.retryable }
+    }
 }
 
-fn now_unix() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+pub trait Transfer: Send + Sync {
+    /// Copies one file. On `cancel` the implementation stops at the next
+    /// chunk and returns an error; the loop then removes a pull's partial
+    /// file.
+    fn run(&self, job: &TransferJob, cancel: &Cancel) -> Result<u64, TransferError>;
+}
+
+/// The real [`Transfer`]: daemon `fs.*` ops on the link.
+pub struct DaemonTransfer {
+    files: Arc<dyn DaemonFiles>,
+}
+
+impl DaemonTransfer {
+    pub fn new(files: Arc<dyn DaemonFiles>) -> Self {
+        Self { files }
+    }
+}
+
+fn stopped() -> TransferError {
+    TransferError { message: "The transfer was cancelled".into(), retryable: false }
+}
+
+fn local_error(e: &std::io::Error) -> TransferError {
+    TransferError { message: format!("the local file: {e}"), retryable: false }
+}
+
+fn bad_range() -> TransferError {
+    TransferError {
+        message: "the machine's daemon answered fs.read with a bad range".into(),
+        retryable: false,
+    }
+}
+
+/// The local file of a push, read with a bound. The opened file must be
+/// the regular file the path names itself (not through a symlink put there
+/// after the op's check): its device and inode must equal the path's own.
+fn read_local(path: &std::path::Path) -> Result<Vec<u8>, TransferError> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).map_err(|e| local_error(&e))?;
+    let opened = file.metadata().map_err(|e| local_error(&e))?;
+    let named = std::fs::symlink_metadata(path).map_err(|e| local_error(&e))?;
+    #[cfg(unix)]
+    let same = {
+        use std::os::unix::fs::MetadataExt as _;
+        (opened.dev(), opened.ino()) == (named.dev(), named.ino())
+    };
+    #[cfg(not(unix))]
+    let same = true;
+    if !named.file_type().is_file() || !same {
+        return Err(TransferError {
+            message: format!("{} is no longer a regular file", path.display()),
+            retryable: false,
+        });
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_WRITE_BYTES as u64 + 1).read_to_end(&mut bytes).map_err(|e| local_error(&e))?;
+    if bytes.len() > MAX_WRITE_BYTES {
+        return Err(TransferError {
+            message: format!("the local file is larger than {MAX_WRITE_BYTES} bytes"),
+            retryable: false,
+        });
+    }
+    Ok(bytes)
+}
+
+impl Transfer for DaemonTransfer {
+    fn run(&self, job: &TransferJob, cancel: &Cancel) -> Result<u64, TransferError> {
+        match job.direction {
+            Direction::Push => {
+                let bytes = read_local(&job.local)?;
+                if cancel.is_cancelled() {
+                    return Err(stopped());
+                }
+                let params = json!({ "path": job.guest, "bytes_base64": STANDARD.encode(&bytes),
+                    "mode": "create" });
+                write_reconciled(&*self.files, &job.target, params, bytes.len() as u64, cancel)?;
+                Ok(bytes.len() as u64)
+            }
+            Direction::Pull => {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&job.local)
+                    .map_err(|e| local_error(&e))?;
+                let mut offset = 0u64;
+                // The size the first answer names bounds the whole pull: a
+                // daemon that keeps saying "more" cannot fill the disk.
+                let mut size = None;
+                loop {
+                    if cancel.is_cancelled() {
+                        return Err(stopped());
+                    }
+                    let params =
+                        json!({ "path": job.guest, "offset": offset, "max_bytes": CHUNK_BYTES });
+                    let answer = self.files.call(&job.target, "fs.read", params, cancel)?;
+                    let bytes = super::files::read_bytes(&answer)?;
+                    let more = answer["truncated"].as_bool() == Some(true);
+                    let total = *size.get_or_insert(answer["size"].as_u64().unwrap_or(0));
+                    offset += bytes.len() as u64;
+                    if !super::files::range_ok(bytes.len() as u64, CHUNK_BYTES, more)
+                        || offset > total
+                    {
+                        return Err(bad_range());
+                    }
+                    file.write_all(&bytes).map_err(|e| local_error(&e))?;
+                    if !more {
+                        break;
+                    }
+                }
+                file.sync_all().map_err(|e| local_error(&e))?;
+                Ok(offset)
+            }
+        }
+    }
 }
 
 /// The ops `cloud.file.push` and `cloud.file.pull`.
@@ -149,8 +189,8 @@ pub(crate) fn run<C: ControlPlane>(
     server: &mut Server<C>,
     name: &str,
     raw: &Value,
-    origin: Origin,
-    key: Option<&str>,
+    _origin: Origin,
+    _key: Option<&str>,
 ) -> Result<Value, CloudError> {
     let direction = if name == "cloud.file.push" { Direction::Push } else { Direction::Pull };
     let map = args::object(raw, &["machine", "localPath", "path"])?;
@@ -158,6 +198,20 @@ pub(crate) fn run<C: ControlPlane>(
     let local = local_arg(map, "localPath")?;
     let guest = guest_arg(map, "path")?.literal_for_transfer()?.to_owned();
     check_local(&local, direction)?;
+    if direction == Direction::Push
+        && let Ok(meta) = std::fs::metadata(&local)
+        && meta.len() > MAX_WRITE_BYTES as u64
+    {
+        return Err(CloudError::new(
+            FILE_TOO_LARGE,
+            format!(
+                "{} is {} bytes; a push is at most {MAX_WRITE_BYTES} bytes until the machine's \
+                 daemon has a write stream",
+                local.display(),
+                meta.len()
+            ),
+        ));
+    }
     if server.edge_parts().0.transfers.full() {
         return Err(CloudError {
             retryable: true,
@@ -167,34 +221,9 @@ pub(crate) fn run<C: ControlPlane>(
             )
         });
     }
-    // The children's environment and the app's OpenSSH files, before any
-    // Cloud API call: without a data folder nothing starts.
-    let app_env = server.attach().env().clone();
-    let no_data = |e: std::io::Error| {
-        CloudError::new(TRANSFER_FAILED, format!("no private OpenSSH folder for the transfer: {e}"))
-    };
-    let child_env = app_env.child_env().map_err(no_data)?;
-    let ssh = app_env.ssh_files().map_err(no_data)?;
-    let carrier =
-        crate::link::ops::connect(server, &machine, origin, key.map(|k| format!("{k}/start")))?;
-    let transfer_key = TransferKey::generate()?;
-    // No idempotency key: a retry must authorize its own new key.
-    let answer = server.ctx(name, None).call(
-        "POST",
-        format!("/api/vm/{machine}/scp-endpoint"),
-        Some(json!({ "publicKey": transfer_key.public_openssh() })),
-    )?;
-    let endpoint = ScpEndpoint::decode(answer, now_unix())?;
-    let (edge, _) = server.edge_parts();
-    // The loop thread is the only writer of known_hosts: the endpoint's
-    // host key is pinned there before the copy starts.
-    edge.pin_host_key(&ssh, &machine, &endpoint.host_public_key).map_err(|e| {
-        CloudError::new(TRANSFER_FAILED, format!("could not pin the machine's host key: {e}"))
-    })?;
-    let handler = edge.forward_handler(&carrier, "localhost", endpoint.port);
-    let route = Listener::bind(handler).map_err(|e| {
-        CloudError::new(TRANSFER_FAILED, format!("could not listen on 127.0.0.1: {e}"))
-    })?;
+    // The gate before anything else: a daemon without file ops answers a
+    // typed unsupported, and nothing is written here.
+    let target = super::link_files::target(server, &machine)?;
     // A pull lands in a fresh hidden name next to the target and is
     // published with a hard link, which never overwrites and never follows
     // a symlink put at the target meanwhile. A failed pull leaves nothing,
@@ -208,13 +237,9 @@ pub(crate) fn run<C: ControlPlane>(
         direction,
         local: landing.clone(),
         guest: guest.clone(),
-        endpoint,
-        route: route.local_addr(),
-        env: child_env,
-        ssh,
-        temp_dir: app_env.temp_dir(),
+        target,
     };
-    // The copy runs on a worker; the loop finishes it when it ends.
+    let (edge, _) = server.edge_parts();
     let worker = Arc::clone(&edge.transfer);
     let running = Running {
         machine: machine.clone(),
@@ -222,11 +247,10 @@ pub(crate) fn run<C: ControlPlane>(
         guest: guest.clone(),
         local: local.clone(),
         landing,
-        route,
         cancel: Cancel::default(),
         started_at: 0,
     };
-    let transfer = edge.transfers.start(worker, job, transfer_key, running)?;
+    let transfer = edge.transfers.start(worker, job, running)?;
     Ok(json!({
         "ok": true,
         "transfer": transfer,
@@ -237,7 +261,7 @@ pub(crate) fn run<C: ControlPlane>(
     }))
 }
 
-/// `<folder>/.<name>.cmux-pull-<random>`: the name scp writes during a pull.
+/// `<folder>/.<name>.cmux-pull-<random>`: the name a pull writes first.
 fn pull_landing(local: &std::path::Path) -> Result<PathBuf, CloudError> {
     let mut nonce = [0u8; 8];
     getrandom::fill(&mut nonce)

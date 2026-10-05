@@ -129,6 +129,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let passwordImportAvailable: @convention(c) () -> Int32
     /// Password filling on or off in one tab (off while an agent drives it).
     let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
+    /// Profile (Touch ID) passkeys, metadata only (fork API 18; see CEFRuntime+Passkeys).
+    let passkeysAvailable: @convention(c) () -> Int32
+    let passkeysList: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
+    let passkeyDelete: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
@@ -274,6 +278,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passwordEntrySize = try r("cmux_shim_password_entry_size")
         passwordImportAvailable = try r("cmux_shim_password_import_available")
         setPasswordFill = try r("cmux_shim_set_password_fill")
+        passkeysAvailable = try r("cmux_shim_passkeys_available")
+        passkeysList = try r("cmux_shim_passkeys_list")
+        passkeyDelete = try r("cmux_shim_passkey_delete")
         sslStatus = try r("cmux_shim_ssl_status")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")

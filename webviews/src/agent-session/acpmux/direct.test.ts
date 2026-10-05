@@ -869,6 +869,88 @@ describe("direct client session state", () => {
     expect(texts()).toEqual(["b one"]);
   });
 
+  // bench-switch-race.mjs (plans/cmux-next/acp-usability.md, blocker 3): a prompt sent while a
+  // harness switch's session/new is out went to the OLD session, and the pane then moved to the
+  // new chat, so its reply landed out of view.
+  test("a prompt sent while a new chat's session starts goes to that session, not the one on screen", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/new");
+    const switching = client.create("codex");
+    await settle();
+    ScriptedSocket.held.add("session/prompt");
+    const sent = client.send("which harness?").catch(() => undefined);
+    await settle();
+    expect(ScriptedSocket.current.waiting.some((request) => request.method === "session/prompt")).toBe(false);
+    ScriptedSocket.current.release("session/new", { sessionId: "b" });
+    expect(await switching).toBe("b");
+    await settle();
+    const prompt = ScriptedSocket.current.waiting.find((request) => request.method === "session/prompt");
+    expect(prompt?.params.sessionId).toBe("b");
+    expect(texts()).toContain("which harness?");
+    ScriptedSocket.current.release("session/prompt", {});
+    expect(await sent).toBe("b");
+  });
+
+  // The acpmux pool (fdfc0cd36ee) refuses a hint over a remote-origin connection, and every
+  // WebSocket connection is remote-origin unless acpmux says otherwise in initialize.
+  test("a prewarm hint goes out only when acpmux lists _acpmux/prewarm and calls this connection local", async () => {
+    const hinted = async (meta: Record<string, unknown> | undefined) => {
+      ScriptedSocket.respond = ({ method, params }) => {
+        if (method === "initialize") return meta ? { _meta: { acpmux: meta } } : {};
+        if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+        if (method === "_acpmux/attach") return attachReply(params.sessionId);
+        if (method === "_acpmux/prewarm") throw new Error("never awaited");
+        return {};
+      };
+      const client = await connect();
+      // The folder argument is new; the cast keeps this test compiling before it exists.
+      (client.prewarm as (...args: unknown[]) => void).call(client, "codex", "/work/app");
+      await settle();
+      const sent = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/prewarm")?.params;
+      client.close();
+      return sent;
+    };
+    expect(await hinted(undefined)).toBeUndefined();
+    expect(await hinted({ extensions: ["_acpmux/prewarm"] })).toBeUndefined();
+    expect(await hinted({ extensions: ["_acpmux/prewarm"], origin: "remote" })).toBeUndefined();
+    expect(await hinted({ extensions: [], origin: "local" })).toBeUndefined();
+    expect(await hinted({ extensions: ["_acpmux/prewarm"], origin: "local" })).toEqual({
+      harness: "codex",
+      cwd: "/work/app",
+    });
+  });
+
+  test("a refused prewarm hint is ignored and never blocks", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "initialize") return { _meta: { acpmux: { extensions: ["_acpmux/prewarm"], origin: "local" } } };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    const client = await connect();
+    ScriptedSocket.held.add("_acpmux/prewarm");
+    expect(client.prewarm("codex")).toBeUndefined();
+    ScriptedSocket.current.fail("_acpmux/prewarm", { code: -32602, message: "the session pool is off" });
+    await settle();
+    client.close();
+  });
+
+  test("leaving the shown session detaches it and draws no session; a started one is not shown", async () => {
+    const client = await connect();
+    expect(client.shownSession()).toMatchObject({ sessionId: "a", empty: false });
+    client.leave();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().rows).toEqual([]);
+    await settle();
+    expect(ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/detach")?.params).toEqual({
+      sessionId: "a",
+    });
+    ScriptedSocket.respond = ({ method }) => (method === "session/new" ? { sessionId: "c" } : {});
+    expect(await client.startSession("codex")).toBe("c");
+    expect(client.selectedSession).toBeUndefined();
+    client.close();
+  });
+
   test("lag recovery keeps the live summary, queue and permission", async () => {
     await connect();
     ScriptedSocket.current.notify("_acpmux/permission_pending", {
@@ -1142,6 +1224,20 @@ describe("direct client session state", () => {
     expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
   });
 
+  /// A row made without an event (a failed prompt) sorts after the events it saw, and live events
+  /// that arrive after it sort below it; it does not stick to the bottom of the transcript.
+  test("a failed prompt row stays above the turns that come after it", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    const sending = client.send("did not send").catch(() => "failed");
+    await settle();
+    ScriptedSocket.current.fail("session/prompt");
+    expect(await sending).toBe("failed");
+    ScriptedSocket.current.notify("_acpmux/event", { ...userEvent("a", 7, "a later prompt"), at: 7 });
+    await settle();
+    expect(texts()).toEqual(["a five", "a six", "did not send", "a later prompt"]);
+  });
+
   /// ACP wraps a tool call's output as `{ type: "content", content: { type: "text" } }`.
   test("a tool call's wrapped text content becomes its output", async () => {
     const update: EventRecord = {
@@ -1410,6 +1506,103 @@ describe("direct client session state", () => {
     } finally {
       AcpmuxDirectClient.scheduleFrame = previous;
     }
+  });
+
+  // A harness switch leaves the shown session and attaches the new one; with snapshots coalesced
+  // per display frame, the old session's last deltas and the new chat's first snapshot can land
+  // in the same frame. The frame must draw only the new chat.
+  test("leave() and the new chat's first snapshot in one frame draw only the new chat", async () => {
+    const frames: (() => void)[] = [];
+    const previous = AcpmuxDirectClient.scheduleFrame;
+    AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
+    try {
+      const client = await connect();
+      await settle();
+      for (const run of frames.splice(0)) run();
+      ScriptedSocket.current.notify("_acpmux/event", chunkEvent(7, "old reply "));
+      client.leave();
+      expect(latest().sessionId).toBeUndefined();
+      expect(latest().rows).toEqual([]);
+      const opened = client.select("b");
+      ScriptedSocket.current.notify("_acpmux/event", chunkEvent(8, "late old delta"));
+      expect(await opened).toBe("b");
+      const fromLeave = snapshots.length;
+      for (const run of frames.splice(0)) run();
+      for (const snapshot of snapshots.slice(fromLeave))
+        expect(snapshot.rows.map((row) => row.text)).not.toContain("old reply late old delta");
+      expect(latest().sessionId).toBe("b");
+      expect(texts()).toEqual(["b one"]);
+      client.close();
+    } finally {
+      AcpmuxDirectClient.scheduleFrame = previous;
+    }
+  });
+
+  test("two notices in the same millisecond are two rows", async () => {
+    const client = await connect();
+    const realNow = Date.now;
+    Date.now = () => 1_000;
+    try {
+      client.notice("first");
+      client.notice("second");
+    } finally {
+      Date.now = realNow;
+    }
+    expect(texts().filter((text) => text === "first" || text === "second")).toEqual(["first", "second"]);
+    client.close();
+  });
+
+  test("a streamed thought is one item that grows, not one item per chunk", async () => {
+    const thought = (seq: number, text: string): EventRecord => ({
+      sessionId: "a",
+      seq,
+      at: seq,
+      dir: "in",
+      kind: "agent_thought_chunk",
+      msg: {
+        method: "session/update",
+        params: { sessionId: "a", update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } } },
+      },
+    });
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? {
+            session: { sessionId: "a", status: "idle" },
+            events: [
+              userEvent("a", 6, "prompt"),
+              thought(7, "Looking at "),
+              thought(8, "the code"),
+              thought(9, " now."),
+            ],
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    const client = await connect();
+    await settle();
+    const activity = latest().rows.find((row) => row.kind === "activity");
+    expect(activity?.items).toEqual([{ kind: "thought", text: "Looking at the code now." }]);
+    client.close();
+  });
+
+  test("rows keep the daemon's event order even when wall-clock times disagree", async () => {
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? {
+            session: { sessionId: "a", status: "idle" },
+            // The reply's time stamp is earlier than its prompt's (two clocks, or one millisecond).
+            events: [
+              { ...userEvent("a", 6, "prompt"), at: 2_000 },
+              { ...chunkEvent(7, "reply"), at: 1_000 },
+            ],
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    const client = await connect();
+    await settle();
+    expect(texts()).toEqual(["prompt", "reply"]);
+    client.close();
   });
 
   test("without a display (no frame scheduler) each delta snapshots at once", async () => {

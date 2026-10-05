@@ -498,7 +498,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 return Err(anyhow!(catalog().remote_client.help_invalid_options));
             }
             option if option.starts_with('-') => {
-                return Err(anyhow!(catalog().remote_client.unknown_option(option)));
+                return Err(anyhow!(catalog().remote_client.connect_option_refused(option)));
             }
             route => {
                 if route.starts_with("cmux://enroll/") {

@@ -87,12 +87,20 @@ export type SanitizeResult =
   | { readonly ok: false; readonly reason: SanitizeRefusal };
 export type SanitizeRefusal = "tooLarge" | "notSVG";
 
-/** A paint or reference value is safe only when every url() names an id in this document. */
+/** An id reference: `#` and an id of letters, digits, `_`, `.` and `-` (the daemon's rule). */
+const ID_REFERENCE = /^#[A-Za-z0-9_.-]+$/;
+
+/**
+ * A paint or reference value is safe only when every url() names an id in this document and the
+ * value has no `\` (escapes could hide a scheme) and no `:` (no scheme, including after `//`).
+ * Same rules as the daemon's sanitizer.
+ */
 function safeReference(value: string): boolean {
+  if (value.includes("\\") || value.includes(":")) return false;
   for (const match of value.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)) {
-    if (!match[2].startsWith("#")) return false;
+    if (!ID_REFERENCE.test(match[2])) return false;
   }
-  return !/(javascript|data|https?|file):/i.test(value.replace(/url\(\s*(['"]?)#.*?\1\s*\)/gi, ""));
+  return !/url\(/i.test(value.replace(/url\(\s*(['"]?)#[A-Za-z0-9_.-]+\1\s*\)/gi, ""));
 }
 
 function clean(element: Element, removed: { count: number }) {
@@ -108,7 +116,10 @@ function clean(element: Element, removed: { count: number }) {
   for (const attribute of Array.from(element.attributes)) {
     const name = attribute.name.toLowerCase();
     const isHref = name === "href" || name === "xlink:href";
-    const keep = ATTRIBUTES.has(name) && (isHref ? attribute.value.startsWith("#") : safeReference(attribute.value));
+    const isNamespace = name === "xmlns" || name === "xmlns:xlink";
+    const keep =
+      ATTRIBUTES.has(name) &&
+      (isNamespace || (isHref ? ID_REFERENCE.test(attribute.value) : safeReference(attribute.value)));
     if (!keep) {
       element.removeAttribute(attribute.name);
       removed.count++;

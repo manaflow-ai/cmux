@@ -37,8 +37,13 @@ public struct SurfaceTabBarConfig: Sendable, Hashable {
         self.usesDefaults = usesDefaults
     }
 
-    /// New terminal tab, split right, split down.
-    public static let defaultButtons: [TabBarButtonSpec] = [
+    /// No trailing buttons by default (R120): the plus shows on hover;
+    /// users add buttons back in cmux-next.json (`ui.surfaceTabBar.buttons`).
+    public static let defaultButtons: [TabBarButtonSpec] = []
+
+    /// The built-in buttons a user can add back: new terminal tab, split
+    /// right, split down.
+    public static let builtInButtons: [TabBarButtonSpec] = [
         TabBarButtonSpec(id: "cmux.newTerminal", actionID: "newSurface", icon: .symbol("terminal")),
         TabBarButtonSpec(id: "cmux.splitRight", actionID: "splitRight", icon: .symbol("square.split.2x1")),
         TabBarButtonSpec(id: "cmux.splitDown", actionID: "splitDown", icon: .symbol("square.split.1x2")),

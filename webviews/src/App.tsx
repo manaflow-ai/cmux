@@ -3,10 +3,19 @@ import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme }
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import "../../Resources/markdown-viewer/viewer-navigation.js";
-import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
+import { copyGitApplyCommand, copyText, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { BranchBasePicker, branchPickerStateKey, type BranchPickerPayload } from "./BranchBasePicker";
 import { lineTextFor, type CommentFileDiff } from "./comments/anchor";
@@ -46,16 +55,15 @@ import { computedTranslateX, createFilesPanelMotion, type FilesPanelMotion } fro
 import { DEFERRED_PATCH_KEY, hydrateDeferredFileDiff } from "./deferred-parse";
 import { isHeaderToggleKey, shouldToggleFromHeaderClick, type HeaderPress } from "./file-header-toggle";
 import { FileIcon } from "./file-icons";
+import { defaultDiffFileFilter, filterDiffItems, isDiffFileFilterActive, type DiffFileFilter } from "./file-filter";
+import { planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
 import {
-  allDiffFileStatuses,
-  defaultDiffFileFilter,
-  filterDiffItems,
-  isDiffFileFilterActive,
-  toggleStatusFilter,
-  type DiffFileFilter,
-  type DiffFileStatus,
-} from "./file-filter";
-import { applyPierreFileTreeGitStatus, planPierreFileTreeRefresh, selectPierreFileTreePath } from "./file-tree-refresh";
+  createTextMeasure,
+  diffStatSpriteSheet,
+  fileTreeStatsDecoration,
+  type FileTreeStatsDecoration,
+  type MeasureText,
+} from "./file-tree-stats";
 import { Icon, type IconName } from "./icons";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import {
@@ -66,7 +74,7 @@ import {
   type DiffViewerOptions,
 } from "./pierre-options";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
-import { FloatingToolbar, JumpToFilePalette, SourceMenu, ViewMenuButton } from "./DiffToolbar";
+import { FileMenuButton, FloatingToolbar, JumpToFilePalette, SourceMenu, ViewMenuButton } from "./DiffToolbar";
 import {
   diffLineTotals,
   NO_HOST_CAPABILITIES,
@@ -86,12 +94,10 @@ import {
   type ViewedSession,
   applyLoadedViewed,
   beginViewedLoad,
-  formatViewedProgress,
   loadViewedFiles,
   persistViewedChange,
   recordViewedChange,
   toggleViewedItem,
-  viewedProgress,
   viewedScopeFor,
   viewedScopeKey,
   viewedScopeKeyRepoRoot,
@@ -105,6 +111,7 @@ import {
   saveViewerPrefs,
   type ViewerPrefs,
 } from "./viewer-prefs";
+import { useDiffWrites } from "./diff-writes";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
@@ -115,13 +122,6 @@ import { useFindKeyboard } from "./find/useFindKeyboard";
 import type { DiffSource, DiffTransportConfig, SessionOpened } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 import { diffLanguages } from "./diff-languages/registry";
-
-const statusIconName: Record<DiffFileStatus, IconName> = {
-  added: "diffAdded",
-  modified: "diffModified",
-  deleted: "diffRemoved",
-  renamed: "diffRenamed",
-};
 
 type ConfigProps = {
   config: DiffViewerConfig;
@@ -553,7 +553,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       }),
     [payload.labels],
   );
-  const appearance = resolveDiffViewerAppearance(payload.appearance);
+  const appearance = useMemo(() => resolveDiffViewerAppearance(payload.appearance), [payload.appearance]);
   const transport = useDiffTransport(payload.transport);
   const [activeSessionSource, setActiveSessionSource] = useState<DiffSource | null>(
     validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
@@ -569,6 +569,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   }
   const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
+  // This mount's host writes (viewed marks, prefs): disposed with the viewer (diff-writes.ts).
+  const writes = useDiffWrites();
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const codeViewScrollTopRef = useRef(0);
@@ -608,8 +610,17 @@ export function App({ config, initialStatus }: ConfigProps) {
     latestState,
     repoRoot: commentRepoRoot,
   });
-  const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
-  renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
+  // One options object per options change: CodeView compares options by
+  // identity of their callbacks, and a new object on every render re-rendered
+  // every mounted file whenever the viewer re-rendered (a tree selection
+  // change, a Viewed toggle).
+  const gutterClick = useSyncedRef(comments.onGutterUtilityClick);
+  const renderedCodeViewOptions = useMemo(() => {
+    const options = codeViewOptions(state.options, appearance);
+    options.onGutterUtilityClick = ((range: SelectedLineRange, context: { item: DiffItem }) =>
+      gutterClick.current(range, context)) as any;
+    return options;
+  }, [appearance, gutterClick, state.options]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -649,19 +660,29 @@ export function App({ config, initialStatus }: ConfigProps) {
   // as well as tree rows so `visibleItems` is the single visible list.
   const viewedScope = viewedScopeFor(resolvedSessionSource ?? activeSessionSource, payload);
   const viewedStateOf = (item: DiffItem): ViewedFileState => viewedStateOfItem(item, state.viewedByPath);
+  // Zero-latency rule (g): a filter keystroke repaints the field and the files tree in its own
+  // frame; the diff column (and what follows it: find, jump, navigation) catches up in a deferred,
+  // interruptible render, so laying out the new set of files never sits on the input path.
+  const deferredFileFilter = useDeferredValue(state.fileFilter);
   const visibleItems = useMemo(
-    () => filterDiffItems(state.items, state.fileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
-    [state.fileFilter, state.items, state.viewedByPath],
+    () => filterDiffItems(state.items, deferredFileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
+    [deferredFileFilter, state.items, state.viewedByPath],
+  );
+  const treeItems = useMemo(
+    () =>
+      deferredFileFilter === state.fileFilter
+        ? visibleItems
+        : filterDiffItems(state.items, state.fileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
+    [deferredFileFilter, state.fileFilter, state.items, state.viewedByPath, visibleItems],
   );
   const visibleItemsRef = useSyncedRef(visibleItems);
   // What CodeView renders: a collapsed file as plain text, so no highlight
   // work is spent on it (see presentedItem).
   const presentedItems = useMemo(() => visibleItems.map(presentedItem), [visibleItems]);
   const filteredTreeSource = useMemo(
-    () => filteredFileTreeSource(state.treeSource, state.fileFilter, visibleItems),
-    [state.fileFilter, state.treeSource, visibleItems],
+    () => filteredFileTreeSource(state.treeSource, state.fileFilter, treeItems),
+    [state.fileFilter, state.treeSource, treeItems],
   );
-  const progress = viewedProgress(state.items, state.viewedByPath);
   const viewedScopeRef = useSyncedRef(viewedScope);
   const toggleViewed = useCallback(
     (itemId: string) => {
@@ -677,9 +698,9 @@ export function App({ config, initialStatus }: ConfigProps) {
       keepStuckHeaderInView(codeViewRef, collapses ? itemId : null, () =>
         dispatch({ type: "apply-viewed", items: result.items, change }),
       );
-      persistViewedChange(viewedScopeRef.current, change);
+      persistViewedChange(viewedScopeRef.current, change, writes);
     },
-    [latestState, viewedScopeRef],
+    [latestState, viewedScopeRef, writes],
   );
   const toggleViewedPath = useCallback(
     (path: string) => {
@@ -708,9 +729,9 @@ export function App({ config, initialStatus }: ConfigProps) {
       keepStuckHeaderInView(codeViewRef, collapsed ? itemId : null, () =>
         dispatch({ type: "set-item-collapsed", itemId, collapsed, collapsedFiles }),
       );
-      saveViewerPrefs({ collapsedFiles });
+      saveViewerPrefs({ collapsedFiles }, writes);
     },
-    [latestState],
+    [latestState, writes],
   );
   const toggleItemCollapsed = useCallback(
     (itemId: string) => {
@@ -895,16 +916,19 @@ export function App({ config, initialStatus }: ConfigProps) {
     },
     [latestState, visibleItemsRef],
   );
-  // The tree's selection follows the file at the top of the viewer: once per
-  // frame at most, and only when that file changes.
+  // The tree's selection follows the file at the top of the viewer. It moves
+  // only once that file has stayed on top for two frames in a row, so a fast
+  // scroll across many files does not re-render the viewer and the tree on
+  // every frame; the frame loop runs only until the selection is settled.
   const followFrame = useRef(0);
+  const followCandidate = useRef({ itemId: "", frames: 0 });
   const handleCodeViewScroll = useCallback(
     (scrollTop: number) => {
       codeViewScrollTopRef.current = scrollTop;
       if (followFrame.current !== 0) {
         return;
       }
-      followFrame.current = requestAnimationFrame(() => {
+      const step = () => {
         followFrame.current = 0;
         const instance = codeViewRef.current?.getInstance();
         if (instance == null) {
@@ -914,10 +938,21 @@ export function App({ config, initialStatus }: ConfigProps) {
           instance.getTopForItem(id),
         );
         const current = latestState.current;
-        if (itemId !== "" && itemId !== current.activeItemId) {
-          dispatch({ type: "set-active-item", itemId, treePath: current.treeSource?.treePathByItemId.get(itemId) });
+        if (itemId === "" || itemId === current.activeItemId) {
+          followCandidate.current = { itemId: "", frames: 0 };
+          return;
         }
-      });
+        const candidate = followCandidate.current;
+        candidate.frames = candidate.itemId === itemId ? candidate.frames + 1 : 1;
+        candidate.itemId = itemId;
+        if (candidate.frames >= 2) {
+          followCandidate.current = { itemId: "", frames: 0 };
+          dispatch({ type: "set-active-item", itemId, treePath: current.treeSource?.treePathByItemId.get(itemId) });
+          return;
+        }
+        followFrame.current = requestAnimationFrame(step);
+      };
+      followFrame.current = requestAnimationFrame(step);
     },
     [latestState, visibleItemsRef],
   );
@@ -946,7 +981,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({ type: "set-status", status });
   };
   const setLayout = (layout: DiffViewerLayout) => {
-    saveViewerPrefs({ layout });
+    saveViewerPrefs({ layout }, writes);
     dispatch({ type: "set-option", key: "layout", value: layout });
   };
   // Dispatches an options change and persists it globally when the key is a
@@ -954,7 +989,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const setOption = (key: keyof DiffViewerOptions, value: any) => {
     dispatch({ type: "set-option", key, value });
     if (key !== "collapsed") {
-      saveViewerPrefs({ [key]: value });
+      saveViewerPrefs({ [key]: value }, writes);
     }
   };
   const refresh = () => {
@@ -1025,11 +1060,34 @@ export function App({ config, initialStatus }: ConfigProps) {
           const repo = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource);
           return repo ? (branchSourceByRepoRef.current.get(repo) ?? null) : null;
         })()}
+        pill={
+          <DiffPill
+            dispatch={dispatch}
+            externalURL={
+              typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null
+            }
+            label={label}
+            onCopyGitApply={async () => {
+              try {
+                const message = await copyGitApplyCommand(activePatchURL, label, copyFallbackRef.current);
+                dispatch({ type: "set-copy-feedback", message });
+              } catch {
+                dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
+              }
+            }}
+            onReload={refresh}
+            onSetLayout={setLayout}
+            onSetOption={setOption}
+            state={state}
+          />
+        }
         state={state}
         visibleItems={visibleItems}
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebarBackdrop label={label} onClose={() => closeFileSearch(dispatch)} open={state.fileSearchOpen} />
+        {/* Covers the strip a closing panel uncovers until the diff widens (files-panel-motion.ts). */}
+        <div id="files-motion-curtain" aria-hidden="true" />
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
@@ -1039,7 +1097,6 @@ export function App({ config, initialStatus }: ConfigProps) {
           onActivateItem={activateTreeFile}
           onSelectItem={scrollToItem}
           onToggleViewedPath={toggleViewedPath}
-          progress={progress}
           selectedPath={selectedTreePath}
           treeSource={filteredTreeSource}
           viewedStateOf={viewedStateOf}
@@ -1065,6 +1122,12 @@ export function App({ config, initialStatus }: ConfigProps) {
                   <FileHeader
                     item={item as DiffItem}
                     label={label}
+                    onCopyPath={(path) => {
+                      copyText(path, copyFallbackRef.current).then(
+                        () => dispatch({ type: "set-copy-feedback", message: label("copiedFilePath") }),
+                        () => dispatch({ type: "set-copy-feedback", message: label("copyFailedFilePath") }),
+                      );
+                    }}
                     onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
                     onToggleCollapsed={() => toggleItemCollapsed(item.id)}
                     onToggleViewed={() => toggleViewed(item.id)}
@@ -1078,25 +1141,6 @@ export function App({ config, initialStatus }: ConfigProps) {
             </WorkerPoolContextProvider>
           ) : null}
         </main>
-        <DiffPill
-          dispatch={dispatch}
-          externalURL={
-            typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null
-          }
-          label={label}
-          onCopyGitApply={async () => {
-            try {
-              const message = await copyGitApplyCommand(activePatchURL, label, copyFallbackRef.current);
-              dispatch({ type: "set-copy-feedback", message });
-            } catch {
-              dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
-            }
-          }}
-          onReload={refresh}
-          onSetLayout={setLayout}
-          onSetOption={setOption}
-          state={state}
-        />
         <LoadingLayer label={label} status={state.status} />
       </section>
       <textarea ref={copyFallbackRef} aria-hidden="true" readOnly tabIndex={-1} className="copy-fallback-textarea" />
@@ -1310,6 +1354,7 @@ function useViewedFilesBootstrap(scope: ViewedScope | null, dispatch: React.Disp
 export function FileHeader({
   item,
   label,
+  onCopyPath,
   onLoadDiff,
   onToggleCollapsed,
   onToggleViewed,
@@ -1317,6 +1362,8 @@ export function FileHeader({
 }: {
   item: DiffItem;
   label: DiffViewerLabelResolver;
+  /** The "..." menu's Copy path; the menu shows only that row when given. */
+  onCopyPath?: (path: string) => void;
   onLoadDiff: () => void;
   onToggleCollapsed: () => void;
   onToggleViewed: () => void;
@@ -1362,7 +1409,7 @@ export function FileHeader({
       }}
     >
       <FileIcon path={path} />
-      <span className="file-header-path" title={previousPath == null ? path : `${previousPath} → ${path}`}>
+      <span className="file-header-path selectable" title={previousPath == null ? path : `${previousPath} → ${path}`}>
         {previousPath != null ? (
           <span className="file-header-previous">
             <bdi>{previousPath}</bdi>
@@ -1395,6 +1442,27 @@ export function FileHeader({
         onLoadDiff={onLoadDiff}
         onToggleViewed={onToggleViewed}
         viewedState={viewedState}
+      />
+      <FileMenuButton
+        label={label("fileActions").replace("{file}", baseName)}
+        items={[
+          {
+            id: "viewed",
+            icon: viewedState === "viewed" ? "eyeClosed" : "eye",
+            label: viewedState === "viewed" ? label("markNotViewed") : label("markViewed"),
+            onChoose: onToggleViewed,
+          },
+          ...(onCopyPath
+            ? [
+                {
+                  id: "copy-path",
+                  icon: "clipboard" as const,
+                  label: label("copyFilePath"),
+                  onChoose: () => onCopyPath(path),
+                },
+              ]
+            : []),
+        ]}
       />
     </div>
   );
@@ -1450,16 +1518,17 @@ function FileReviewControls({
         type="button"
         className="file-review-viewed"
         aria-pressed={viewed}
+        aria-label={label("viewed")}
         title={viewed ? label("markNotViewed") : label("markViewed")}
         onClick={(event) => {
           event.stopPropagation();
           onToggleViewed();
         }}
       >
-        <span className="file-review-checkbox" aria-hidden="true">
-          {viewed ? <Icon name="check" /> : null}
+        {/* The classic bar's eye: dim until the file is viewed. */}
+        <span className="file-review-eye" aria-hidden="true">
+          <Icon name="viewedEye" />
         </span>
-        <span className="file-review-viewed-label">{label("viewed")}</span>
       </button>
     </span>
   );
@@ -1496,36 +1565,6 @@ function filteredFileTreeSource(
   };
 }
 
-/** Re-renders tree rows after viewed marks change so decorations update. */
-function usePierreFileTreeViewedRefresh(
-  model: ReturnType<typeof useFileTree>["model"],
-  source: FileTreeSource,
-  viewedStateByPath: ReadonlyMap<string, ViewedFileState>,
-): void {
-  const previous = useRef<ReadonlyMap<string, ViewedFileState> | null>(null);
-  useEffect(() => {
-    if (previous.current != null && !sameViewedStates(previous.current, viewedStateByPath)) {
-      model.setGitStatus(source.gitStatus as any);
-    }
-    previous.current = viewedStateByPath;
-  }, [model, source, viewedStateByPath]);
-}
-
-function sameViewedStates(
-  previous: ReadonlyMap<string, ViewedFileState>,
-  next: ReadonlyMap<string, ViewedFileState>,
-): boolean {
-  if (previous.size !== next.size) {
-    return false;
-  }
-  for (const [path, state] of next) {
-    if (previous.get(path) !== state) {
-      return false;
-    }
-  }
-  return true;
-}
-
 function WorkerRenderOptionsSync({
   codeViewRef,
   highlighterOptions,
@@ -1544,6 +1583,7 @@ function Toolbar({
   onJump,
   onNavigate,
   onSelectSessionSource,
+  pill,
   rememberedBranch,
   state,
   transport,
@@ -1555,6 +1595,8 @@ function Toolbar({
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
   onSelectSessionSource: SelectSessionSource;
+  /** The floating toolbar pill, at the right end of the bar above the files sidebar. */
+  pill: React.ReactNode;
   rememberedBranch: Extract<DiffSource, { kind: "branch" }> | null;
   state: AppState;
   transport: DiffTransport | null;
@@ -1575,6 +1617,7 @@ function Toolbar({
       >
         <JumpToFilePalette items={visibleItems} label={label} onJump={onJump} />
       </SourceControls>
+      {pill}
       <span id="copy-feedback" className="visually-hidden" aria-live="polite">
         {state.copyFeedback}
       </span>
@@ -1583,7 +1626,7 @@ function Toolbar({
 }
 
 /**
- * The floating toolbar pill (bottom-right of the diff) and its "..." menu: the
+ * The toolbar pill (top right, above the files sidebar) and its "..." menu: the
  * menu rows the reference viewer has, then the remaining view options.
  */
 function DiffPill({
@@ -1656,7 +1699,17 @@ function DiffPill({
       onButton={onButton}
       onCloseMenu={() => dispatch({ type: "set-options-open", open: false })}
       onMenuItem={onMenuItem}
-      viewMenu={<ViewOptionsMenuRows externalURL={externalURL} label={label} onSetOption={onSetOption} state={state} />}
+      viewMenu={
+        <ViewOptionsMenuRows
+          externalURL={externalURL}
+          label={label}
+          onSetOption={onSetOption}
+          onToggleHideViewed={() =>
+            dispatch({ type: "set-file-filter", filter: { hideViewed: !state.fileFilter.hideViewed } })
+          }
+          state={state}
+        />
+      }
     />
   );
 }
@@ -1666,11 +1719,13 @@ function ViewOptionsMenuRows({
   externalURL,
   label,
   onSetOption,
+  onToggleHideViewed,
   state,
 }: {
   externalURL: string | null;
   label: DiffViewerLabelResolver;
   onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
+  onToggleHideViewed: () => void;
   state: AppState;
 }) {
   return (
@@ -1683,6 +1738,13 @@ function ViewOptionsMenuRows({
           onClick={() => window.open(externalURL, "_blank", "noreferrer")}
         />
       ) : null}
+      <ViewMenuButton
+        checked={state.fileFilter.hideViewed}
+        icon={state.fileFilter.hideViewed ? "eyeClosed" : "eye"}
+        id="hide-viewed-toggle"
+        label={label("hideViewedFiles")}
+        onClick={onToggleHideViewed}
+      />
       <ViewMenuButton
         checked={state.options.showBackgrounds}
         icon="background"
@@ -2049,7 +2111,6 @@ function FilesSidebar({
   onSelectComment,
   onSelectItem,
   onToggleViewedPath,
-  progress,
   selectedPath,
   state,
   treeSource,
@@ -2065,7 +2126,6 @@ function FilesSidebar({
   onSelectComment: (entry: SidebarCommentEntry) => void;
   onSelectItem: (itemId: string) => void;
   onToggleViewedPath: (path: string) => void;
-  progress: { viewed: number; total: number };
   selectedPath: string;
   state: AppState;
   treeSource: FileTreeSource | null;
@@ -2074,18 +2134,7 @@ function FilesSidebar({
 }) {
   const filter = state.fileFilter;
   const filterActive = isDiffFileFilterActive(filter);
-  const statusLabel = (status: DiffFileStatus): string => {
-    switch (status) {
-      case "added":
-        return label("filterAddedFiles");
-      case "deleted":
-        return label("filterDeletedFiles");
-      case "renamed":
-        return label("filterRenamedFiles");
-      default:
-        return label("filterModifiedFiles");
-    }
-  };
+  useFileFilterFocus(state.fileSearchOpen, state.fileSearchRequest);
   // Viewed marks by tree path so the tree row decorations can look them up.
   const viewedStateByPath = new Map<string, ViewedFileState>();
   for (const item of state.items) {
@@ -2109,6 +2158,8 @@ function FilesSidebar({
     <aside
       id="files-sidebar"
       aria-label={label("changedFiles")}
+      // The streamed file count (the sidebar no longer shows a "Files N" title).
+      data-file-count={state.treeSource?.pathCount ?? 0}
       aria-hidden={!state.filesVisible}
       inert={!state.filesVisible}
     >
@@ -2139,90 +2190,36 @@ function FilesSidebar({
           dispatch({ type: "set-files-width", width: Math.max(180, Math.min(520, state.filesWidth + delta)) });
         }}
       />
-      <div id="files-header">
-        <span id="files-title">
-          <span>{label("files")}</span>
-          <span id="files-count">{state.treeSource?.pathCount ?? 0}</span>
-        </span>
-        <span id="files-header-actions">
+      {/* The sidebar is the filter field and the tree, nothing else (Lawrence,
+          round 2). "Hide viewed files" lives in the "..." menu. */}
+      <div id="files-filter" data-filter-active={filterActive}>
+        <Icon name="search" />
+        <input
+          id="file-filter-input"
+          type="search"
+          value={filter.query}
+          placeholder={label("filterFiles")}
+          aria-label={label("filterFiles")}
+          autoComplete="off"
+          spellCheck={false}
+          onChange={(event) => dispatch({ type: "set-file-filter", filter: { query: event.currentTarget.value } })}
+        />
+        {filterActive ? (
           <button
-            id="file-search-toggle"
-            type="button"
-            title={state.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch")}
-            aria-label={state.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch")}
-            aria-pressed={state.fileSearchOpen}
-            disabled={!state.treeSource}
-            onClick={() =>
-              state.fileSearchOpen ? closeFileSearch(dispatch) : dispatch({ type: "set-file-search-open", open: true })
-            }
-          >
-            <Icon name="search" />
-          </button>
-        </span>
-      </div>
-      <div id="files-review-bar" data-filter-active={filterActive}>
-        <span id="files-viewed-progress" aria-live="polite">
-          {formatViewedProgress(label("filesViewedProgress"), progress)}
-        </span>
-        <div id="files-filter">
-          <input
-            id="file-filter-input"
-            type="search"
-            value={filter.query}
-            placeholder={label("filterFiles")}
-            aria-label={label("filterFiles")}
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(event) => dispatch({ type: "set-file-filter", filter: { query: event.currentTarget.value } })}
-          />
-          {filterActive ? (
-            <button
-              id="file-filter-clear"
-              type="button"
-              className="files-filter-button"
-              title={label("clearFileFilter")}
-              aria-label={label("clearFileFilter")}
-              onClick={() => dispatch({ type: "set-file-filter", filter: defaultDiffFileFilter() })}
-            >
-              <Icon name="close" />
-            </button>
-          ) : null}
-        </div>
-        <div id="files-filter-toggles">
-          {allDiffFileStatuses.map((status) => (
-            <button
-              key={status}
-              type="button"
-              className="files-filter-button files-status-filter"
-              data-file-status-filter={status}
-              title={statusLabel(status)}
-              aria-label={statusLabel(status)}
-              aria-pressed={filter.statuses.includes(status)}
-              onClick={() =>
-                dispatch({ type: "set-file-filter", filter: { statuses: toggleStatusFilter(filter.statuses, status) } })
-              }
-            >
-              <Icon name={statusIconName[status]} />
-            </button>
-          ))}
-          <button
-            id="hide-viewed-toggle"
+            id="file-filter-clear"
             type="button"
             className="files-filter-button"
-            title={filter.hideViewed ? label("showViewedFiles") : label("hideViewedFiles")}
-            aria-label={filter.hideViewed ? label("showViewedFiles") : label("hideViewedFiles")}
-            aria-pressed={filter.hideViewed}
-            onClick={() => dispatch({ type: "set-file-filter", filter: { hideViewed: !filter.hideViewed } })}
+            title={label("clearFileFilter")}
+            aria-label={label("clearFileFilter")}
+            onClick={() => dispatch({ type: "set-file-filter", filter: defaultDiffFileFilter() })}
           >
-            <Icon name={filter.hideViewed ? "eyeClosed" : "eye"} />
+            <Icon name="close" />
           </button>
-        </div>
+        ) : null}
       </div>
       <div id="file-list">
         {treeSource && (visibleItemCount > 0 || !filterActive) ? (
           <PierreFileTree
-            fileSearchOpen={state.fileSearchOpen}
-            fileSearchRequest={state.fileSearchRequest}
             label={label}
             onActivateItem={onActivateItem}
             onSelectItem={onSelectItem}
@@ -2250,8 +2247,6 @@ function FilesSidebar({
 }
 
 function PierreFileTree({
-  fileSearchOpen,
-  fileSearchRequest,
   label,
   onActivateItem,
   onSelectItem,
@@ -2260,8 +2255,6 @@ function PierreFileTree({
   source,
   viewedStateByPath,
 }: {
-  fileSearchOpen: boolean;
-  fileSearchRequest: number;
   label: DiffViewerLabelResolver;
   /** A plain click (or Enter/Space) on a file row: the shared file activation. */
   onActivateItem: (itemId: string) => void;
@@ -2307,6 +2300,7 @@ function PierreFileTree({
     [latest, onActivate],
   );
   const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
+  const [measureStats] = useState(() => createTextMeasure(FILE_TREE_FONT_FAMILY));
   const { model } = useFileTree({
     // Single-child folder chains render as one row ("infra / tsadmin").
     flattenEmptyDirectories: true,
@@ -2314,28 +2308,26 @@ function PierreFileTree({
     initialExpansion: "open",
     initialSelectedPaths: selectedPath ? [selectedPath] : [],
     initialVisibleRowCount: getInitialFileTreeRowCount(),
-    // Compact preset spacing on a 22px row (screenshot parity with the
-    // classic viewer's file list).
-    density: "compact",
+    // The sidebar's own filter field (FilesSidebar) is the one search; the
+    // rows are the classic viewer's 29 px (screenshot 5.20.26).
     itemHeight: FILE_TREE_ITEM_HEIGHT,
     overscan: 12,
     preparedInput: initialPreparedInput,
-    search: true,
-    searchBlurBehavior: "retain",
+    search: false,
     stickyFolders: true,
-    gitStatus: source.gitStatus as any,
+    // No `gitStatus`: the classic list shows no status letters, changed-folder
+    // dots or status-colored names, only the counts.
+    icons: fileTreeIcons(source.statsByPath.values(), measureStats),
     sort: () => 0,
     unsafeCSS: fileTreeUnsafeCSS(),
     composition: { contextMenu: { enabled: true, triggerMode: "right-click" } },
-    // Pierre tree rows accept a text/icon decoration, not custom children, so
-    // a file's "+N -N" counts and its "Viewed" mark share one text decoration;
-    // the toggle lives in the row's context menu (the header checkbox and `v`
-    // are the primary controls).
+    // "+N -N" in green and red (file-tree-stats.ts). Viewed marks stay on the
+    // file bar's eye and the row's context menu.
     renderRowDecoration({ item }) {
       return fileTreeRowDecoration(
         latest.current.source.statsByPath.get(item.path),
-        latest.current.viewedStateByPath.get(item.path),
         latest.current.label,
+        measureStats,
       );
     },
     onSelectionChange(paths: readonly string[]) {
@@ -2357,10 +2349,8 @@ function PierreFileTree({
     },
   });
 
-  usePierreFileTreeSource(model, source);
-  usePierreFileTreeSearch(model, fileSearchOpen, fileSearchRequest);
+  usePierreFileTreeSource(model, source, measureStats);
   usePierreFileTreeSelection(model, selectedPath, syncingSelection);
-  usePierreFileTreeViewedRefresh(model, source, viewedStateByPath);
 
   return (
     // A file row click acts on the file like its header bar (file-activation.ts).
@@ -2526,7 +2516,11 @@ function sameThemeOption(
   );
 }
 
-function usePierreFileTreeSource(model: ReturnType<typeof useFileTree>["model"], source: FileTreeSource): void {
+function usePierreFileTreeSource(
+  model: ReturnType<typeof useFileTree>["model"],
+  source: FileTreeSource,
+  measureStats: MeasureText,
+): void {
   const previousSource = useRef<FileTreeSource | null>(null);
   useEffect(() => {
     const previous = previousSource.current;
@@ -2549,28 +2543,24 @@ function usePierreFileTreeSource(model: ReturnType<typeof useFileTree>["model"],
       model.resetPaths(source.paths, { preparedInput });
       useFullGitStatus = true;
     }
-    applyPierreFileTreeGitStatus(model as any, source, useFullGitStatus);
-  }, [model, source]);
+    // Setting the icons re-renders the rows, so new counts show, and adds the
+    // count symbols of new files (file-tree-stats.ts).
+    if (useFullGitStatus || plan.kind !== "append" || plan.addedPaths.length > 0 || source.statsChanged === true) {
+      model.setIcons(fileTreeIcons(source.statsByPath.values(), measureStats));
+    }
+  }, [measureStats, model, source]);
 }
 
-function usePierreFileTreeSearch(
-  model: ReturnType<typeof useFileTree>["model"],
-  fileSearchOpen: boolean,
-  fileSearchRequest: number,
-): void {
+/** "Open file search" (the native action, `diffViewerOpenFileSearch`) focuses the sidebar's filter field. */
+function useFileFilterFocus(fileSearchOpen: boolean, fileSearchRequest: number): void {
   useEffect(() => {
-    if (fileSearchOpen) {
-      const wasOpen = model.isSearchOpen();
-      model.openSearch(wasOpen ? model.getSearchValue() : "");
-      if (wasOpen) {
-        const container = model.getFileTreeContainer();
-        const root = container?.shadowRoot ?? container?.getRootNode();
-        (root as ParentNode | undefined)?.querySelector<HTMLInputElement>("[data-file-tree-search-input]")?.focus();
-      }
-    } else {
-      model.closeSearch();
+    if (!fileSearchOpen) {
+      return;
     }
-  }, [fileSearchOpen, fileSearchRequest, model]);
+    const input = document.getElementById("file-filter-input") as HTMLInputElement | null;
+    input?.focus();
+    input?.select();
+  }, [fileSearchOpen, fileSearchRequest]);
 }
 
 function usePierreFileTreeSelection(
@@ -2982,6 +2972,10 @@ function useDeferredHydration(items: DiffItem[], dispatch: React.Dispatch<AppAct
   }, [dispatch, items]);
 }
 
+function setDataset(dataset: DOMStringMap, key: string, value: string): void {
+  if (dataset[key] !== value) dataset[key] = value;
+}
+
 function usePageDataAttributes(state: AppState) {
   // The files panel shows and hides through its motion (files-panel-motion.ts),
   // which flips `data-files-hidden` in this commit's frame and slides the
@@ -2990,6 +2984,11 @@ function usePageDataAttributes(state: AppState) {
   useLayoutEffect(() => {
     filesPanelMotion.current ??= createFilesPanelMotion({
       panel: () => document.getElementById("files-sidebar"),
+      curtain: () => document.getElementById("files-motion-curtain"),
+      timelineTime: () => {
+        const time = document.timeline?.currentTime;
+        return typeof time === "number" ? time : null;
+      },
       body: document.body,
       currentOffset: (panel) => computedTranslateX(panel as HTMLElement),
       requestFrame: (callback) => requestAnimationFrame(() => callback()),
@@ -2998,19 +2997,23 @@ function usePageDataAttributes(state: AppState) {
     filesPanelMotion.current.set(state.filesVisible);
   }, [state.filesVisible]);
   useEffect(() => {
-    document.body.dataset.loading = state.status.loading ? "true" : "false";
-    document.documentElement.dataset.layout = state.options.layout;
-    document.documentElement.dataset.wordWrap = String(state.options.wordWrap);
-    document.documentElement.dataset.diffIndicators = state.options.diffIndicators;
-    document.body.dataset.generatedPathCount = String(state.generatedPaths.length);
+    // Written only when a value changes: an attribute write on <html> or <body> invalidates style
+    // for the whole document, and this runs after every state change (an input's frame included).
+    const body = document.body.dataset;
+    const root = document.documentElement.dataset;
+    setDataset(body, "loading", state.status.loading ? "true" : "false");
+    setDataset(root, "layout", state.options.layout);
+    setDataset(root, "wordWrap", String(state.options.wordWrap));
+    setDataset(root, "diffIndicators", state.options.diffIndicators);
+    setDataset(body, "generatedPathCount", String(state.generatedPaths.length));
     if (state.metrics) {
-      document.body.dataset.streamFileCount = String(state.metrics.fileCount ?? state.items.length);
-      document.body.dataset.streamRenderableFileCount = String(state.metrics.renderableFileCount ?? state.items.length);
-      document.body.dataset.streamFlushCount = String(state.metrics.flushCount ?? 0);
-      document.body.dataset.streamMaxBatchSize = String(state.metrics.maxBatchSize ?? 0);
-      document.body.dataset.streamTreeRefreshCount = String(state.metrics.treeRefreshCount ?? 0);
+      setDataset(body, "streamFileCount", String(state.metrics.fileCount ?? state.items.length));
+      setDataset(body, "streamRenderableFileCount", String(state.metrics.renderableFileCount ?? state.items.length));
+      setDataset(body, "streamFlushCount", String(state.metrics.flushCount ?? 0));
+      setDataset(body, "streamMaxBatchSize", String(state.metrics.maxBatchSize ?? 0));
+      setDataset(body, "streamTreeRefreshCount", String(state.metrics.treeRefreshCount ?? 0));
       if (Number.isFinite(state.metrics.completedAt) && state.metrics.completedAt > 0) {
-        document.body.dataset.streamElapsedMs = String(Math.round(state.metrics.completedAt - state.metrics.startedAt));
+        setDataset(body, "streamElapsedMs", String(Math.round(state.metrics.completedAt - state.metrics.startedAt)));
       }
     }
     applyDiffViewerStatusToDocument(state.status);
@@ -3242,7 +3245,9 @@ export function visibleItemId(
   return visibleIndex >= 0 ? items[visibleIndex].id : "";
 }
 
-const FILE_TREE_ITEM_HEIGHT = 22;
+const FILE_TREE_ITEM_HEIGHT = 29;
+const FILE_TREE_FONT_FAMILY =
+  'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
 
 function getInitialFileTreeRowCount(): number {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
@@ -3258,27 +3263,23 @@ function getInitialFileTreeRowCount(): number {
  */
 export function fileTreeRowDecoration(
   stats: { added: number; deleted: number } | undefined,
-  viewedState: ViewedFileState | undefined,
   label: DiffViewerLabelResolver,
-): { text: string; title: string } | null {
-  const parts: string[] = [];
-  const titles: string[] = [];
-  if (viewedState === "viewed") {
-    parts.push("✓");
-    titles.push(label("viewed"));
-  } else if (viewedState === "changed") {
-    parts.push("↻");
-    titles.push(label("changedSinceViewed"));
-  }
-  if (stats != null) {
-    if (stats.added > 0) {
-      parts.push(`+${stats.added}`);
-      titles.push(`${label("additions")} ${stats.added}`);
-    }
-    if (stats.deleted > 0) {
-      parts.push(`-${stats.deleted}`);
-      titles.push(`${label("deletions")} ${stats.deleted}`);
-    }
-  }
-  return parts.length === 0 ? null : { text: parts.join(" "), title: titles.join(", ") };
+  measure: MeasureText,
+): FileTreeStatsDecoration | null {
+  return fileTreeStatsDecoration(stats, { additions: label("additions"), deletions: label("deletions") }, measure);
 }
+
+/**
+ * The tree's icon config: the built-in set, the classic list's thin folder
+ * caret, and one symbol per count pair.
+ */
+function fileTreeIcons(stats: Iterable<{ added: number; deleted: number }>, measure: MeasureText) {
+  return {
+    set: "complete" as const,
+    remap: { "file-tree-icon-chevron": { name: FILE_TREE_CARET_SYMBOL, width: 16, height: 16, viewBox: "0 0 16 16" } },
+    spriteSheet: diffStatSpriteSheet(stats, measure, FILE_TREE_CARET_SPRITE),
+  };
+}
+
+const FILE_TREE_CARET_SYMBOL = "cmux-tree-caret";
+const FILE_TREE_CARET_SPRITE = `<symbol id="${FILE_TREE_CARET_SYMBOL}" viewBox="0 0 16 16"><path d="M4.5 6.5 8 10l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>`;

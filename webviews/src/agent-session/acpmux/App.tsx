@@ -1,6 +1,16 @@
-import React, { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { flushSync } from "react-dom";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import {
   diffRows,
@@ -25,6 +35,8 @@ import { projectLabel } from "./sessionList";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
+import { applySwitch, HarnessSwitch, type SwitchPort } from "./harnessSwitch";
+import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -32,7 +44,8 @@ import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { Composer } from "./Composer";
+import { Composer, type ComposerHandle } from "./Composer";
+import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
@@ -42,7 +55,7 @@ import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
 import { agentName } from "./agents";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
@@ -73,13 +86,14 @@ import { Undo } from "./conversation/icons";
 import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { DateLine } from "./conversation/DateLine";
-import { SearchChats } from "./SearchChats";
+import { nextSearchState, SearchChats, searchAnimates, type SearchState } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { CopyChatLink } from "./CopyChatLink";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
+import { SwitchNotice } from "./SwitchNotice";
 import { ContinueMenu } from "./handoff/ContinueMenu";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings, localizedHandoffStrings } from "./handoff/strings";
@@ -211,10 +225,27 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
   function MessageRow({ row }: RowProps) {
+    const t = useT();
     if (row.kind === "user")
       return (
         <div className="cv-user">
-          <div className="cv-user__bubble">{row.text ?? ""}</div>
+          <div className="cv-user__bubble selectable">{row.text ?? ""}</div>
+          {row.status && (
+            <div className="cv-user__status">
+              <span>{row.status}</span>
+              {row.queued && (
+                <button
+                  type="button"
+                  className="cv-user__cancel"
+                  onClick={() =>
+                    void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: row.queued })
+                  }
+                >
+                  {t("switch.cancelPrompt")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       );
     return <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} />;
@@ -288,6 +319,7 @@ const NoticeRow = memo(
 );
 const PermissionRow = memo(
   function PermissionRow({ row }: RowProps) {
+    const t = useT();
     const permission = row.permission;
     if (!permission)
       return (
@@ -306,6 +338,7 @@ const EDITED_FILES_SHOWN = 3;
 /// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
+    const t = useT();
     const [showAll, setShowAll] = useState(false);
     const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
     const toolFiles = useMemo(() => turnFiles([row]), [row]);
@@ -445,6 +478,34 @@ const defaultRegistry: NativeRegistry = {
 type DrawnHeight = { version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
+/// Slides the thread from `step` px below to its place over 180 ms, so content that grew at the
+/// latest row glides in. Glides stack (`composite: "add"`). None under Reduce Motion.
+function glide(node: HTMLElement | null, step: number): void {
+  if (!node || typeof node.animate !== "function") return;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
+    duration: GLIDE_MS,
+    easing: "cubic-bezier(0.2, 0, 0, 1)",
+    composite: "add",
+  });
+}
+const GLIDE_MS = 180;
+
+/// Whether `updates` change any drawn height in `current`.
+function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
+  for (const [id, entry] of updates) {
+    const old = current.get(id);
+    if (
+      !old ||
+      old.version !== entry.version ||
+      old.width !== entry.width ||
+      Math.abs(old.height - entry.height) >= 0.5
+    )
+      return true;
+  }
+  return false;
+}
+
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
@@ -559,6 +620,8 @@ export function VirtualTranscript({
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
+  const drawnRef = useRef(drawn);
+  drawnRef.current = drawn;
   const rowWidthRef = useRef(transcriptRowWidth(width));
   rowWidthRef.current = transcriptRowWidth(width);
   const rowsRef = useRef(rows);
@@ -611,8 +674,11 @@ export function VirtualTranscript({
               if (row && row.id === target.dataset.rowId)
                 reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
             }
-            // A late size change (a font loading) must not paint a frame of overlap first.
-            flushSync(flushDrawn);
+            // A late size change (a font loading) must not paint a frame of overlap first. Sizes
+            // that did not change render nothing: a synchronous render here for nothing was the
+            // "ResizeObserver loop completed with undelivered notifications" while streaming.
+            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
+            else flushSync(flushDrawn);
           }),
     [reportDrawn, flushDrawn],
   );
@@ -644,6 +710,20 @@ export function VirtualTranscript({
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
+  const thread = useRef<HTMLDivElement>(null);
+  // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const endGlide = () => {
+      for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
+    };
+    const events = ["wheel", "touchstart", "keydown"] as const;
+    for (const name of events) node.addEventListener(name, endGlide, { passive: true });
+    return () => {
+      for (const name of events) node.removeEventListener(name, endGlide);
+    };
+  }, []);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
@@ -711,7 +791,10 @@ export function VirtualTranscript({
       if (top > 0 && didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-        if (Math.abs(latest - node.scrollTop) > 0.5) node.scrollTop = latest;
+        const step = latest - node.scrollTop;
+        if (Math.abs(step) > 0.5) node.scrollTop = latest;
+        // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll").
+        if (step > 0.5 && step < node.clientHeight) glide(thread.current, step);
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -753,7 +836,7 @@ export function VirtualTranscript({
   return (
     <div ref={ref} className="acpmux-scroll" role="feed" aria-label="Transcript" onScroll={onScroll}>
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
-        <div className="acpmux-thread">
+        <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {
             const absoluteIndex = range.first + index;
             const kind = rowKind(row);
@@ -801,6 +884,8 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
       onHarness={(harness) => void callNative("chat.new", { harness })}
+      // A prewarm hint for the direct client only: the native host has no daemon to warm.
+      onHarnessHint={(harness) => void window.cmuxAcpmuxActions?.["chat.harness.hint"]?.({ harness })}
     />
   );
 }
@@ -821,9 +906,24 @@ export function AcpmuxApp() {
 }
 
 function AcpmuxPane() {
+  const t = useT();
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
-  const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
+  /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
+  /// model switch over it (harnessSwitch.ts).
+  const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
+  const [harnessSwitch] = useState(() => new HarnessSwitch());
+  const switchView = useSyncExternalStore(harnessSwitch.subscribe, harnessSwitch.view, harnessSwitch.view);
+  const queryClient = useQueryClient();
+  // The pane keeps the last client's catalog until the next client's arrives;
+  // ids only grow, so a new client never reads an older client's cache entry.
+  const catalogClientId = useRef(0);
+  const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
+  const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog);
+  const snapshot = useMemo(
+    () => applySwitch(clientSnapshot, switchView, catalog),
+    [clientSnapshot, switchView, catalog],
+  );
   const [handoffLabels, setHandoffLabels] = useState(handoffStrings);
   const [checkpointLabels, setCheckpointLabels] = useState(checkpointStrings);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
@@ -1026,8 +1126,8 @@ function AcpmuxPane() {
     const pending = [...hunkDecisions].some(
       ([key, decision]) => decision === "rejected" && toolIds.has(key.split("\u0000")[0]!),
     );
-    return turnDisplay(diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
-  }, [diffFiles, diffTurn, hunkDecisions, turnCheckpoint]);
+    return turnDisplay(t, diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
+  }, [diffFiles, diffTurn, hunkDecisions, t, turnCheckpoint]);
   // The latest edited-files card shows its turn's checkpoint counts once the turn has ended.
   const endedEditTurn = useMemo(() => {
     let ended = false;
@@ -1099,7 +1199,9 @@ function AcpmuxPane() {
   // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
   // Settings and cmux.json), which calls the bridge's command("searchChats"). The host pushes the
   // live bindings through applyShortcuts, so labels follow a rebind.
-  const [searching, setSearching] = useState(false);
+  const [search, setSearch] = useState<SearchState>("closed");
+  const searchEvent = (event: "toggle" | "close" | "exited") =>
+    setSearch((state) => nextSearchState(state, event, searchAnimates()));
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
@@ -1154,6 +1256,17 @@ function AcpmuxPane() {
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
+  /// The composer itself, which takes back prompts a harness switch held; prompts handed back
+  /// while it is not mounted (a handoff review) go in when it mounts.
+  const composerHandle = useRef<ComposerHandle | null>(null);
+  const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
+  const composerRef = useCallback((handle: ComposerHandle | null) => {
+    composerHandle.current = handle;
+    const waiting = heldBack.current;
+    if (!handle || !waiting) return;
+    heldBack.current = undefined;
+    for (const back of waiting) handle.restore(back.text, back.attachments);
+  }, []);
   useComposerKeyboard(() => {
     if (!prompt.current) return false;
     prompt.current.focus();
@@ -1167,11 +1280,6 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
-  // The pane keeps the last client's catalog until the next client's arrives;
-  // ids only grow, so a new client never reads an older client's cache entry.
-  const catalogClientId = useRef(0);
-  const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
-  const catalog = useHarnessCatalog(catalogSource, snapshot.catalog);
   const composerSnapshot = useMemo(
     () => (catalog === snapshot.catalog ? snapshot : { ...snapshot, catalog }),
     [snapshot, catalog],
@@ -1193,7 +1301,7 @@ function AcpmuxPane() {
     window.cmuxAcpmuxBridge = {
       command(name) {
         // The Quick Composer has no chat list to search or switch to.
-        if (name === "searchChats" && surfaceRef.current !== "quick") setSearching((open) => !open);
+        if (name === "searchChats" && surfaceRef.current !== "quick") searchEvent("toggle");
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
           [
@@ -1302,6 +1410,17 @@ function AcpmuxPane() {
     let pendingPrompt: string | undefined;
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
+    /// The connected client as the harness switch sees it.
+    let switchPort: SwitchPort | undefined;
+    /// Sessions a switch started whose first summary has not arrived: it names the model a new
+    /// chat on that harness starts on.
+    const startedSessions = new Set<string>();
+    /// Prompts a failed or cancelled switch held go back into the composer with their
+    /// attachments, before what was typed since; while no composer is mounted they wait for one.
+    const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
+      if (composerHandle.current) composerHandle.current.restore(text, attachments);
+      else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+    };
     const connectHost = async () => {
       if (connecting) return;
       connecting = true;
@@ -1372,6 +1491,10 @@ function AcpmuxPane() {
           (next) => {
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
             snapshotRef.current = next;
+            // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
+            const summary = next.summary;
+            const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
+            harnessProfiles.observe(summary, started);
             setSnapshot((previous) => {
               if (
                 next.canHandoff &&
@@ -1387,6 +1510,8 @@ function AcpmuxPane() {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
             if (cancelled) return;
             reconnect = true;
+            // A switch in flight runs again on the next client.
+            harnessSwitch.disconnect(switchPort);
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
@@ -1411,6 +1536,9 @@ function AcpmuxPane() {
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
         const send = async (text: string, attachments: import("./attachments").ComposerAttachment[] = []) => {
+          // A harness switch holds the prompt until its session is ready.
+          const held = harnessSwitch.send(text, attachments, () => promptLanded.current());
+          if (held) return held;
           const sessionId = await client.ensureSession();
           await persistSession(sessionId);
           const turn = client.send(text, attachments);
@@ -1428,12 +1556,35 @@ function AcpmuxPane() {
           "chat.permission_group.retry": () => client.permissions.retry(),
           "chat.permission_chat.revoke": () => client.permissions.revoke(),
           "chat.permission_groups.refresh": () => client.permissions.refresh(),
-          "chat.model": ({ modelId }) => client.setModel(String(modelId)),
-          "chat.mode": ({ modeId }) => client.setMode(String(modeId)),
-          "chat.effort": ({ configId, value }) => client.setConfig(String(configId), String(value)),
-          "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
-          "chat.new": async ({ harness, cwd }) =>
-            persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
+          // A model, mode or effort picked while a harness starts waits for its session; a model
+          // picked in a live session draws at once (harnessSwitch.ts).
+          "chat.model": ({ modelId }) => {
+            const summary = snapshotRef.current?.summary;
+            return harnessSwitch.pickModel(
+              String(modelId),
+              summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined,
+            );
+          },
+          "chat.mode": async ({ modeId }) => {
+            if (!harnessSwitch.pickMode(String(modeId))) await client.setMode(String(modeId));
+          },
+          "chat.effort": async ({ configId, value }) => {
+            if (!harnessSwitch.pickConfig(String(configId), String(value)))
+              await client.setConfig(String(configId), String(value));
+          },
+          "chat.select": async ({ sessionId }) => {
+            harnessSwitch.cancel();
+            return persistSession(await client.select(String(sessionId)));
+          },
+          // A pick of another harness is a switch: drawn now, started behind it.
+          "chat.new": async ({ harness, cwd }) => {
+            if (harness) return harnessSwitch.switchTo(String(harness), cwd ? String(cwd) : undefined);
+            harnessSwitch.cancel();
+            return persistSession(await client.create(undefined, cwd ? String(cwd) : undefined));
+          },
+          "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
+          "chat.harness.retry": async () => harnessSwitch.retry(),
+          "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.history": () => client.loadOlder(),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
@@ -1443,8 +1594,14 @@ function AcpmuxPane() {
               String(query ?? ""),
               typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
             ),
-          "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
-          "chat.handoff.prepare": async ({ harness }) => persistSession(await client.continueIn(String(harness))),
+          "chat.fork": async ({ throughSeq }) => {
+            harnessSwitch.cancel();
+            return persistSession(await client.fork(Number(throughSeq)));
+          },
+          "chat.handoff.prepare": async ({ harness }) => {
+            harnessSwitch.cancel();
+            return persistSession(await client.continueIn(String(harness)));
+          },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
@@ -1455,6 +1612,36 @@ function AcpmuxPane() {
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
+        // The harness switch runs on this client; one waiting on a connection runs now.
+        switchPort = {
+          turnRunning: () => client.turnRunning(),
+          shown: () => client.shownSession(),
+          create: async (harness, cwd) => {
+            const sessionId = await client.startSession(harness, cwd);
+            if (sessionId) startedSessions.add(sessionId);
+            return sessionId;
+          },
+          leave: () => client.leave(),
+          open: (sessionId) => client.select(sessionId),
+          send: (text, attachments, promptId) => client.send(text, attachments, promptId),
+          setModel: (modelId) => client.setModel(modelId),
+          setMode: (modeId) => client.setMode(modeId),
+          setConfig: (configId, value) => client.setConfig(configId, value),
+          discard: (sessionId) => client.discard(sessionId),
+          prewarm: (harness, cwd) => client.prewarm(harness, cwd),
+          // A function, not a getter: the React Compiler skips a component with a getter.
+          prewarmSupported: () => client.prewarmSupported,
+        };
+        harnessSwitch.setHandlers({
+          restore: restorePrompt,
+          opened: (sessionId) => {
+            void persistSession(sessionId);
+            // The harness has started and probed its models: refresh the catalog behind the picker.
+            void queryClient.invalidateQueries({ queryKey: ["acpmux", "harnesses"] });
+          },
+          notice: (text) => client.notice(text),
+        });
+        harnessSwitch.connect(switchPort);
         acpmuxPerf.markAgent("composerReady");
         client.snapshot();
         void client.warmRecentProjects();
@@ -1474,9 +1661,12 @@ function AcpmuxPane() {
         const harness = pendingHarness;
         pendingPrompt = undefined;
         pendingHarness = undefined;
-        // A chat seeded with an agent starts on it before the prompt goes out.
-        const start = harness && prompt ? client.create(harness, host.cwd).then(persistSession) : Promise.resolve();
-        if (prompt) void start.then(() => send(prompt)).catch(() => setDraft(prompt));
+        // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
+        // that fails hands it back to the composer.
+        if (harness && prompt) {
+          void harnessSwitch.switchTo(harness, host.cwd);
+          void send(prompt).catch(() => undefined);
+        } else if (prompt) void send(prompt).catch(() => setDraft(prompt));
       } catch (error) {
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
@@ -1515,13 +1705,15 @@ function AcpmuxPane() {
     void connectHost();
     return () => {
       cancelled = true;
+      harnessSwitch.disconnect();
       retryHost.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
       delete window.cmuxAcpmuxActions;
     };
-  }, []);
+    // Both are stable for the pane's life (a state initializer and the provider's client).
+  }, [harnessSwitch, queryClient]);
   const ComposerChips =
     ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
       | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
@@ -1629,6 +1821,7 @@ function AcpmuxPane() {
   const composer = !reviewing && !handoffLoading && (
     <>
       <DictationNotice dictation={dictation} />
+      <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       <Composer
         snapshot={composerSnapshot}
         chips={ComposerChips}
@@ -1644,6 +1837,7 @@ function AcpmuxPane() {
         searchFiles={fileRoot ? searchFiles : undefined}
         onOpenInWindow={quick ? openInWindow : undefined}
         prompt={prompt}
+        handle={composerRef}
         accessory={<DictationButton dictation={dictation} />}
       />
     </>
@@ -1695,7 +1889,6 @@ function AcpmuxPane() {
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
-              mode={newTab.mode}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
               {...newTabScreenActions({
@@ -1838,16 +2031,18 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {searching && (
+        {search !== "closed" && (
           <SearchChats
             sessions={snapshot.sessions}
-            onClose={() => setSearching(false)}
+            closing={search === "closing"}
+            onExited={() => searchEvent("exited")}
+            onClose={() => searchEvent("close")}
             onSelect={(sessionId) => {
-              setSearching(false);
+              searchEvent("close");
               selectSession(sessionId);
             }}
             onNewChat={() => {
-              setSearching(false);
+              searchEvent("close");
               newChat();
             }}
           />

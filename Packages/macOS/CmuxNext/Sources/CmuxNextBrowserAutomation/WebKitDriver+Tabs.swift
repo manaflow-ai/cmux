@@ -44,6 +44,18 @@ extension WebKitDriver {
     }
 
     func tabsClose(_ params: DriverParams) throws(DriverError) -> DriverJSON {
+        if try params.optionalString("reason") == "session_end" {
+            // The host closes the session's own tabs at its end, for either engine.
+            let id = try params.string("targetId")
+            let page = provider?.automationTabs(all: true).first { $0.tab.id.rawValue == id }?.tab
+            // A tab the app keeps stays driven; only a tab that closes leaves the session.
+            guard provider?.endSessionTab(id) == true else { return .null }
+            if let page {
+                AgentWorld.uninstall(from: page.webView.configuration.userContentController)
+                tabClosed(page.id)
+            }
+            return .null
+        }
         let (tab, _) = try target(params)
         tabClosedByDriver(tab)
         return .null

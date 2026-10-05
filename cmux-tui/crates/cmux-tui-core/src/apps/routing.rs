@@ -113,6 +113,10 @@ impl OpRouter for MuxRouter {
             .mux
             .upgrade()
             .ok_or_else(|| error("operation.failed", "the daemon is shutting down"))?;
+        // An app's call has origin app (request-origin.md): gate A2 refuses
+        // the operations that need the user.
+        crate::request_origin::require_origin(op, crate::request_origin::RequestOrigin::App)
+            .map_err(|e| json!({ "code": e.code, "message": e.message, "details": e.details, "retryable": e.retryable }))?;
         let message = request(op, params, idempotency_key)?;
         let parsed = resource_router::parse_resource_request(&message)
             .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;
@@ -142,6 +146,24 @@ impl OpRouter for MuxRouter {
                 }
             }
         });
+    }
+
+    fn spawn_backend_terminal(
+        &self,
+        side: crate::terminal_backend::pty::BackendSide,
+    ) -> anyhow::Result<crate::mux::app_terminals::BackendTerminal> {
+        let mux = self.mux.upgrade().ok_or_else(|| anyhow::anyhow!("the daemon is stopping"))?;
+        mux.spawn_backend_terminal(side)
+    }
+
+    fn backend_terminal_viewed(&self, surface: crate::SurfaceId) -> bool {
+        self.mux.upgrade().is_some_and(|mux| mux.backend_terminal_viewed(surface))
+    }
+
+    fn close_backend_terminal(&self, surface: crate::SurfaceId) {
+        if let Some(mux) = self.mux.upgrade() {
+            mux.close_backend_terminal(surface);
+        }
     }
 }
 

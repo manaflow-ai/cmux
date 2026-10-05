@@ -8,7 +8,7 @@ import CmuxNextTabs
 /// ends when the move settles, and a drop's display index is turned into
 /// the pane's own index, so both orders are the same once a move lands.
 enum StripOrder {
-    /// A tab dragged within its strip. An app-local tab (agent chat,
+    /// A tab dragged within its strip. An app-local tab (internal page,
     /// session browser tab) has no daemon slot to move to: the strip shows
     /// the model's order again.
     static func reorder(_ id: StripTabID, to index: Int, in pane: PaneController) {

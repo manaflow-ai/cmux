@@ -38,6 +38,9 @@ extension SettingDescriptor {
         case .hostList:
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { $0.stringValue != nil }
+        case .folderList:
+            guard case .array(let items) = value else { return false }
+            return items.allSatisfy { $0.stringValue.map { $0.hasPrefix("/") || $0.hasPrefix("~/") } ?? false }
         case .timeRange:
             guard case .object(let members) = value else { return false }
             return members["start"]?.stringValue.flatMap(QuietHours.minutes) != nil
@@ -46,6 +49,12 @@ extension SettingDescriptor {
             return value.stringValue.map(AppThemeSetting().isValid) ?? false
         case .fontFamily:
             return value.stringValue.map(TerminalFontSetting().isValidFamily) ?? false
+        case .numberList(let number):
+            guard case .array(let items) = value else { return false }
+            return items.allSatisfy { item in item.doubleValue.map { $0.isFinite && number.range.contains($0) } ?? false }
+        case .stringMap:
+            guard case .object(let members) = value else { return false }
+            return members.values.allSatisfy { $0.stringValue != nil }
         }
     }
 

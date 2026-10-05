@@ -57,7 +57,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             opener: { size in
                 try await TerminalAttachment.attach(endpoint: try await endpoint(), target: target.attachment,
                                                     size: size, claimGeometry: false,
-                                                    snapshotVersion: Self.attachSnapshotVersion)
+                                                    snapshotVersion: Self.attachSnapshotVersion,
+                                                    localHistory: Self.attachLocalHistory)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -103,6 +104,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// A click in a disconnected view re-attaches it.
     func reconnectRequested() async {
         driver.reconnect()
+    }
+
+    /// The surface's local history did not match the host's: ask for a
+    /// fresh READY + history.
+    func resyncRequested() async {
+        driver.requestResync()
     }
 
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
@@ -166,6 +173,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// The GHOSTSNP version the surface restores (`terminal-snapshot-v1`);
     /// nil when the linked libghostty cannot restore snapshots.
     static let attachSnapshotVersion: UInt16? = TerminalSession.snapshotVersion == 0 ? nil : TerminalSession.snapshotVersion
+    /// The surface restores local-history READYs (S2c).
+    static let attachLocalHistory = TerminalSession.restoresLocalHistory
 
     static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
         switch step {
@@ -175,7 +184,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         return switch step {
         case .grid(let columns, let rows): .resize(cols: columns, rows: rows)
         case .replay(let replay): replayEvent(replay)
-        case .snapshot(let frame): .snapshot(frame.data, phase: frame.phase == .ready ? .ready : .history)
+        case .snapshot(let frame): .snapshot(frame.data, phase: snapshotPhase(frame))
         case .output(let data): .output(data)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
@@ -197,6 +206,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .attachFailed: .attachFailed
         case .fellBehind: .fellBehind
         }
+    }
+
+    private static func snapshotPhase(_ frame: TerminalSnapshotFrame) -> TerminalSnapshotPhase {
+        guard frame.phase == .ready else { return .history }
+        guard let check = frame.localHistory, let cols = frame.cols, let rows = frame.rows else { return .ready }
+        return .readyLocalHistory(TerminalLocalHistory(columns: cols, rows: rows, historyRows: check.rows, digest: check.digest))
     }
 
     /// A replay with usable Kitty graphics state restores it; otherwise the

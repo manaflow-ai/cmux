@@ -11,7 +11,7 @@ import Testing
         #expect(NewTabPage.kind(selectedID: "surface-1", selectedKind: .pty) == .agent)
         #expect(NewTabPage.kind(selectedID: "surface-2", selectedKind: .browser) == .agent)
         #expect(NewTabPage.kind(selectedID: LocalBrowserTab.prefix + "a", selectedKind: nil) == .agent)
-        #expect(NewTabPage.kind(selectedID: LocalAgentTab.prefix + "a", selectedKind: nil) == .agent)
+        #expect(NewTabPage.kind(selectedID: "tab_agent", selectedKind: .conversation) == .agent)
         #expect(NewTabPage.kind(selectedID: nil, selectedKind: nil) == .agent)
     }
 

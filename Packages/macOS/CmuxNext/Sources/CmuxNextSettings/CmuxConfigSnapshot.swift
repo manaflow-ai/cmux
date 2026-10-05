@@ -69,6 +69,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previewFeatures = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
+    /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
+    public var browserLinkClicks: BrowserLinkClickSetting = .fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
@@ -97,6 +99,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
+    /// `sidebar.border` and `sidebar.borderWidth`.
+    public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
@@ -126,6 +130,17 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// `window.titlebarButtons`; "hover" when unset or invalid.
+    public var titlebarButtons: TitlebarButtonsMode = TitlebarButtonsSetting.fallback
+    /// `tabs.plusButton`; "hover" when unset or invalid.
+    public var plusButton: PlusButtonMode = PlusButtonSetting.fallback
+    /// `sidebar.side` and `sidebar.spacesPosition` (R109).
+    public var sidebarSide: SidebarSide = .left
+    public var spacesPosition: SpacesPosition = .bottom
+    /// `tabs.barPosition` (R109).
+    public var tabBarPosition: TabBarPosition = .top
+    /// `tabs.barOrder` (R109).
+    public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
@@ -136,6 +151,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
     public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting().fallback
+    /// `picker.pinned`: the cmux picker's pinned folders (absolute paths).
+    public var pickerPinned: [String] = []
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -149,6 +166,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
+    /// `updates.*`: automatic update behavior (R114).
+    public var updates = UpdatesSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
     public var feedGitHub = FeedGitHubSettings()
     public var diagnostics: [SettingsDiagnostic]
@@ -197,6 +216,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
+        let (linkClicks, linkClickDiagnostics) = BrowserLinkClickSetting.parse(root)
+        snapshot.browserLinkClicks = linkClicks
+        snapshot.diagnostics += linkClickDiagnostics
         let (remoteLocalhost, remoteLocalhostDiagnostics) = RemoteLocalhostSetting.parse(root)
         snapshot.remoteLocalhost = remoteLocalhost
         snapshot.diagnostics += remoteLocalhostDiagnostics
@@ -217,6 +239,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
@@ -242,6 +265,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        let (titlebarButtons, titlebarButtonsDiagnostic) = TitlebarButtonsSetting.parse(root)
+        snapshot.titlebarButtons = titlebarButtons
+        if let titlebarButtonsDiagnostic { snapshot.diagnostics.append(titlebarButtonsDiagnostic) }
+        let (plusButton, plusButtonDiagnostic) = PlusButtonSetting.parse(root)
+        snapshot.plusButton = plusButton
+        if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
+        ChromePlacementSetting.parse(root, into: &snapshot)
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
@@ -254,6 +284,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
+        let (pinned, pinnedDiagnostics) = PickerPinnedSetting.parse(root, home: NSHomeDirectory())
+        snapshot.pickerPinned = pinned
+        snapshot.diagnostics += pinnedDiagnostics
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
@@ -265,6 +298,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let historyScopeDiagnostic { snapshot.diagnostics.append(historyScopeDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
@@ -301,11 +335,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                             }
                             snapshot.metrics[name] = number
                             // The applier clamps; the diagnostic says so, as the Settings window refuses it.
-                            let interfaceSize = InterfaceSizeSetting()
-                            if name == interfaceSize.metricName, !interfaceSize.range.contains(number) {
+                            if let range = LayoutMetricSetting.ranges[name], !range.contains(number) {
                                 snapshot.diagnostics.append(SettingsDiagnostic(
                                     kind: .invalidValue, path: path,
-                                    message: "expected a size in points from \(Int(interfaceSize.range.lowerBound)) to \(Int(interfaceSize.range.upperBound)); clamped"
+                                    message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
                                 ))
                             }
                         }

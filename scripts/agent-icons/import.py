@@ -10,8 +10,12 @@ artwork lives and which paths make the mark:
       "paths": [{"from": [i, ...], "fillRule": "evenodd", "opacity": "0", "strokeWidth": "3.5"}],
       "viewBox": "x y w h",     # the crop to the glyph (default: the file's own)
       "transform": "...",       # applied to every path (svgo folds it in)
-      "precision": 2            # decimals svgo keeps
+      "precision": 2,           # decimals svgo keeps
+      "simplify": 0.4           # optional: drop staircase steps under 0.4 units (traced art)
     }
+
+A brand whose mark is unreadable at 16 pt also has `"small": {"import": {...}, "source": {...}}`,
+written to svg/<brand>.small.svg: the owner's simpler artwork for small sizes.
 
 Each `paths` entry concatenates the listed source paths into one path; without `paths` every
 source path is kept. svgo (pinned, run with bunx) minimizes the result. Nothing is redrawn.
@@ -24,6 +28,7 @@ Then run scripts/agent-icons/generate.py.
 """
 import argparse
 import gzip
+import importlib.util
 import io
 import os
 import json
@@ -126,6 +131,8 @@ def build(brand, recipe, cache):
     body = []
     for group in groups:
         d = "".join(shape_path(tags[i]) for i in group["from"])
+        if recipe.get("simplify"):
+            d = simplify(d, float(recipe["simplify"]))
         attrs = ""
         if group.get("fillRule") == "evenodd":
             attrs += ' fill-rule="evenodd"'
@@ -138,6 +145,65 @@ def build(brand, recipe, cache):
     if recipe.get("transform"):
         inner = f'<g transform="{recipe["transform"]}">{inner}</g>'
     return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{view_box}" fill="currentColor">{inner}</svg>'
+
+
+def load_path_tools():
+    spec = importlib.util.spec_from_file_location("build_pack", REPO / "scripts/icons/build_pack.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.parse_path
+
+
+def simplify(d, tolerance, transform=None):
+    """Ramer-Douglas-Peucker on each run of straight segments; curves stay as they are.
+
+    For traced artwork whose outline is a staircase of tiny steps (the Hermes wing):
+    steps smaller than `tolerance` view-box units cannot show at small sizes.
+    """
+    parse_path = load_path_tools()
+
+    def rdp(points):
+        if len(points) < 3:
+            return points
+        (x1, y1), (x2, y2) = points[0], points[-1]
+        dx, dy = x2 - x1, y2 - y1
+        norm = (dx * dx + dy * dy) ** 0.5 or 1e-9
+        index, worst = 0, -1.0
+        for i in range(1, len(points) - 1):
+            px, py = points[i]
+            distance = abs(dy * px - dx * py + x2 * y1 - y2 * x1) / norm
+            if distance > worst:
+                index, worst = i, distance
+        if worst <= tolerance:
+            return [points[0], points[-1]]
+        return rdp(points[:index + 1])[:-1] + rdp(points[index:])
+
+    out, run = [], []
+
+    def flush():
+        if len(run) > 1:
+            out.extend(f"L{x:g} {y:g}" for x, y in rdp(run)[1:])
+        run.clear()
+
+    for seg in parse_path(d):
+        if seg[0] == "M":
+            flush()
+            out.append(f"M{seg[1][0]:g} {seg[1][1]:g}")
+            run.append(seg[1])
+        elif seg[0] == "L":
+            if not run:
+                run.append(seg[1])
+            else:
+                run.append(seg[1])
+        elif seg[0] == "C":
+            flush()
+            out.append("C" + " ".join(f"{x:g} {y:g}" for x, y in seg[1:]))
+            run.append(seg[3])
+        else:
+            flush()
+            out.append("Z")
+    flush()
+    return "".join(out)
 
 
 def minimize(raw, precision, workdir):
@@ -162,16 +228,19 @@ def main():
         for brand in manifest["brands"]:
             if args.brand and brand["id"] not in args.brand:
                 continue
-            recipe = brand["import"]
-            svg = minimize(build(brand["id"], recipe, cache), recipe.get("precision", 2), workdir)
-            path = SOURCE / "svg" / f"{brand['id']}.svg"
-            if args.check:
-                if not path.exists() or path.read_text() != svg:
-                    differs.append(brand["id"])
-                print(f"{brand['id']:12} {len(svg.encode()):6d} B {'differs' if brand['id'] in differs else 'same'}")
-            else:
-                path.write_text(svg)
-                print(f"{brand['id']:12} {len(svg.encode()):6d} B")
+            jobs = [(brand["id"], brand["import"], f"{brand['id']}.svg")]
+            if "small" in brand:
+                jobs.append((brand["id"] + " small", brand["small"]["import"], f"{brand['id']}.small.svg"))
+            for label, recipe, filename in jobs:
+                svg = minimize(build(label, recipe, cache), recipe.get("precision", 2), workdir)
+                path = SOURCE / "svg" / filename
+                if args.check:
+                    if not path.exists() or path.read_text() != svg:
+                        differs.append(label)
+                    print(f"{label:18} {len(svg.encode()):6d} B {'differs' if label in differs else 'same'}")
+                else:
+                    path.write_text(svg)
+                    print(f"{label:18} {len(svg.encode()):6d} B")
     if differs:
         print("re-import differs for: " + ", ".join(differs), file=sys.stderr)
         return 1
