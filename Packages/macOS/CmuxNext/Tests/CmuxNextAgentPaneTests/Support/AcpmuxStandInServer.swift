@@ -186,6 +186,17 @@ nonisolated final class AcpmuxStandInServer: Sendable {
         connection.send(content: Data(text.utf8), contentContext: context, isComplete: true, completion: .idempotent)
     }
 
+    /// Sends `texts` to connection `index`, then closes it at once (a daemon that ends right after
+    /// its last frames).
+    func pushThenClose(_ texts: [String], to index: Int) {
+        guard let connection = state.withLock({ $0.connections.indices.contains(index) ? $0.connections[index] : nil }) else { return }
+        for text in texts { push(text, to: index) }
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .close)
+        metadata.closeCode = .protocolCode(.normalClosure)
+        let context = NWConnection.ContentContext(identifier: "close", metadata: [metadata])
+        connection.send(content: nil, contentContext: context, isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
+    }
+
     /// A bench acknowledgement: an allowlisted notification, so it passes the relay as any page
     /// frame does: `{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"a<seq>"}}`.
     static let ackMarker = #""sessionId":"a"#
