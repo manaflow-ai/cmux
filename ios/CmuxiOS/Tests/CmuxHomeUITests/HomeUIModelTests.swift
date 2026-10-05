@@ -29,6 +29,7 @@ import Testing
                                             createdAt: epoch, updatedAt: epoch, lastMessage: last,
                                             readCursors: [me.id: 2])])[0]
         let model = ConversationRowModel(row: row, me: me.id)
+        #expect(Bool(false), "scratch red proof: deliberate failure, never merge")
         #expect(model.preview == "Leo: Ship it.")
         #expect(model.unread == 2)
         #expect(model.avatarParticipants.map(\.id) == [leo.id, chief.id])
