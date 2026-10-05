@@ -370,7 +370,7 @@ public extension AgentPaneTransportPacer {
         if case .send = decision, let requested = AcpmuxPaneMethods.requestedSetting(frame.object) {
             let answer = await webModes(requested.sessionId, requested.configId, requested.value)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
-            let asks = requested.configId != "mode" || answer?.asks == true
+            let asks = answer?.freeConfigIds.contains(requested.configId) == true || answer?.asks == true
             if !asks {
                 let shown = requested.configId == "mode"
                     ? requested.value ?? ""
@@ -409,7 +409,7 @@ public extension AgentPaneTransportPacer {
         let decision = AcpmuxPaneMethods.decide(frame.text, isFirst: !sentFirst, localAppToken: localAppToken)
         if case .send = decision, sentFirst, let refusal = sessionRefusal(frame) { return refusal }
         // P1: only set_mode and set_config_option may name a mode (they meet the sheet).
-        if case .send = decision, false, AcpmuxPaneMethods.carriesModeField(frame.object, modeFields: modeFields) {
+        if case .send = decision, AcpmuxPaneMethods.carriesModeField(frame.object, modeFields: modeFields) {
             return .refuse(.intentInvalid, method: frame.method, requestID: frame.id)
         }
         return decision
