@@ -34,10 +34,12 @@ export type ShortcutCategory = {
 
 const modifierSymbols: Record<string, string> = { ctrl: "⌃", opt: "⌥", shift: "⇧", cmd: "⌘" };
 const keySymbols: Record<string, string> = {
-  "": "↑", "": "↓", "": "←", "": "→", "\r": "↩", "\t": "⇥", " ": "Space",
+  "\uf700": "↑", "\uf701": "↓", "\uf702": "←", "\uf703": "→", "\uf72c": "PgUp", "\uf72d": "PgDn",
+  "\uf729": "Home", "\uf72b": "End", "\r": "↩", "\t": "⇥", " ": "Space", "\u001b": "Esc", "\b": "⌫",
 };
 const keyConfigNames: Record<string, string> = {
-  "": "up", "": "down", "": "left", "": "right", "\r": "enter", "\t": "tab", " ": "space",
+  "\uf700": "up", "\uf701": "down", "\uf702": "left", "\uf703": "right", "\uf72c": "pageup", "\uf72d": "pagedown",
+  "\uf729": "home", "\uf72b": "end", "\r": "enter", "\t": "tab", " ": "space", "\u001b": "escape", "\b": "delete",
 };
 
 /** The keys a reader sees for one stroke: modifiers ⌃⌥⇧⌘, then the key. */

@@ -76,6 +76,16 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let listFocus = "listFocus"
     /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
     public static let pageID = "pageId"
+    /// The command palette's state, for its keys (`KeyBindingDefaults.paletteKeys`):
+    /// its Actions menu is open; the query is empty; the page walks a tree;
+    /// the caret is at the end / start of the query; the selected row's
+    /// command keeps the palette open (a toggle).
+    public static let paletteActionsMenuOpen = "palette.actionsMenuOpen"
+    public static let paletteQueryEmpty = "palette.queryEmpty"
+    public static let paletteHierarchical = "palette.hierarchical"
+    public static let paletteCaretAtEnd = "palette.caretAtEnd"
+    public static let paletteCaretAtStart = "palette.caretAtStart"
+    public static let paletteTogglesInPlace = "palette.togglesInPlace"
     /// The code editor page has the keyboard (``ActionContext/codeEditorFocused``).
     public static let codeEditorFocusedKey = "codeEditorFocused"
     /// The kind of window the key goes to (``WindowKindValue``).

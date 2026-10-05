@@ -49,6 +49,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
+    /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
+    @ObservationIgnored var rateReshow: Task<Void, Never>?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -91,6 +93,7 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     isolated deinit {
         faviconTask?.cancel()
+        rateReshow?.cancel()
     }
 
     /// WKWebView paints white behind every page by default. macOS has no
@@ -238,6 +241,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed else { return }
         isClosed = true
         faviconTask?.cancel()
+        rateReshow?.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         observations.removeAll()
