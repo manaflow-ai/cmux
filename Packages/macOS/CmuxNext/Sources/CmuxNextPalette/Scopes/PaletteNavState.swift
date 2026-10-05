@@ -60,6 +60,9 @@ nonisolated public struct PaletteNavLevel: Equatable, Sendable, Identifiable {
     /// The rows last accepted, for the generation `rowsGeneration`.
     public internal(set) var rows: [PaletteNavRow] = []
     public internal(set) var rowsGeneration: Int = 0
+    /// The query text `rows` were found for. A refresh of the same text leaves the rows the user
+    /// sees valid (Return runs the highlighted one); only new text makes Return wait.
+    public internal(set) var rowsQuery: String?
     /// A batch of `generation` is still expected.
     public internal(set) var isLoading: Bool
     public internal(set) var selection: String?

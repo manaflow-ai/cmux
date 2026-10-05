@@ -182,8 +182,9 @@ nonisolated public struct PaletteNavReducer: Sendable {
         if let rowID {
             guard state.levels[top].rows.contains(where: { $0.id == rowID }) else { return [] }
             state.levels[top].selection = rowID
-        } else if !state.levels[top].rowsAreCurrent {
-            // The rows on screen belong to an older query.
+        } else if !state.levels[top].rowsAreCurrent, state.levels[top].rowsQuery != state.levels[top].query {
+            // The rows on screen belong to an older query text (a refresh of the same text runs the
+            // highlighted row at once).
             state.levels[top].pendingSubmit = true
             return []
         }
@@ -226,6 +227,7 @@ nonisolated public struct PaletteNavReducer: Sendable {
             level.rows = Self.unique(level.rows + rows)
         }
         level.rowsGeneration = generation
+        level.rowsQuery = level.query
         level.isLoading = !isFinal
         if let choice = level.pendingChoice, level.rows.contains(where: { $0.id == choice }) {
             level.selection = choice
