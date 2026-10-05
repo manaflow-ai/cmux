@@ -552,6 +552,7 @@ extension Workspace {
         panelPrompts.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
+        panelColorHexes.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         panelCustomTitleSources.removeValue(forKey: panelId)
         panelAutomationLabels.removeValue(forKey: panelId)
