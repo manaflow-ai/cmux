@@ -25,23 +25,41 @@ extension CmuxTuiSurfaceProvider {
     /// Without this, a cloud workspace opened or restored before anything else
     /// ran discovery showed only display 1 until a later refresh. Runs once per
     /// lifecycle generation; the publish path then materializes every member.
-    func discoverMemberDisplaysIfNeeded(_ state: CloudVMState) {
-        guard memberDisplayDiscoveryGeneration != currentLifecycleGeneration,
-              supportsDisplayCreation else { return }
+    /// Launch-time refreshes can cancel an attempt, so each completion checks
+    /// again, bounded to a few attempts per lifecycle generation.
+    func discoverMemberDisplaysIfNeeded(_ state: CloudVMState?) {
+        guard memberDisplayDiscovery == nil, supportsDisplayCreation, let state else { return }
         let known = Set(displayResources.map(\.id.key))
         guard state.displayMemberships.contains(where: { !known.contains($0.displayID) }) else { return }
-        memberDisplayDiscoveryGeneration = currentLifecycleGeneration
-        Task { await refreshDisplays() }
+        let generation = currentLifecycleGeneration
+        if memberDisplayDiscoveryAttempts.generation != generation {
+            memberDisplayDiscoveryAttempts = (generation, 0)
+        }
+        guard memberDisplayDiscoveryAttempts.count < Self.maxMemberDisplayDiscoveryAttempts else { return }
+        memberDisplayDiscoveryAttempts.count += 1
+        memberDisplayDiscovery = Task { [weak self] in
+            await self?.refreshDisplays()
+            guard let self else { return }
+            self.memberDisplayDiscovery = nil
+            guard self.isCurrentLifecycleGeneration(generation) else { return }
+            self.discoverMemberDisplaysIfNeeded(self.cloudState)
+        }
     }
+
+    static let maxMemberDisplayDiscoveryAttempts = 3
 
     /// Only a user-requested refresh/expansion performs guest discovery. Results
     /// may publish only through the same still-authorized provider instance.
     func refreshDisplays() async {
         guard isAwake, info.hasDesktop else { return }
         let generation = currentLifecycleGeneration
-        let refresh = refreshGeneration
         await displayCoordinator.refresh()
-        guard isCurrentRefresh(lifecycle: generation, refresh: refresh) else { return }
+        // Not `isCurrentRefresh`: every machine-list poll bumps the refresh
+        // generation, so a guest discovery (about 2s) that overlapped a poll was
+        // discarded and member displays appeared only after a later lucky one.
+        // The coordinator invalidates its own result when the VM's identity or
+        // image changes; only the lifecycle has to match here.
+        guard !isFeatureSuspended, isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         publishDisplays()
     }
 

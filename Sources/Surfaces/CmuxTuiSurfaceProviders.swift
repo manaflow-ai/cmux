@@ -51,8 +51,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private(set) var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
     var refreshGeneration: UInt64 = 0
-    /// Lifecycle generation in which member-display discovery already ran.
-    var memberDisplayDiscoveryGeneration: UInt64?
+    /// Member-display discovery in flight, and attempts made in the current
+    /// lifecycle generation (a launch-time refresh can cancel an attempt).
+    var memberDisplayDiscovery: Task<Void, Never>?
+    var memberDisplayDiscoveryAttempts: (generation: UInt64, count: Int) = (0, 0)
     let refreshCoordinator = CloudProviderRefreshCoordinator()
     let terminalMutationQueue = CloudTerminalMutationQueue()
     /// The only installed daemon graph for this machine. The catalog receives the
