@@ -27161,9 +27161,10 @@ struct CMUXCLI {
                 boolFlags: ["-P", "-b", "-d", "-f", "-h", "-v"]
             )
             let isOMXHud = tmuxCommandLooksLikeOMXHud(parsed.positional)
-            if isOMXHud && tmuxOMXHudConfigDisablesHud(cwd: parsed.value("-c")) {
+            let splitWorkingDirectory = parsed.value("-c") ?? FileManager.default.currentDirectoryPath
+            if isOMXHud && tmuxOMXHudConfigDisablesHud(cwd: splitWorkingDirectory) {
                 tmuxWriteDebugDiagnostic(
-                    "OMX HUD disabled by config; cwd=\(parsed.value("-c") ?? "<default>") command=\(parsed.positional.joined(separator: " "))"
+                    "OMX HUD disabled by config; cwd=\(splitWorkingDirectory) command=\(parsed.positional.joined(separator: " "))"
                 )
                 return
             }
