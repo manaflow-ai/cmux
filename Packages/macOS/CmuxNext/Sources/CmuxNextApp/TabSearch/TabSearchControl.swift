@@ -20,8 +20,8 @@ nonisolated enum TabSearchControl {
 
     static func methods() -> [ControlMethod] {
         let ranker = TabSearchRanker()
-        [
-            .snapshot("tabs.search") { call in
+        return [
+            ControlMethod.snapshot("tabs.search") { call in
                 let (query, limit, closed) = try parameters(call.params)
                 let entries = TabSearchEntries.entries(call.snapshot.topology, call.snapshot.tabSearch)
                 let matches = ranker.search(entries, query: query, includeClosed: closed, limit: limit, now: Date())
