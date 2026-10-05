@@ -190,6 +190,21 @@ extension Dictionary where Key == String, Value == String {
 /// A tab a session created is that session's alone while it lives: no other
 /// session may drive it (``ownerRefusing(_:)``). Network events go only to
 /// the sessions they belong to (``networkRecipients(event:requestID:)``).
+/// A link activation in a tab, as the navigation decision sees it
+/// (``BrowserReplTabOwnership/handsLinkToExternalBrowser(_:now:)``).
+public struct BrowserReplLinkActivation: Sendable, Equatable {
+    /// The tab is shown and focused in the key window.
+    public var userIsWorkingInTab: Bool
+    /// WebKit marks the navigation as started by a user gesture
+    /// (`-[WKNavigationAction _isUserInitiated]`); false when it cannot say.
+    public var isUserInitiated: Bool
+
+    public init(userIsWorkingInTab: Bool, isUserInitiated: Bool) {
+        self.userIsWorkingInTab = userIsWorkingInTab
+        self.isUserInitiated = isUserInitiated
+    }
+}
+
 public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// The attached session that created the tab, if any.
     public private(set) var creatorSessionID: String?
@@ -331,8 +346,16 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         !isSessionOwned && inputSessionIDs.isEmpty && userIsWorkingInTab
     }
 
+    /// How long after a session's input the page may still use its gesture.
+    public static let agentGestureLingering: Duration = .seconds(11)
+
+    /// Whether `activation` may go to the external browser at `now`.
+    public func handsLinkToExternalBrowser(_ activation: BrowserReplLinkActivation, now: ContinuousClock.Instant) -> Bool {
+        handsLinksToExternalBrowser(userIsWorkingInTab: activation.userIsWorkingInTab)
+    }
+
     /// Ends one ``beginInput(sessionID:)``.
-    public mutating func endInput(sessionID: String) {
+    public mutating func endInput(sessionID: String, at now: ContinuousClock.Instant = .now) {
         if let index = inputSessionIDs.lastIndex(of: sessionID) {
             inputSessionIDs.remove(at: index)
         }

@@ -532,4 +532,27 @@ import Testing
         #expect(own.handsLinksToExternalBrowser(userIsWorkingInTab: true),
                 "a tab its creator left is the user's")
     }
+    /// A page activates links itself (`a.click()` from its own script or
+    /// from agent-world code the session ran, which holds no input), and
+    /// WebKit reports that as a link activation too. In a tab a session
+    /// drives, only an activation WebKit marks as the user's gesture goes
+    /// to the external browser, and not while a gesture a session's input
+    /// gave the page may still be used.
+    @Test func aPagesOwnLinkActivationInADrivenTabStaysInTheTab() {
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        let start = ContinuousClock.now
+        let page = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: false)
+        let user = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: true)
+        #expect(!users.handsLinkToExternalBrowser(page, now: start),
+                "a page's own link activation in a tab a session drives went to the external browser")
+        #expect(users.handsLinkToExternalBrowser(user, now: start))
+
+        // After the agent's input the page may still hold its gesture.
+        users.beginInput(sessionID: "agent")
+        users.endInput(sessionID: "agent", at: start)
+        #expect(!users.handsLinkToExternalBrowser(user, now: start.advanced(by: .seconds(5))),
+                "a link the page activated with the agent's lingering gesture went to the external browser")
+        #expect(users.handsLinkToExternalBrowser(user, now: start.advanced(by: BrowserReplTabOwnership.agentGestureLingering)))
+    }
 }
