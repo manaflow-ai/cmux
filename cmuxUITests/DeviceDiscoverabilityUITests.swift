@@ -33,7 +33,7 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
             XCTAssertTrue(poll(timeout: 5) { !self.isOn(settingsDiscovery) })
         }
         XCTAssertEqual(settingsIncoming.label, "Make this Mac discoverable")
-        XCTAssertEqual(settingsDiscovery.label, "Discover other Macs")
+        XCTAssertEqual(settingsDiscovery.label, "Discover other devices")
 
         settingsIncoming.click()
         assertConfirmation(app)
@@ -55,7 +55,7 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
 
         settingsDiscovery.click()
         XCTAssertTrue(poll(timeout: 5) { self.isOn(settingsDiscovery) })
-        XCTAssertEqual(settingsDiscovery.label, "Stop discovering other Macs")
+        XCTAssertEqual(settingsDiscovery.label, "Stop discovering other devices")
         XCTAssertFalse(app.sheets.firstMatch.exists)
         closeSettings(app, window)
         let reopened = openSettings(app)
@@ -78,12 +78,12 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
             incoming.click()
             XCTAssertTrue(poll(timeout: 5) { incoming.label == "Make this Mac discoverable" })
         }
-        if discovery.label == "Stop discovering other Macs" {
+        if discovery.label == "Stop discovering other devices" {
             discovery.click()
-            XCTAssertTrue(poll(timeout: 5) { discovery.label == "Discover other Macs" })
+            XCTAssertTrue(poll(timeout: 5) { discovery.label == "Discover other devices" })
         }
         XCTAssertEqual(incoming.label, "Make this Mac discoverable")
-        XCTAssertEqual(discovery.label, "Discover other Macs")
+        XCTAssertEqual(discovery.label, "Discover other devices")
         capture(app, "devices-controls-off-at-rest")
 
         incoming.click()
@@ -96,7 +96,7 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         app.sheets.buttons["Make Discoverable"].firstMatch.click()
         XCTAssertTrue(poll(timeout: 5) { incoming.label == "Hide this Mac from My Devices" })
         discovery.click()
-        XCTAssertTrue(poll(timeout: 5) { discovery.label == "Stop discovering other Macs" })
+        XCTAssertTrue(poll(timeout: 5) { discovery.label == "Stop discovering other devices" })
         XCTAssertFalse(app.sheets.firstMatch.exists)
         XCTAssertTrue(incoming.isHittable && discovery.isHittable)
         capture(app, "devices-controls-on-at-rest")
@@ -110,7 +110,7 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         XCTAssertTrue(poll(timeout: 5) { incoming.label == "Make this Mac discoverable" })
         XCTAssertFalse(app.sheets.firstMatch.exists)
         discovery.click()
-        XCTAssertTrue(poll(timeout: 5) { discovery.label == "Discover other Macs" })
+        XCTAssertTrue(poll(timeout: 5) { discovery.label == "Discover other devices" })
         XCTAssertFalse(app.sheets.firstMatch.exists)
         XCTAssertTrue(incoming.isHittable && discovery.isHittable)
     }

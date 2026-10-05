@@ -845,6 +845,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) var auth: MacAuthComposition?
     /// Explicit Cloud machine pins and stable fleet order, built by the composition root.
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
+    /// "Introducing cmux cloud", shown once from the first main window.
+    private(set) lazy var cloudWelcomeWindowController = CloudWelcomeWindowController()
     private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() })
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
@@ -986,10 +988,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // `DisableAutoUpdate` (MDM): the updater never starts and manual checks
         // are suppressed while forced; `managedAutoUpdateAllowsCheck()` explains.
         isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
-    )
-    /// Shared by the app menu, command palette and Settings "Switch to Nightly/Stable" action.
-    private lazy var appChannelSwitchPresenter = AppChannelSwitchPresenter(
-        requestQuit: { AppDelegate.requestApplicationTermination() }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
@@ -5560,6 +5558,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: window)
+        presentCloudWelcomeIfNeeded(over: window)
+    }
+
+    /// Once per Mac, after the first main window is up. Tests never see it.
+    private func presentCloudWelcomeIfNeeded(over window: NSWindow) {
+        let env = ProcessInfo.processInfo.environment
+        guard !isRunningUnderXCTestCached, !isRunningUnderXCTest(env), env["CMUX_UI_TEST_MODE"] != "1" else { return }
+        // Next turn of the main loop, so the window is on screen to place it over.
+        DispatchQueue.main.async { [weak self, weak window] in
+            self?.cloudWelcomeWindowController.presentIfNeeded(over: window)
+        }
     }
 
 #if DEBUG
@@ -8130,7 +8139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             (SurfaceCatalog.shared.provider(for: .cloud(vmID)) as? CmuxTuiSurfaceProvider)?.capabilities
         }
         snapshot.setBool(CommandPaletteContextKeys.cloudVMCapabilitiesKnown, cloudCapabilities != nil)
-        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsFork, cloudCapabilities?.fork ?? true)
+        snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsFork, cloudCapabilities?.canFork ?? true)
         snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsSnapshot, cloudCapabilities?.snapshot ?? true)
         snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsRestore, cloudCapabilities?.restore ?? true)
         snapshot.setBool(CommandPaletteContextKeys.cloudVMSupportsPorts, cloudCapabilities?.ports ?? true)
@@ -9127,6 +9136,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 preferredWindow: resolvedWindow(for: context) ?? preferredWindow
             )
             return false
+        }
+        if case .fork = command {
+            // Same pending "Fork of …" row and reserved workspace as the sidebar's Fork.
+            return NewMachineSheetPresenter.shared.startFork(
+                sourceMachineID: vmId,
+                sourceName: nil,
+                preferredWindow: resolvedWindow(for: context) ?? preferredWindow
+            )
         }
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
@@ -10716,18 +10733,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard managedAutoUpdateAllowsCheck() else { return }
         updateController.model.setOverrideState(nil)
         updateController.checkForUpdatesInCustomUI()
-    }
-
-    /// The release app this one can switch to: NIGHTLY from stable, stable from NIGHTLY,
-    /// and none for tagged development builds.
-    var appChannelSwitchTarget: AppChannelSwitchTarget? {
-        AppChannelSwitchTarget.counterpart(ofBundleIdentifier: Bundle.main.bundleIdentifier)
-    }
-
-    /// Opens the other release app, installing it first when missing.
-    @objc func switchAppChannel(_ sender: Any?) {
-        guard let target = appChannelSwitchTarget, managedAutoUpdateAllowsCheck() else { return }
-        appChannelSwitchPresenter.start(target: target)
     }
 
     func openWelcomeWorkspace() {
@@ -20563,56 +20568,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         }
     }
 
-    func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
-        var seen = Set<ObjectIdentifier>()
-        let managers = mainWindowContexts.values.map { $0.tabManager }
-            + [tabManager].compactMap { $0 }
-            + mainWindowSessionPersistenceRoutes().map { $0.tabManager }
-        let workspaces = managers
-            .filter { seen.insert(ObjectIdentifier($0)).inserted }
-            .flatMap(\.tabs)
-        var activity: [UpdateRelaunchPanelActivity] = []
-        for workspace in workspaces {
-            let isRemote = workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
-            for panelId in workspace.panels.keys {
-                activity.append(UpdateRelaunchPanelActivity(
-                    agentLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
-                    shellActivity: workspace.panelShellActivityStates[panelId],
-                    isRemote: isRemote
-                ))
-            }
-            if let dock = workspace._dockSplit {
-                activity += dock.updateRelaunchPanelActivity(isRemote: isRemote)
-            }
-        }
-        for dock in existingWindowDocks {
-            activity += dock.updateRelaunchPanelActivity(isRemote: false)
-        }
-        return Self.updateRelaunchBlockers(panels: activity)
-    }
-
-    /// Counts what an update relaunch would interrupt. A panel with a mid-turn agent is a busy
-    /// agent. A local panel running some other foreground command is a running command; panels
-    /// with agent lifecycle state are left to the agent count, and remote panels are skipped
-    /// because their processes live on the remote host. Manual `cmux workspace loading` keys
-    /// are not agents and are ignored.
-    nonisolated static func updateRelaunchBlockers(
-        panels: [UpdateRelaunchPanelActivity]
-    ) -> UpdateRelaunchBlockers {
-        var blockers = UpdateRelaunchBlockers.empty
-        for panel in panels {
-            let agentStates = panel.agentLifecycles
-                .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
-                .values
-            if agentStates.contains(.running) {
-                blockers.busyAgentCount += 1
-            } else if agentStates.isEmpty, !panel.isRemote, panel.shellActivity == .commandRunning {
-                blockers.runningCommandCount += 1
-            }
-        }
-        return blockers
-    }
-
     func attemptUpdate() {
         attemptUpdate(nil)
     }
@@ -20626,26 +20581,6 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 
     var updateLogPath: String {
         updateLog.logPath()
-    }
-}
-
-/// One terminal panel's agent and shell activity, as read by ``AppDelegate/updaterRelaunchBlockers()``.
-struct UpdateRelaunchPanelActivity: Sendable {
-    var agentLifecycles: [String: AgentHibernationLifecycleState]
-    var shellActivity: PanelShellActivityState?
-    var isRemote: Bool
-}
-
-extension DockSplitStore {
-    /// Dock panels keep agent lifecycle in their runtime map and shell state on the panel.
-    func updateRelaunchPanelActivity(isRemote: Bool) -> [UpdateRelaunchPanelActivity] {
-        panels.map { panelId, panel in
-            UpdateRelaunchPanelActivity(
-                agentLifecycles: agentRuntimeByPanelId[panelId]?.agentLifecycleStates ?? [:],
-                shellActivity: (panel as? TerminalPanel)?.shellActivity.state,
-                isRemote: isRemote || terminalLinkIsRemoteTerminal(panelId)
-            )
-        }
     }
 }
 
