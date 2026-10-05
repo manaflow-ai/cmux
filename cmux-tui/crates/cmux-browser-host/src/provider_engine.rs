@@ -406,6 +406,14 @@ impl ProviderEngine {
         } else if let Some(evaluate) = observe {
             // The app's WebKit driver runs it as its agent-world evaluate.
             self.provider.call("frame.evaluate", &evaluate)
+        } else if method == "tabs.close" && params.get("reason").is_some() {
+            // Only the session's end names a close reason (it keeps those
+            // tabs out of Reopen Closed); the agent's own close never does.
+            let mut params = params.clone();
+            if let Some(fields) = params.as_object_mut() {
+                fields.remove("reason");
+            }
+            self.provider.call(method, &params)
         } else {
             self.provider.call(method, params)
         };
@@ -503,7 +511,11 @@ impl ProviderEngine {
                 if !users && self.provider.tab_engine(&target).is_some() {
                     let _ = self.provider.call(
                         "tabs.close",
-                        &json!({"targetId": target, "timeoutMs": SESSION_END_CLOSE_MS}),
+                        &json!({
+                            "targetId": target,
+                            "timeoutMs": SESSION_END_CLOSE_MS,
+                            "reason": SESSION_END_REASON,
+                        }),
                     );
                 }
             }
@@ -524,6 +536,10 @@ impl ProviderEngine {
 
 /// How long the session's end waits for the app to close one tab.
 const SESSION_END_CLOSE_MS: u64 = 5000;
+
+/// The `tabs.close` reason of the session's end: the app closes the tab
+/// through the store without a closed-history record (`close-reason-v1`).
+const SESSION_END_REASON: &str = "session_end";
 
 impl Drop for ProviderEngine {
     fn drop(&mut self) {

@@ -4,10 +4,25 @@
 //! sends the tab's cookies per `credentials`, follows redirects (each hop
 //! passes the session's request filter) and stores Set-Cookie in its jar.
 //! The body is read in the page and pulled in chunks.
+//!
+//! A fetch with no tab runs in a fetch shell (a9 shell-tab conditions,
+//! 2026-10-04): (a) its document is empty, `Cache-Control: no-store`, with
+//! the CSP `default-src 'none'; connect-src http: https:; base-uri 'none';
+//! form-action 'none'` (cors.rs); (b) its service workers are bypassed
+//! before its navigation; (c) it is hidden: not listed, no events, no page
+//! agent, every session call refused; (d) it closes on every exit path and
+//! the session's end, and counts under the gate's 16 fetches per session;
+//! (e) a signed-in profile refuses it (gate). The CSP probe (headless
+//! Chromium 143.0.7499.4, Testbox): an isolated world takes the main
+//! world's CSP, so `default-src 'none'` alone failed the host world's
+//! same-origin fetch ("Failed to fetch"); with `connect-src http: https:`
+//! (or `*`) it succeeded. `sandbox` is not used: it makes the origin opaque.
 
-use super::driver::Inner;
+use super::driver::{INTERNAL_TIMEOUT, Inner};
 use crate::protocol::{DriverError, timeout_of};
 use serde_json::{Value, json};
+use std::collections::HashSet;
+use std::sync::PoisonError;
 use std::time::{Duration, Instant};
 
 /// Runs the request; keeps the body in the host world under an id.
@@ -45,11 +60,43 @@ const SHELL_PATH: &str = "/.well-known/cmux-fetch-shell";
 /// The default and the longest a fetch may take.
 const DEFAULT_FETCH_TIMEOUT_MS: u64 = 30_000;
 
+/// The URL a fetch shell is created with: a fresh token after it, so the
+/// target is known as a shell at its attach (a page cannot guess one).
+const SHELL_MARKER: &str = "about:blank#cmux-shell-";
+
+/// Fetch shells that are open, and whether the session ended (a9 shell-tab
+/// condition d: a shell closes on every exit path).
+#[derive(Debug, Default)]
+pub(crate) struct Shells {
+    live: HashSet<String>,
+    ended: bool,
+}
+
+/// An open fetch shell: closed when dropped (success, error, timeout,
+/// unwinding), unless the session's end closed it first.
+struct ShellTab<'a> {
+    inner: &'a Inner,
+    target: String,
+    marker: String,
+}
+
+impl Drop for ShellTab<'_> {
+    fn drop(&mut self) {
+        let inner = self.inner;
+        inner.lock().shell_markers.remove(&self.marker);
+        inner.cors.lock().unwrap_or_else(PoisonError::into_inner).remove_shell(&self.target);
+        if inner.shells.lock().unwrap_or_else(PoisonError::into_inner).live.remove(&self.target) {
+            inner.close_target(&self.target);
+        }
+    }
+}
+
 impl Inner {
     /// A fetch with no tab (a lazy page) runs in a background shell tab: a
     /// document at the fetch URL's origin that the host answers locally
     /// (no request reaches the server), so the fetch has a real origin and
-    /// first-party cookies. The tab closes after the fetch.
+    /// first-party cookies. The shell is hidden from the session and closes
+    /// after the fetch.
     pub(super) fn net_fetch(&self, params: &Value) -> Result<Value, DriverError> {
         if params.get("targetId").is_some_and(Value::is_string) {
             return self.net_fetch_in_tab(params);
@@ -58,23 +105,103 @@ impl Inner {
             .ok()
             .filter(|url| matches!(url.scheme(), "http" | "https"))
             .ok_or_else(|| DriverError::invalid("fetch: url: expected an http or https URL"))?;
-        let shell = format!("{}{SHELL_PATH}", url.origin().ascii_serialization());
-        let opened = self.tabs_open(&json!({"url": "about:blank", "background": true}))?;
-        let target = opened["targetId"].as_str().unwrap_or("").to_owned();
+        let shell_url = format!("{}{SHELL_PATH}", url.origin().ascii_serialization());
+        let deadline = Instant::now() + timeout_of(params);
+        let shell = self.open_shell(&shell_url, deadline)?;
+        let left = deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64;
+        self.navigate(&json!({"targetId": shell.target, "url": shell_url,
+            "waitUntil": "domcontentloaded", "timeoutMs": left}))?;
+        let mut params = params.clone();
+        params["targetId"] = json!(shell.target);
+        self.net_fetch_in_tab(&params)
+    }
+
+    /// Creates a hidden shell tab, set up and ready to navigate: its service
+    /// workers are bypassed before its first navigation (condition b).
+    fn open_shell(&self, shell_url: &str, deadline: Instant) -> Result<ShellTab<'_>, DriverError> {
+        if self.shells.lock().unwrap_or_else(PoisonError::into_inner).ended {
+            return Err(DriverError::closed("fetch: the session ended"));
+        }
+        let marker = format!("{SHELL_MARKER}{}", super::cors::fresh_token());
+        self.lock().shell_markers.insert(marker.clone());
+        let created = self.conn.call(
+            None,
+            "Target.createTarget",
+            json!({"url": marker, "background": true}),
+            INTERNAL_TIMEOUT,
+        );
+        let target = match created {
+            Ok(reply) => reply.get("targetId").and_then(Value::as_str).map(str::to_owned),
+            Err(error) => {
+                self.lock().shell_markers.remove(&marker);
+                return Err(error);
+            }
+        }
+        .ok_or_else(|| DriverError::invalid("Target.createTarget returned no targetId"))?;
+        {
+            let mut state = self.lock();
+            state.shell_targets.insert(target.clone());
+            if let Some(tab) = state.tabs.get_mut(&target) {
+                tab.hidden = true;
+            }
+        }
+        let ended = {
+            let mut shells = self.shells.lock().unwrap_or_else(PoisonError::into_inner);
+            shells.live.insert(target.clone());
+            shells.ended
+        };
+        // From here every exit closes the tab.
+        let shell = ShellTab { inner: self, target, marker };
+        if ended {
+            return Err(DriverError::closed("fetch: the session ended"));
+        }
         self.cors
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .add_shell(&target, &shell);
-        let navigated = self
-            .navigate(&json!({"targetId": target, "url": shell, "waitUntil": "domcontentloaded"}));
-        let result = navigated.and_then(|_| {
-            let mut params = params.clone();
-            params["targetId"] = json!(target);
-            self.net_fetch_in_tab(&params)
-        });
-        self.cors.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove_shell(&target);
-        let _ = self.tabs_close(&json!({"targetId": target}));
-        result
+            .unwrap_or_else(PoisonError::into_inner)
+            .add_shell(&shell.target, shell_url);
+        let left = deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64;
+        let session = self.session(&json!({"targetId": shell.target, "timeoutMs": left}))?;
+        self.send(&session, "Network.setBypassServiceWorker", json!({"bypass": true}))?;
+        Ok(shell)
+    }
+
+    /// The session ends: its open shells close now (a fetch in one fails)
+    /// and no new one opens.
+    pub(super) fn end_shells(&self) {
+        let live: Vec<String> = {
+            let mut shells = self.shells.lock().unwrap_or_else(PoisonError::into_inner);
+            shells.ended = true;
+            shells.live.drain().collect()
+        };
+        for target in live {
+            self.close_target(&target);
+        }
+    }
+
+    fn close_target(&self, target: &str) {
+        let _ = self.conn.call(
+            None,
+            "Target.closeTarget",
+            json!({"targetId": target}),
+            INTERNAL_TIMEOUT,
+        );
+    }
+
+    /// A shell is the host's own tab: the session cannot name it (or a
+    /// dialog in it); it reads as gone.
+    pub(super) fn shell_refusal(&self, params: &Value) -> Result<(), DriverError> {
+        let state = self.lock();
+        if let Some(target) = params.get("targetId").and_then(Value::as_str)
+            && state.is_hidden(target)
+        {
+            return Err(DriverError::not_found(format!("No tab {target}")));
+        }
+        if let Some(dialog) = params.get("dialogId").and_then(Value::as_str)
+            && state.dialogs.get(dialog).is_some_and(|(owner, _)| state.is_hidden(owner))
+        {
+            return Err(DriverError::not_found(format!("Dialog {dialog} is gone")));
+        }
+        Ok(())
     }
 
     /// One host fetch with its HOST-FETCH-CORS token: issued before, revoked
@@ -92,7 +219,7 @@ impl Inner {
             .filter_map(|pair| pair.get(0).and_then(Value::as_str).map(str::to_owned))
             .collect();
         let started = {
-            let mut cors = self.cors.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cors = self.cors.lock().unwrap_or_else(PoisonError::into_inner);
             let was = cors.active();
             cors.issue(token.clone(), &session.target_id, url, method, &names);
             !was
@@ -102,7 +229,7 @@ impl Inner {
         }
         let result = self.fetch_with_token(&session, params, &token);
         let (relaxed, ended) = {
-            let mut cors = self.cors.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut cors = self.cors.lock().unwrap_or_else(PoisonError::into_inner);
             cors.revoke(&token);
             (cors.take_log(&token), !cors.active())
         };

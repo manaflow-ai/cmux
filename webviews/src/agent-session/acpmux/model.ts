@@ -82,6 +82,8 @@ export type AcpmuxSnapshot = {
   protocolVersion: number;
   rows: AcpmuxRow[];
   sessions: AcpmuxSessionEntry[];
+  /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
+  peers?: string[];
   summary?: {
     sessionId: string;
     cwd?: string;
@@ -89,6 +91,7 @@ export type AcpmuxSnapshot = {
     /// Context-window tokens used of the session's window, from the agent's last usage update.
     usage?: { used: number; size: number };
     host?: string;
+    peer?: string;
     hostKind?: "local" | "cloud";
     branch?: string;
     worktree?: string;
@@ -103,7 +106,10 @@ export type AcpmuxSnapshot = {
     promptCapabilities?: { image?: boolean };
     status?: string;
     enforcement?: Enforcement;
-    modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string };
+    modes?: {
+      availableModes: { id: string; name?: string; description?: string }[];
+      currentModeId?: string;
+    };
     configOptions?: {
       id: string;
       name?: string;

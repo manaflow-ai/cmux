@@ -337,8 +337,8 @@
     },
     {
       "path": "CloseTabsRequest.java",
-      "sha256": "dd1ab0f0455f5fc3503b5f1217809241733b05835e3f8a1b82070c4cde5faa74",
-      "size": 6621
+      "sha256": "ad05374325d70c7e458d68b39ae7f0642098096c60bffd7f6843bb668c2661d8",
+      "size": 7327
     },
     {
       "path": "CloseTerminalRequest.java",
@@ -372,8 +372,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b4bdcd10ae0fee3c1328f386c4cbcec8c2a4d73c2051388318ca51ef2d2eb4fc",
-      "size": 57211
+      "sha256": "14594c0640c242987e260523e01b9f20fcc85502ffd920b4a1a5e026e3736d9c",
+      "size": 57256
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1382,7 +1382,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "a39dd21ad7650929da0e658f0c5825612a7f57068956c0bcfbea93558c3ebea9",
+      "sha256": "48edb7ee10185c724ecc88415ddc54055a52dbd080ec0a68f27c15b0ea2ab683",
       "size": 4943
     },
     {
@@ -2457,7 +2457,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "c80fc8770b47c6796f895d52df851e6f977407c45855c70ae9ff201537e25c8c",
+  "ir_sha256": "ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
