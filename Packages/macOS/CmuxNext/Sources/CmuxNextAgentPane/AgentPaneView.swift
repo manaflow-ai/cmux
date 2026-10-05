@@ -167,10 +167,11 @@ public final class AgentPaneView: NSView {
         }
         // A mode that does not ask before it acts: the user confirms it natively.
         model.onConfirmMode = { [weak self] mode, answer in
-            guard let self, let window = self.window else { return answer(false) }
+            guard let self, self.window != nil else { return answer(false) }
             let spec = CmuxDialogSpec(title: Self.confirmModeTitle, lines: [String(format: Self.confirmModeMessage, mode)],
                                       buttons: [.cancel(), CmuxDialogButton(id: "switch", title: Self.confirmModeButton, role: .destructive)])
-            _ = CmuxDialogCenter.shared.present(spec, in: .window(window)) { reply in answer(reply.button == "switch") }
+            // Pane scope: a closed pane ends the sheet as Cancel, so the app-wide gate never stays shut.
+            _ = CmuxDialogCenter.shared.present(spec, in: .tab(self)) { reply in answer(reply.button == "switch") }
         }
         // The host owns the acpmux socket; its frames reach the page in display-frame batches.
         let pacer = AgentPaneFramePacer(view: self)

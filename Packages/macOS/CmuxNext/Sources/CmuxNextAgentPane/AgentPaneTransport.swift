@@ -176,7 +176,6 @@ public extension AgentPaneTransportPacer {
     public var requestModeConfirmation: (@MainActor (_ mode: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
     public var confirmationGate = AgentPaneConfirmationGate.shared
-    private var confirmingMode = false
     private var socketPath: String?
 
     /// Pushes and flushes so far (tests and the bench read them).
@@ -371,9 +370,10 @@ public extension AgentPaneTransportPacer {
 
     /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.
     private func confirm(mode: String) async -> Bool {
-        guard let requestModeConfirmation, !confirmingMode else { return false }
-        confirmingMode = true
-        defer { confirmingMode = false }
+        guard let requestModeConfirmation else { return false }
+        let gate = confirmationGate
+        guard gate.open() else { return false }
+        defer { gate.close() }
         return await withCheckedContinuation { continuation in
             requestModeConfirmation(mode) { continuation.resume(returning: $0) }
         }
