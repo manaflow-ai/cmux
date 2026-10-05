@@ -1,4 +1,3 @@
-#if CMUX_RD_FFI
 import CCmuxRdFFI
 public import Foundation
 
@@ -110,4 +109,3 @@ public nonisolated final class RemoteRdInput {
         return value == UInt64.max ? nil : value
     }
 }
-#endif
