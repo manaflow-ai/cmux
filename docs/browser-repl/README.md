@@ -396,6 +396,9 @@ rest. Measurements: [performance.md](performance.md).
   server process gets its own session (`mcp-<pid>-<random>`), reset when
   the server exits, so two MCP clients never share variables or tabs; give
   them the same `--session` to share one.
+- A cell times out after 120 s by default; `--timeout <ms>` (the socket's
+  `timeout_ms`) asks for at most 600000 (10 minutes), and a longer one is
+  refused before the cell runs, since a running cell holds the session.
 - A session runs one cell at a time; cells sent meanwhile (callers that
   share a named session) wait in order. At most 64 wait, holding at most
   64 MiB of source together; one more fails at once with an error that

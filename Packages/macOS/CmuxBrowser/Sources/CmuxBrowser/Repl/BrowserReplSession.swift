@@ -39,6 +39,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Default per-evaluation timeout, as in reference A's REPL.
     public static let defaultTimeout: Duration = .seconds(120)
 
+    /// The longest timeout a cell may ask for, 10 minutes: a running cell
+    /// holds the session's JavaScript thread until it ends or times out.
+    public static let maximumTimeout: Duration = .seconds(600)
+
     /// Default limit for JavaScript that runs outside a cell.
     public static let defaultCallbackTimeLimit: Duration = .seconds(10)
 
@@ -622,7 +626,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// - Parameters:
     ///   - code: JavaScript source.
     ///   - cwd: New fs root, or `nil` to keep the current one.
-    ///   - timeout: Evaluation timeout.
+    ///   - timeout: Evaluation timeout, at most ``maximumTimeout``; a
+    ///     larger one is refused before the cell runs.
     ///   - maxOutput: Characters of output the cell prints before the rest
     ///     goes to a file (`0` for no limit), or `nil` for the runtime's
     ///     default (`repl-host.js`, `createOutputGate`).
@@ -632,6 +637,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         timeout: Duration = BrowserReplSession.defaultTimeout,
         maxOutput: Int? = nil
     ) async -> BrowserReplEvalResult {
+        guard timeout <= Self.maximumTimeout else {
+            return BrowserReplEvalResult(
+                lines: [],
+                error: "Error: REPL session '\(id)': a cell's timeout is at most \(Self.milliseconds(Self.maximumTimeout)) ms (10 minutes); this one is \(Self.milliseconds(timeout)) ms",
+                durationMilliseconds: 0
+            )
+        }
         if let refusal = await gate.acquire(sourceBytes: code.utf8.count) {
             let message: String
             switch refusal {
@@ -819,6 +831,11 @@ public final class BrowserReplSession: @unchecked Sendable {
         rmdir(privateTemporaryDirectory)
     }
 
+    /// `duration` in whole milliseconds.
+    private static func milliseconds(_ duration: Duration) -> Int64 {
+        duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000
+    }
+
     /// Finishes `state` and forgets it when it is still the current evaluation.
     private func finish(_ state: EvalState, error: String?) {
         stateLock.withLock {
@@ -838,8 +855,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func timeOut(_ state: EvalState, after timeout: Duration) {
         let isCurrent = stateLock.withLock { currentEval === state && !closed }
         guard isCurrent else { return }
-        let milliseconds = timeout.components.seconds * 1000 + timeout.components.attoseconds / 1_000_000_000_000_000
-        let message = "Error: REPL evaluation timed out after \(milliseconds)ms"
+        let message = "Error: REPL evaluation timed out after \(Self.milliseconds(timeout))ms"
         watchdog.requestTermination()
         thread.perform { [self] in
             self.watchdog.clearTermination()
