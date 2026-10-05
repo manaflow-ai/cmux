@@ -435,6 +435,21 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      - name: Install Rust (sidebar layout reducer)
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Test sidebar layout reducer
+        working-directory: cmux-tui
+        run: cargo test -p cmux-layout-reducer --locked
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
+
       # macOS-only script behavior tests (PlistBuddy, plutil): the "Bundle
       # server helper" phase writes the server helper and agent plists without
       # the app's processed Info.plist, and release signing signs every
@@ -581,6 +596,17 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      - name: Install Rust (sidebar layout reducer)
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
+
       - name: Release compile
         run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
 
@@ -690,6 +716,14 @@ jobs:
 
       - name: Install Rust (diff sidecar)
         run: ./scripts/install-rust-ci.sh
+
+      - name: Build sidebar layout reducer FFI
+        env:
+          CMUX_LAYOUT_REDUCER_FFI_ARCHS: arm64
+        run: scripts/cmux-next/build-layout-reducer-ffi.sh
+
+      - name: Enable sidebar layout reducer FFI for SwiftPM
+        run: echo "CMUX_NEXT_LAYOUT_REDUCER_FFI=1" >> "$GITHUB_ENV"
 
       - name: Build in-tree acpmux for the app bundle
         env:

@@ -996,3 +996,4 @@ mod rows_tests;
 
 #[cfg(kani)]
 mod proofs;
+pub mod sidebar_drop;
