@@ -630,11 +630,7 @@ fn fetch_runs_in_the_engine_with_the_body_masked() {
 fn fetch_refuses_policy_ranges_and_forbidden_headers_before_the_engine() {
     let (gate, driver) = make_gate(Value::Null, false);
     let call = |params: Value| gate.driver_call("net.fetch", params).unwrap_err();
-    assert_eq!(
-        call(json!({"url": "https://a.test/"})).code,
-        ErrorCode::Invalid,
-        "a fetch needs a tab"
-    );
+    // Without a tab the engine runs the fetch in a shell tab of its own.
     let header =
         call(json!({"targetId": "T", "url": "https://a.test/", "headers": [["Host", "b.test"]]}));
     assert_eq!(header.code, ErrorCode::Invalid, "{header}");

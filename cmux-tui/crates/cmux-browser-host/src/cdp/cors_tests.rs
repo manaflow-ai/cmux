@@ -19,12 +19,22 @@ fn the_token_request_is_relaxed_and_its_header_never_leaves() {
     let mut cors = granted();
     let action = cors.on_request("T", "n1", "GET", URL, &token_request("t1"));
     let RequestAction::ContinueWith { headers } = action else { panic!("{action:?}") };
-    assert!(headers.iter().all(|h| !h["name"].as_str().unwrap().eq_ignore_ascii_case(TOKEN_HEADER)));
+    assert!(
+        headers.iter().all(|h| !h["name"].as_str().unwrap().eq_ignore_ascii_case(TOKEN_HEADER))
+    );
     assert!(headers.iter().any(|h| h["name"] == "Accept"));
-    let response = cors.on_response("n1", URL, &[json!({"name": "Content-Type", "value": "application/json"})]);
+    let response = cors.on_response(
+        "n1",
+        URL,
+        &[json!({"name": "Content-Type", "value": "application/json"})],
+    );
     let response = response.expect("relaxed");
     let get = |name: &str| response.iter().find(|h| h["name"] == name).map(|h| h["value"].clone());
-    assert_eq!(get("Access-Control-Allow-Origin"), Some(json!("https://a.test")), "the exact origin, never *");
+    assert_eq!(
+        get("Access-Control-Allow-Origin"),
+        Some(json!("https://a.test")),
+        "the exact origin, never *"
+    );
     assert_eq!(get("Access-Control-Allow-Credentials"), Some(json!("true")));
     assert_eq!(cors.take_log("t1").len(), 1, "each relaxation is logged");
 }
@@ -42,7 +52,10 @@ fn a_guessed_or_replayed_token_is_stripped_and_relaxes_nothing() {
     let mut cors = granted();
     // Guessed.
     let guessed = cors.on_request("T", "n3", "GET", URL, &token_request("nope"));
-    assert!(matches!(guessed, RequestAction::ContinueWith { .. }), "the header is removed: {guessed:?}");
+    assert!(
+        matches!(guessed, RequestAction::ContinueWith { .. }),
+        "the header is removed: {guessed:?}"
+    );
     assert_eq!(cors.on_response("n3", URL, &[]), None);
     // Another tab cannot use the token.
     cors.on_request("OTHER", "n4", "GET", URL, &token_request("t1"));
@@ -75,7 +88,9 @@ fn a_token_preflight_is_answered_locally_and_never_sent() {
     let preflight = json!({"Origin": "https://a.test", "Access-Control-Request-Method": "PUT",
         "Access-Control-Request-Headers": format!("content-type,{TOKEN_HEADER}")});
     let action = cors.on_request("T", "p1", "OPTIONS", URL, &preflight);
-    let RequestAction::Fulfill { status, headers } = action else { panic!("sent to the server: {action:?}") };
+    let RequestAction::Fulfill { status, headers, .. } = action else {
+        panic!("sent to the server: {action:?}")
+    };
     assert_eq!(status, 204);
     let get = |name: &str| headers.iter().find(|h| h["name"] == name).map(|h| h["value"].clone());
     assert_eq!(get("Access-Control-Allow-Methods"), Some(json!("PUT")));
@@ -84,7 +99,10 @@ fn a_token_preflight_is_answered_locally_and_never_sent() {
     let page = json!({"Origin": "https://a.test", "Access-Control-Request-Method": "PUT",
         "Access-Control-Request-Headers": "content-type"});
     assert_eq!(cors.on_request("T", "p2", "OPTIONS", URL, &page), RequestAction::Continue);
-    // Another method or header set than the fetch's is not answered.
+    // A header the fetch does not send, or another method, is not answered.
+    let extra = json!({"Origin": "https://a.test", "Access-Control-Request-Method": "PUT",
+        "Access-Control-Request-Headers": format!("x-other,{TOKEN_HEADER}")});
+    assert_eq!(cors.on_request("T", "p5", "OPTIONS", URL, &extra), RequestAction::Continue);
     let other = json!({"Origin": "https://a.test", "Access-Control-Request-Method": "DELETE",
         "Access-Control-Request-Headers": format!("content-type,{TOKEN_HEADER}")});
     assert_eq!(cors.on_request("T", "p4", "OPTIONS", URL, &other), RequestAction::Continue);
@@ -98,4 +116,19 @@ fn tokens_are_128_bits_and_fresh() {
     let (a, b) = (fresh_token(), fresh_token());
     assert_eq!(a.len(), 32);
     assert_ne!(a, b);
+}
+
+#[test]
+fn a_fetch_shell_document_is_answered_locally_for_its_tab_only() {
+    let mut cors = Cors::default();
+    let shell = "https://api.peer.test/.well-known/cmux-fetch-shell";
+    cors.add_shell("BG", shell);
+    let page = json!({});
+    assert!(matches!(
+        cors.on_request("BG", "s1", "GET", shell, &page),
+        RequestAction::Fulfill { status: 200, .. }
+    ));
+    assert_eq!(cors.on_request("OTHER", "s2", "GET", shell, &page), RequestAction::Continue);
+    cors.remove_shell("BG");
+    assert_eq!(cors.on_request("BG", "s3", "GET", shell, &page), RequestAction::Continue);
 }

@@ -27,7 +27,8 @@ struct Grant {
     target: String,
     first_url: String,
     /// The fetch's method and request header names (lowercase, sorted,
-    /// the token's included): a preflight must ask for exactly these.
+    /// the token's included): a preflight may ask for no other header (the
+    /// browser leaves CORS-safelisted ones out of the list).
     method: String,
     header_names: Vec<String>,
     /// Preflights still answerable: the first hop's, then a few redirect
@@ -45,8 +46,9 @@ pub enum RequestAction {
     Continue,
     /// Continue with these headers (the token removed).
     ContinueWith { headers: Vec<Value> },
-    /// Answer locally (a token request's preflight).
-    Fulfill { status: u16, headers: Vec<Value> },
+    /// Answer locally (a token request's preflight, a fetch shell
+    /// document); `body` is base64.
+    Fulfill { status: u16, headers: Vec<Value>, body: String },
 }
 
 /// One relaxation, for the host's log.
@@ -65,6 +67,10 @@ pub struct Cors {
     relaxed: HashMap<String, (String, String)>,
     /// Relaxations not yet reported, per token.
     pub log: Vec<Relaxed>,
+    /// Fetch shells: a tab-less fetch runs in a background tab whose
+    /// document (at the fetch URL's origin) the host answers locally, so
+    /// the fetch has a real origin and the server sees no extra request.
+    shells: HashMap<String, String>,
 }
 
 fn header<'a>(headers: &'a Value, name: &str) -> Option<&'a str> {
@@ -86,12 +92,27 @@ fn pairs(headers: &Value, without: &str) -> Vec<Value> {
 }
 
 impl Cors {
+    pub fn add_shell(&mut self, target: &str, url: &str) {
+        self.shells.insert(target.to_owned(), url.to_owned());
+    }
+
+    pub fn remove_shell(&mut self, target: &str) {
+        self.shells.remove(target);
+    }
+
     pub fn active(&self) -> bool {
         !self.grants.is_empty()
     }
 
     /// A fresh token for one fetch on `target` whose first hop is `url`.
-    pub fn issue(&mut self, token: String, target: &str, url: &str, method: &str, header_names: &[String]) {
+    pub fn issue(
+        &mut self,
+        token: String,
+        target: &str,
+        url: &str,
+        method: &str,
+        header_names: &[String],
+    ) {
         let mut names: Vec<String> = header_names.iter().map(|n| n.to_ascii_lowercase()).collect();
         names.push(TOKEN_HEADER.to_owned());
         names.sort();
@@ -117,7 +138,8 @@ impl Cors {
 
     /// The token's relaxations so far (taken).
     pub fn take_log(&mut self, token: &str) -> Vec<Relaxed> {
-        let (mine, rest) = std::mem::take(&mut self.log).into_iter().partition(|r| r.token == token);
+        let (mine, rest) =
+            std::mem::take(&mut self.log).into_iter().partition(|r| r.token == token);
         self.log = rest;
         mine
     }
@@ -131,14 +153,99 @@ impl Cors {
         url: &str,
         headers: &Value,
     ) -> RequestAction {
-        let _ = (target, network_id, method, url, headers, &self.relaxed);
+        if method == "GET" && self.shells.get(target).is_some_and(|shell| shell == url) {
+            return RequestAction::Fulfill {
+                status: 200,
+                headers: vec![json!({"name": "Content-Type", "value": "text/html"})],
+                // "<!doctype html>"
+                body: "PCFkb2N0eXBlIGh0bWw+".into(),
+            };
+        }
+        if let Some(token) = header(headers, TOKEN_HEADER) {
+            let stripped = RequestAction::ContinueWith { headers: pairs(headers, TOKEN_HEADER) };
+            let origin = header(headers, "origin").unwrap_or("null").to_owned();
+            let hop = self.relaxed.get(network_id).is_some_and(|(_, held)| held == token);
+            let Some(grant) = self.grants.get_mut(token).filter(|g| g.target == target) else {
+                // Guessed, replayed or expired: removed, nothing relaxed.
+                return stripped;
+            };
+            if hop || (!grant.used && grant.first_url == url) {
+                grant.used = true;
+                self.relaxed.insert(network_id.to_owned(), (origin, token.to_owned()));
+            }
+            return stripped;
+        }
+        // A preflight of a token request: the browser sends the header's
+        // name, never its value, so it is matched by tab and first-hop URL
+        // of a live grant (or a redirect hop of a relaxed request).
+        let requested = header(headers, "access-control-request-headers").unwrap_or("");
+        let mut names: Vec<String> = requested
+            .split(',')
+            .map(|n| n.trim().to_ascii_lowercase())
+            .filter(|n| !n.is_empty())
+            .collect();
+        names.sort();
+        names.dedup();
+        let wanted =
+            header(headers, "access-control-request-method").unwrap_or("GET").to_ascii_uppercase();
+        if method == "OPTIONS" && names.iter().any(|n| n == TOKEN_HEADER) {
+            let grant = self.grants.iter_mut().find(|(_, g)| {
+                g.target == target
+                    && g.preflights > 0
+                    && g.method == wanted
+                    && names.iter().all(|n| g.header_names.contains(n))
+                    && (g.first_url == url || g.used)
+            });
+            if let Some((token, grant)) = grant {
+                grant.preflights -= 1;
+                let token = token.clone();
+                let origin = header(headers, "origin").unwrap_or("null");
+                self.log.push(Relaxed {
+                    token,
+                    url: url.to_owned(),
+                    what: "preflight answered by the host",
+                });
+                return RequestAction::Fulfill {
+                    status: 204,
+                    headers: vec![
+                        json!({"name": "Access-Control-Allow-Origin", "value": origin}),
+                        json!({"name": "Access-Control-Allow-Credentials", "value": "true"}),
+                        json!({"name": "Access-Control-Allow-Methods", "value": wanted.as_str()}),
+                        json!({"name": "Access-Control-Allow-Headers", "value": requested}),
+                        json!({"name": "Vary", "value": "Origin"}),
+                    ],
+                    body: String::new(),
+                };
+            }
+        }
         RequestAction::Continue
     }
 
-    /// The response stage (not built yet).
-    pub fn on_response(&mut self, network_id: &str, url: &str, headers: &[Value]) -> Option<Vec<Value>> {
-        let _ = (network_id, url, headers);
-        None
+    /// The response stage: the headers to continue with for a token
+    /// request (exact origin, credentials, every header readable), or
+    /// `None` to continue unchanged.
+    pub fn on_response(
+        &mut self,
+        network_id: &str,
+        url: &str,
+        headers: &[Value],
+    ) -> Option<Vec<Value>> {
+        let (origin, token) = self.relaxed.get(network_id)?.clone();
+        let cors = |name: &str| name.to_ascii_lowercase().starts_with("access-control-");
+        let mut out: Vec<Value> =
+            headers.iter().filter(|h| !cors(h["name"].as_str().unwrap_or(""))).cloned().collect();
+        let exposed: Vec<&str> =
+            headers.iter().filter_map(|h| h["name"].as_str()).filter(|n| !cors(n)).collect();
+        let exposed = exposed.join(", ");
+        out.push(json!({"name": "Access-Control-Allow-Origin", "value": origin}));
+        out.push(json!({"name": "Access-Control-Allow-Credentials", "value": "true"}));
+        out.push(json!({"name": "Access-Control-Expose-Headers", "value": exposed}));
+        self.log.push(Relaxed {
+            token,
+            url: url.to_owned(),
+            what: "response allowed for the host's fetch",
+        });
+        Some(out)
     }
 }
 

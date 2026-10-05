@@ -90,28 +90,10 @@ impl Gate {
             .map_or(0, |entry| entry.0);
         let mut call = params.clone();
         call["maxBytes"] = json!(MAX_BODY_BYTES);
-        // No current tab (a lazy page): the fetch runs in a background tab of
-        // the session's profile, closed after it (main's storage-state way).
-        let opened = if params.get("targetId").is_some_and(Value::is_string) {
-            None
-        } else {
-            let tab = self
-                .driver
-                .call("tabs.open", &json!({"url": "about:blank", "background": true}))?;
-            let target =
-                tab.get("targetId").and_then(Value::as_str).map(str::to_owned).ok_or_else(
-                    || DriverError::invalid("fetch: no tab to run the fetch in; open a page first"),
-                )?;
-            call["targetId"] = json!(target);
-            Some(target)
-        };
         let result = {
             let _fetching = Fetching::start(self);
             self.driver.call("net.fetch", &call)
         };
-        if let Some(target) = opened {
-            let _ = self.driver.call("tabs.close", &json!({"targetId": target}));
-        }
         let mut value = match result {
             Ok(value) => value,
             Err(error) => {
@@ -142,6 +124,17 @@ impl Gate {
             let final_url = value["url"].as_str().unwrap_or(&url).to_owned();
             if let Some(reason) = self.rebinding_refusal(&final_url, ip) {
                 return Err(self.refuse_fetch(&final_url, format!("fetch: {reason}")));
+            }
+        }
+        // HOST-FETCH-CORS relaxations the engine made for this fetch.
+        if let Some(Value::Array(relaxed)) =
+            value.as_object_mut().and_then(|object| object.remove("corsRelaxed"))
+        {
+            for entry in relaxed {
+                push_log(
+                    &self.cors_log,
+                    json!({"url": entry["url"], "what": entry["what"], "at": now_ms()}),
+                );
             }
         }
         // Secrets in the body are masked by their bytes (text or binary).
