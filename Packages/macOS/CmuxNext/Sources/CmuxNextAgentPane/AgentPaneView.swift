@@ -155,7 +155,11 @@ public final class AgentPaneView: NSView {
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
         // A frame that grants needs a real gesture in this pane; page script cannot make one.
         gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            MainActor.assumeIsolated { self?.noteGesture(event) }
+            // The event's values now; the gesture is recorded on the main actor before the page's
+            // bridge message for this event can come back from the web process.
+            let gesture = AgentPaneView.Gesture(event)
+            // task-owner: one gesture record, on the main actor
+            Task { @MainActor [weak self] in self?.noteGesture(gesture) }
             return event
         }
         installTransport()
@@ -335,19 +339,6 @@ public final class AgentPaneView: NSView {
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
         if window == nil { dictation.handle(.stop) }
         applyTheme()
-    }
-
-
-    /// A key press with the page focused, or a click on the page: the user's gesture.
-    private func noteGesture(_ event: NSEvent) {
-        guard let window, event.window === window else { return }
-        switch event.type {
-        case .keyDown:
-            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
-        default:
-            guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
-        }
-        model.transport.gestures.record()
     }
 
     /// Runs a script in the page (tests record them).

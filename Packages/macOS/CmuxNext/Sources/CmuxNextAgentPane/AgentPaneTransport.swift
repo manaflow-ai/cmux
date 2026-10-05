@@ -108,7 +108,8 @@ import Synchronization
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions, sessions: sessions,
                                       ids: ids) { [weak self] in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.arrived(id) } }
+            // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
+            Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
         do {

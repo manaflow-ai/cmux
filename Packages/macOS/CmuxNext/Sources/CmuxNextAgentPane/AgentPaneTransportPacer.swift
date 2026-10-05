@@ -35,11 +35,10 @@ public extension AgentPaneTransportPacer {
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
         guard !scheduled else { return }
         scheduled = true
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                self?.scheduled = false
-                if flush().more { self?.schedule(flush) }
-            }
+        // task-owner: one next-turn flush; a capped flush schedules the next one itself
+        Task { @MainActor [weak self] in
+            self?.scheduled = false
+            if flush().more { self?.schedule(flush) }
         }
     }
 }

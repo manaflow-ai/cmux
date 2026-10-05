@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Synchronization
 
 /// One page frame through the relay: the off-main checks and the main-actor decisions.
 extension AgentPaneTransport {
@@ -46,11 +47,33 @@ extension AgentPaneTransport {
         var asked: AgentPaneModeConfirmation
     }
 
-    /// The decided frame. It stays off the main actor: only its step reads or changes it, one stage
-    /// after another (the send line runs one frame at a time), never the main actor.
-    nonisolated final class FrameBox: @unchecked Sendable {
-        var object: [String: Any]
-        init(_ object: [String: Any]) { self.object = object }
+    /// The decided frame, under its own lock. The main actor never reads it; the off-main stages
+    /// of its step get only what the lock hands out: the encoded text, or a yes or no.
+    nonisolated final class FrameBox: Sendable {
+        private let frame: Mutex<[String: Any]>
+
+        init(_ object: sending [String: Any]) { frame = Mutex(object) }
+
+        /// The frame's fresh serialization, with `id` set when given; nil when it does not encode.
+        func encoded(id: Int?) -> String? {
+            frame.withLock { object in
+                var copy = object
+                if let id { copy["id"] = id }
+                return AcpmuxRequestIds.encode(copy)
+            }
+        }
+
+        /// Replaces the frame with the parse of `text`; false when `text` is not one JSON object.
+        func replace(withJSON text: String) -> Bool {
+            frame.withLock { object in
+                guard let parsed = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return false }
+                object = parsed
+                return true
+            }
+        }
+
+        /// Frees a large frame here, off the main thread.
+        func free() { frame.withLock { $0 = [:] } }
     }
 
     /// What one off-main pass over the line's frames did: the results of the frames it finished,

@@ -56,7 +56,8 @@ import CmuxNextWakeups
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
                 now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
                 nextTurn: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { work in
-                    DispatchQueue.main.async { MainActor.assumeIsolated { work() } }
+                    // task-owner: one next-turn delivery; the pacer runs it once, on the main actor
+                    Task { @MainActor in work() }
                 }) {
         self.frames = frames
         self.fallback = fallback

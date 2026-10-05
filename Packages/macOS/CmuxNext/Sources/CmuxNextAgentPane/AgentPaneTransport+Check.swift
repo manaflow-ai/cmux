@@ -88,7 +88,7 @@ extension AgentPaneTransport {
             relayID = next
         }
         if !snapshot.isFirst, let method, AcpmuxPaneSessions.starting.contains(method) {
-            snapshot.sessions.sent(method: method, id: pageID, params: params)
+            snapshot.sessions.sent(method: method, id: pageID, params: [:])
         }
         let error = sendNow(box, relayID: relayID, socket: socket)
         if error != nil, let relayID { ids.cancel(relayID) }
@@ -100,16 +100,15 @@ extension AgentPaneTransport {
     /// checked frame (canonical paths, a filled cwd) replaces the box's object.
     @concurrent nonisolated static func checkPaths(_ box: FrameBox, scope: AcpmuxPathPolicy.Scope) async
         -> Result<[String], AcpmuxPathPolicy.Refusal> {
-        guard let text = AcpmuxRequestIds.encode(box.object) else {
+        guard let text = box.encoded(id: nil) else {
             return .failure(AcpmuxPathPolicy.Refusal(error: .invalidFrame, requestID: nil, method: nil))
         }
         switch AcpmuxPathPolicy.checkNow(text, scope: scope) {
         case .failure(let refusal): return .failure(refusal)
         case .success(let checked):
-            guard let object = (try? JSONSerialization.jsonObject(with: Data(checked.text.utf8))) as? [String: Any] else {
+            guard box.replace(withJSON: checked.text) else {
                 return .failure(AcpmuxPathPolicy.Refusal(error: .invalidFrame, requestID: nil, method: nil))
             }
-            box.object = object
             return .success(checked.gestureRootsUsed)
         }
     }
@@ -118,16 +117,14 @@ extension AgentPaneTransport {
         -> AgentPaneTransportError? {
         let error = sendNow(box, relayID: relayID, socket: socket)
         // A large frame is freed here, not on the main thread when its step ends.
-        box.object = [:]
+        box.free()
         return error
     }
 
     /// The fresh serialization of the decided frame, with the relay id, to the socket; never the
     /// page's bytes.
     nonisolated static func sendNow(_ box: FrameBox, relayID: Int?, socket: AcpmuxPaneSocket) -> AgentPaneTransportError? {
-        var object = box.object
-        if let relayID { object["id"] = relayID }
-        guard let text = AcpmuxRequestIds.encode(object) else { return .invalidFrame }
+        guard let text = box.encoded(id: relayID) else { return .invalidFrame }
         return socket.send(text)
     }
 

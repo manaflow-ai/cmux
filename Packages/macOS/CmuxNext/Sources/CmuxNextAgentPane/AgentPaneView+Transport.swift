@@ -29,7 +29,8 @@ extension AgentPaneView {
             if let pageEvents = self.pageEvents {
                 // The page host's events carry no completion: the next push may follow next turn.
                 pageEvents.publish(.transport(event))
-                DispatchQueue.main.async { MainActor.assumeIsolated { done() } }
+                // task-owner: one completion for the pacer, on the main actor
+                Task { @MainActor in done() }
             } else {
                 // The completion runs once the page has run the push.
                 self.webView.evaluateJavaScript(event.script) { _, _ in done() }
@@ -45,5 +46,31 @@ extension AgentPaneView {
         }
         return CmuxDialogSpec(title: confirmModeTitle, lines: [line],
                               buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)])
+    }
+
+    /// A key or mouse event's values that decide whether it is a gesture in this pane.
+    nonisolated struct Gesture: Sendable {
+        var window: ObjectIdentifier?
+        var isKey: Bool
+        var isRepeat: Bool
+        var location: CGPoint
+
+        init(_ event: NSEvent) {
+            window = event.window.map(ObjectIdentifier.init)
+            isKey = event.type == .keyDown
+            isRepeat = isKey && event.isARepeat
+            location = event.locationInWindow
+        }
+    }
+
+    /// A key press with the page focused, or a click on the page: the user's gesture.
+    func noteGesture(_ event: Gesture) {
+        guard let window, event.window == ObjectIdentifier(window) else { return }
+        if event.isKey {
+            guard !event.isRepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
+        } else {
+            guard webView.bounds.contains(webView.convert(event.location, from: nil)) else { return }
+        }
+        model.transport.gestures.record()
     }
 }
