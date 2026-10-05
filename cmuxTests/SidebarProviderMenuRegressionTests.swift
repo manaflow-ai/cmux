@@ -76,13 +76,14 @@ struct SidebarProviderMenuRegressionTests {
     @Test
     func dogfoodCortexSelectionIsConfinedToItsMatchingTaggedHost() {
         let selection = CmuxExtensionSidebarSelection.self
-        let id = "fr.yoyaku.cortex.sessions.dogfood.cortex-management"
+        let id = "fr.yoyaku.cortex.dogfood.cortex-management.sessions"
         #expect(selection.isCortexBundle(id, hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
         #expect(!selection.isCortexBundle(id, hostBundleID: "com.cmuxterm.app.debug.other"))
         #expect(!selection.isCortexBundle(id, hostBundleID: "com.cmuxterm.app"))
         #expect(!selection.isCortexBundle(id, hostBundleID: nil))
-        #expect(!selection.isCortexBundle("fr.yoyaku.cortex.sessions.dogfood.Cortex-management", hostBundleID: "com.cmuxterm.app.debug.Cortex.management"))
-        #expect(!selection.isCortexBundle("fr.yoyaku.cortex.sessions.dogfood.cortex.management", hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
+        #expect(!selection.isCortexBundle("fr.yoyaku.cortex.sessions.dogfood.cortex-management", hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
+        #expect(!selection.isCortexBundle("fr.yoyaku.cortex.dogfood.Cortex-management.sessions", hostBundleID: "com.cmuxterm.app.debug.Cortex.management"))
+        #expect(!selection.isCortexBundle("fr.yoyaku.cortex.dogfood.cortex.management.sessions", hostBundleID: "com.cmuxterm.app.debug.cortex.management"))
     }
 
     @Test
