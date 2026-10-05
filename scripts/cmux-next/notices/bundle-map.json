@@ -33,13 +33,13 @@
     },
     {
       "path": "Contents/Resources/bin/cmux",
-      "what": "the cmux CLI and daemon (cmux-tui crates; acpmux is linked in)",
-      "notices": ["first-party", "section:rust-cmux-cli"]
+      "what": "the cmux CLI and daemon (cmux-tui crates; acpmux and libghostty-vt are linked in; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty"]
     },
     {
       "path": "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
       "what": "the same cmux-tui binary for remote hosts",
-      "notices": ["first-party", "section:rust-cmux-cli"]
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty"]
     },
     {
       "path": "Contents/Resources/bin/cmux-app-host",

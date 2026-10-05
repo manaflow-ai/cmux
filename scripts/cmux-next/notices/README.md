@@ -30,7 +30,10 @@ shared with cmux-browser. A Zig package without a license file needs pinned
 texts there, or the collection fails. So does a vendored Ghostty directory
 (`pkg/<name>`, `vendor/<name>`) without a license file: it needs a reviewed
 "vendored" entry in `pinned-licenses/MANIFEST.json` (`ghostty_vendored.py`,
-which also checks a git revision without zig).
+which also checks a git revision without zig). bin/cmux links libghostty-vt
+from the submodule that `ghostty-vt-sys/build.rs` names (`ghostty-next` today);
+`check_ghostty_vt_notices.py` resolves that source and commit from the tree and
+checks that its declared Zig packages are in a collected license manifest.
 
 Planned: the Ghostty section of THIRD_PARTY_LICENSES.md from that collector
 (replaces part of the hand-written Ghostty section; needs the Zig package cache
