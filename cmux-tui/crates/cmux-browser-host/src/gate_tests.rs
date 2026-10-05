@@ -6,14 +6,29 @@ struct FakeDriver {
     calls: Mutex<Vec<(String, Value)>>,
     focused_url: Value,
     page_text: String,
+    /// What the capture-mask check reports after a capture.
+    mask_held: std::sync::atomic::AtomicBool,
 }
 
 impl Driver for FakeDriver {
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
         self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
         match method {
-            "frame.evaluate" => Ok(self.focused_url.clone()),
-            "tab.info" => Ok(json!({"title": self.page_text})),
+            "frame.evaluate" => {
+                let source = params["source"].as_str().unwrap_or("");
+                if source.contains("cmux-capture-held") {
+                    Ok(json!(self.mask_held.load(std::sync::atomic::Ordering::SeqCst)))
+                } else if source.contains("cmux-capture-mask") {
+                    Ok(json!(1))
+                } else {
+                    Ok(self.focused_url.clone())
+                }
+            }
+            "tab.info" => Ok(json!({"title": self.page_text, "url": "https://peer.test/page"})),
+            "cookies.get" => Ok(json!([
+                {"name": "p", "value": "1", "domain": ".peer.test", "path": "/"},
+                {"name": "a", "value": "1", "domain": "a.test", "path": "/"}
+            ])),
             "tab.navigate" => Err(DriverError::invalid(format!("failed: {}", self.page_text))),
             _ => Ok(Value::Null),
         }
@@ -50,6 +65,7 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         calls: Mutex::new(Vec::new()),
         focused_url,
         page_text: "token s3cret-value here".into(),
+        mask_held: std::sync::atomic::AtomicBool::new(true),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp }), driver)
 }
@@ -377,4 +393,186 @@ fn a_secret_typed_into_a_tab_is_masked_for_every_session() {
     assert_eq!(event["t"], "<secret:pw>");
     let after = reader.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
     assert_eq!(after["title"], "token s3cret-value here", "the record ends with the tab");
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+}
+
+#[test]
+fn main_secret_insert_types_the_named_secret_and_never_a_text_with_it() {
+    let (gate, driver) = make_gate(json!("https://login.example.com/form"), false);
+    agent_secret(&gate, "*.example.com");
+    gate.driver_call("input.insertText", json!({"targetId": "T", "secret": "pw"})).unwrap();
+    let last = driver.calls.lock().unwrap().last().unwrap().1.clone();
+    assert_eq!(last["text"], "s3cret-value", "the driver types the value");
+    assert!(last.get("secret").is_none(), "{last}");
+    let both = gate
+        .driver_call("input.insertText", json!({"targetId": "T", "secret": "pw", "text": "x"}))
+        .unwrap_err();
+    assert_eq!(both.code, ErrorCode::Invalid, "{both}");
+    let (elsewhere, _) = make_gate(json!("https://evil.test/"), false);
+    agent_secret(&elsewhere, "*.example.com");
+    let refused = elsewhere
+        .driver_call("input.insertText", json!({"targetId": "T", "secret": "pw"}))
+        .unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden);
+}
+
+#[test]
+fn totp_codes_are_masked_while_a_server_accepts_them() {
+    let (gate, _) = make_gate(Value::Null, false);
+    let seed = "JBSWY3DPEHPK3PXP";
+    secrets(
+        &gate,
+        "set",
+        json!({"name": "otp", "value": seed, "domains": ["example.com"], "totp": true}),
+    )
+    .unwrap();
+    let key = crate::secrets::base32_decode(seed).unwrap();
+    let now = now_ms();
+    for at in [now - 30_000, now, now + 30_000] {
+        let code = crate::secrets::totp(&key, at, 6, 30);
+        assert_eq!(gate.mask(&format!("code {code} sent")), "code <secret:otp> sent");
+        assert_eq!(gate.mask(&format!("9{code}9")), format!("9{code}9"), "inside a longer number");
+        let mut stream = gate.masker().stream();
+        let mut out = stream.write(&format!("a {}", &code[..3]));
+        out.push_str(&stream.write(&format!("{} b", &code[3..])));
+        out.push_str(&stream.finish());
+        assert_eq!(out, "a <secret:otp> b", "a code split across writes");
+    }
+    assert!(!gate.mask(seed).contains(seed), "the seed itself is masked");
+}
+
+#[test]
+fn bytes_that_are_not_utf8_are_masked_by_their_bytes() {
+    let (gate, _) = make_gate(Value::Null, false);
+    agent_secret(&gate, "example.com");
+    let mut blob = vec![0xff, 0x00];
+    blob.extend_from_slice(b"s3cret-value");
+    blob.push(0x80);
+    let masked = gate.mask_bytes(&blob);
+    let has = |hay: &[u8], needle: &[u8]| hay.windows(needle.len()).any(|w| w == needle);
+    assert!(!has(&masked, b"s3cret-value"));
+    assert!(has(&masked, b"<secret:pw>"));
+    assert_eq!((masked[0], *masked.last().unwrap()), (0xff, 0x80));
+}
+
+#[test]
+fn captures_mask_secret_fields_and_are_refused_when_the_mask_is_dropped() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    // No secret: a capture is a plain driver call.
+    gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap();
+    assert_eq!(methods(&driver), vec!["tab.screenshot"]);
+    agent_secret(&gate, "example.com");
+    driver.calls.lock().unwrap().clear();
+    gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap();
+    let sources: Vec<String> = driver
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(m, p)| {
+            if m == "frame.evaluate" {
+                p["source"].as_str().unwrap_or("").chars().take(40).collect()
+            } else {
+                m.clone()
+            }
+        })
+        .collect();
+    let at = |needle: &str| sources.iter().position(|s| s.contains(needle)).unwrap_or(usize::MAX);
+    assert!(at("cmux-capture-mask") < at("tab.screenshot"), "{sources:?}");
+    assert!(at("tab.screenshot") < at("cmux-capture-held"), "{sources:?}");
+    assert!(
+        driver
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(m, p)| m != "frame.evaluate" || p["world"] == "host"),
+        "capture masking runs in the host world"
+    );
+    driver.mask_held.store(false, std::sync::atomic::Ordering::SeqCst);
+    let refused = gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Invalid, "{refused}");
+    assert!(refused.message.contains("refused"), "{}", refused.message);
+    let pdf = gate.driver_call("tab.pdf", json!({"targetId": "T"})).unwrap_err();
+    assert_eq!(pdf.code, ErrorCode::Invalid, "{pdf}");
+}
+
+#[test]
+fn cookie_calls_follow_the_domain_policy() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    policy(
+        &gate,
+        "set",
+        json!({"prohibited": ["peer.test"], "title": "session.prohibitedDomains"}),
+    )
+    .unwrap();
+    let get = gate.driver_call("cookies.get", json!({"urls": ["https://peer.test/"]})).unwrap_err();
+    assert_eq!(get.code, ErrorCode::Forbidden);
+    assert!(
+        get.message
+            .starts_with("cookies.get: https://peer.test/ is blocked: prohibited by peer.test"),
+        "{}",
+        get.message
+    );
+    let listed = gate.driver_call("cookies.get", json!({})).unwrap();
+    assert_eq!(
+        listed,
+        json!([{"name": "a", "value": "1", "domain": "a.test", "path": "/"}]),
+        "blocked sites are left out"
+    );
+    for cookie in [
+        json!({"name": "x", "value": "1", "domain": ".peer.test", "path": "/"}),
+        json!({"name": "x", "value": "1", "url": "https://peer.test/"}),
+    ] {
+        let set = gate.driver_call("cookies.set", json!({"cookies": [cookie]})).unwrap_err();
+        assert_eq!(set.code, ErrorCode::Forbidden, "{set}");
+    }
+    // Clearing a tab that shows a blocked site is refused.
+    let clear = gate.driver_call("cookies.clear", json!({"targetId": "T"})).unwrap_err();
+    assert_eq!(clear.code, ErrorCode::Forbidden, "{clear}");
+    assert!(!methods(&driver).contains(&"cookies.set".to_owned()));
+    assert!(!methods(&driver).contains(&"cookies.clear".to_owned()));
+}
+
+#[test]
+fn inputs_are_published_after_the_checks_right_before_dispatch() {
+    let (gate, driver) = make_gate(json!("https://login.example.com/form"), false);
+    let seen: Arc<Mutex<Vec<(Value, usize)>>> = Arc::default();
+    let (sink_seen, sink_driver) = (seen.clone(), driver);
+    let sink: crate::driver::EventSink = Arc::new(move |event: crate::protocol::DriverEvent| {
+        assert_eq!(event.name, "automation.input");
+        // How many inputs the driver had received when the event left.
+        let dispatched = sink_driver
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(m, _)| m.starts_with("input."))
+            .count();
+        sink_seen.lock().unwrap().push((event.payload, dispatched));
+    });
+    let gate = gate.with_input_events("lease-s", sink);
+    agent_secret(&gate, "*.example.com");
+    gate.driver_call("input.mouse", json!({"targetId": "T", "type": "move", "x": 1, "y": 2}))
+        .unwrap();
+    // Refused inputs emit nothing and take no seq.
+    gate.driver_call("input.insertText", json!({"targetId": "T", "secret": "pw", "text": "x"}))
+        .unwrap_err();
+    gate.driver_call("input.insertText", json!({"targetId": "T", "secret": "missing"}))
+        .unwrap_err();
+    gate.driver_call("input.insertText", json!({"targetId": "T", "secret": "pw"})).unwrap();
+    let seen = seen.lock().unwrap();
+    let summary: Vec<(u64, &str, usize)> = seen
+        .iter()
+        .map(|(e, n)| (e["seq"].as_u64().unwrap(), e["kind"].as_str().unwrap(), *n))
+        .collect();
+    assert_eq!(summary, vec![(0, "move", 0), (1, "type", 1)], "published right before dispatch");
+    for (event, _) in seen.iter() {
+        assert_eq!(event["session_id"], "lease-s");
+        assert_eq!(event["target_id"], "T");
+        assert!(!event.to_string().contains("s3cret"), "{event}");
+    }
 }
