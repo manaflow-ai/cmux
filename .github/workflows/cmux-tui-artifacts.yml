@@ -74,10 +74,18 @@ on:
         type: string
 
 concurrency:
-  # Main remains serialized because each main run also updates latest/. Branch
-  # dogfood runs publish commit-addressed objects only, so different commits
-  # can build in parallel instead of waiting behind an obsolete branch run.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number || github.sha }}
+  # Main remains serialized because each main run also updates latest/.
+  # A first-attempt push to any other branch shares one group per ref: GitHub
+  # keeps one running and one pending run, and a newer push replaces the
+  # pending one (2026-10-05: 28 superseded feat-cmux-next runs sat queued for
+  # one macOS runner). The same-tree wait (pin-cmux-tui.sh fetch) polls R2 for
+  # its tree key and reads the runs of its own commit, so a replaced run makes
+  # that wait fail fast instead of hanging; the newest push publishes its tree.
+  # Dispatches and reruns (the requeue job below, the owned-pool rescue) keep a
+  # per-commit group: a dispatch for an exact SHA is never dropped, and a rerun
+  # of an older push never replaces the newest pending run. Pull requests keep
+  # one group per PR.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && github.run_attempt == '1' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   # Raw immutable objects are write-once. Queue a rerun of the same commit
   # instead of cancelling a half-written publication.
   cancel-in-progress: false
