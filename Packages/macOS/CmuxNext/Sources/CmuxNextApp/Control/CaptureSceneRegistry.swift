@@ -103,6 +103,13 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
+        let actionReadiness = await waitForSceneAnimation()
+        guard case .object(let actionReadinessReport) = actionReadiness,
+              actionReadinessReport["animations_pending"]?.boolValue != true else {
+            return .object(["error": .string("scene popover did not become opaque before capture"),
+                            "scene": .string(definition.name), "readiness": actionReadiness,
+                            "scene_action": sceneAction])
+        }
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
@@ -123,6 +130,7 @@ final class CaptureSceneRegistry {
         result["agent_tabs"] = .number(Double(services.showcase.agentTabs.count))
         result["turn"] = turn
         result["readiness"] = readiness
+        result["action_readiness"] = actionReadiness
         result["scene_action"] = sceneAction
         if definition.name == "hints-cmd-held" || definition.name == "hints-ctrl-held" {
             _ = await DebugShortcutHintControl().handle(["modifier": .string("release")], services: services)
@@ -131,6 +139,11 @@ final class CaptureSceneRegistry {
     }
 
     private func applySceneAction(_ name: String) async -> JSONValue {
+        // Keep each scene independent when render-scenes.sh reuses one app.
+        // The tile scene opts into the real tray look; the other scenes use the
+        // ordinary quiet rows so a previous scene cannot leak its appearance.
+        _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
+                                   "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
         switch name {
         case "composer":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -152,6 +165,17 @@ final class CaptureSceneRegistry {
         default:
             return .object(["scene": .string(name)])
         }
+    }
+
+    private func waitForSceneAnimation() async -> JSONValue {
+        let deadline = ContinuousClock.now + .seconds(1)
+        var latest: JSONValue = .object(["animations_pending": .bool(true)])
+        while ContinuousClock.now < deadline {
+            latest = await DebugAgentPane.handle(["action": .string("readiness")], services)
+            if case .object(let report) = latest, report["animations_pending"]?.boolValue != true { return latest }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        return latest
     }
 
     private static let definitions: [CaptureSceneDefinition] = [

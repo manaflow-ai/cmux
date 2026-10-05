@@ -18,6 +18,18 @@ import WebKit
 /// `width`, `height` (pixels), `kind`, `window_number` and `method`
 /// (`composited` or `appkit`).
 enum DebugWindowSnapshot {
+    private struct WebViewTarget {
+        let view: WKWebView
+        let frame: CGRect
+        let order: Int
+    }
+
+    private struct CompositeResult {
+        let image: CGImage
+        let composited: Int
+        let hiddenComposited: Int
+    }
+
     static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
         let kind = kind(of: window, services: services)
@@ -44,28 +56,40 @@ enum DebugWindowSnapshot {
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
-            let webViews = visibleWebViews(in: window)
+            let targets = webViewTargets(in: window)
+            let visibleTargets = targets.filter { isVisible($0.view, in: window) }
             // AppKit drawing supplies the chrome and backdrop without stale
-            // remote WebKit layers. Hide the live views while drawing the
-            // native base so the page snapshots below fill each rectangle
-            // exactly once.
-            let base = webViews.isEmpty ? try baseImage(for: window) : try nativeBaseImage(for: window, hiding: webViews)
-            var images: [(WKWebView, CGImage)] = []
+            // remote WebKit layers. Hide every WebKit view while drawing the
+            // native base, including parked and hidden tabs. Only views that
+            // are visible at both selection and draw time are composited back.
+            let base = targets.isEmpty ? try baseImage(for: window) : try nativeBaseImage(for: window, hiding: targets.map(\.view))
+            var images: [(WebViewTarget, CGImage)] = []
             var failed = 0
-            for webView in webViews {
+            for target in visibleTargets.sorted(by: { $0.order < $1.order }) {
                 do {
-                    let image = try await webView.takeSnapshot(configuration: nil)
+                    let image = try await target.view.takeSnapshot(configuration: nil)
                     var proposedRect = NSRect.zero
                     guard let cgImage = image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil) else {
                         failed += 1
                         continue
                     }
-                    images.append((webView, cgImage))
+                    images.append((target, cgImage))
                 } catch {
                     failed += 1
                 }
             }
-            let output = composite(base: base.image, window: window, webViews: images) ?? base.image
+            let composite = composite(base: base.image, window: window, webViews: images)
+            guard let compositeResult = composite, compositeResult.hiddenComposited == 0 else {
+                return .object([
+                    "error": .string("hidden WebView would have been composited"),
+                    "kind": .string(kind),
+                    "window_number": JSONValue(window.windowNumber),
+                    "webviews": JSONValue(targets.count),
+                    "webviews_visible": JSONValue(visibleTargets.count),
+                    "webviews_hidden_composited": JSONValue(composite?.hiddenComposited ?? 1),
+                ])
+            }
+            let output = compositeResult.image
             let rep = NSBitmapImageRep(cgImage: output)
             guard let data = rep.representation(using: .png, properties: [:]) else {
                 throw CocoaError(.fileWriteUnknown)
@@ -74,7 +98,10 @@ enum DebugWindowSnapshot {
             return .object([
                 "path": .string(path), "width": JSONValue(rep.pixelsWide), "height": JSONValue(rep.pixelsHigh),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),
-                "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(images.count),
+                "webviews": JSONValue(targets.count), "webviews_visible": JSONValue(visibleTargets.count),
+                "webviews_hidden": JSONValue(targets.count - visibleTargets.count),
+                "webviews_composited": JSONValue(compositeResult.composited),
+                "webviews_hidden_composited": JSONValue(compositeResult.hiddenComposited),
                 "webviews_failed": JSONValue(failed),
             ])
         } catch {
@@ -113,17 +140,18 @@ enum DebugWindowSnapshot {
         return try appKitBaseImage(for: window)
     }
 
-    private static func visibleWebViews(in window: NSWindow) -> [WKWebView] {
-        guard let root = window.contentView else { return [] }
-        var result: [WKWebView] = []
+    private static func webViewTargets(in window: NSWindow) -> [WebViewTarget] {
+        guard let root = window.contentView,
+              let frameView = window.contentView?.superview ?? window.contentView else { return [] }
+        var result: [WebViewTarget] = []
+        var order = 0
         func visit(_ view: NSView) {
-            if let webView = view as? WKWebView,
-               webView.window === window,
-               !webView.isHiddenOrHasHiddenAncestor,
-               webView.alphaValue > 0,
-               webView.bounds.width > 0,
-               webView.bounds.height > 0 {
-                result.append(webView)
+            if let webView = view as? WKWebView, webView.window === window {
+                let frame = webView.convert(webView.bounds, to: frameView)
+                if frame.width > 0, frame.height > 0 {
+                    result.append(WebViewTarget(view: webView, frame: frame, order: order))
+                    order += 1
+                }
             }
             for child in view.subviews { visit(child) }
         }
@@ -131,7 +159,23 @@ enum DebugWindowSnapshot {
         return result
     }
 
-    private static func composite(base: CGImage, window: NSWindow, webViews: [(WKWebView, CGImage)]) -> CGImage? {
+    private static func isVisible(_ webView: WKWebView, in window: NSWindow) -> Bool {
+        window.isVisible && webView.window === window && !webView.isHidden && !webView.isHiddenOrHasHiddenAncestor
+            && effectiveAlpha(of: webView) > 0
+    }
+
+    private static func effectiveAlpha(of view: NSView) -> CGFloat {
+        var alpha: CGFloat = 1
+        var current: NSView? = view
+        while let candidate = current {
+            alpha *= candidate.alphaValue
+            if alpha <= 0 { return 0 }
+            current = candidate.superview
+        }
+        return alpha
+    }
+
+    private static func composite(base: CGImage, window: NSWindow, webViews: [(WebViewTarget, CGImage)]) -> CompositeResult? {
         guard let frameView = window.contentView?.superview ?? window.contentView,
               frameView.bounds.width > 0, frameView.bounds.height > 0 else { return nil }
         let width = base.width
@@ -142,16 +186,24 @@ enum DebugWindowSnapshot {
         let scaleX = CGFloat(width) / frameView.bounds.width
         let scaleY = CGFloat(height) / frameView.bounds.height
         context.draw(base, in: CGRect(x: 0, y: 0, width: width, height: height))
-        for (webView, image) in webViews {
-            let viewRect = webView.convert(webView.bounds, to: frameView)
+        var hiddenComposited = 0
+        var composited = 0
+        for (target, image) in webViews.sorted(by: { $0.0.order < $1.0.order }) {
+            guard isVisible(target.view, in: window) else {
+                hiddenComposited += 1
+                continue
+            }
+            let viewRect = target.frame
             let bottom = frameView.isFlipped ? frameView.bounds.height - viewRect.maxY : viewRect.minY
             let rect = CGRect(x: viewRect.minX * scaleX, y: bottom * scaleY,
                               width: viewRect.width * scaleX, height: viewRect.height * scaleY)
             guard rect.width > 0, rect.height > 0 else { continue }
             context.interpolationQuality = .high
             context.draw(image, in: rect)
+            composited += 1
         }
-        return context.makeImage()
+        guard let image = context.makeImage() else { return nil }
+        return CompositeResult(image: image, composited: composited, hiddenComposited: hiddenComposited)
     }
 
     /// The window `params` names.

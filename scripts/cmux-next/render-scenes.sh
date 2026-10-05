@@ -77,6 +77,16 @@ manifest="$OUT/manifest.jsonl"
 for scene in "${scenes[@]}"; do
   path="$OUT/$scene.png"
   result=$(cli rpc debug.scene.render "$(printf '{"scene":%s,"path":%s}' "$(json_quote "$scene")" "$(json_quote "$path")")")
+  python3 - "$result" "$scene" <<'PY'
+import json, sys
+payload = json.loads(sys.argv[1])
+value = payload.get("result", payload)
+if value.get("error"):
+    raise SystemExit(value["error"])
+hidden = value.get("webviews_hidden_composited")
+if hidden != 0:
+    raise SystemExit(f"scene {sys.argv[2]} composited {hidden} hidden WebViews")
+PY
   printf '%s\n' "$result" >> "$manifest"
   actual=$(python3 - "$result" <<'PY'
 import json, sys

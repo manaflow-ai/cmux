@@ -105,12 +105,16 @@ enum DebugAgentPane {
         const debug = window.cmuxAcpmuxDebug;
         const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
         const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
+        const menus = [...document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu')];
+        const menuAnimations = menus.flatMap((node) => typeof node.getAnimations === 'function' ? node.getAnimations() : []);
+        const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
         return JSON.stringify({
           body_text_length: bodyText.length,
           transcript_rows: transcriptRows,
           composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
           composer_text_length: (composer?.innerText || '').trim().length,
-          document_ready: document.readyState === 'complete'
+          document_ready: document.readyState === 'complete',
+          animations_pending: animationsPending
         });
         """
         do {
