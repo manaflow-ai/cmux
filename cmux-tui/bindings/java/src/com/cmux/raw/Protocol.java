@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "700326e820585f468e0688f4ab6b747366a80d9d6b017c3ba3ac1eb125481eab";
+    public static final String IR_SHA256 = "c46f726ee9b8a780eb8c16644b79d6aac31855f718c671d1ee0304ad4bb34dfe";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
