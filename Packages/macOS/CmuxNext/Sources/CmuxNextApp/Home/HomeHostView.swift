@@ -18,6 +18,8 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         super.init(frame: .zero)
+        // Settings > Home: whether attached photos and videos keep their location.
+        transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
         // Paste, drop and the picker attach files through the store; the view
         // owns its conversation's binding (refusals, Cancel Upload).
         wantsLayer = true

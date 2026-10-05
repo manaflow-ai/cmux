@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + updates + columnLayout + palette + picker + tasks + appearance + terminal + sidebarSections + browser + notifications + labs + feed
+        general + updates + columnLayout + palette + picker + tasks + appearance + terminal + sidebarSections + browser + home + notifications + labs + feed
     }
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
@@ -36,6 +36,7 @@ public nonisolated enum SettingsSchema {
         case .appearance: ["appearance.customize", "space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
+        case .home: []
         case .keyboard: ["palette.searchShortcuts"]
         case .notifications: []
         case .accounts: ["accounts.refresh", "openTeamPicker"]
