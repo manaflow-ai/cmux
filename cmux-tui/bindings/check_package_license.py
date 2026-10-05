@@ -3,7 +3,9 @@
 
 The SDKs are source only: the crates cmux-sdk and cmux-sidebar, the npm package
 cmux-sdk, the PyPI package cmux-sdk (wheel and sdist), and the Go modules under
-cmux-tui/bindings/go and cmux-tui/bindings/go-pane. Their dependencies come from
+cmux-tui/bindings/go and cmux-tui/bindings/go-pane, and the Java SDK jar
+(cmux-tui/bindings/java, not yet published; scripts/build.sh checks the jar it
+builds). Their dependencies come from
 the package manager, so they ship no third-party code and need no third-party
 notices. They must ship LICENSE (byte-equal to cmux-tui/dist/npm/cmux/LICENSE,
 the GPL text every cmux-tui package uses) and declare GPL-3.0-or-later.
@@ -15,7 +17,7 @@ and a contract like the cmux-tui packages before it may publish.
 
 Usage:
   check_package_license.py repo
-  check_package_license.py crate|npm|wheel|sdist PATH
+  check_package_license.py crate|npm|wheel|sdist|jar PATH
   check_package_license.py go-module DIR
 """
 
@@ -27,6 +29,7 @@ import json
 import sys
 import tarfile
 import tomllib
+import xml.etree.ElementTree as ElementTree
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,7 +59,7 @@ COMPILED_SUFFIXES = (".so", ".dylib", ".dll", ".exe", ".node", ".wasm", ".a", ".
 class Package:
     name: str
     directory: str
-    kind: str  # crate | npm | pypi | go
+    kind: str  # crate | npm | pypi | go | maven
 
 
 PACKAGES = (
@@ -66,7 +69,17 @@ PACKAGES = (
     Package("cmux-sdk (pypi)", "cmux-tui/bindings/python", "pypi"),
     Package("go", "cmux-tui/bindings/go", "go"),
     Package("go-pane", "cmux-tui/bindings/go-pane", "go"),
+    Package("cmux-java-sdk (maven)", "cmux-tui/bindings/java", "maven"),
 )
+# A JVM class file starts with 0xCAFEBABE, like a fat Mach-O: a jar may hold .class
+# files with that magic, nothing else compiled.
+CLASS_MAGIC = b"\xca\xfe\xba\xbe"
+
+
+def _is_class_file(data: bytes) -> bool:
+    # After the magic, a class file has minor and major version (major >= 45, Java 1.0);
+    # a fat Mach-O has its architecture count (a few).
+    return data.startswith(CLASS_MAGIC) and len(data) >= 8 and int.from_bytes(data[4:8], "big") >= 45
 
 
 def _gpl() -> bytes:
@@ -180,6 +193,19 @@ def check_sdist(path: Path) -> list[str]:
     return errors
 
 
+def check_jar(path: Path) -> list[str]:
+    label = path.name
+    with zipfile.ZipFile(path) as archive:
+        files = {name: archive.read(name) for name in archive.namelist() if not name.endswith("/")}
+    errors = _license_errors(label, files.get("META-INF/LICENSE"))
+    for name, data in sorted(files.items()):
+        if name.endswith(".class") and _is_class_file(data):
+            continue
+        if _compiled(name, data[:8]):
+            errors.append(_compiled_error(label, name))
+    return errors
+
+
 def _directory_files(directory: Path) -> dict[str, bytes]:
     files = {}
     for path in sorted(directory.rglob("*")):
@@ -218,6 +244,11 @@ def _source_metadata_errors(package: Package, directory: Path) -> list[str]:
     elif package.kind == "npm":
         if json.loads((directory / "package.json").read_text()).get("license") != EXPRESSION:
             errors.append(f"{label}: package.json license is not {EXPRESSION}")
+    elif package.kind == "maven":
+        root = ElementTree.parse(directory / "pom.xml").getroot()
+        names = [(element.text or "").strip() for element in _license_elements(root)]
+        if names != [EXPRESSION]:
+            errors.append(f"{label}: pom.xml licenses are {names}, not [{EXPRESSION!r}]")
     elif package.kind == "pypi":
         project = tomllib.loads((directory / "pyproject.toml").read_text())["project"]
         if project.get("license") != EXPRESSION:
@@ -225,6 +256,15 @@ def _source_metadata_errors(package: Package, directory: Path) -> list[str]:
         if "LICENSE" not in project.get("license-files", []):
             errors.append(f"{label}: pyproject license-files does not list LICENSE")
     return errors
+
+
+def _license_elements(root: ElementTree.Element) -> list[ElementTree.Element]:
+    """The <name> children of <licenses>/<license> in a pom."""
+    names = []
+    for licenses in (e for e in root if e.tag.rsplit("}", 1)[-1] == "licenses"):
+        for license_element in licenses:
+            names += [child for child in license_element if child.tag.rsplit("}", 1)[-1] == "name"]
+    return names
 
 
 def check_repository(repo: Path = REPO) -> list[str]:
@@ -244,6 +284,7 @@ CHECKS = {
     "wheel": check_wheel,
     "sdist": check_sdist,
     "go-module": check_go_module,
+    "jar": check_jar,
 }
 
 
