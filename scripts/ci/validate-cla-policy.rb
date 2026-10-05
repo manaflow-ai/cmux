@@ -5,13 +5,13 @@
 # cla-policy-guard.yml. It treats pull-request files as data: no file fetched
 # from the PR is sourced, loaded as Ruby, or executed.
 
-require "base64"
 require "digest"
 require "fileutils"
 require "json"
 require "open3"
 require "tempfile"
 require "time"
+require "tmpdir"
 require "yaml"
 
 class PolicyError < StandardError; end
@@ -79,7 +79,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b78071
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "06ee4057cd81a198aa0e3d5612bd639dd6f4cddd136764a080470904d7599d53"
+EXPECTED_GUARD_SCRIPT_DIGEST = "4ae20acf424790b7896d52a19528543d645fe3a149918c8d1ff364f7b3ab0fe4"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -441,17 +441,47 @@ def api_failure_status(stdout, stderr)
   nil
 end
 
+# The repository's GITHUB_TOKEN budget is shared by every workflow. When it
+# is spent, wait for the reset GitHub reports (GET /rate_limit is not charged
+# to it) if that fits the job's timeout, instead of failing the required
+# check for every pull request; otherwise say when it resets.
+RATE_LIMIT_MAX_WAIT_SECONDS = 300
+
+def rate_limited?(stdout, stderr)
+  "#{stdout}\n#{stderr}".match?(/rate limit exceeded/i)
+end
+
+def rate_limit_reset_seconds
+  stdout, _stderr, status = Open3.capture3("gh", "api", "rate_limit", "--jq", ".resources.core.reset")
+  return nil unless status.success? && stdout.strip.match?(/\A[0-9]+\z/)
+
+  [stdout.strip.to_i - Time.now.to_i, 0].max
+end
+
 def api_json(repository, endpoint, allow_missing: false)
-  stdout, stderr, status = Open3.capture3(
-    "gh", "api", "--header", "Accept: application/vnd.github+json", endpoint
-  )
-  unless status.success?
+  waited = false
+  loop do
+    stdout, stderr, status = Open3.capture3(
+      "gh", "api", "--header", "Accept: application/vnd.github+json", endpoint
+    )
+    return JSON.parse(stdout) if status.success?
+
     response_status = api_failure_status(stdout, stderr)
     return nil if allow_missing && response_status == 404
 
+    if rate_limited?(stdout, stderr) && !waited
+      wait = rate_limit_reset_seconds
+      if wait && wait <= RATE_LIMIT_MAX_WAIT_SECONDS
+        warn "::warning::GITHUB_TOKEN rate limit reached; waiting #{wait + 5}s for its reset before retrying #{endpoint}"
+        sleep(wait + 5)
+        waited = true
+        next
+      end
+      reset_at = wait ? (Time.now + wait).utc.strftime("%H:%M UTC") : "an unknown time"
+      fail!("the repository's GITHUB_TOKEN rate limit is exhausted until #{reset_at}; re-run this check after that (#{endpoint})")
+    end
     fail!("GitHub API request failed for #{endpoint}: #{stderr.strip}")
   end
-  JSON.parse(stdout)
 rescue JSON::ParserError
   fail!("GitHub API returned malformed JSON for #{endpoint}")
 end
@@ -537,19 +567,92 @@ def require_trusted_review!(repository, pr_number, head_sha, pr_author_id)
   fail!("trusted approval for this control-plane update is required") unless approved
 end
 
-def fetch_file(repository, sha, path, allow_missing: false)
-  payload = api_json(repository, "repos/#{repository}/contents/#{path}?ref=#{sha}", allow_missing: allow_missing)
-  return nil if payload.nil?
-  fail!("#{path} is not a regular file") unless payload["type"] == "file"
-  fail!("#{path} is not base64 encoded") unless payload["encoding"] == "base64"
+# Policy files are read from git, not the REST contents API. Every workflow in
+# the repository shares one GITHUB_TOKEN budget per hour, and this guard runs on
+# every pull_request_target event, review-bot body edits included: twelve
+# contents requests per run were its largest share (2026-09-30, when the budget
+# ran out and this guard failed with 403 on every pull request). Git transfers
+# are not charged to that budget. Objects are addressed by SHA, so what is read
+# is exactly the revision the API would have returned. The public repositories
+# are fetched anonymously; no credential is written to disk.
+def snapshot_git(*args)
+  stdout, stderr, status = Open3.capture3(
+    "git", "--git-dir", snapshot_git_dir, "-c", "protocol.version=2", *args
+  )
+  [stdout, stderr, status]
+end
 
-  encoded = payload["content"].to_s.delete("\r\n")
-  fail!("#{path} has malformed base64") unless encoded.match?(/\A(?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?\z/)
-  bytes = Base64.strict_decode64(encoded)
-  fail!("#{path} is too large") if bytes.bytesize > MAX_FILE_BYTES
-  bytes
-rescue ArgumentError
-  fail!("#{path} has malformed base64")
+def snapshot_git_dir
+  @snapshot_git_dir ||= begin
+    dir = Dir.mktmpdir("cla-policy-snapshots", ENV["RUNNER_TEMP"] || Dir.tmpdir)
+    _stdout, stderr, status = Open3.capture3("git", "init", "-q", "--bare", dir)
+    fail!("could not create the snapshot repository: #{stderr.strip}") unless status.success?
+    dir
+  end
+end
+
+# One promisor remote per repository, so a blob the tree names is fetched on
+# demand from the repository that holds it.
+def snapshot_remote(repository)
+  fail!("repository name is malformed") unless repository.match?(REPOSITORY)
+  @snapshot_remotes ||= {}
+  @snapshot_remotes[repository] ||= begin
+    name = "r#{@snapshot_remotes.length}"
+    [
+      ["remote", "add", name, "https://github.com/#{repository}.git"],
+      ["config", "remote.#{name}.promisor", "true"],
+      ["config", "remote.#{name}.partialclonefilter", "blob:none"]
+    ].each do |args|
+      _stdout, stderr, status = snapshot_git(*args)
+      fail!("could not configure the snapshot remote for #{repository}: #{stderr.strip}") unless status.success?
+    end
+    name
+  end
+end
+
+def fetch_snapshot_commit!(repository, sha)
+  fail!("revision is malformed") unless sha.match?(SHA)
+  remote = snapshot_remote(repository)
+  @snapshot_commits ||= {}
+  return remote if @snapshot_commits[[repository, sha]]
+
+  _stdout, stderr, status = snapshot_git(
+    "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--depth=1", "--filter=blob:none", remote, sha
+  )
+  fail!("could not fetch #{sha} from #{repository}: #{stderr.strip}") unless status.success?
+  @snapshot_commits[[repository, sha]] = true
+  remote
+end
+
+def fetch_snapshot(repository, sha, paths)
+  remote = fetch_snapshot_commit!(repository, sha)
+  entries = paths.to_h do |path|
+    stdout, stderr, status = snapshot_git("ls-tree", "-z", sha, "--", path)
+    fail!("could not list #{path} at #{sha}: #{stderr.strip}") unless status.success?
+    entry = stdout.split("\0").find { |line| line.split("\t", 2)[1] == path }
+    next [path, nil] if entry.nil?
+
+    mode, type, oid = entry.split("\t", 2)[0].split(" ")
+    fail!("#{path} is not a regular file") unless type == "blob" && %w[100644 100755].include?(mode)
+    [path, oid]
+  end
+  wanted = entries.values.compact.uniq
+  unless wanted.empty?
+    _stdout, stderr, status = snapshot_git(
+      "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--filter=blob:none", remote, *wanted
+    )
+    fail!("could not fetch policy files from #{repository}: #{stderr.strip}") unless status.success?
+  end
+  entries.transform_values do |oid|
+    next nil if oid.nil?
+
+    size, _stderr, status = snapshot_git("cat-file", "-s", oid)
+    fail!("could not size #{oid}") unless status.success?
+    fail!("#{entries.key(oid)} is too large") if size.to_i > MAX_FILE_BYTES
+    bytes, stderr, status = snapshot_git("cat-file", "blob", oid)
+    fail!("could not read #{oid}: #{stderr.strip}") unless status.success?
+    bytes.b
+  end
 end
 
 def walk(value, &block)
@@ -840,10 +943,6 @@ def run_test_merge_regression_matrix!
   end
   fail!("test merge policy regression matrix failed: #{policy_failures.join('; ')}") unless policy_failures.empty?
   puts "PASS: test merge regression matrix (#{cases.length + policy_cases.length} cases)"
-end
-
-def fetch_snapshot(repository, sha, paths)
-  paths.to_h { |path| [path, fetch_file(repository, sha, path, allow_missing: true)] }
 end
 
 # Returns [first parent, test merge] for the exact head, or nil when GitHub
