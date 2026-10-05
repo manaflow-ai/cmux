@@ -142,10 +142,10 @@ pub(crate) fn wait_until_stopped(pid: libc::pid_t) {
 
 #[cfg(target_os = "linux")]
 fn process_stopped(pid: libc::pid_t) -> bool {
-    let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return false };
+    let Ok(tasks) = fs::read_dir(format!("/proc/{pid}/task")) else { return false };
     let mut any = false;
     for task in tasks.flatten() {
-        let Ok(stat) = std::fs::read_to_string(task.path().join("stat")) else { return false };
+        let Ok(stat) = fs::read_to_string(task.path().join("stat")) else { return false };
         // The state is the first field after the parenthesized command name.
         let Some(state) = stat.rsplit_once(") ").and_then(|(_, rest)| rest.chars().next()) else {
             return false;
