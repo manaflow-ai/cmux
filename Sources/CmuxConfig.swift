@@ -3470,7 +3470,7 @@ final class CmuxConfigStore: ObservableObject {
         do {
             sanitized = try JSONCParser.preprocess(data: data)
         } catch {
-            let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))", line: 1)
+            let issue = schemaIssue(path: path, message: "JSONC preprocessing failed: \(schemaErrorMessage(error))")
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
