@@ -22,8 +22,11 @@ import CmuxNextWakeups
 /// - Under load (a call finished less than one display frame after the previous one began): wait
 ///   for the next display frame, so a burst is at most one call per frame.
 /// - The display link does not fire (an occluded or hidden window): after ``fallbackDelay`` the
-///   frames go at once, and every later call goes on the next turn until a frame ticks again, so
-///   streaming and notifications keep arriving.
+///   frames go at once, and until a frame ticks again a later call goes on the next turn, or under
+///   sustained load (this delivery and the one before found frames waiting within one frame
+///   interval) one frame interval after the previous call began, on the fallback deadline. So
+///   streaming and notifications keep arriving, one busy moment adds no wait, and a burst is still
+///   at most one call per frame interval.
 @MainActor public final class AgentPaneFramePacer: AgentPaneTransportPacer {
     /// One display frame at the slowest rate the pacer assumes.
     public static let frameInterval: TimeInterval = 1.0 / 120
@@ -42,6 +45,10 @@ import CmuxNextWakeups
     /// The display link missed its frame; deliver on the next turn until it ticks again.
     private(set) var linkStalled = false
     private var nextTurnScheduled = false
+    /// Stalled link under sustained load: the next call waits out the frame interval on the deadline.
+    private(set) var waitingForInterval = false
+    /// The last delivery found frames waiting within one frame interval of its call's start.
+    private var loadedBefore = false
     private var lastCall: TimeInterval = -.infinity
     /// Calls made (tests).
     private(set) var calls = 0
@@ -66,16 +73,26 @@ import CmuxNextWakeups
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
         self.flush = flush
         pending = true
-        guard !inFlight, !waitingForFrame, !nextTurnScheduled else { return }
+        guard !inFlight, !waitingForFrame, !waitingForInterval, !nextTurnScheduled else { return }
         call()
     }
 
     public func delivered() {
         inFlight = false
-        guard pending else { return }
-        if linkStalled {
+        guard pending else {
+            loadedBefore = false
+            return
+        }
+        let since = now() - lastCall + 1e-6 // a microsecond of rounding is a full frame
+        let loaded = since < Self.frameInterval
+        let sustained = loaded && loadedBefore
+        loadedBefore = loaded
+        if linkStalled, !sustained {
             scheduleNextTurn()
-        } else if now() - lastCall + 1e-6 >= Self.frameInterval { // a microsecond of rounding is a full frame
+        } else if linkStalled {
+            waitingForInterval = true
+            fallback.schedule(after: .nanoseconds(Int64((Self.frameInterval - since) * 1e9))) { [weak self] in self?.intervalPassed() }
+        } else if since >= Self.frameInterval {
             call()
         } else {
             waitingForFrame = true
@@ -91,6 +108,8 @@ import CmuxNextWakeups
         inFlight = false
         waitingForFrame = false
         nextTurnScheduled = false
+        waitingForInterval = false
+        loadedBefore = false
         fallback.cancel()
         frames.deactivate()
     }
@@ -114,12 +133,24 @@ import CmuxNextWakeups
 
     private func ticked() {
         linkStalled = false
+        if waitingForInterval {
+            waitingForInterval = false
+            fallback.cancel()
+            frames.deactivate()
+            return call()
+        }
         guard waitingForFrame else {
             frames.deactivate()
             return
         }
         waitingForFrame = false
         fallback.cancel()
+        call()
+    }
+
+    private func intervalPassed() {
+        guard waitingForInterval else { return }
+        waitingForInterval = false
         call()
     }
 
