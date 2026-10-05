@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
-@@ -366,8 +366,9 @@
+@@ -385,8 +385,9 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -12,7 +12,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -380,11 +381,11 @@
+@@ -399,11 +400,11 @@
          for i in 0..<3 {
              let d = CALayer()
              d.actions = noActions
@@ -26,7 +26,7 @@
              hi.cornerRadius = 3.25
              hi.opacity = 0
              hi.name = "hi"
-@@ -448,7 +449,12 @@
+@@ -467,7 +468,12 @@
              }
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor

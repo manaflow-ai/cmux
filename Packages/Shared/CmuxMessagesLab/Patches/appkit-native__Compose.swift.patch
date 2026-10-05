@@ -10,7 +10,23 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -40,6 +43,7 @@
+@@ -18,6 +21,15 @@
+     /// than Catalyst's (measured by the text probe's first baseline).
+     override var textContainerOrigin: NSPoint { NSPoint(x: textContainerInset.width, y: textContainerInset.height) }
+ 
++    /// cmux: the caret's NSTextInsertionIndicator shows no effects view. Its
++    /// glass bubble (input source, dictation, caps lock) sits just left of the
++    /// caret, which is 7 pt into the field, so it covered the "+" glass. The
++    /// text view adds (and rebuilds) its indicators as subviews.
++    override func didAddSubview(_ subview: NSView) {
++        super.didAddSubview(subview)
++        (subview as? NSTextInsertionIndicator)?.automaticModeOptions.remove(.showEffectsView)
++    }
++
+     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+         onMarkedTextChange()
+@@ -40,6 +52,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -18,7 +34,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -117,7 +121,8 @@
+@@ -117,7 +130,8 @@
      static func height(lines: Int, chips: Bool) -> CGFloat {
          30 + 16 * CGFloat(lines - 1) + (lines >= 2 ? 1 : 0) + (chips ? 30 : 0)
      }
@@ -28,7 +44,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
-@@ -130,8 +135,8 @@
+@@ -130,8 +144,8 @@
          default: return .limited
          }
      }()
@@ -39,7 +55,7 @@
      }
      private var dx: CGFloat { bounds.width - Fixture.windowWidth }
      private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
-@@ -329,11 +334,11 @@
+@@ -329,11 +343,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -53,7 +69,7 @@
              let c = CGPoint(x: 30 - 19.3 - 6, y: 30 - 15.25)
              for (i, hh) in ([4.7, 10.8, 15, 10.8, 4.7] as [CGFloat]).enumerated() {
                  let x = c.x + CGFloat(i - 2) * 3.65
-@@ -355,7 +360,7 @@
+@@ -355,7 +369,7 @@
                  let font = NSFont.systemFont(ofSize: 11, weight: .medium)
                  let w = min(200, TextDraw.width(a.fileName, font: font) + 34)
                  let r = CGRect(x: x, y: 5, width: w, height: 22)
@@ -62,7 +78,7 @@
                  UIBezierPath(roundedRect: r, cornerRadius: 11).fill()
                  TextDraw.line(a.fileName, font: font, color: Fixture.incomingText, x: r.minX + 10, baseline: r.minY + 15, in: ctx.cgContext)
                  TextDraw.line("\u{2715}", font: .systemFont(ofSize: 9, weight: .bold), color: Fixture.secondaryText, x: r.maxX - 16,
-@@ -397,7 +402,7 @@
+@@ -397,7 +411,7 @@
          placeholderLayer.opacity = text.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -71,7 +87,7 @@
          let old = fieldHeight
          fieldHeight = h
          place(height: h)
-@@ -473,14 +478,14 @@
+@@ -473,14 +487,14 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

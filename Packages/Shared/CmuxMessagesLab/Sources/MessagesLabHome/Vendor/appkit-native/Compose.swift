@@ -21,6 +21,15 @@ final class FieldTextView: NSTextView {
     /// than Catalyst's (measured by the text probe's first baseline).
     override var textContainerOrigin: NSPoint { NSPoint(x: textContainerInset.width, y: textContainerInset.height) }
 
+    /// cmux: the caret's NSTextInsertionIndicator shows no effects view. Its
+    /// glass bubble (input source, dictation, caps lock) sits just left of the
+    /// caret, which is 7 pt into the field, so it covered the "+" glass. The
+    /// text view adds (and rebuilds) its indicators as subviews.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        (subview as? NSTextInsertionIndicator)?.automaticModeOptions.remove(.showEffectsView)
+    }
+
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         onMarkedTextChange()
