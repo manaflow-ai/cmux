@@ -2,7 +2,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { HostId } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { bindFile, cloudStub, createdAndBound, DAEMON, frame, person, post, reply, SIZE, WG_KEY } from "./cloud-bind-support.ts"
+import { bindFile, cloudStub, createdAndBound, DAEMON, ensureUser, frame, person, post, reply, SIZE, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /**
  * Part 1 (create mints host id, epoch 1 and a one-time bind token written into the VM) and part 2
@@ -22,6 +22,7 @@ const dumpSqlite = (stub: unknown) =>
 describe("part 1: create mints the host id, epoch 1 and a one-time bind token", { timeout: 60_000 }, () => {
   it("writes {team, machine, bind_token} into the VM (0600) and stores only the token's sha256", async () => {
     const x = person()
+    await ensureUser(x)
     const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
     expect(created.t, JSON.stringify(created)).toBe("result")
     const machine = created.value.machine.id as string
@@ -44,6 +45,7 @@ describe("part 1: create mints the host id, epoch 1 and a one-time bind token", 
 describe("part 2: bind", { timeout: 60_000 }, () => {
   it("binds once: records host, epoch 1, key and daemon, emits the host, and returns the public keyset", async () => {
     const x = person()
+    await ensureUser(x)
     const { machine, host, keyset } = await createdAndBound(x)
     expect(Exit.isSuccess(Schema.decodeUnknownExit(HostId)(host))).toBe(true)
     const got = await x.stub.readOp(x.team, x.p, "cloud.machine.get", { machine })
@@ -60,35 +62,38 @@ describe("part 2: bind", { timeout: 60_000 }, () => {
 
   it("refuses a spent token, a wrong token, an expired token and a malformed key", async () => {
     const x = person()
+    await ensureUser(x)
     const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
     const machine = created.value.machine.id as string
     const { json } = await bindFile(x.stub, machine)
-    const body = { team: x.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON }
+    const body = { team: x.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk }
     expect(await x.stub.bindMachine(x.team, { ...body, wg_public_key: "AAAA" })).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await x.stub.bindMachine(x.team, { ...body, bind_token: "x".repeat(43) })).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(await x.stub.bindMachine(x.team, body)).toMatchObject({ ok: true, value: { epoch: 1 } })
     expect(await x.stub.bindMachine(x.team, body)).toMatchObject({ ok: false, code: "auth.forbidden" })
 
     const late = person()
+    await ensureUser(late)
     const m2 = reply(await late.stub.submit(late.team, late.p, frame("cloud.machine.create", { size: SIZE }))).value.machine.id as string
     const f2 = await bindFile(late.stub, m2)
     await late.stub.fakeControl({ advance_ms: 16 * 60_000 })
-    expect(await late.stub.bindMachine(late.team, { team: late.team, machine: m2, bind_token: f2.json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON })).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await late.stub.bindMachine(late.team, { team: late.team, machine: m2, bind_token: f2.json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 
   it("POST /v1/cloud/bind needs no bearer (the token is the credential) and answers the same refusals", async () => {
     const x = person()
+    await ensureUser(x)
     const created = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.create", { size: SIZE })))
     const machine = created.value.machine.id as string
     const { json } = await bindFile(x.stub, machine)
-    const ok = await post("/v1/cloud/bind", undefined, { team: x.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON })
+    const ok = await post("/v1/cloud/bind", undefined, { team: x.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })
     expect(ok.status, JSON.stringify(ok.body)).toBe(200)
     expect(ok.body).toMatchObject({ ok: true, value: { machine, epoch: 1, keyset: { version: expect.any(String) } } })
-    const again = await post("/v1/cloud/bind", undefined, { team: x.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON })
+    const again = await post("/v1/cloud/bind", undefined, { team: x.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })
     expect(again).toMatchObject({ status: 403, body: { ok: false, error: { code: "auth.forbidden" } } })
     expect((await post("/v1/cloud/bind", undefined, { team: x.team, machine })).status).toBe(400)
     // A team nobody created answers the same refusal and creates no object.
-    const nobody = await post("/v1/cloud/bind", undefined, { team: "team_00000000000000000777", machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON })
+    const nobody = await post("/v1/cloud/bind", undefined, { team: "team_00000000000000000777", machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })
     expect(nobody.status).toBe(403)
     const stubNobody = cloudStub("team_00000000000000000777") as unknown as { readOp: (e: string, p: unknown, o: string, q: unknown) => Promise<{ revision?: string }> }
     expect((await stubNobody.readOp("team_00000000000000000777", { identity: "user:x", user: "user_00000000000000000777", team: "team_00000000000000000777", kind: "session" }, "cloud.machine.list", {})).revision).toBe("0")

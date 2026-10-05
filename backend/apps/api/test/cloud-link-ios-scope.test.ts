@@ -2,7 +2,7 @@ import { cloudOps, OpClass } from "@cmux/protocol"
 import { Schema } from "effect"
 import { defaultInstallClasses } from "../src/domains/user.ts"
 import { describe, expect, it } from "vitest"
-import { bindFile, cloudStub, createdAndBound, DAEMON, installOf, person, post, SIZE, signedInWithInstall, WG_KEY } from "./cloud-bind-support.ts"
+import { bindFile, cloudStub, createdAndBound, DAEMON, ensureUser, installOf, person, post, signedInWithInstall, SIZE, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /**
  * CLOUD-LINK-FOLLOWUPS (5): the iPhone install gets one narrow grant class, `cloud-link`, that
@@ -29,7 +29,7 @@ describe("cloud-link grant class", { timeout: 60_000 }, () => {
     const created = await post("/v1/ops", a.session, { op: "cloud.machine.create", params: { size: SIZE }, idempotency_key: crypto.randomUUID(), origin: "user" })
     const machine = created.body.value.machine.id as string
     const { json } = await bindFile(cloudStub(a.team), machine)
-    const bound = await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON })
+    const bound = await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })
     const host = bound.body.value.host as string
     const minted = await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host, services: ["ssh"] }, origin: "cli" })
     expect(minted.body, JSON.stringify(minted.body)).toMatchObject({ ok: true })

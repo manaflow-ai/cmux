@@ -1,4 +1,4 @@
-import CmuxTheme
+public import CmuxTheme
 /// The material used by a local mist card.
 public nonisolated enum MistCardMaterial: String, Equatable, Sendable {
     case frosted

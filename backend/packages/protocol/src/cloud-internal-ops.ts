@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import type { CloudOpDef } from "./op-def.ts"
+import { InstallId } from "./schemas.ts"
 
 /**
  * Ops only CloudDO itself submits (plans/cmux-next/state-placement.md 5.2). Not exported to the
@@ -32,6 +33,15 @@ export const CloudMachineBindParams = Schema.Struct({
   }),
   /** The link-token keyset version handed to the VM in the bind answer. */
   keyset_version: Schema.String.check(Schema.isMaxLength(64)),
+  /** The VM install the server registered with the bind request's install_public_jwk. */
+  vm_install: InstallId,
+  now: Schema.Int
+})
+
+/** One applied cloud.vm.status.report (coalesced by CloudDO to at most 1 per 10 s per machine). */
+export const CloudVmStatusParams = Schema.Struct({
+  machine: Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)),
+  report: Schema.Unknown,
   now: Schema.Int
 })
 
@@ -73,6 +83,7 @@ export const cloudInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("cloud.driver_result", CloudDriverResultParams, "Internal: a provider call (create or delete) finished, failed, or was refused."),
   internal("cloud.watch_result", CloudWatchResultParams, "Internal: one lookup of a cancelled create's recorded name finished."),
   internal("cloud.machine.bind", CloudMachineBindParams, "Internal: the VM's bind agent spent its one-time bind token (POST /v1/cloud/bind)."),
+  internal("cloud.machine.vm_status", CloudVmStatusParams, "Internal: CloudDO applies the VM's latest coalesced status report (state, daemon, activity)."),
   internal("cloud.prune", CloudPruneParams, "Internal: drop tombstones older than 30 days and finished ledger rows older than 7 days."),
   internal("cloud.abandoned_clear", CloudAbandonedClearParams, "Internal: an operator (a person, with the admin key) cleared one abandoned ledger row after a provider lookup found no VM; audited.")
 ]
