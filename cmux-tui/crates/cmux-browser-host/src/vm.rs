@@ -32,6 +32,10 @@ pub trait VmHost: Send + Sync {
     /// A synchronous host function (`secretSet`, `secretList`, `secretDelete`,
     /// `policyNarrow`, `policyGet`). Errors become JS exceptions.
     fn native(&self, name: &str, args: Value) -> Result<Value, String>;
+    /// Cell `cell` timed out: the fetches it started stop now (queued ones
+    /// fail, running ones are cancelled in the engine), as classic's
+    /// `cancelFetches(ofEval:)`. The default does nothing.
+    fn cancel_fetches(&self, _cell: u64) {}
     /// Masks bytes that cross the VM's file boundary (files the VM writes
     /// and reads), so a secret value never lands in or comes back from a
     /// file. The default masks nothing.
