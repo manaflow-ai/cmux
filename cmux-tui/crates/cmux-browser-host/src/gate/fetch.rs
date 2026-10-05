@@ -57,11 +57,6 @@ impl Gate {
             .and_then(Value::as_str)
             .ok_or_else(|| DriverError::invalid("fetch: url: expected a string"))?
             .to_owned();
-        if !params.get("targetId").is_some_and(Value::is_string) {
-            return Err(DriverError::invalid(
-                "fetch: open a page first; fetch runs in the current tab's browser context",
-            ));
-        }
         for pair in params.get("headers").and_then(Value::as_array).into_iter().flatten() {
             if let Some(name) = pair.get(0).and_then(Value::as_str)
                 && forbidden_header(name)
@@ -82,10 +77,25 @@ impl Gate {
             .map_or(0, |entry| entry.0);
         let mut call = params.clone();
         call["maxBytes"] = json!(MAX_BODY_BYTES);
+        // No current tab (a lazy page): the fetch runs in a background tab of
+        // the session's profile, closed after it (main's storage-state way).
+        let opened = if params.get("targetId").is_some_and(Value::is_string) {
+            None
+        } else {
+            let tab = self.driver.call("tabs.open", &json!({"url": "about:blank", "background": true}))?;
+            let target = tab.get("targetId").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
+                DriverError::invalid("fetch: no tab to run the fetch in; open a page first")
+            })?;
+            call["targetId"] = json!(target);
+            Some(target)
+        };
         let result = {
             let _fetching = Fetching::start(self);
             self.driver.call("net.fetch", &call)
         };
+        if let Some(target) = opened {
+            let _ = self.driver.call("tabs.close", &json!({"targetId": target}));
+        }
         let mut value = match result {
             Ok(value) => value,
             Err(error) => {

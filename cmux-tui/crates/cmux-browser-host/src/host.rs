@@ -243,9 +243,9 @@ impl Host {
             capabilities.push("secret.insert".into());
         }
         let gate = Arc::new(
-            // A relay session (origin remote) is not on the browser's
-            // machine: loopback and private ranges are refused to it.
-            Gate::new(driver, Grants { raw_cdp, remote: caller.origin == "remote" })
+            // A relay session is not on the browser's machine: loopback and
+            // private ranges are refused to it.
+            Gate::new(driver, Grants { raw_cdp, remote: caller_is_remote(caller) })
                 .with_tab_secrets(self.tab_secrets.clone())
                 // The session name is the lease session (LeaseCaller.session).
                 .with_input_events(&name, sink),
@@ -384,6 +384,13 @@ impl Host {
 /// The fs root for a session: the caller's directory when it is a real,
 /// narrow directory (not `/`, not the home directory or an ancestor of it),
 /// else a private directory for the session under the host's state.
+/// Whether the caller is not on the machine the browser runs on
+/// (FETCH-PRIVATE-RANGES). The one place that decides it; a9 to confirm
+/// that origin `remote` (the relay) is the right test.
+pub fn caller_is_remote(caller: &Caller) -> bool {
+    caller.origin == "remote"
+}
+
 /// Ends a session that left the map. Clearing the event slot breaks the
 /// cycle slot -> gate -> (driver, input emitter) -> session sink -> slot,
 /// so the engine, its tee and its app channel are freed. The leases go
