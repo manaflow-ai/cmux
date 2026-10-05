@@ -376,10 +376,8 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     func syncSecurity() {
         guard !isClosed, state.phase == .committed || state.phase == .finished else { return }
-        var security = BrowserTabStateMachine.security(for: webView.url)
-        if security == .secure, !webView.hasOnlySecureContent {
-            security = .mixedContent
-        }
-        apply(.securityChanged(security))
+        apply(.securityChanged(BrowserTabStateMachine.security(
+            for: webView.url, hasOnlySecureContent: webView.hasOnlySecureContent,
+            certificateBypassed: engine?.loadedPastCertificateWarning(self) ?? false)))
     }
 }

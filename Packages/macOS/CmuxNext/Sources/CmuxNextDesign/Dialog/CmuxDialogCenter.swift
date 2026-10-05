@@ -148,6 +148,22 @@ public final class CmuxDialogCenter {
                       values: values(of: entry))
     }
 
+    /// The visible dialog that blocks where `window` has the keyboard: one
+    /// scoped to `window`, else one scoped to the tab view that holds the
+    /// window's first responder. A key that reaches `window` under the
+    /// dialog's overlay (the overlay did not take the keyboard) is its key.
+    public func dialogBlockingKeys(in window: NSWindow) -> Int? {
+        let responder = window.firstResponder as? NSView
+        return queue.order.first { item in
+            guard queue.isVisible(item.id), let scope = entries[item.id]?.scope.live else { return false }
+            switch scope {
+            case .window(let scoped): return scoped === window
+            case .tab(let view): return view.window === window && responder.map { $0 === view || $0.isDescendant(of: view) } == true
+            case .app: return false
+            }
+        }?.id
+    }
+
     /// The view of visible dialog `id` (screenshots, tests).
     public func view(_ id: Int) -> CmuxDialogView? { entries[id]?.view }
 
