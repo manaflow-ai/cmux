@@ -245,6 +245,10 @@ final class AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugWindowSnapshot.captureAsync(call.params, services: services)
             },
+            .mainActor("debug.window.focus") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugKey.focusWindow(call.params, services: services))
+            },
             .mainActor("debug.window_frame") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.setWindowFrame(call.params, services: services))

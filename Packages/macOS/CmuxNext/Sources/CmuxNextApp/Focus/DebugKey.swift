@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextTerminal
 
 /// `debug.key` (DEBUG builds): a key-down synthesized into one of this
 /// process's own windows and dispatched the way `NSApplication.sendEvent`
@@ -92,7 +93,8 @@ enum DebugKey {
         var trace: [String] = []
         // The dispatcher's verdict, menu gate answers and host actions this key caused.
         services.keyRouter.trace = { trace.append($0) }
-        defer { services.keyRouter.trace = nil }
+        TerminalKeyEquivalent.trace = { trace.append($0) }
+        defer { services.keyRouter.trace = nil; TerminalKeyEquivalent.trace = nil }
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
             if services.keyRouter.interceptKeyDown(event, in: window) {
@@ -168,6 +170,24 @@ enum DebugKey {
         return WindowOverlayLayer.contentChildWindows(of: window).last { child in
             child.frame.contains(center) && devTools?.devToolsContains(window: child) != true
         }
+    }
+
+    /// `debug.window.focus {window}`: orders that cmux window front and makes
+    /// it the app's key window, without activating the app, so window actions
+    /// (Zoom, Select Next Window) can be proven on a chosen window. Returns
+    /// the key and frontmost cmux window ids afterwards.
+    static func focusWindow(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        guard let id = params["window"]?.stringValue,
+              let window = services.windows.controllers.first(where: { $0.state.id == id })?.window else {
+            return .object(["error": .string("no window with that id")])
+        }
+        window.orderFrontRegardless()
+        window.makeKey()
+        let windowID = { (window: NSWindow?) -> JSONValue in
+            services.windows.controllers.first { $0.window === window }.map { .string($0.state.id) } ?? .null
+        }
+        let front = NSApp.orderedWindows.first { candidate in services.windows.controllers.contains { $0.window === candidate } }
+        return .object(["key": windowID(NSApp.keyWindow), "front": windowID(front)])
     }
 
     /// `debug.sidebar_rename`: begins the inline rename of the window's

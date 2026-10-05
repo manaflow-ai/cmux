@@ -72,6 +72,13 @@ enum DebugFilePages {
                 "announced": .number(Double(undo.announced)), "announced_without_tabs": .number(Double(undo.announcedEmpty)),
                 "waiting": .array(undo.waiting.map { .object(["pane": $0.pane.map(JSONValue.string) ?? .null, "tabs": .number(Double($0.tabs)),
                                                              "records": .number(Double($0.records)), "daemon_tabs": .number(Double($0.daemonTabs))]) }),
+                // Whether the closed history reaches the app at all (nxdog48: closed_items stayed empty).
+                "daemons": .array(services.machines.daemons.map { daemon in
+                    .object(["machine": .string(daemon.machineID), "serves_state": .bool(daemon.store.servesStateResources),
+                             "session_known": .bool(daemon.store.session.known), "mirror": .bool(daemon.store.session.mirror != nil),
+                             "closed": .number(Double(daemon.store.closedItems.count)),
+                             "newest_closed": daemon.store.closedItems.first.map { .string($0.id) } ?? .null])
+                }),
                 "closed_items": .array(undo.recentDaemonItems.map { .object(["id": .string($0.id), "pane": $0.pane.map(JSONValue.string) ?? .null,
                                                                             "tabs": .number(Double($0.tabs)), "matched": .bool($0.matched)]) }),
             ])
