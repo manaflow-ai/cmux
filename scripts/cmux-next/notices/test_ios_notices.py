@@ -25,6 +25,7 @@ PIN = "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa"
 MACHO = b"\xcf\xfa\xed\xfe" + b"\0" * 60
 JOB = "9bd58301641521918a3561ba"
 ARTIFACT = "cbbad2368077ac5bf9d67957baf0aec8f9c4f24fe93e109a2ec1682ed5249f27"
+MUSL_TEXT = (ROOT / "cmux-tui/dist/notices/texts/musl-1.2.5/COPYRIGHT").read_text()
 
 
 class RepositoryTests(unittest.TestCase):
@@ -52,6 +53,28 @@ class RepositoryTests(unittest.TestCase):
         pane = plistlib.loads(ios.PANE.read_bytes())["PreferenceSpecifiers"]
         freetype = next(group for group in pane if group["Title"] == "freetype (in Ghostty)")
         self.assertIn(FTL_CREDIT, freetype["FooterText"])
+
+    def test_the_pane_carries_musl_for_the_zig_std_math(self) -> None:
+        # GhosttyNextKit's Termio inlines std.math.cbrt (ported from musl) into LAB.fromRgb:
+        # found in the device app of cmux-ci job a9f238cb599baeb9b17f8ff4 (machine-code match).
+        pane = plistlib.loads(ios.PANE.read_bytes())["PreferenceSpecifiers"]
+        musl = next(group for group in pane if group["Title"] == ios.MUSL_TITLE)
+        self.assertIn(MUSL_TEXT.strip(), musl["FooterText"])
+        self.assertIn("std.math.cbrt", musl["FooterText"])
+
+    def test_the_mac_notices_carry_musl_for_the_app_binary(self) -> None:
+        # The published nightly-next app (3728109721001) has the same code in Contents/MacOS/cmux.
+        self.assertEqual(ios.mac_notice_errors(), [])
+        notices = (ROOT / "THIRD_PARTY_LICENSES.md").read_text()
+        self.assertIn("<!-- notices-section: manual-musl-in-the-zig-standard-library -->", notices)
+        self.assertIn(MUSL_TEXT.strip(), notices)
+        entries = json.loads((HERE / "bundle-map.json").read_text())["entries"]
+        app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
+        self.assertIn("section:manual-musl-in-the-zig-standard-library", app["notices"])
+
+    def test_mac_notices_refuse_a_changed_musl_text(self) -> None:
+        hand = ios.HAND_WRITTEN.read_text().replace("Rich Felker", "R. Felker", 1)
+        self.assertTrue(any("musl" in error for error in ios.mac_notice_errors(hand)))
 
     def test_settings_bundle_root_links_the_pane(self) -> None:
         root = plistlib.loads((ios.SETTINGS / "Root.plist").read_bytes())
@@ -248,6 +271,12 @@ class PaneTests(unittest.TestCase):
         record = pane["PreferenceSpecifiers"][-1]["FooterText"]
         self.assertIn("cmux-ci job job1", record)
         self.assertIn("gettext, zig_js", record)
+
+    def test_pane_has_the_musl_text_after_zig(self) -> None:
+        pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
+        links = {"dwarf_owners": ["zig-lib:std"], "zig_source_packages": [], "zig_version": "0.16.0"}
+        titles = [group["Title"] for group in ios.build_pane(self.tree("a" * 40), links, pin)["PreferenceSpecifiers"]]
+        self.assertEqual(titles[titles.index("Zig 0.16.0 (compiler_rt and standard library)") + 1], ios.MUSL_TITLE)
 
     def test_refuses_a_tree_for_another_ghostty_revision(self) -> None:
         pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}
