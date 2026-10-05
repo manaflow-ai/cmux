@@ -986,7 +986,7 @@ private struct TitlebarNotificationBadge: View {
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
-    @Environment(\.cmuxAccentColor) private var badgeAccent
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     var body: some View {
         let unreadCount = unreadModel.totalUnreadCount
@@ -999,7 +999,7 @@ private struct TitlebarNotificationBadge: View {
                 )
                 .foregroundColor(.white)
                 .frame(width: config.badgeSize, height: config.badgeSize)
-                .background(Circle().fill(badgeAccent.color))
+                .background(Circle().fill(cmuxAccent.color))
                 .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
         }
     }
@@ -2012,9 +2012,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView
-                    .environment(\.settingsRuntime, settingsRuntime)
-                    .cmuxAccentColorEnvironment()
+                rootView.environment(\.settingsRuntime, settingsRuntime)
             )
         )
 
@@ -2257,7 +2255,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     openPhoneForwardingSettings(in: window)
                 }
             )
-            .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -3133,7 +3130,6 @@ final class UpdateTitlebarAccessoryController {
                     openPhoneForwardingSettings(in: window)
                 }
             )
-            .cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()
