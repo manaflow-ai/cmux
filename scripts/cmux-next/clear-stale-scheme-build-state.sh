@@ -11,6 +11,4 @@ esac
 
 rm -rf -- \
   "$derived_data/ModuleCache.noindex" \
-  "$derived_data/Build/Intermediates.noindex/ExplicitPrecompiledModules" \
-  "$derived_data/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" \
-  "$derived_data/Build/Intermediates.noindex/XCBuildData"
+  "$derived_data/Build/Intermediates.noindex"
