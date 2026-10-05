@@ -14,10 +14,12 @@ jobs:
     # Every suite must publish the stable required context, including metadata edits.
     name: CLA policy guard
     # This control-plane workflow parses attacker-controlled YAML and shell
-    # bytes. Use a GitHub-hosted ephemeral runner; a repository variable must
-    # not be able to redirect it to a persistent or contributor-controlled
-    # machine.
-    runs-on: ubuntu-24.04
+    # bytes, so it needs an ephemeral runner; no repository variable may
+    # redirect it to a persistent or contributor-controlled machine.
+    # CI_TRUSTED_RUNNER only chooses GitHub-hosted or a one-job Blacksmith VM
+    # from the list below (anything else falls back to Blacksmith), so either
+    # provider can carry this required check while the other is down.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -33,11 +35,12 @@ jobs:
           sparse-checkout: scripts/ci/validate-cla-policy.rb
           sparse-checkout-cone-mode: false
 
-      - name: Require GitHub-hosted runner
-        if: runner.environment != 'github-hosted'
+      - name: Require an ephemeral runner
+        # Blacksmith VMs report self-hosted; their runner names identify them.
+        if: runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-')
         run: |
           set -euo pipefail
-          echo "::error::CLA policy requires a GitHub-hosted runner"
+          echo "::error::CLA policy requires a GitHub-hosted or Blacksmith runner"
           exit 1
 
       - name: Verify trusted checkout

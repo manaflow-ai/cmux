@@ -47,6 +47,8 @@ REQUIRED_NAMES = _required_status_checks.REQUIRED_CHECKS
 # must stay exactly this document: any other job, step, trigger or permission
 # would run with those names' authority.
 BRIDGE = WORKFLOWS / "merge-group-policy-checks.yml"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_ci_fork_runner_routing import TRUSTED_RUNNER_EXPRESSION  # noqa: E402
 BRIDGED_CHECKS = {
     "cla-assistant": "CLA Assistant",
     "cla-policy-guard": "CLA policy guard",
@@ -62,7 +64,8 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                "runs-on": "ubuntu-24.04",
+                # Ephemeral either way; see test_ci_fork_runner_routing.py.
+                "runs-on": TRUSTED_RUNNER_EXPRESSION,
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }
