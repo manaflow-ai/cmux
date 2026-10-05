@@ -25,6 +25,8 @@ nonisolated final class AcpmuxStandInServer: Sendable {
         var stream: Stream?
         /// Methods whose replies wait for ``releaseHeld()``, and the replies waiting.
         var holding: Set<String> = []
+        /// Results to answer instead of the default, by method (raw JSON).
+        var results: [String: String] = [:]
         var held: [(String, Int)] = []
         var generation = 0
     }
@@ -143,11 +145,12 @@ nonisolated final class AcpmuxStandInServer: Sendable {
               let id = object["id"], let method = object["method"] as? String,
               let idData = try? JSONSerialization.data(withJSONObject: [id]) else { return }
         let rawID = String(String(decoding: idData, as: UTF8.self).dropFirst().dropLast())
-        let result = switch method {
+        let standard = switch method {
         case "initialize": #"{"protocolVersion":1,"_meta":{"acpmux":{"origin":"local","extensions":[]}}}"#
         case "session/new": #"{"sessionId":"s-new"}"#
         default: "{}"
         }
+        let result = state.withLock { $0.results[method] } ?? standard
         let reply = #"{"jsonrpc":"2.0","id":"# + rawID + #","result":"# + result + "}"
         let hold = state.withLock { state -> Bool in
             guard state.holding.contains(method) else { return false }
@@ -156,6 +159,9 @@ nonisolated final class AcpmuxStandInServer: Sendable {
         }
         if !hold { push(reply, to: index) }
     }
+
+    /// Answers every `method` request with `result` (raw JSON) from now on.
+    func answer(_ method: String, with result: String) { state.withLock { $0.results[method] = result } }
 
     /// Holds the replies to `method` until ``releaseHeld()`` (a harness that takes its time).
     func hold(_ method: String) { state.withLock { _ = $0.holding.insert(method) } }
