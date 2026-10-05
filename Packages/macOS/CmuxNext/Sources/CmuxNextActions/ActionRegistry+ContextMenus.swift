@@ -40,7 +40,7 @@ extension ActionRegistry {
 
     /// Focus facts a right-click implies (right-clicking a page means a
     /// browser is the target even if a terminal has focus).
-    static func impliedContext(for context: ActionMenuContext) -> ActionContext {
+    nonisolated static func impliedContext(for context: ActionMenuContext) -> ActionContext {
         switch context {
         case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
         case .terminalSelection: .terminalFocused
