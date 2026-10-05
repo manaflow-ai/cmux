@@ -85,6 +85,29 @@ pub fn serve(listener: UnixListener, host: Arc<Host>) -> io::Result<()> {
     Ok(())
 }
 
+/// A listening Unix socket the daemon passed as `fd` (socket activation).
+/// Close-on-exec is set again (the daemon clears it to pass the fd), so no
+/// process the host starts, such as a browser and its renderers, inherits the
+/// agent or the provider socket.
+pub fn inherited_listener(fd: std::os::fd::RawFd) -> io::Result<UnixListener> {
+    use std::os::fd::FromRawFd;
+    if fd < 3 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{fd}: not an inherited descriptor"),
+        ));
+    }
+    // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(fd, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{fd}: not a socket")));
+    }
+    // Red commit stub: close-on-exec stays cleared.
+    // SAFETY: the daemon passes this listening socket open for this process; it is taken once.
+    Ok(unsafe { UnixListener::from_raw_fd(fd) })
+}
+
 /// The app's provider socket, next to the agent socket.
 pub fn provider_socket_path(agent_socket: &Path) -> PathBuf {
     agent_socket.with_file_name("browser-host-provider.sock")
@@ -251,6 +274,30 @@ fn peer_uid(stream: &UnixStream) -> Option<libc::uid_t> {
     // SAFETY: the fd is an open Unix socket; uid and gid are valid out pointers.
     let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
     (rc == 0).then_some(uid)
+}
+
+#[cfg(test)]
+mod inherited_listener_tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn an_inherited_listener_closes_on_exec_again() {
+        let dir = std::env::temp_dir().join(format!("cmux-bh-inherit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let listener = UnixListener::bind(dir.join("s.sock")).unwrap();
+        // As the daemon passes it: a copy without close-on-exec.
+        // SAFETY: fcntl(2) on our own fds.
+        let passed = unsafe { libc::fcntl(listener.as_raw_fd(), libc::F_DUPFD, 3) };
+        assert!(passed >= 3);
+        assert_eq!(unsafe { libc::fcntl(passed, libc::F_GETFD) } & libc::FD_CLOEXEC, 0);
+        let inherited = inherited_listener(passed).unwrap();
+        let flags = unsafe { libc::fcntl(inherited.as_raw_fd(), libc::F_GETFD) };
+        assert_ne!(flags & libc::FD_CLOEXEC, 0, "close-on-exec is set again");
+        drop(inherited);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

@@ -15,8 +15,10 @@ import Testing
     }
 
     @Test func theReplyNamesTheSocketTheSecretAndTheHostPID() throws {
-        let json = #"{"socket":"/tmp/bh-1/browser-host-provider.sock","secret":"ab12","host_pid":4242}"#
+        let json = #"{"socket":"/tmp/bh-1/browser-host-provider.sock","secret":"ab12","host_pid":4242,"listener_pid":17}"#
         let reply = try JSONDecoder().decode(BrowserHostProviderRequest.Response.self, from: Data(json.utf8))
-        #expect(reply == .init(socket: "/tmp/bh-1/browser-host-provider.sock", secret: "ab12", hostPID: 4242))
+        #expect(reply == .init(socket: "/tmp/bh-1/browser-host-provider.sock", secret: "ab12", hostPID: 4242, listenerPID: 17))
+        let older = #"{"socket":"/s","secret":"ab12","host_pid":4242}"#
+        #expect(try JSONDecoder().decode(BrowserHostProviderRequest.Response.self, from: Data(older.utf8)).listenerPID == nil)
     }
 }

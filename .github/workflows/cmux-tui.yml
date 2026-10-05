@@ -653,6 +653,15 @@ jobs:
         # (caller_macos.rs); the Linux suites cover only the uid check.
         run: 'cargo test -p cmux-link --lib caller::tests:: -- --test-threads=2'
 
+      - name: Mac browser host provider tests
+        working-directory: cmux-tui
+        # The provider socket's peer pid differs by platform (macOS reports
+        # the last process that used the server end), and the inherited
+        # listeners must close on exec on macOS too.
+        run: |
+          cargo test -p cmux-browser-host --lib server::inherited_listener_tests:: -- --test-threads=1
+          cargo test -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
+
       - name: Mac process and PTY tests
         working-directory: cmux-tui
         run: |

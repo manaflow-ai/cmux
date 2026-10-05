@@ -12,6 +12,8 @@ public struct BrowserHostProviderRequest: DaemonRequest {
         /// The pid the provider socket's peer must report (the daemon that holds the
         /// listening socket): send the secret only when the peer is this process.
         public var hostPID: Int32
+        /// Red commit stub: not decoded yet.
+        public var listenerPID: Int32? = nil
 
         enum CodingKeys: String, CodingKey {
             case socket, secret

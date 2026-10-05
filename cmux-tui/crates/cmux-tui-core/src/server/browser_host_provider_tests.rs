@@ -313,11 +313,24 @@ fn the_verified_app_dials_the_daemons_host_and_receives_the_session_end_close() 
     assert!(read_frame(&mut wrong).is_none(), "a wrong secret is refused");
 
     let mut link = UnixStream::connect(&socket).unwrap();
-    assert_eq!(peer_pid(&link), Some(host_pid), "the provider socket's peer is the host");
+    let listener_pid = data["listener_pid"].as_u64().unwrap() as u32;
+    assert_eq!(listener_pid, std::process::id(), "the daemon holds the listening socket");
+    assert_eq!(
+        Some(host_pid),
+        mux.control_clients.browser_host.running_pid(),
+        "host_pid is the host process"
+    );
+    let accepted = [host_pid, listener_pid];
+    let peer = peer_pid(&link).expect("a peer pid");
+    assert!(accepted.contains(&peer), "the peer {peer} before hello is one of {accepted:?}");
     link.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     write_frame(&mut link, &hello(&secret));
     let ack = read_frame(&mut link).expect("hello.ack");
     assert_eq!(ack["t"], "hello.ack", "{ack}");
+    // After the host accepted and read (macOS reports the last process that
+    // used the server end): still one of the reported pids.
+    let peer = peer_pid(&link).expect("a peer pid");
+    assert!(accepted.contains(&peer), "the peer {peer} after hello is one of {accepted:?}");
 
     // The fake app answers every call; tabs.open opens T1.
     let calls = Arc::new(Mutex::new(Vec::<Value>::new()));
@@ -372,8 +385,6 @@ fn the_verified_app_dials_the_daemons_host_and_receives_the_session_end_close() 
                 && call["params"]["reason"] == "session_end"
         })
     });
-
-    assert_eq!(host_pid, std::process::id(), "the daemon holds the socket, so it is the peer");
 
     // A crashed host restarts with a new process and a new secret.
     let crashed = mux.control_clients.browser_host.running_pid().expect("a host");

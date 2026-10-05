@@ -10,12 +10,18 @@ public nonisolated struct ProviderCredentials: Hashable, Sendable {
     /// The host's pid (the daemon started it): the socket's peer must be
     /// this process before the app sends the secret.
     public var hostPID: pid_t
+    /// Red commit stub: not used yet.
+    public var listenerPID: pid_t?
 
-    public init(socketPath: String, secret: ProviderSecret, hostPID: pid_t) {
+    public init(socketPath: String, secret: ProviderSecret, hostPID: pid_t, listenerPID: pid_t? = nil) {
         self.socketPath = socketPath
         self.secret = secret
         self.hostPID = hostPID
+        self.listenerPID = listenerPID
     }
+
+    /// Red commit stub: only the host.
+    public func acceptsPeer(_ pid: pid_t) -> Bool { hostPID > 0 && pid == hostPID }
 }
 
 /// The app's provider identity in `hello`.
