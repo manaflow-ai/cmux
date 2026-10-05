@@ -48,36 +48,19 @@ extension AgentPaneView {
                               buttons: [.cancel(), CmuxDialogButton(id: "switch", title: confirmModeButton, role: .destructive)])
     }
 
-    /// The gesture decision for `event` (tests pass the window: a synthesized event cannot resolve it).
+    /// The gesture monitor's handler, on the main thread before AppKit dispatches `event`: the
+    /// decision reads event-time state, once, and is never made again later.
+    func monitored(_ event: NSEvent) { judge(event, eventWindow: event.window) }
+
+    /// A key press with the page focused, or a click on the page: the user's gesture. `eventWindow`
+    /// is the event's window (tests pass it: a synthesized event cannot resolve it).
     func judge(_ event: NSEvent, eventWindow: NSWindow?) {
-        var gesture = Gesture(event)
-        gesture.window = eventWindow.map(ObjectIdentifier.init)
-        // task-owner: one gesture record, on the main actor
-        Task { @MainActor [weak self] in self?.noteGesture(gesture) }
-    }
-
-    /// A key or mouse event's values that decide whether it is a gesture in this pane.
-    nonisolated struct Gesture: Sendable {
-        var window: ObjectIdentifier?
-        var isKey: Bool
-        var isRepeat: Bool
-        var location: CGPoint
-
-        init(_ event: NSEvent) {
-            window = event.window.map(ObjectIdentifier.init)
-            isKey = event.type == .keyDown
-            isRepeat = isKey && event.isARepeat
-            location = event.locationInWindow
-        }
-    }
-
-    /// A key press with the page focused, or a click on the page: the user's gesture.
-    func noteGesture(_ event: Gesture) {
-        guard let window, event.window == ObjectIdentifier(window) else { return }
-        if event.isKey {
-            guard !event.isRepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
-        } else {
-            guard webView.bounds.contains(webView.convert(event.location, from: nil)) else { return }
+        guard let window, eventWindow === window else { return }
+        switch event.type {
+        case .keyDown:
+            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
+        default:
+            guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
         model.transport.gestures.record()
     }

@@ -155,11 +155,10 @@ public final class AgentPaneView: NSView {
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
         // A frame that grants needs a real gesture in this pane; page script cannot make one.
         gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            // The event's values now; the gesture is recorded on the main actor before the page's
-            // bridge message for this event can come back from the web process.
-            let gesture = AgentPaneView.Gesture(event)
-            // task-owner: one gesture record, on the main actor
-            Task { @MainActor [weak self] in self?.noteGesture(gesture) }
+            // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
+            guard Thread.isMainThread else { return event }
+            // crash-allow: guarded by Thread.isMainThread above, so it cannot trap; the decision must read the window's focus and the web view's bounds at event time, before AppKit dispatches the event, which a hop would read too late
+            MainActor.assumeIsolated { self?.monitored(event) }
             return event
         }
         installTransport()
