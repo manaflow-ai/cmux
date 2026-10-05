@@ -189,10 +189,14 @@ describe("reproducibility diff and helpers", () => {
 describe("roles: baked packages that stay off, first-use packages, optional programs (cloud-automation.md 2, CLOUD-AUTOMATION)", () => {
   const lock = readInputsLock();
 
-  test("the display role is baked and off; ffmpeg is a first-use package, never baked", () => {
+  test("the display role is baked and off; openbox and ffmpeg are first-use packages, never baked", () => {
     expect(lock.roles.display.default).toBe("off");
     for (const name of lock.roles.display.apt) expect(lock.apt.ubuntu.packages[name]).toBeDefined();
-    expect(lock.roles.display.apt).toEqual(expect.arrayContaining(["xvfb", "xauth", "openbox", "at-spi2-core"]));
+    expect(lock.roles.display.apt).toEqual(expect.arrayContaining(["xvfb", "xauth", "at-spi2-core"]));
+    // openbox pulls Ghostscript, CUPS and poppler (+64 packages, about 92 MB): installed when a display first starts.
+    expect(lock.roles["display-wm"].firstUse).toBe(true);
+    expect(lock.apt.ubuntu.firstUse["display-wm"].openbox).toBeDefined();
+    expect(lock.apt.ubuntu.packages.openbox).toBeUndefined();
     expect(lock.roles["cua-video"].default).toBe("off");
     expect(lock.roles["cua-video"].firstUse).toBe(true);
     expect(lock.apt.ubuntu.firstUse["cua-video"].ffmpeg).toBeDefined();

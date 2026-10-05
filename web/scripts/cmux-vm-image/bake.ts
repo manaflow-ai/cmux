@@ -47,6 +47,7 @@ import {
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, StepLog, type Vm } from "./guest";
+import { SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPolicyProblems, splitSshdBakeOutput } from "./sshd";
 import {
   aptClosureProblems,
   aptPinArgs,
@@ -65,6 +66,8 @@ import {
   pgdgSourcesFile,
   profileCommand,
   programInstallCommand,
+  ROLES_MANIFEST_PATH,
+  rolesManifest,
   sq,
   STORE_DIR,
   ubuntuSourcesFile,
@@ -310,6 +313,29 @@ async function configureSystem(ctx: Ctx): Promise<void> {
   await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
+/** Loopback sshd that trusts only the CA bind writes (cloud-automation.md 5, D-A4). No key material is baked. */
+async function configureSshd(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  await writeGuestFile(vm, SSHD_DROP_IN, sshdDropIn(DEVBOX_WORK_USER), 0o644);
+  const { effective, ss } = splitSshdBakeOutput(await L.step(vm, "sshd-ca-trust", sshdBakeCommand(DEVBOX_WORK_USER)));
+  const problems = [...sshdPolicyProblems(effective, DEVBOX_WORK_USER), ...sshdListenProblems(ss)];
+  if (problems.length > 0) throw new Error(`sshd policy:\n${problems.join("\n")}`);
+}
+
+/** The roles file for `cmux host`; baked role packages stay off (no unit, no process), first-use closures stay uninstalled. */
+async function configureRoles(ctx: Ctx): Promise<void> {
+  const { vm, L, lock } = ctx;
+  await writeGuestFile(vm, ROLES_MANIFEST_PATH, `${JSON.stringify(rolesManifest(lock), null, 2)}\n`, 0o644);
+  const firstUse = Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => Object.keys(closure));
+  ctx.result.roles = await L.step(vm, "roles-off", [
+    `python3 -c 'import json,sys; json.load(open(sys.argv[1]))' ${ROLES_MANIFEST_PATH}`,
+    "! pgrep -x Xvfb >/dev/null",
+    `for p in ${[...new Set(firstUse)].sort().join(" ")}; do if dpkg-query -W -f='\${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then echo "first-use package $p is installed"; exit 1; fi; done`,
+    "fc-list :lang=ja family | grep -q 'Noto Sans CJK'",
+    "echo roles-ok",
+  ].join(" && "));
+}
+
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await writeGuestFile(vm, "/usr/local/bin/cmux-devbox-boot", devboxFileBytes("cmux-devbox-boot"), 0o755);
@@ -393,6 +419,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     await installStore(ctx);
     await wireCmuxTui(ctx);
     await configureSystem(ctx);
+    await configureSshd(ctx);
+    await configureRoles(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);
     await finalizeAndCollect(ctx);
