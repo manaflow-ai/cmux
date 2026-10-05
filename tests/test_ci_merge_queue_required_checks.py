@@ -152,16 +152,20 @@ class MergeGroupCheckNamesTests(unittest.TestCase):
             (workflows / "web-complexity-trusted.yml").write_text(
                 yaml.safe_dump(workflow), encoding="utf-8"
             )
+            # "Web complexity" is no longer required on main, but its dynamic
+            # name is still the hardest routing case, so these fixtures keep
+            # requiring it.
+            required = (*REQUIRED_NAMES, REQUIRED_CHECK)
             jobs = {
-                name: {} for name in REQUIRED_NAMES
-                if name not in {*BRIDGED_CHECKS.values(), "Web complexity"}
+                name: {} for name in required
+                if name not in {*BRIDGED_CHECKS.values(), REQUIRED_CHECK}
             }
             if duplicate:
                 jobs["duplicate"] = {"name": "Web complexity"}
             (workflows / "other.yml").write_text(
                 yaml.safe_dump({"on": "merge_group", "jobs": jobs}), encoding="utf-8"
             )
-            with patch.dict(main.__globals__, WORKFLOWS=workflows, BRIDGE=bridge):
+            with patch.dict(main.__globals__, WORKFLOWS=workflows, BRIDGE=bridge, REQUIRED_NAMES=required):
                 with contextlib.redirect_stdout(io.StringIO()):
                     return main()
 
