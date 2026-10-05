@@ -43,7 +43,8 @@ cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 # code, but it does keep one side: a branch that names another path here
 # would have that path's incoming changes dropped when a configured clone
 # merges into it. Review additions to these lines like a revert.
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html merge=cmux-generated-v1
+# The agent pane page: index.html, pane.js and locales/ (build-agent-pane-web.sh output only).
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/** merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html merge=cmux-generated-v1
 Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
 # The React pages (build-pages-web.sh) and the strings tables it generates from the
