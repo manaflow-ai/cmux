@@ -1047,6 +1047,11 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          # This run's downloaded build, kept apart: a call that completes an
+          # existing publication overwrites assets/tree with that commit's
+          # binaries, and the next call must start from this run's again.
+          rm -rf assets/run
+          cp -R assets/tree assets/run
           # Publishes the tree under KEY, which must be this checkout's key
           # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v1 until B2).
           publish_tree() {
@@ -1054,7 +1059,8 @@ jobs:
           [[ "$(scripts/cmux-next/pin-cmux-tui.sh key --version "$version")" == "$KEY" ]] || {
             echo "tree key $KEY does not match this checkout's $version key; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2
             exit 1; }
-          rm -rf tree
+          rm -rf tree assets/tree
+          cp -R assets/run assets/tree
           base="https://files.cmux.com/cmux-tui/tree/$KEY"
           fetch() { curl -fsSL --proto '=https' --connect-timeout 20 --max-time 120 "$1?verify=$GITHUB_RUN_ID" -o "$2"; }
           fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" manifest.json
@@ -1107,15 +1113,22 @@ jobs:
       - name: Verify the tree publication
         env:
           KEY: ${{ needs.cmux-next-daemon-tests.outputs.key }}
+          LEGACY_KEY: ${{ needs.cmux-next-daemon-tests.outputs.legacy_key }}
         run: |
           set -euo pipefail
-          base="https://files.cmux.com/cmux-tui/tree/$KEY"
-          name=cmux-tui-aarch64-apple-darwin
+          verify_tree() {
+          local base="https://files.cmux.com/cmux-tui/tree/$1" name=cmux-tui-aarch64-apple-darwin published_sha
           curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID"
           published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID" | awk 'NR==1{print $1}')"
           [[ "$(sha256sum published | awk '{print $1}')" == "$published_sha" ]]
           curl -fsSL --proto '=https' "$base/source.json?verify=$GITHUB_RUN_ID"
           echo "Verified: $base/$name"
+          }
+          verify_tree "$KEY"
+          # CMUX-TUI-TREE-KEY-V2: the v1 publication too, until B2.
+          if [[ -n "$LEGACY_KEY" && "$LEGACY_KEY" != "$KEY" ]]; then
+            verify_tree "$LEGACY_KEY"
+          fi
 
   # A same-repository pull request is built by the trusted pull_request_target
   # workflow above. The build job has no R2 credentials; this job receives only
