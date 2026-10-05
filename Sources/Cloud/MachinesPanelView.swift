@@ -391,7 +391,10 @@ struct MachinesPanelView: View {
                 viewModel?.refresh(tree: true)
             },
             onRename: { [weak viewModel] machine, label in
-                viewModel?.optimisticallyRenameMachine(id: machine.id, label: label)
+                viewModel?.beginOptimisticRename(id: machine.id, label: label)
+            },
+            onRenameDidComplete: { [weak viewModel] in
+                viewModel?.finishOptimisticRename()
             }
         )
         // The list endpoint is authoritative for the caller's plan-sized
@@ -460,7 +463,7 @@ struct MachinesPanelView: View {
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
-            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil, cloudMachinesRefresh: includesCloud ? .init(isRefreshing: viewModel.isRefreshingOnRequest) : nil,
+            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil, cloudMachinesRefresh: includesCloud ? .init(isRefreshing: viewModel.isRefreshingOnRequest || viewModel.isRenamingMachine) : nil,
             reveal: devicesModel.revealRequest,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )

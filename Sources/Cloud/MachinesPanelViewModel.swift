@@ -13,6 +13,9 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var isLoading = false { didSet { if !isLoading { isRefreshingOnRequest = false } } }
     /// A refresh someone asked for (`refresh(tree:)`) is loading, as opposed to the poll.
     @Published private(set) var isRefreshingOnRequest = false
+    /// A rename keeps the Cloud Machines section visibly refreshing while its
+    /// optimistic label is waiting for the command completion callback.
+    @Published private(set) var isRenamingMachine = false
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
     /// Classified list failure for the matching sign-in, plan, or retry presentation.
@@ -394,8 +397,17 @@ final class MachinesPanelViewModel: ObservableObject {
 
     /// Projects a submitted label into the sidebar immediately. The next
     /// authoritative list refresh replaces it if the command was rejected.
-    func optimisticallyRenameMachine(id: String, label: String?) {
+    func beginOptimisticRename(id: String, label: String?) {
         machines = MachineSnapshotBuilder.applyingLabel(to: machines, machineID: id, label: label)
+        isRenamingMachine = true
+    }
+
+    func finishOptimisticRename() {
+        isRenamingMachine = false
+    }
+
+    func optimisticallyRenameMachine(id: String, label: String?) {
+        beginOptimisticRename(id: id, label: label)
     }
     static let pollInterval: Duration = .seconds(45)
     static let initialTransientFailureLimit = 3
@@ -528,6 +540,7 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshRequestedWhileLoadingIsRecovery = false
         refreshGeneration &+= 1
         isLoading = false
+        isRenamingMachine = false
         isRecoveringList = false
         statsTask?.cancel(); statsTask = nil; statsID = nil
         usageTask?.cancel(); usageTask = nil
