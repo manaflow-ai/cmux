@@ -43,7 +43,7 @@ MAX_LICENSE_BYTES = 2 * 1024 * 1024
 # also changes this script, which keys the Ghostty helper caches.
 PINNED_LICENSES = Path(__file__).resolve().parent / "pinned-licenses"
 PINNED_MANIFEST_SHA256 = (
-    "2f765bb2270e9261e1029c26a679b0829fae52d9be841734b15a4d58c25eeab4"
+    "451507a87ce2255c8734f1f3787520c56e9a8a40dbea5f2cd153f95ab998b5d7"
 )
 
 
