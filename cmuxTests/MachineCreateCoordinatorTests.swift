@@ -661,7 +661,7 @@ struct MachinesPanelPendingCreateTests {
                 pendingCreates: pending,
                 snapshot: SurfaceCatalogSnapshot(machines: catalog, resources: [], projections: []),
                 localWorkspaces: []
-            )
+            ).withoutCoderouterSection
         }
         func rows(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [String] {
             nodes(machines: machines, catalog: catalog, pending: pending).map(\.id)
@@ -745,7 +745,7 @@ struct MachinesPanelPendingCreateTests {
             pendingCreates: [running, failed],
             snapshot: .empty,
             localWorkspaces: []
-        )
+        ).withoutCoderouterSection
         #expect(nodes.map(\.id) == [
             "pending-machine:\(running.id.uuidString)",
             "pending-machine:\(failed.id.uuidString)",
