@@ -55,6 +55,63 @@ def make_snapshot_repository(stage, source, commit):
     git(stage, "read-tree", commit)
 
 
+def materialize_gitlinks(source, stage, commit, output):
+    """Archive every pinned gitlink; never copy a submodule owner's worktree.
+
+    A missing local submodule is fetched by exact object into private metadata.
+    Existing archived directories are verified against that object's index.
+    Metadata is outside the app checkout and does not consume owner leases.
+    """
+    records = []
+    entries = git(source, "ls-tree", "-r", "-z", commit).split(b"\0")
+    for entry in entries:
+        if not entry.startswith(b"160000 "):
+            continue
+        header, raw_path = entry.split(b"\t", 1)
+        revision = header.decode().split()[2]
+        relative = raw_path.decode()
+        destination = stage / relative
+        metadata = output / ("submodule-" + relative.replace("/", "-") + ".git")
+        local = source / relative
+        try:
+            local_root = Path(git(local, "rev-parse", "--show-toplevel").decode().strip())
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            local_root = None
+        object_source = local if local_root == local.resolve() else None
+        if not metadata.exists():
+            subprocess.run(["git", "init", "--bare", str(metadata)], check=True, capture_output=True)
+            if object_source:
+                common = Path(git(local, "rev-parse", "--path-format=absolute", "--git-common-dir").decode().strip())
+                (metadata / "objects/info/alternates").write_text(str(common / "objects") + "\n")
+            else:
+                url = git(source, "config", "--blob", commit + ":.gitmodules",
+                          "--get", "submodule." + relative + ".url").decode().strip()
+                subprocess.run(["git", "--git-dir", str(metadata), "fetch", "--no-tags", url, revision],
+                               check=True, capture_output=True)
+        archive_data = subprocess.run(["git", "--git-dir", str(metadata), "archive", revision],
+                                      check=True, capture_output=True).stdout
+        if not destination.exists() or not any(destination.iterdir()):
+            destination.mkdir(parents=True, exist_ok=True)
+            with tarfile.open(fileobj=io.BytesIO(archive_data)) as content:
+                content.extractall(destination, filter="data")
+        (metadata / "HEAD").write_text(revision + "\n")
+        (destination / ".git").write_text("gitdir: " + str(metadata) + "\n")
+        git(destination, "config", "core.bare", "false")
+        git(destination, "config", "core.worktree", str(destination))
+        hooks = metadata / "artifact-hooks"
+        hooks.mkdir(exist_ok=True)
+        git(destination, "config", "core.hooksPath", str(hooks))
+        git(destination, "read-tree", revision)
+        if git(destination, "status", "--porcelain", "--untracked-files=all").strip():
+            raise ValueError("Pinned submodule archive differs from object: " + relative)
+        records.append({"path": relative, "commit": revision,
+                        "tree": git(destination, "rev-parse", revision + "^{tree}").decode().strip(),
+                        "archiveSHA256": hashlib.sha256(archive_data).hexdigest(),
+                        "source": "local-immutable-git-object" if object_source else "private-exact-object-fetch",
+                        "workingTreeClean": True})
+    return records
+
+
 def copy_additions(source, stage, paths):
     for path in paths:
         destination = stage / path
@@ -95,6 +152,7 @@ def main():
         cortex_sha = archive(args.cortex_base, cortex)
         make_snapshot_repository(cmux, args.cmux_base, cmux_sha)
         make_snapshot_repository(cortex, args.cortex_base, cortex_sha)
+    gitlinks = materialize_gitlinks(args.cmux_base, cmux, cmux_sha, output)
     copy_additions(args.cmux_additions, cmux, [
         "Sources/SidebarClassicMenuParity.swift", "Sources/SidebarExtensionClassicMenuCoordinator.swift",
         "Packages/macOS/CmuxExtensionKit/Sources/CmuxExtensionKit/Sidebar/CmuxSidebarClassicMenu.swift",
@@ -153,10 +211,10 @@ def main():
     replace(model, "        snapshot = incoming\n", "        snapshot = incoming\n        selectedWorkspaceIDs.formIntersection(Set(incoming.workspaces.map(\\.id)))\n")
     replace(model, "        let surface = surfaceId.flatMap(UUID.init(uuidString:))\n", "        let surface = surfaceId.flatMap(UUID.init(uuidString:))\n        if surface == nil {\n            let modifiers = NSEvent.modifierFlags\n            let order = snapshot?.workspaces.map(\\.id) ?? []\n            if modifiers.contains(.shift), let anchor = selectionAnchorID,\n               let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: id) {\n                selectedWorkspaceIDs = Set(order[min(from, to)...max(from, to)])\n            } else if modifiers.contains(.command) {\n                if selectedWorkspaceIDs.contains(id) { selectedWorkspaceIDs.remove(id) }\n                else { selectedWorkspaceIDs.insert(id) }\n                selectionAnchorID = id\n            } else { selectedWorkspaceIDs = [id]; selectionAnchorID = id }\n        }\n")
     root = extension / "SidebarRootView.swift"
-    replace(root, "        .sheet(item: $model.editor)", "        .sheet(item: $model.manualTagRequest) { request in\n            if let catalog = model.tagCatalog {\n                SidebarManualTagPicker(request: request, catalog: catalog, model: model, onClose: { model.manualTagRequest = nil })\n            }\n        }\n        .sheet(item: $model.editor)")
+    replace(root, "        .sheet(item: $model.editor)", "        .sheet(item: $model.manualTagRequest) { request in\n            if let catalog = model.tagCatalog {\n                SidebarManualTagPicker(request: request, catalog: catalog, model: model, onClose: {\n                    if model.manualTagRequest?.id == request.id { model.manualTagRequest = nil }\n                })\n            }\n        }\n        .sheet(item: $model.editor)")
     replace(root, "                    isOrganizing: model.isOrganizing)", "                    onManualTag: model.allows(.editWorkspaceContext) && model.tagCatalog != nil ? {\n                        guard let snapshot = model.snapshot, let windowID = snapshot.windowID,\n                              let id = snapshot.selectedWorkspaceID, let workspace = model.workspace(id.uuidString) else { return }\n                        model.manualTagRequest = .init(workspaceID: id, windowID: windowID, revision: workspace.context?.revision ?? 0)\n                    } : nil,\n                    isOrganizing: model.isOrganizing)")
     replace(root, ".contextMenu { FolderActionsMenu(groupID: section.id, model: model) }", ".contextMenu { if !model.allows(.presentNativeSidebarMenu) { FolderActionsMenu(groupID: section.id, model: model) } }\n                                .overlay {\n                                    if model.allows(.presentNativeSidebarMenu), let id = model.group(section.id)?.id {\n                                        NativeWorkspaceParityMenu { model.perform(\"Menu natif indisponible\") { try await $0.performClassicMenu(.presentGroupMenu(groupID: id)) } }\n                                    }\n                                }")
-    replace(root, "workspaceMenu: AnyView(WorkspaceActionsMenu(workspaceID: row.id, model: model)),", "workspaceMenu: AnyView(Group { if !model.allows(.presentNativeSidebarMenu) { WorkspaceActionsMenu(workspaceID: row.id, model: model) } }),\n                                    onNativeContextMenu: model.allows(.presentNativeSidebarMenu) ? {\n                                        guard let id = UUID(uuidString: row.id) else { return }\n                                        model.perform(\"Menu natif indisponible\") { try await $0.performClassicMenu(.presentWorkspaceMenu(workspaceID: id, selectedWorkspaceIDs: (model.snapshot?.workspaces ?? []).compactMap { model.selectedWorkspaceIDs.contains($0.id) ? $0.id : nil })) }\n                                    } : nil,")
+    replace(root, "workspaceMenu: AnyView(WorkspaceActionsMenu(workspaceID: row.id, model: model)),", "workspaceMenu: AnyView(Group { if !model.allows(.presentNativeSidebarMenu) { WorkspaceActionsMenu(workspaceID: row.id, model: model) } }),\n                                    onNativeContextMenu: model.allows(.presentNativeSidebarMenu) ? {\n                                        guard let id = UUID(uuidString: row.id) else { return }\n                                        let targets = (model.snapshot?.workspaces ?? []).compactMap { model.selectedWorkspaceIDs.contains($0.id) ? $0.id : nil }\n                                        model.perform(\"Menu natif indisponible\") { try await $0.performClassicMenu(.presentWorkspaceMenu(workspaceID: id, selectedWorkspaceIDs: targets)) }\n                                    } : nil,")
     replace(root, "sidebarWidth: sidebarWidth\n", "sidebarWidth: sidebarWidth,\n                                    isMultiSelected: UUID(uuidString: row.id).map(model.selectedWorkspaceIDs.contains) ?? false\n")
     chrome = extension / "SidebarChrome.swift"
     replace(chrome, "    var isOrganizing = false", "    var onManualTag: (() -> Void)? = nil\n    var isOrganizing = false")
@@ -191,7 +249,8 @@ def main():
             '    var displayName: String {\n        switch self {\n        case .presentNativeSidebarMenu:\n            return String(localized: "sidebar.extensions.actionScope.presentNativeSidebarMenu", defaultValue: "Open native sidebar menus")\n        case .bindAgentSession:')
 
     receipt = {"schemaVersion": 1, "cmuxBaseSHA": cmux_sha, "cortexBaseSHA": cortex_sha,
-               "productionActivationAllowed": False, "sourceArchivesIncludeForeignWIP": False, "patches": {}}
+               "productionActivationAllowed": False, "sourceArchivesIncludeForeignWIP": False,
+               "cmuxPinnedGitlinks": gitlinks, "patches": {}}
     for name, stage in [("cmux", cmux), ("Cortex", cortex)]:
         git(stage, "add", "--all")
         patch = git(stage, "diff", "--cached", "--binary", "--full-index", cmux_sha if stage == cmux else cortex_sha)

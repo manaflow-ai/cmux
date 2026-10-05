@@ -26,6 +26,11 @@ lookup remain mandatory before declaring the paired integration complete.
 Offscreen renders alone do not prove those runtime boundaries.
 
 The source owner's active missions retain the existing integration scopes.
-Apply this patch only after serialized handback, then run the paired dogfood
-build and native UI canaries. Never quit, replace, or relaunch running production
+After serialized handback, run `prepare-classic-sidebar-parity.py` against the
+exact current immutable native owner baselines in a new private output directory.
+Review the regenerated delta and its receipt before integrating through a PR.
+`integration.patch` is an archival delta against its named base, not a patch to
+apply blindly on this payload branch or a later main branch: identical additions
+may already exist there. The generator excludes unchanged existing additions
+from the newly generated delta. Then run the paired dogfood build and UI canaries. Never quit, replace, or relaunch running production
 CMUX. Production activation is deferred to its normal user initiated relaunch.

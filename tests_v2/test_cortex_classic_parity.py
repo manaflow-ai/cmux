@@ -9,6 +9,7 @@ separate and must run against the exact tagged pair after integration.
 from __future__ import annotations
 
 import json
+import importlib.util
 from pathlib import Path
 import shutil
 import subprocess
@@ -99,6 +100,46 @@ class ClassicMenuTargetCaptureTests(unittest.TestCase):
     def test_invalid_native_identity_is_rejected(self):
         self.assertTrue(self.actual["missingAnchorRejected"])
         self.assertTrue(self.actual["duplicateNativeOrderRejected"])
+
+
+class ImmutableGitlinkMaterializationTests(unittest.TestCase):
+    def test_archives_committed_object_and_rejects_dirty_artifact_reuse(self):
+        spec = importlib.util.spec_from_file_location("parity_recipe",
+            REPO / "scripts/prepare-classic-sidebar-parity.py")
+        recipe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(recipe)
+        with tempfile.TemporaryDirectory(prefix="cortex-gitlink-parity-") as directory:
+            root = Path(directory)
+            source, output = root / "source", root / "artifact"
+            source.mkdir(); output.mkdir()
+            nested = source / "vendor/component"
+            nested.mkdir(parents=True)
+            for repository in (source, nested):
+                subprocess.run(["git", "init", str(repository)], check=True, capture_output=True)
+                recipe.git(repository, "config", "user.name", "Parity fixture")
+                recipe.git(repository, "config", "user.email", "fixture@localhost")
+                recipe.git(repository, "config", "core.hooksPath", str(root / "no-hooks"))
+            (nested / "resource.txt").write_text("committed resource\n")
+            recipe.git(nested, "add", "resource.txt")
+            recipe.git(nested, "commit", "-m", "Pinned fixture")
+            revision = recipe.git(nested, "rev-parse", "HEAD").decode().strip()
+            recipe.git(source, "update-index", "--add", "--cacheinfo",
+                       "160000," + revision + ",vendor/component")
+            recipe.git(source, "commit", "-m", "Exact gitlink fixture")
+            commit = recipe.git(source, "rev-parse", "HEAD").decode().strip()
+            # The owner's later edits must never enter the artifact.
+            (nested / "resource.txt").write_text("foreign uncommitted resource\n")
+            stage = output / "cmux"; stage.mkdir()
+            records = recipe.materialize_gitlinks(source, stage, commit, output)
+            archived = stage / "vendor/component"
+            self.assertEqual((archived / "resource.txt").read_text(), "committed resource\n")
+            self.assertEqual(records[0]["commit"], revision)
+            self.assertTrue(records[0]["workingTreeClean"])
+            self.assertEqual((nested / "resource.txt").read_text(), "foreign uncommitted resource\n")
+            self.assertEqual(recipe.materialize_gitlinks(source, stage, commit, output), records)
+            (archived / "resource.txt").write_text("unexpected artifact drift\n")
+            with self.assertRaisesRegex(ValueError, "differs from object"):
+                recipe.materialize_gitlinks(source, stage, commit, output)
 
 
 if __name__ == "__main__":
