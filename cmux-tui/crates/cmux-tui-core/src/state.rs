@@ -18,6 +18,8 @@ mod closed_history_tests;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
+#[cfg(test)]
+mod ephemeral_moves_tests;
 pub(crate) mod frontend_browser_keys;
 pub(crate) mod home;
 pub(crate) mod home_store;
