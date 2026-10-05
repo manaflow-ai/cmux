@@ -362,7 +362,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   other running session created (`denied` otherwise); a tab of another
   workspace needs an attach a person grants, and cmux has no such grant
   yet, so it is refused, as is a restored placeholder tab there before it
-  is created. It closes only tabs it created and user tabs it is attached
+  is created. A user's tab moved to another workspace is left at once by
+  the sessions attached to it that may not use it there: no event, dialog,
+  file chooser, download or network event of the tab reaches them after
+  the move, and their next call on it fails with `denied` (a tab a session
+  created stays its own wherever it moves). It closes only tabs it created and user tabs it is attached
   to. Navigation-time decisions in tabs a session created (the navigation
   delegate, popups and downloads) still apply the creating session's
   policy and file roots through their own checks (`BrowserReplNavigationGuard`,

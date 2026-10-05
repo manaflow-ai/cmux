@@ -76,6 +76,15 @@ final class BrowserReplTabAttachments {
         }
     }
 
+    /// `panelID` moved to another workspace: the sessions that may no
+    /// longer use it there leave it (``BrowserReplTabAttachment/workspaceDidChange()``).
+    func panelDidChangeWorkspace(_ panelID: UUID) {
+        guard let attachment = attachments[panelID], attachment.isAttached else { return }
+        if !attachment.workspaceDidChange() {
+            attachments.removeValue(forKey: panelID)
+        }
+    }
+
     /// Detaches everything from a panel that is closing.
     func panelDidClose(_ panelID: UUID) {
         Self.typedSecrets.tabClosed(panelID.uuidString)
@@ -869,8 +878,24 @@ final class BrowserReplTabAttachment {
             id: panelID,
             mainFrameURL: panel?.webView.url,
             creatorSessionID: liveCreatorSessionID,
-            attachedSessionIDs: Set(sinks.keys)
+            attachedSessionIDs: Set(sinks.keys),
+            workspaceID: panel?.workspaceId
         )
+    }
+
+    /// The tab moved to another workspace: every attached session that may
+    /// no longer use it there (``BrowserReplTabCapability/use``: a session
+    /// uses only its own workspace's tabs and the tabs it created) leaves
+    /// it, as it would when it ended, so no event, dialog, file chooser,
+    /// download or network event of the tab reaches it any more.
+    /// - Returns: Whether a session is still attached.
+    func workspaceDidChange() -> Bool {
+        let facts = authorityFacts
+        for sessionID in sinks.keys.sorted()
+        where Self.authority(for: sessionID).verdict(BrowserReplAccess(in: facts, capability: .use)) != .allowed {
+            removeSink(sessionID: sessionID)
+        }
+        return isAttached
     }
 
     /// The authority of `sessionID` as the policy board publishes it.

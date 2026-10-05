@@ -1042,8 +1042,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func attachment(_ panel: BrowserPanel) -> BrowserReplTabAttachment {
         if let attachment = BrowserReplTabAttachments.shared.attachment(for: panel.id) { return attachment }
-        // No session drives the tab, so the per-tab limit admits this one;
-        // the unregistered attachment after it is never reached.
+        // No session drives the tab, so the per-tab limit admits this one,
+        // if the session may still use the tab: a call in flight when the
+        // tab moved to another workspace does not attach it there again
+        // (BrowserReplTabAttachment.workspaceDidChange). The unregistered
+        // attachment then has no session and reaches none.
+        guard authority.verdict(BrowserReplAccess(in: tabFacts(panel), capability: .use)) == .allowed else {
+            return BrowserReplTabAttachment(panel: panel)
+        }
         return (try? attach(panel)) ?? BrowserReplTabAttachment(panel: panel)
     }
 

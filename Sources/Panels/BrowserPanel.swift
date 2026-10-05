@@ -2099,8 +2099,14 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Kept so a pane of another team re-persists its own team, not the selection.
     var restoredCloudTeamID: String?
 
-    /// The workspace ID this panel belongs to
-    private(set) var workspaceId: UUID
+    /// The workspace ID this panel belongs to. A browser REPL session
+    /// that may not use the tab in its new workspace leaves it.
+    private(set) var workspaceId: UUID {
+        didSet {
+            guard workspaceId != oldValue else { return }
+            BrowserReplTabAttachments.shared.panelDidChangeWorkspace(id)
+        }
+    }
     private let externalNavigationHandler: BrowserExternalNavigationHandler
 
     @Published private(set) var profileID: UUID

@@ -320,12 +320,15 @@ extension BrowserReplDocumentAuthority {
 
 extension BrowserReplPolicyBoard {
     /// The authority for `sessionID` as the board knows it: its published
-    /// policy and file roots. Its workspace is not on the board.
+    /// policy and file roots, and the workspace its instance id names
+    /// (``BrowserReplSessionKey/init(instanceID:)``), so a tab capability
+    /// it judges refuses a tab of another workspace as the driver does.
     public func authority(for sessionID: String) -> BrowserReplDocumentAuthority {
         BrowserReplDocumentAuthority(
             sessionID: sessionID,
             policy: policy(for: sessionID) ?? BrowserReplDomainPolicy(),
-            fileRoots: fileRoots(for: sessionID)
+            fileRoots: fileRoots(for: sessionID),
+            workspaceID: BrowserReplSessionKey(instanceID: sessionID)?.workspaceID
         )
     }
 }
