@@ -67,8 +67,8 @@ enum TerminalHostActionRoute {
             return Route(id: "renameWorkspace", arguments: ["name": .string(title)], targetsTerminal: false)
         case .presentTerminal:
             return Route(id: "tab.focus")
-        case .closeAllWindows, .toggleMaximize:
-            // Catalog actions to come (coordinator decisions A1, B1).
+        case .closeAllWindows, .toggleMaximize, .gotoWindow, .moveTabToNewWindow:
+            // Catalog actions to come (coordinator decisions A1, B1, D1, E1).
             return nil
         case .toggleInspector, .redo:
             // No cmux equivalent: Ghostty's terminal inspector; redo of a reopen (decision C1).
