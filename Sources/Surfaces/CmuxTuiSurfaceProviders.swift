@@ -1549,6 +1549,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     private func ports(link: CloudMachineLink, socketPath: String, force: Bool, lifecycle: UInt64, privateAddress: String?, displayPortsOwned: Bool) async -> [Int]? {
+#if DEBUG
+        cmuxDebugLog("cloud.portScan.begin machine=\(machineID) requested=\(portDiscovery.wasRequested) force=\(force)")
+#endif
         guard portDiscovery.mayScan else { return portsCache?.ports }
         let previousState = portDiscovery.state
         if let cached = portDiscovery.cachedScan(at: Date.now, socketPath: socketPath, force: force) {
@@ -1567,6 +1570,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               let data = try? await link.run(arguments: arguments),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let stdout = object["stdout"] as? String else {
+#if DEBUG
+            cmuxDebugLog("cloud.portScan.failed machine=\(machineID) reason=transport")
+#endif
             // A cancelled scan belongs to whichever pass cancelled it.
             guard isCurrentLifecycleGeneration(lifecycle), !Task.isCancelled else { return nil }
             if portDiscovery.complete(nil, request: request, at: Date.now, socketPath: socketPath) {
@@ -1577,6 +1583,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard isCurrentLifecycleGeneration(lifecycle) else { return nil }
         let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
         let scan = Self.portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned)
+#if DEBUG
+        cmuxDebugLog("cloud.portScan.result machine=\(machineID) ports=\(scan?.ports.map(String.init).joined(separator: ",") ?? "nil") bytes=\(stdout.utf8.count)")
+#endif
         guard portDiscovery.complete(scan, request: request, at: Date.now, socketPath: socketPath) else { return nil }
         publishPortDiscovery()
         guard let scan else { return nil }
