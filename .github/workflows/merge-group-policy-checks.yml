@@ -14,14 +14,14 @@ permissions: {}
 jobs:
   cla-assistant:
     name: CLA Assistant
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - run: echo "Passed on every pull request in this merge group."
 
   cla-policy-guard:
     name: CLA policy guard
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - run: echo "Passed on every pull request in this merge group."
