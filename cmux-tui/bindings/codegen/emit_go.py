@@ -1897,6 +1897,10 @@ def _generated_object_models(
             for name, field in payload["fields"].items()
             if name != "event"
         }
+        if "control" in event["streams"]:
+            # Control events decode only with their `event` literal
+            # (_render_object event_wire_name), so test samples carry it.
+            payload["_event_literal"] = wire_name
         models.append((_event_name(wire_name), payload))
     return models
 
@@ -1968,6 +1972,8 @@ def _presence_base_json(
     named_types: Mapping[str, Any],
 ) -> dict[str, Any]:
     result: dict[str, Any] = {}
+    if "_event_literal" in expr:
+        result["event"] = expr["_event_literal"]
     for wire_name, field in expr["fields"].items():
         if field["presence"] != "required":
             continue
