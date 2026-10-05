@@ -6259,17 +6259,19 @@ struct CMUXCLI {
                 let (explicitFocus, focusRest) = try parseOpenFocusFlags(rest, command: "vm fork")
                 let (nameOpt, rem0) = parseOption(focusRest, name: "--name")
                 let (windowOpt, rem1) = parseOption(rem0, name: "--window")
-                let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
-                let vmArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
+                let (workspaceOpt, rem2) = parseOption(rem1, name: "--workspace")
+                let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
+                let vmArgs = rem2.filter { $0 != "--detach" && $0 != "-d" }
                 guard vmArgs.count == 1, let vmId = vmArgs.first, !vmId.hasPrefix("-") else {
                     throw CLIError(message: """
-                        Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
+                        Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--workspace <id|ref|index>] [--focus|--no-focus] [--detach|-d]
 
                         Find an id:
                           cmux vm ls
                         """)
                 }
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+                let targetWorkspace = workspaceOpt.map { try normalizeWorkspaceHandle($0, client: client) }
                 var params: [String: Any] = [
                     "id": vmId,
                     "idempotency_key": UUID().uuidString.lowercased(),
@@ -6297,6 +6299,7 @@ struct CMUXCLI {
                     id: id,
                     workspaceName: nil,
                     windowRaw: targetWindow,
+                    targetWorkspaceId: targetWorkspace,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
                     focus: explicitFocus ?? Self.defaultFocusForUserOpen(),

@@ -156,6 +156,7 @@ struct NewMachineSheet: View {
     private var agentsTitle: String { String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date") }
     private var agentsHelp: String { CloudAgentUpdatesExplainer.text }
     private var baseImageLabel: String { String(localized: "machines.new.row.baseImage", defaultValue: "Base image") }
+    private var inheritedSettingsText: String { String(localized: "machines.new.baseImage.inheritedSettings", defaultValue: "Size, network, and agent settings are inherited from the base machine.") }
 
     // MARK: A. Grid
 
@@ -164,7 +165,9 @@ struct NewMachineSheet: View {
             if model.supportsBaseImage {
                 GridRow { gridLabel(baseImageLabel); baseImageMenu }
             }
-            if showsSizeRow {
+            if model.isFork {
+                GridRow { Color.clear.gridCellUnsizedAxes([.horizontal, .vertical]); inheritedSettingsView }
+            } else if showsSizeRow {
                 GridRow {
                     gridLabel(sizeLabel)
                     fittedSizeMenu
@@ -226,7 +229,7 @@ struct NewMachineSheet: View {
     private var stackedLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
             if model.supportsBaseImage { stackedRow(baseImageLabel) { baseImageMenu } }
-            if showsSizeRow {
+            if !model.isFork && showsSizeRow {
                 stackedRow(sizeLabel) { fittedSizeMenu }
             }
             if model.supportsNetworkPolicy {
@@ -266,7 +269,7 @@ struct NewMachineSheet: View {
                     baseImageMenu
                     sentenceDot
                 }
-                if showsSizeRow {
+                if !model.isFork && showsSizeRow {
                     makeSizeMenu(borderless: true)
                     sentenceDot
                 }
@@ -294,6 +297,14 @@ struct NewMachineSheet: View {
         Text(verbatim: "·")
             .foregroundStyle(.tertiary)
             .accessibilityHidden(true)
+    }
+
+    private var inheritedSettingsView: some View {
+        Text(inheritedSettingsText)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("NewMachineSheet.inheritedSettings")
     }
 
     /// The agent-update choice as a borderless menu whose one item is the
@@ -328,12 +339,12 @@ struct NewMachineSheet: View {
             if model.supportsBaseImage {
                 groupedRow(baseImageLabel) { baseImageMenu }
             }
-            if showsSizeRow {
+            if !model.isFork && showsSizeRow {
                 if model.supportsBaseImage { groupedDivider }
                 groupedRow(sizeLabel) { fittedSizeMenu }
             }
             if model.supportsNetworkPolicy {
-                if showsSizeRow { groupedDivider }
+                if !model.isFork && showsSizeRow { groupedDivider }
                 groupedRow(networkLabel) {
                     HStack(spacing: 6) {
                         CloudSecurityExplainer()
@@ -347,7 +358,7 @@ struct NewMachineSheet: View {
                 }
             }
             if model.supportsAgentUpdates {
-                if showsSizeRow || model.supportsNetworkPolicy { groupedDivider }
+                if (!model.isFork && showsSizeRow) || model.supportsNetworkPolicy { groupedDivider }
                 groupedRow(agentsTitle) {
                     HStack(spacing: 6) {
                         agentsNetworkWarning
