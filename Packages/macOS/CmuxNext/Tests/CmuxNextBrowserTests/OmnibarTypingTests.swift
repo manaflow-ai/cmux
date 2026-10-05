@@ -13,13 +13,17 @@ import Testing
         let chrome: BrowserChromeView
         let tab: MockBrowserTab
 
-        init(history: [String] = []) {
+        /// - Parameter answerDelay: How long the history provider takes to
+        ///   answer, as a loaded runner can (CI run 37355953589).
+        init(history: [String] = [], answerDelay: Duration = .zero) {
             tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration())
             let store = InMemoryBrowserHistory()
             for url in history {
                 for _ in 0..<5 { store.recordVisit(url: URL(string: url)!, title: nil, at: Date()) }
             }
-            chrome = BrowserChromeView(tab: tab, suggestionEngine: OmniboxSuggestionEngine(providers: [HistorySuggestionProvider(store: store)]))
+            let history = HistorySuggestionProvider(store: store)
+            let provider: any BrowserSuggestionProvider = answerDelay == .zero ? history : SlowSuggestionProvider(history, delay: answerDelay)
+            chrome = BrowserChromeView(tab: tab, suggestionEngine: OmniboxSuggestionEngine(providers: [provider]))
             window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: 900, height: 320), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = chrome
@@ -97,6 +101,19 @@ import Testing
         #expect(editor.selectedRange() == NSRange(location: 10, length: 0))
     }
 
+    /// The settle waits for the suggestion round trip itself, not for a
+    /// number of scheduler turns: a slow answer still completes inline.
+    @Test func inlineCompletionWaitsForASlowAnswer() async throws {
+        let h = Harness(history: ["https://github.com/"], answerDelay: .milliseconds(50))
+        await h.settle()
+        h.bar.focus()
+        await h.settle()
+        await h.type("gi")
+        let editor = try #require(h.editor)
+        #expect(editor.string == "github.com")
+        #expect(editor.selectedRange() == NSRange(location: 2, length: 8))
+    }
+
     @Test func typingInTheMiddleKeepsTheCaretThere() async throws {
         let h = Harness(history: ["https://github.com/"])
         await h.settle()
@@ -117,5 +134,21 @@ import Testing
         #expect(OmnibarRules.clamped(NSRange(location: 4, length: 9), length: 6) == NSRange(location: 4, length: 2))
         #expect(OmnibarRules.clamped(NSRange(location: 9, length: 0), length: 6) == NSRange(location: 6, length: 0))
         #expect(OmnibarRules.clamped(NSRange(location: NSNotFound, length: 0), length: 6) == NSRange(location: 6, length: 0))
+    }
+}
+
+/// Answers like `base`, after `delay` (a deterministic sleep in a test).
+private final class SlowSuggestionProvider: BrowserSuggestionProvider {
+    private let base: any BrowserSuggestionProvider
+    private let delay: Duration
+
+    init(_ base: any BrowserSuggestionProvider, delay: Duration) {
+        self.base = base
+        self.delay = delay
+    }
+
+    func suggestions(for text: String) async -> [BrowserSuggestion] {
+        try? await Task.sleep(for: delay)
+        return await base.suggestions(for: text)
     }
 }
