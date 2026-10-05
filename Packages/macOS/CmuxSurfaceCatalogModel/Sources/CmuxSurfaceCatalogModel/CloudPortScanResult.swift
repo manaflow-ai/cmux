@@ -17,8 +17,11 @@ public struct CloudPortScanResult: Equatable, Sendable {
         for line in socketListing.split(separator: "\n") {
             let text = line.trimmingCharacters(in: .whitespaces)
             if text.isEmpty || text.hasPrefix("State ") || text.hasPrefix("Proto ") || text.hasPrefix("Active Internet") { continue }
-            guard text.split(whereSeparator: { $0.isWhitespace }).contains("LISTEN"),
-                  !CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: text).isEmpty else { return nil }
+            // `ss` may include non-listening rows (for example an UNCONN
+            // socket or a diagnostic line) alongside the listeners. Those
+            // rows do not invalidate the successful listener inventory.
+            guard text.split(whereSeparator: { $0.isWhitespace }).contains("LISTEN") else { continue }
+            guard !CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: text).isEmpty else { continue }
             if !Self.isContainerRuntimeListener(text) {
                 applicationListings.append(text)
             }

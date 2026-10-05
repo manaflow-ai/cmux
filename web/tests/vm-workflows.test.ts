@@ -999,6 +999,53 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  test("a fork's snapshot returns before its stats read and ledger row, which run after the response", async () => {
+    const source = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000160",
+      userId: "user-workflow-snapshot-deferred",
+      billingTeamId: "team-workflow-snapshot-deferred",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-snapshot-deferred",
+      status: "running",
+      providerMetadata: {},
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm: source, usageEvents });
+    let statsReads = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStats: () => Effect.sync(() => {
+        statsReads += 1;
+        return { state: "awake" as const, sampledAt: Date.now(), cpus: 16, memoryTotalMb: 32768, diskTotalMb: 65536 };
+      }),
+      snapshot: () => Effect.succeed({ id: "snapshot-deferred", createdAt: Date.now() }),
+    };
+    const deferred: Effect.Effect<void>[] = [];
+
+    const snapshot = await Effect.runPromise(
+      snapshotVm({
+        userId: source.userId,
+        teamIds: [source.billingTeamId!],
+        providerVmId: source.providerVmId!,
+        deferAfterResponse: (work) => { deferred.push(work); },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    // The fork's copy needs only the snapshot id; nothing else ran inline.
+    expect(snapshot.id).toBe("snapshot-deferred");
+    expect(statsReads).toBe(0);
+    expect(usageEvents.some((event) => event.eventType === "vm.snapshot.created")).toBe(false);
+    expect(deferred).toHaveLength(1);
+
+    await Effect.runPromise(deferred[0]!.pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect(statsReads).toBe(1);
+    expect(usageEvents.find((event) => event.eventType === "vm.snapshot.created")?.metadata).toMatchObject({
+      vcpus: 16,
+      memoryMb: 32768,
+      diskMb: 65536,
+    });
+  });
+
   test("keeps snapshot creation bounded when provider stats hang", async () => {
     const source = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000159",
