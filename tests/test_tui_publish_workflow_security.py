@@ -192,6 +192,74 @@ def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
     assert "libc: none" in releasing
 
 
+def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    triggers = workflow_triggers(artifacts)
+    assert "pull_request_target" in triggers
+    pr_trigger = triggers["pull_request_target"]
+    assert pr_trigger.get("branches") == ["feat-cmux-next"]
+    assert set(pr_trigger["paths"]) == {
+        "cmux-tui/**", "ghostty", "ghostty-next",
+        ".github/workflows/cmux-tui-artifacts.yml",
+        ".github/workflows/cmux-tui-build-package.yml",
+    }
+    push_trigger = triggers["push"]
+    assert push_trigger.get("branches") == ["main", "feat-cmux-next", "cmux-tui-pin-*"]
+    assert "paths" not in push_trigger
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "runs-on:" in preflight and "ubuntu" in preflight
+    assert "git mktree --missing" in preflight
+    assert "cmux-tui-aarch64-apple-darwin.sha256" in preflight
+    assert "ls-remote" in preflight
+    assert "tree_ready" in preflight
+    assert "run_macos" in preflight
+    assert "refs/heads/main" in preflight
+    for job in ("build", "cmux-next-daemon-tests"):
+        body = workflow_job(artifacts, job)
+        assert "needs: tree-preflight" in body
+        assert "needs.tree-preflight.outputs.run_macos == 'true'" in body
+    daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
+    assert 'CARGO_NET_RETRY: "10"' in daemon
+    assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
+    assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
+    assert "cache-all-crates: true" in daemon
+    publisher = workflow_job(artifacts, "publish-pr-tree")
+    assert "adopting the verified write-once binary" in publisher
+    assert "already published with a different binary" not in publisher
+    assert "for attempt in 1 2 3" in daemon
+    assert "cargo test --workspace --locked cmux_next_" in daemon
+
+    requeue = workflow_job(artifacts, "requeue-failed-publish")
+    assert "github.run_attempt < 3" in requeue
+    assert "actions: write" in requeue
+    assert "/actions/runs/$RUN_ID/rerun" in requeue
+    assert "needs.cmux-next-daemon-tests.result == 'failure'" in requeue
+    assert "needs.build.result == 'failure'" in requeue
+    assert "needs.tree-preflight.result == 'failure'" in requeue
+    assert "needs.publish-pr-tree.result == 'failure'" in requeue
+    pr_publisher = workflow_job(artifacts, "publish-pr-tree")
+    assert "github.event_name == 'pull_request_target'" in pr_publisher
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in pr_publisher
+    assert 'git fetch --no-tags origin "$BASE_COMMIT"' in pr_publisher
+    assert "git show \"$BASE_COMMIT:scripts/ci/upload-r2-object.py\"" in pr_publisher
+    assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
+    assert "git mktree --missing" in pr_publisher
+    assert "cmux-tui/tree/$KEY" in pr_publisher
+
+
+def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
+    next_workflow = workflow("cmux-next.yml")
+    assert next_workflow.count('CMUX_TUI_TREE_WAIT_SECONDS: "2700"') == 2
+    assert "github.event_name == 'pull_request' && '0'" not in next_workflow
+    pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
+    assert "pull_request_base_key" in pin
+    assert "HEAD^1" in pin
+    assert "matches base tree" in pin
+    assert "differs from base tree" in pin
+
+    assert next_workflow.count("fetch-depth: 2") >= 2
+
+
 def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:
     preflight = workflow("sdk-publish-npm.yml")
     release = workflow("sdk-release-cut.yml")

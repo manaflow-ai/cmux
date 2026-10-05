@@ -10,16 +10,21 @@
 //! - WebKit tabs are driven by the Swift driver in the app; the host reaches
 //!   it through [`provider`] frames.
 
+pub mod automation_input;
 pub mod cdp;
 pub mod driver;
 pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
 pub mod host;
-pub mod mcp;
+pub mod lease;
+pub mod locality;
+pub mod observe;
 pub mod policy;
 pub mod protocol;
 pub mod provider;
+#[cfg(unix)]
+pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;
 pub mod secrets;

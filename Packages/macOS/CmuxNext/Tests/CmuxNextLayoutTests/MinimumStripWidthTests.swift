@@ -3,26 +3,26 @@ import Testing
 @testable import CmuxNextLayout
 
 /// Docked side docks leave the scrolling strip at least
-/// `StickyStripGeometry.minimumStripWidth` (at most half the viewport):
+/// `DockStripGeometry.minimumStripWidth` (at most half the viewport):
 /// with a 40% dock on each side of an 850 pt window the strip was 170 pt and
 /// its tab titles were cut (dogfood 2026-10-03).
 @Suite struct MinimumStripWidthTests {
     let style = LayoutStyle()
 
-    private func geometry(width: CGFloat, left: StickyMode, right: StickyMode) -> ScreenGeometry {
+    private func geometry(width: CGFloat, left: DockMode, right: DockMode) -> ScreenGeometry {
         let layout = ScreenLayout.columns([
-            LayoutColumn(id: "l", width: 0.4, root: .leaf("pl"), sticky: StickyColumn(edge: .left, mode: left)),
+            LayoutColumn(id: "l", width: 0.4, root: .leaf("pl"), dock: DockColumn(edge: .left, mode: left)),
             LayoutColumn(id: "c", width: 0.5, root: .leaf("pc")),
-            LayoutColumn(id: "r", width: 0.4, root: .leaf("pr"), sticky: StickyColumn(edge: .right, mode: right)),
+            LayoutColumn(id: "r", width: 0.4, root: .leaf("pr"), dock: DockColumn(edge: .right, mode: right)),
         ])
         return ScreenGeometry.compute(layout, viewport: CGSize(width: width, height: 600), style: style, scale: 2)
     }
 
     @Test func twoDockedSideDocksShrinkToKeepTheStrip() {
         let g = geometry(width: 850, left: .docked, right: .docked)
-        #expect(g.stripWidth >= StickyStripGeometry.minimumStripWidth - 1)
+        #expect(g.stripWidth >= DockStripGeometry.minimumStripWidth - 1)
         // Both docks shrink by the same factor.
-        let widths = g.sticky.map(\.frame.width).sorted()
+        let widths = g.dock.map(\.frame.width).sorted()
         #expect(widths.count == 2 && abs(widths[0] - widths[1]) <= 1)
     }
 
@@ -41,6 +41,6 @@ import Testing
         let docked = geometry(width: 850, left: .docked, right: .docked)
         let floating = geometry(width: 850, left: .overlay, right: .overlay)
         #expect(floating.stripWidth == 850)
-        #expect(floating.sticky.map(\.frame.width).max()! > docked.sticky.map(\.frame.width).max()!)
+        #expect(floating.dock.map(\.frame.width).max()! > docked.dock.map(\.frame.width).max()!)
     }
 }

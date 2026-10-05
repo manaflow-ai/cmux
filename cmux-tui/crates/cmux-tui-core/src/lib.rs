@@ -15,8 +15,12 @@ mod browser;
 mod browser_provider;
 mod conversation_search;
 mod conversation_store;
+pub mod daemon_env;
+mod debug_spans;
 pub mod diagnostics;
 mod event_bus;
+#[cfg(unix)]
+pub mod fs_ops;
 mod git_ops;
 #[cfg(unix)]
 mod image_paste;
@@ -41,6 +45,8 @@ mod pairing;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
+mod remote_relay_state;
+mod request_origin;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -58,6 +64,8 @@ pub mod sizing_policy;
 mod state;
 mod stream_interrupt;
 mod surface;
+#[cfg(unix)]
+mod terminal_backend;
 mod terminal_end;
 mod terminal_metadata;
 mod workspace_registry;
@@ -88,12 +96,12 @@ pub use layout::{
     layout_screen_with_viewport, split_for_pane_edge, split_sides, zellij_default_pane_layout,
 };
 pub use model::{
-    ColumnSticky, Node, Pane, Screen, State, StickyEdge, StickyMode, ViewportColumn, Workspace,
+    ColumnDock, DockEdge, DockMode, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
 pub(crate) use mux::BatchCloseTarget;
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
-    CellPixelUpdateFailure, ColumnStickyError, ColumnStickyOutcome, ConfigReloadError,
+    CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
     DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
     LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
     NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
@@ -111,6 +119,10 @@ pub use mux::{
     validate_terminal_reap_grace,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use remote_relay_state::{
+    BindRefused, CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
+    RelayLock, RelayStateError, RevocationClock,
+};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;

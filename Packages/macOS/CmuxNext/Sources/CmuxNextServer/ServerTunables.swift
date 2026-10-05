@@ -17,5 +17,15 @@ public nonisolated enum ServerTunables {
         "server.health.style", section, "Health", help: "Prototype layout of the server Health view. Switches live.",
         default: .checklist, code: "ServerTunables.healthStyle")
 
-    public static var all: [TunableDescriptor] { [panelStyle.descriptor, pairingStyle.descriptor, healthStyle.descriptor] }
+    /// Lets **Make This Mac a Server** register the server LaunchAgent. Off by
+    /// default: until the bundled `cmux` ships `cmux host run`, a registered
+    /// agent exits and launchd restarts it. Stop Serving ignores it.
+    public static let agentAllowRegister = Tunable<Bool>.toggle(
+        "server.agent.allowRegister", section, "Allow server agent",
+        help: "Make This Mac a Server registers the server LaunchAgent (cmux host run). Off until the server software ships.",
+        default: false, code: "ServerTunables.agentAllowRegister")
+
+    public static var all: [TunableDescriptor] {
+        [panelStyle.descriptor, pairingStyle.descriptor, healthStyle.descriptor, agentAllowRegister.descriptor]
+    }
 }

@@ -63,12 +63,24 @@ impl<C: ControlPlane> Server<C> {
                 });
                 None
             }
+            (Err(error), _) if error.code == crate::fs::jobs::FILE_WAIT => {
+                // A file op: its worker answers later (take_settled).
+                self.edge_parts().0.file_jobs.start(id.clone()).err().map(Err)
+            }
             (Err(error), _) if error.code == LINK_WAIT => Some(Err(CloudError {
                 retryable: true,
                 ..CloudError::new(LINK_UNAVAILABLE, "the link is connecting")
             })),
             (outcome, _) => Some(outcome),
         }
+    }
+
+    /// Drops the parked op of op line `id`; `false` when none waits.
+    pub(crate) fn cancel_parked(&mut self, id: &Value) -> bool {
+        let parked = &mut self.attach_mut().parked_ops;
+        let before = parked.len();
+        parked.retain(|op| &op.id != id);
+        parked.len() != before
     }
 
     /// Answers of parked ops whose link is now up or ended, in the order
@@ -80,6 +92,11 @@ impl<C: ControlPlane> Server<C> {
         attach.drain_link_events();
         let parked = std::mem::take(&mut attach.parked_ops);
         let mut settled = Vec::new();
+        // File ops whose worker ended: their result, and the key's ledger row.
+        for (id, key, outcome) in self.edge_parts().0.file_jobs.take_done() {
+            self.settle_key(key.as_deref(), &outcome);
+            settled.push((id, outcome));
+        }
         for mut op in parked {
             let supervisor = &self.attach().supervisor;
             if let Some(newer) = supervisor.connecting(&op.machine)
@@ -89,7 +106,6 @@ impl<C: ControlPlane> Server<C> {
             }
             match self.attach().supervisor.outcome(&op.machine, op.generation) {
                 None => self.attach_mut().parked_ops.push(op),
-                Some(Err(failure)) => settled.push((op.id, Err(link_failure(failure)))),
                 Some(Ok(_)) => {
                     // The link is up: run the op again; it finds the carrier.
                     let outcome = self.handle(&op.request);
@@ -97,6 +113,7 @@ impl<C: ControlPlane> Server<C> {
                         settled.push((op.id, answer));
                     }
                 }
+                Some(Err(failure)) => settled.push((op.id, Err(link_failure(failure)))),
             }
         }
         settled

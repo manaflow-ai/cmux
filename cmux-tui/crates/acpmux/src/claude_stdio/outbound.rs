@@ -50,7 +50,16 @@ impl Translator {
                         let content: Vec<Value> = blocks
                             .iter()
                             .map(|b| match b.get("type").and_then(Value::as_str) {
-                                Some("text") => json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")}),
+                                // `cache_control` passes through unchanged: Claude
+                                // Code copies user blocks into the API request, so
+                                // a client can place its own cache breakpoint.
+                                Some("text") => {
+                                    let mut text = json!({"type": "text", "text": b.get("text").and_then(Value::as_str).unwrap_or("")});
+                                    if let Some(marker) = b.get("cache_control").filter(|m| !m.is_null()) {
+                                        text["cache_control"] = marker.clone();
+                                    }
+                                    text
+                                }
                                 Some("image") => json!({"type": "image", "source": {"type": "base64", "media_type": b.get("mimeType").and_then(Value::as_str).unwrap_or("image/png"), "data": b.get("data").and_then(Value::as_str).unwrap_or("")}}),
                                 Some("resource") | Some("resource_link") => {
                                     json!({"type": "text", "text": resource_text(b)})

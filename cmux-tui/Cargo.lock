@@ -21,6 +21,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "syntect",
  "thiserror 2.0.19",
  "tokio",
@@ -866,12 +867,28 @@ name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-link"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-unix-socket",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
 name = "cmux-local-auth"
 version = "0.1.0"
 dependencies = [
+ "hmac",
+ "sha2 0.10.9",
  "subtle",
 ]
 
@@ -958,11 +975,13 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-tui-core",
  "cmux-tui-source-watch",
+ "cmux-unix-socket",
  "cmux-wg",
  "diffy",
  "flate2",
@@ -1083,6 +1102,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-iface"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
 
@@ -1102,6 +1128,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1139,6 +1166,7 @@ dependencies = [
  "uuid",
  "wait-timeout",
  "windows-sys 0.61.2",
+ "x25519-dalek",
  "zeroize",
 ]
 
@@ -1162,9 +1190,11 @@ dependencies = [
  "cmux-app-manifest",
  "cmux-conversation",
  "cmux-layout-reducer",
+ "cmux-link",
  "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",
+ "cmux-terminal-iface",
  "cmux-tui-cdp",
  "cmux-unix-socket",
  "flate2",

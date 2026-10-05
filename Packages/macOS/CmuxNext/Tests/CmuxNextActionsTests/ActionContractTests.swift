@@ -23,7 +23,10 @@ import Testing
     /// The palette lists every action except palette-internal navigation
     /// and the ones whose surface plan names another reason (New Browser
     /// Tab on Chromium duplicates the default New Browser Tab row; Go to
-    /// Location is a row of the titlebar Back / Forward list).
+    /// Location is a row of the titlebar Back / Forward list; Next / Previous
+    /// Item move the selection of the focused list, which the palette
+    /// replaces while it is open; the page menu's copy, save and Look Up
+    /// rows act on the right-clicked element).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -31,7 +34,10 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == ["commandPaletteNext", "commandPalettePrevious", "history.goTo", "openBrowser.chromium"])
+            == ["browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+                "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
+                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "list.next", "list.previous",
+                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"])
     }
 
     @Test func shortcutIDsAreUniqueAndDefaultsDoNotCollide() {

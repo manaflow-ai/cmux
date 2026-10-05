@@ -302,6 +302,13 @@ page is `browserReload`, not `renameTab`), then the tier decides whether it may 
 A Ghostty keybind that collides with a tier 1 or tier 2 action loses, unless the user
 unbinds the action (`shortcuts.bindings.<id>: null`) or moves it to a lower tier in
 `cmux.json`. `focusBrowserAddressBar` (Cmd-L) is tier 1 although it needs a browser tab.
+Browser chrome exception (R88): Back, Forward, Reload, Hard Reload, History, Copy Page URL
+(Cmd-Shift-C) and Find Previous in Page (Shift-Cmd-G) are tier 2, but they also run while the
+address bar or the find bar has the keyboard (`KeyRouter.browserChromeActions`), as in Chrome
+and Safari; their chords edit no text. Cmd-Return and Shift-Cmd-Return in the address bar are
+`omnibar.openInBackgroundTab` and `omnibar.openInForegroundTab` (context bit `omnibarFocused`),
+which win over Toggle Pane Zoom only there. Shift-Cmd-G needs a browser focused, so elsewhere it
+stays Group Selected Workspaces.
 Main-menu key equivalents run the same check: `ActionRegistry.menuKeyEquivalentGate`
 (the App's `KeyRouter`) refuses a menu item's chord during a key-down when its tier may
 not take the key from the key window's focus, so a chord the router gave to a page in

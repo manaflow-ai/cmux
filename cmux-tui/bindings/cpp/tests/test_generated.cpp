@@ -84,7 +84,7 @@ static_assert(std::is_same_v<
 static_assert(!std::is_copy_constructible_v<cmux::raw::EventStream>);
 static_assert(std::is_move_constructible_v<cmux::raw::EventStream>);
 
-constexpr std::size_t kExpectedRawCommandCount = 213U;
+constexpr std::size_t kExpectedRawCommandCount = 214U;
 constexpr std::array<std::string_view, 4> kViewportHistoryCommandNames{
     "clear-history",
     "new-pane-right",
@@ -112,7 +112,7 @@ TEST("generated command and event metadata is exhaustive and unique") {
         CHECK(command.since <= cmux::raw::kMuxProtocolVersion);
         command_names.insert(command.name);
         if (command.name == "attach-surface") {
-            CHECK_EQ(command.field_requirements.size(), 5U);
+            CHECK_EQ(command.field_requirements.size(), 9U);
             bool mode_since = false;
             bool cols_capability = false;
             bool generation_capability = false;

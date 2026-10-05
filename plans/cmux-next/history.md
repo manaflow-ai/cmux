@@ -295,6 +295,25 @@ Commands (this terminal), Resume Agent Session (this terminal).
   (actions), `HistoryPageTab` (the `cmux://history` `BrowserTab`), palette
   pages through `PaletteSources`.
 
+### 7.1 Page visit writer cutover (one writer at every step)
+
+Page visits have exactly one writer. The steps, in order:
+
+1. Today: the Swift writer `CmuxNextApp/History/BrowserVisitSink.swift`
+   (into `BrowserVisitLog`, app-local `History.sqlite`) is the only writer.
+   The `cmux-history` crate may build and test (H2), but nothing links it
+   into the daemon, so it writes nothing.
+2. H3, one landing: the daemon links the crate and serves
+   `cmux.history/1`; in the same change the app stops `BrowserVisitSink`
+   (no sink is made for a profile) and reports each visit with
+   `cmux.history.visit.record` instead. The crate is then the only writer.
+   An app whose daemon does not serve `cmux.history/1` keeps the Swift
+   writer (and the daemon does not write), so the two never write the same
+   profile.
+3. After H3: delete `BrowserVisitSink` and `BrowserVisitLog` with the other
+   Swift owners (react-pages.md 2.5, H3). The crate never goes live while
+   the Swift writer still runs.
+
 ## 8. Not decided here
 
 - Syncing page history between Macs: out of scope.

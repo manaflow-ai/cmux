@@ -36,7 +36,10 @@
 # fetch put beside the tree or pinned binary (checked against its sha256).
 # Without one, any bundled app host is removed, so a daemon never runs an app
 # host from another build; the daemon then does not serve apps-v1 and the app
-# reports that it needs a newer cmux-tui.
+# reports that it needs a newer cmux-tui. The first-party Cloud app server goes
+# beside it as bin/cmux-cloud by the same rules (CMUX_NEXT_CLOUD_SERVER_BIN; pin
+# fields cloud_server_*; tree state cmux-cloud.sha256), where the app supervisor
+# looks for first-party native servers.
 set -euo pipefail
 
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
@@ -168,38 +171,49 @@ if [[ -n "$expected_commit" && ( -z "$commit" || "$expected_commit" != "$commit"
   echo "error: $source_kind cmux-tui reports '$version_line', not commit $expected_commit" >&2
   exit 1
 fi
-# The app host of the same build, if there is one (see the header).
-app_host_src=""
-if [[ -n "${CMUX_NEXT_APP_HOST_BIN:-}" ]]; then
-  app_host_src="$CMUX_NEXT_APP_HOST_BIN"
-elif [[ "$source_kind" == override || "$source_kind" == client-local || "$source_kind" == tree-local-build ]]; then
-  [[ -f "$(dirname "$src")/cmux-app-host" ]] && app_host_src="$(dirname "$src")/cmux-app-host"
-elif [[ "$source_kind" == tree-hosted ]]; then
-  state="$tree_dir/cmux-app-host.sha256"
-  if [[ ! -f "$state" ]]; then
-    echo "warning: the app host of tree $key is not fetched; run scripts/cmux-next/pin-cmux-tui.sh fetch. Bundling none."
-  elif [[ "$(cat "$state")" != none ]]; then
-    app_host_src="$tree_dir/cmux-app-host"
-    app_host_want="$(cat "$state")"
+# The app host and the first-party app servers of the same build, if there are
+# any (see the header). companion_source <file> <override env value> <pin field>
+# sets companion_src and companion_want.
+companion_source() {
+  local file="$1" override="$2" pin_field="$3" state pin_sha
+  companion_src=""
+  companion_want=""
+  if [[ -n "$override" ]]; then
+    companion_src="$override"
+  elif [[ "$source_kind" == override || "$source_kind" == client-local || "$source_kind" == tree-local-build ]]; then
+    [[ -f "$(dirname "$src")/$file" ]] && companion_src="$(dirname "$src")/$file"
+  elif [[ "$source_kind" == tree-hosted ]]; then
+    state="$tree_dir/$file.sha256"
+    if [[ ! -f "$state" ]]; then
+      echo "warning: the $file of tree $key is not fetched; run scripts/cmux-next/pin-cmux-tui.sh fetch. Bundling none."
+    elif [[ "$(cat "$state")" != none ]]; then
+      companion_src="$tree_dir/$file"
+      companion_want="$(cat "$state")"
+    fi
+  elif [[ "$source_kind" == pinned-hosted ]]; then
+    pin_sha="$(awk -F= -v f="$pin_field" '$1==f{print $2}' "$pin_file")"
+    if [[ -n "$pin_sha" ]]; then
+      companion_src="$(dirname "$src")/$file"
+      companion_want="$pin_sha"
+    fi
   fi
-elif [[ "$source_kind" == pinned-hosted ]]; then
-  pin_app_host_sha256="$(awk -F= '$1=="app_host_sha256"{print $2}' "$pin_file")"
-  if [[ -n "$pin_app_host_sha256" ]]; then
-    app_host_src="$(dirname "$src")/cmux-app-host"
-    app_host_want="$pin_app_host_sha256"
-  fi
-fi
-if [[ -n "$app_host_src" && ! -f "$app_host_src" ]]; then
-  echo "error: cmux-app-host $app_host_src does not exist; run scripts/cmux-next/pin-cmux-tui.sh fetch" >&2
-  exit 1
-fi
-if [[ -n "${app_host_want:-}" ]]; then
-  actual="$(sha256_of "$app_host_src")"
-  if [[ "$actual" != "$app_host_want" ]]; then
-    echo "error: $app_host_src has sha256 $actual, not the published $app_host_want" >&2
+  if [[ -n "$companion_src" && ! -f "$companion_src" ]]; then
+    echo "error: $file $companion_src does not exist; run scripts/cmux-next/pin-cmux-tui.sh fetch" >&2
     exit 1
   fi
-fi
+  if [[ -n "$companion_want" ]]; then
+    local actual
+    actual="$(sha256_of "$companion_src")"
+    if [[ "$actual" != "$companion_want" ]]; then
+      echo "error: $companion_src has sha256 $actual, not the published $companion_want" >&2
+      exit 1
+    fi
+  fi
+}
+companion_source cmux-app-host "${CMUX_NEXT_APP_HOST_BIN:-}" app_host_sha256
+app_host_src="$companion_src"
+companion_source cmux-cloud "${CMUX_NEXT_CLOUD_SERVER_BIN:-}" cloud_server_sha256
+cloud_server_src="$companion_src"
 
 version_file="$dest_dir/cmux-tui.version"
 version_text="mode=$mode
@@ -211,6 +225,7 @@ run=$run_id
 url=$url
 version=$version_line
 app_host_sha256=${app_host_src:+$(sha256_of "$app_host_src")}
+cloud_server_sha256=${cloud_server_src:+$(sha256_of "$cloud_server_src")}
 "
 
 mkdir -p "$dest_dir"
@@ -223,19 +238,25 @@ if ! { [[ -x "$dest" && ! -L "$dest" ]] && cmp -s "$src" "$dest"; }; then
   echo "bundled cmux-tui ${commit:-unknown} ($source_kind${key:+, tree $key}) as bin/cmux from $src"
 fi
 link_aliases
-app_host_dest="$dest_dir/cmux-app-host"
-if [[ -z "$app_host_src" ]]; then
-  if [[ -e "$app_host_dest" ]]; then
-    rm -f "$app_host_dest"
-    echo "removed bundled cmux-app-host: this cmux-tui build has none"
+# place_companion <source or empty> <file>: copy beside bin/cmux, or remove a copy
+# from another build when this build has none.
+place_companion() {
+  local from="$1" file="$2" to="$dest_dir/$2"
+  if [[ -z "$from" ]]; then
+    if [[ -e "$to" ]]; then
+      rm -f "$to"
+      echo "removed bundled $file: this cmux-tui build has none"
+    fi
+  elif ! { [[ -x "$to" ]] && cmp -s "$from" "$to"; }; then
+    # Remove first, like cmux-tui: an in-place overwrite breaks the signature.
+    rm -f "$to"
+    cp "$from" "$to"
+    chmod 755 "$to"
+    echo "bundled $file from $from"
   fi
-elif ! { [[ -x "$app_host_dest" ]] && cmp -s "$app_host_src" "$app_host_dest"; }; then
-  # Remove first, like cmux-tui: an in-place overwrite breaks the signature.
-  rm -f "$app_host_dest"
-  cp "$app_host_src" "$app_host_dest"
-  chmod 755 "$app_host_dest"
-  echo "bundled cmux-app-host from $app_host_src"
-fi
+}
+place_companion "$app_host_src" cmux-app-host
+place_companion "$cloud_server_src" cmux-cloud
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi

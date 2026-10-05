@@ -7,18 +7,18 @@ public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
     /// (rows folded into vertical splits), which pane and split queries
     /// read; geometry lays out `rows` instead.
     public var root: SplitNode
-    /// Pinned to a viewport edge (daemon `columns[].sticky`); nil scrolls.
-    public var sticky: StickyColumn?
+    /// Pinned to a viewport edge (daemon `columns[].dock`); nil scrolls.
+    public var dock: DockColumn?
     /// The column's rows, top to bottom (`rows-v1`, plans/cmux-next/rows.md);
     /// empty for a column with one row, which is today's column.
     public var rows: [LayoutRow]
 
-    public init(id: ColumnID, width: Double = ColumnWidthPreset.defaultWidth, root: SplitNode, sticky: StickyColumn? = nil,
+    public init(id: ColumnID, width: Double = ColumnWidthPreset.defaultWidth, root: SplitNode, dock: DockColumn? = nil,
                 rows: [LayoutRow] = []) {
         self.id = id
         self.width = width
         self.root = root
-        self.sticky = sticky
+        self.dock = dock
         self.rows = rows
     }
 
@@ -84,10 +84,10 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
 
     /// Columns in the order the user sees them: the left dock, the top dock,
     /// the scrolling strip, the bottom dock, the right dock
-    /// (StickyStripGeometry S1, S2; layout-model.md). Focus, close-focus and
+    /// (DockStripGeometry S1, S2; layout-model.md). Focus, close-focus and
     /// column navigation read this, so every dock stays reachable.
     public var visualColumns: [LayoutColumn] {
-        let parts = StickyStripGeometry.docks(columns)
+        let parts = DockStripGeometry.docks(columns)
         return [parts.left, parts.top].compactMap { $0 } + parts.scrolling + [parts.bottom, parts.right].compactMap { $0 }
     }
 
@@ -129,7 +129,7 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
             return x.hasSameShape(as: y)
         case let (.columns(x), .columns(y)):
             return x.count == y.count && zip(x, y).allSatisfy {
-                $0.id == $1.id && $0.sticky == $1.sticky && $0.root.hasSameShape(as: $1.root) && $0.hasSameRows(as: $1)
+                $0.id == $1.id && $0.dock == $1.dock && $0.root.hasSameShape(as: $1.root) && $0.hasSameRows(as: $1)
             }
         default:
             return false
@@ -159,16 +159,16 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         })
     }
 
-    /// A copy with `column` made sticky (or scrolling for nil), keeping the
+    /// A copy with `column` made docked (or scrolling for nil), keeping the
     /// daemon's rules: another column on the same edge scrolls again.
-    public func settingSticky(_ sticky: StickyColumn?, for column: ColumnID) -> ScreenLayout {
+    public func settingDock(_ dock: DockColumn?, for column: ColumnID) -> ScreenLayout {
         guard case let .columns(columns) = self else { return self }
         return .columns(columns.map { entry in
             var entry = entry
             if entry.id == column {
-                entry.sticky = sticky
-            } else if let sticky, entry.sticky?.edge == sticky.edge {
-                entry.sticky = nil
+                entry.dock = dock
+            } else if let dock, entry.dock?.edge == dock.edge {
+                entry.dock = nil
             }
             return entry
         })

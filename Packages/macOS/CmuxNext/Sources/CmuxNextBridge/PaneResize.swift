@@ -30,7 +30,7 @@ public nonisolated enum PaneResize {
         let range = ColumnWidthPreset.widthRange
         // A top or bottom dock's extent is its height: up and down move its
         // inner edge (down grows a top dock, up grows a bottom dock).
-        if let edge = column.sticky?.edge, edge.isBand {
+        if let edge = column.dock?.edge, edge.isBand {
             guard axis == .vertical else { return nil }
             let grow = edge == .top ? delta : -delta
             let extent = min(max(column.width + grow, range.lowerBound), range.upperBound)
@@ -43,7 +43,7 @@ public nonisolated enum PaneResize {
 
     /// The column before (`forward == false`) or after the pane's column.
     public static func adjacentColumn(of pane: LayoutPaneID, forward: Bool, in layout: ScreenLayout) -> LayoutColumn? {
-        // Visual order: a sticky column sits at its edge whatever its daemon index.
+        // Visual order: a docked column sits at its edge whatever its daemon index.
         let columns = layout.visualColumns
         guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return nil }
         let next = index + (forward ? 1 : -1)

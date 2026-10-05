@@ -207,9 +207,20 @@ request file `terminal-snapshot-history.md`.
   drift.
 - A READY restore keeps the owner's default palette, bg/fg and cursor
   defaults; the surface's own config must win (colors, and the cursor style
-  unless the program chose one). Interim: the Mac re-applies its config after
-  each READY (one frame can show the owner's palette). Fix in progress:
-  ghostty-next applies them as local policy in the restore, then a pin bump.
+  unless the program chose one). ghostty-next applies them as local policy
+  in the restore (PR 20, GhosttyNextKit 68ac618db); the Mac no longer
+  re-applies its config after a READY.
+- S2c (terminal-snapshot-local-history-v1): a viewer that opts in and is up
+  to date gets, at each host resize, a READY cut exactly at the resize point,
+  ordered after every earlier output frame, marked history: "local", with
+  history_rows and history_digest (libghostty-vt digest v2 of the 64 history
+  rows above the READY seam) and no history chunks. The Mac restores it with
+  ghostty_surface_restore_snapshot_local_history: Ghostty reflows the old
+  terminal with the owner's settings and keeps its history on a match (a
+  smaller local scrollback limit still matches); a mismatch restores the READY
+  without history, counts local_history_mismatch and sends snapshot-request
+  (reason gap). A behind viewer, attach, overflow and request keep READY +
+  history. 100k lines: 2.58 MB -> 60 KB base64 per settled resize.
 - Kitty images on screen are lost after a snapshot until S3k (the host
   replays on-screen images after READY).
 

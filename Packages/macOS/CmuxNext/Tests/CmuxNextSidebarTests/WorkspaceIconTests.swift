@@ -11,8 +11,9 @@ import Testing
         #expect(WorkspaceIcon.parse("🇯🇵") == .emoji("🇯🇵"))
         #expect(WorkspaceIcon.parse("👩‍💻") == .emoji("👩‍💻"))
         #expect(WorkspaceIcon.parse("house") == .symbol("house"))
-        #expect(WorkspaceIcon.parse("🚀🚀") == .symbol("🚀🚀"))
-        #expect(!WorkspaceIcon.isEmoji("a") && !WorkspaceIcon.isEmoji("1"))
+        // Not one emoji and not a symbol name: no icon (one rule, IconValue).
+        #expect(WorkspaceIcon.parse("🚀🚀") == nil)
+        #expect(WorkspaceIcon.parse("a b") == nil)
     }
 
     @Test func anEmojiIconDrawsAsText() {
@@ -23,5 +24,18 @@ import Testing
         #expect(view.emojiText == "🚀")
         view.configure(icon: .symbol("house"))
         #expect(view.emojiText == nil)
+    }
+
+    @Test func anEmojiWithAColorDrawsOnAChip() {
+        let view = SidebarIconView()
+        view.frame = NSRect(x: 0, y: 0, width: 20, height: 20)
+        view.configure(icon: .emoji("🚀", chip: .green))
+        view.layoutSubtreeIfNeeded()
+        view.updateLayer()
+        #expect(view.emojiText == "🚀")
+        #expect(view.showsChip)
+        view.configure(icon: .emoji("🚀"))
+        view.updateLayer()
+        #expect(!view.showsChip)
     }
 }

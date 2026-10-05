@@ -5,6 +5,7 @@
 //   /diff/            the diff viewer (`cmux diff`) against the real cmux-diff-sidecar
 //   /markdown?file=   the markdown editor (markdown-page.html, src/pages/markdown) on a repo file
 //   /markdown/viewer?file=  the classic markdown viewer shell (Resources/markdown-viewer/shell.html)
+//   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
 //   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it)
 //   /history/ /apps/ /cloud/ /keybindings/  React pages (src/pages/<page>/index.html); `?mock` uses the page's in-memory provider
 // scripts/agent-pane/dev-slot.sh runs one per slot next to a standalone acpmux daemon.
@@ -44,10 +45,20 @@ import {
   devStateDirectory,
   gitTopLevel,
   listPickerDirectory,
+  pickerLocations,
   sourceKind,
   sourceQuery,
   withBranch,
 } from "./viewerEmptyHost";
+import {
+  EDITOR_MAX_BYTES,
+  EditorRefused,
+  editorFiles,
+  editorPreferences,
+  readEditorFile,
+  readEditorLook,
+  saveEditorFile,
+} from "./editorHost";
 import {
   PAGE_LIBS,
   SHELL_LIBS,
@@ -70,7 +81,7 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
-  return [devServerShell(), agentPaneHost(), pagesHost(), viewerEmptyHost(), diffHost(), markdownHost()];
+  return [devServerShell(), agentPaneHost(), pagesHost(), viewerEmptyHost(), diffHost(), markdownHost(), editorHost()];
 }
 
 let recentsStore: ReturnType<typeof devRecents> | undefined;
@@ -114,6 +125,7 @@ const indexPage = `<!doctype html>
 <li><a href="/diff/">/diff/</a>: diff viewer, <code>?source=branch&amp;base=HEAD~5</code>, <code>?source=unstaged|staged</code>, <code>&amp;layout=unified</code></li>
 <li><a href="/diff/?pick">/diff/?pick</a>: the diff viewer's empty state (recent repositories, folder picker, drop)</li>
 <li><a href="/markdown">/markdown</a>: markdown editor, <code>?file=&lt;path&gt;</code>; <a href="/markdown?pick">/markdown?pick</a>: its empty state; <a href="/markdown/viewer">/markdown/viewer</a>: the classic viewer shell</li>
+<li><a href="/editor">/editor</a>: code editor (Monaco), <code>?file=&lt;absolute path&gt;</code>; <a href="/editor?pick">/editor?pick</a>: its empty state</li>
 <li><a href="/history/?mock">/history/?mock</a>: History page against the in-page mock provider</li>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
@@ -130,6 +142,9 @@ const devEntries = [
   "src/markdown-viewer/devHost.ts",
   "src/pages/markdown/devBridge.ts",
   "src/pages/markdown/main.tsx",
+  "src/pages/editor/devBridge.ts",
+  "src/pages/editor/main.tsx",
+  "src/pages/editor/view.ts",
 ];
 
 /// The index page, dev React and the dependency cache.
@@ -148,7 +163,9 @@ function devServerShell(): Plugin {
         cacheDir: `node_modules/${dependencyCacheName(config.server?.port ?? DEV_SERVER_PORT)}`,
         // Every surface's entry, so the first scan finds all dependencies instead of a page
         // discovering one late and triggering an optimizer reload.
-        optimizeDeps: { entries: devEntries },
+        // Monaco stays unbundled: its language configurations (pages/editor/view.ts) import its API
+        // by relative path, and a pre-bundled copy beside the raw files would be a second Monaco.
+        optimizeDeps: { entries: devEntries, exclude: ["monaco-editor"] },
       };
     },
     configureServer(server) {
@@ -238,7 +255,7 @@ function agentPaneHost(): Plugin {
 
 /// /<page>/ serves src/pages/<page>/index.html for the React pages (plans/cmux-next/react-pages.md).
 /// The page boots its own client: the app bridge when present, else the mock provider with `?mock`.
-const DEV_PAGES = ["history", "apps", "cloud", "keybindings"];
+const DEV_PAGES = ["history", "apps", "coderouter", "cloud", "keybindings"];
 
 function pagesHost(): Plugin {
   return {
@@ -296,7 +313,8 @@ function newestAppBinary(name: string): string | undefined {
 }
 
 /// POST /__cmux-viewer/op: the dev host of the empty states. `cmux.picker.list` lists one folder
-/// for the fallback picker (inside the home folder only); `cmux.diff.recents` and
+/// for the fallback picker (inside the home folder only), `cmux.picker.locations` its Locations;
+/// `cmux.diff.recents` and
 /// `cmux.markdown.recents` answer the recents file. The open ops live with their page hosts.
 function viewerEmptyHost(): Plugin {
   return {
@@ -321,16 +339,26 @@ function viewerEmptyHost(): Plugin {
             const listing = listPickerDirectory(typeof params.path === "string" ? params.path : null, {
               roots: viewerRoots(),
               home,
-              mode: params.mode === "file" ? "file" : "folder",
+              mode: params.mode === "file" || params.mode === "anyFile" ? params.mode : "folder",
               hidden: params.hidden === true,
             });
             return reply(200, listing);
+          }
+          if (op === "cmux.picker.locations") {
+            // The dev server's workspace is its checkout; `CMUX_DEV_PICKER_PINNED` (":"-separated,
+            // `~/` allowed) stands in for the `picker.pinned` setting.
+            const workspace = gitTopLevel(process.cwd());
+            const pinned = (process.env.CMUX_DEV_PICKER_PINNED ?? "").split(":").filter(Boolean);
+            return reply(200, pickerLocations({ home, workspace: workspace ? [workspace] : [], pinned }));
           }
           if (op === "cmux.diff.recents") {
             return reply(200, { home, items: viewerRecents(port()).list("diff").map(withBranch) });
           }
           if (op === "cmux.markdown.recents") {
             return reply(200, { home, items: viewerRecents(port()).list("markdown") });
+          }
+          if (op === "cmux.editor.recents") {
+            return reply(200, { home, items: viewerRecents(port()).list("editor") });
           }
           return reply(404, { code: "cmux.protocol.unknown_op", message: String(op) });
         } catch (error) {
@@ -779,6 +807,161 @@ function markdownHost(): Plugin {
       }
       last = next;
       return [];
+    },
+  };
+}
+
+/// The code editor. /editor serves editor-page.html (src/pages/editor) with
+/// src/pages/editor/devBridge.ts first, a stand-in for the app's cmuxPage bridge: its calls arrive as
+/// POST /__cmux-editor/op and this server implements the host ops (pages/editor/host.ts) on files in
+/// the home folder, writable only below the workspace roots (CMUX_EDITOR_DEV_ROOTS, colon-separated,
+/// default the repo above webviews/). Preferences (`cmux.editor.setPreference`) live in
+/// `editor-preferences.json` in the state folder; the look follows cmux.json's `editor` section,
+/// `<config dir>/editor/theme.css` and the diff languages folder live.
+function editorHost(): Plugin {
+  const workspaceRoots = (process.env.CMUX_EDITOR_DEV_ROOTS ?? repoRoot).split(":").filter(Boolean);
+  // CMUX_EDITOR_DEV_READONLY_ROOTS: more folders whose files open read only (tests use a temp folder).
+  const readOnlyRoots = (process.env.CMUX_EDITOR_DEV_READONLY_ROOTS ?? "").split(":").filter(Boolean);
+  const files = editorFiles({ workspaceRoots, readableRoots: [os.homedir(), ...readOnlyRoots] });
+  const watched = new Set<string>();
+  const page = async (server: ViteDevServer, originalUrl: string | undefined) => {
+    const html = fs
+      .readFileSync(path.join(webviewsRoot, "editor-page.html"), "utf8")
+      .replace('src="./src/', 'src="/src/')
+      .replace("<body>", '<body>\n    <script type="module" src="/src/pages/editor/devBridge.ts"></script>');
+    return server.transformIndexHtml("/editor-page.html", html, originalUrl);
+  };
+  return {
+    name: "cmux-dev-editor",
+    apply: "serve",
+    configureServer(server) {
+      const port = () => server.config.server.port ?? DEV_SERVER_PORT;
+      const preferences = () => editorPreferences(path.join(devStateDirectory(port()), "editor-preferences.json"));
+      const configFile = cmuxConfigFile();
+      const look = () => ({
+        ...readEditorLook(configFile, preferences().read()),
+        languages: readDiffLanguagePack(diffLanguagesDirectory()),
+      });
+      const sendLook = () => server.ws.send({ type: "custom", event: "cmux-editor:look", data: look() });
+      for (const [folder, recursive] of [
+        [path.dirname(configFile), false],
+        [path.join(path.dirname(configFile), "editor"), false],
+        [diffLanguagesDirectory(), true],
+      ] as const) {
+        try {
+          const watcher = fs.watch(folder, { recursive }, () => sendLook());
+          server.httpServer?.on("close", () => watcher.close());
+        } catch {
+          // No such folder: a look file created later applies on the next page load.
+        }
+      }
+      // The open file's watcher: a stat poll (fs.watchFile), not Vite's watcher, which misses files
+      // outside the project and drops events when the machine's FSEvents streams run out.
+      const watch = (file: string) => {
+        if (watched.has(file)) return;
+        watched.add(file);
+        fs.watchFile(file, { interval: 250 }, (current, previous) => {
+          if (current.mtimeMs === previous.mtimeMs && current.size === previous.size && current.ino === previous.ino)
+            return;
+          server.ws.send({ type: "custom", event: "cmux-editor:content", data: { file } });
+        });
+      };
+      server.httpServer?.on("close", () => {
+        for (const file of watched) fs.unwatchFile(file);
+      });
+      const config = (file: string) => {
+        const content = readEditorFile(file, files.inWorkspace(file));
+        if (!content) throw new EditorRefused("cmux.editor.not_found", file);
+        watch(file);
+        viewerRecents(port()).record("editor", { path: file });
+        return {
+          path: file,
+          text: content.text,
+          hash: content.hash,
+          size: content.size,
+          readOnly: content.readOnlyReason !== null,
+          ...(content.readOnlyReason ? { readOnlyReason: content.readOnlyReason } : {}),
+          ...look(),
+        };
+      };
+      server.middlewares.use(async (request, response, next) => {
+        const url = new URL(request.url ?? "/", "http://localhost");
+        // view.ts spawns `./editor-worker.mjs` next to itself, which the build emits; in dev it is the source.
+        if (url.pathname === "/src/pages/editor/editor-worker.mjs") {
+          request.url = `/src/pages/editor/editor.worker.ts${url.search}`;
+          return next();
+        }
+        if (url.pathname === "/editor" || url.pathname === "/editor/") {
+          try {
+            return send(response, 200, "text/html; charset=utf-8", await page(server, request.originalUrl));
+          } catch (error) {
+            return next(error);
+          }
+        }
+        if (url.pathname !== "/__cmux-editor/op") return next();
+        const refused = rpcRequestStatus(request, port());
+        if (refused) return send(response, refused, "text/plain", "");
+        const reply = (status: number, body: unknown) =>
+          send(response, status, "application/json", JSON.stringify(body));
+        try {
+          // A save carries the whole file (JSON escapes can double it); the app's bridge has no limit.
+          const raw = await readBody(request, EDITOR_MAX_BYTES * 2 + 1024 * 1024);
+          const body = JSON.parse(raw.toString("utf8")) as {
+            file?: string;
+            op?: string;
+            params?: Record<string, unknown>;
+          };
+          const params = body.params ?? {};
+          const op = String(body.op);
+          if (op === "cmux.editor.config") {
+            if (!body.file) return reply(200, { pick: true, ...look() });
+            return reply(200, config(files.resolve(body.file)));
+          }
+          if (op === "cmux.editor.open") {
+            return reply(200, config(files.resolve(typeof params.path === "string" ? params.path : "")));
+          }
+          if (op === "cmux.editor.read") {
+            let file: string;
+            try {
+              file = files.resolve(body.file ?? "");
+            } catch {
+              return reply(200, { deleted: true });
+            }
+            const content = readEditorFile(file, files.inWorkspace(file));
+            return reply(200, content ? { text: content.text, hash: content.hash } : { deleted: true });
+          }
+          if (op === "cmux.editor.save") {
+            const target = typeof params.path === "string" ? params.path : "";
+            if (target !== body.file || typeof params.text !== "string")
+              return reply(400, { code: "cmux.protocol.invalid_params", message: "save" });
+            const file = files.resolve(target);
+            const baseHash = typeof params.baseHash === "string" ? params.baseHash : null;
+            const outcome = saveEditorFile(file, params.text, baseHash, files.inWorkspace(file));
+            if (outcome.ok) return reply(200, { hash: outcome.hash });
+            return reply(409, {
+              code: outcome.code,
+              message: outcome.code,
+              details: "details" in outcome ? outcome.details : undefined,
+            });
+          }
+          if (op === "cmux.editor.setPreference") {
+            const key = typeof params.key === "string" ? params.key : "";
+            if (!preferences().set(key, params.value))
+              return reply(400, { code: "cmux.protocol.invalid_params", message: key });
+            sendLook();
+            return reply(200, {});
+          }
+          if (op === "cmux.editor.openLink") {
+            const href = typeof params.href === "string" ? params.href : "";
+            return reply(200, /^(https?:|mailto:|tel:)/i.test(href) ? { url: href } : {});
+          }
+          return reply(404, { code: "cmux.protocol.unknown_op", message: op });
+        } catch (error) {
+          if (error instanceof EditorRefused) return reply(404, { code: error.code, message: error.message });
+          server.config.logger.error(`cmux editor dev: ${errorText(error)}`);
+          return reply(500, { code: "cmux.page.failed", message: String(error) });
+        }
+      });
     },
   };
 }

@@ -23,3 +23,4 @@ export {
   type WebKitReplyHandler,
 } from "./adapters/engine";
 export { MessagePortTransport, type MessagePortLike } from "./adapters/message-port";
+export { OpidLedger, type OpidLedgerOptions } from "./opid-ledger";

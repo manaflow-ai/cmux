@@ -17,6 +17,17 @@ import Testing
         #expect(DaemonTerminalIO.event(for: .snapshot(history)) == .snapshot(Data("PAGES".utf8), phase: .history))
     }
 
+    /// S2c: a local-history READY becomes the local reflow restore, with the
+    /// host's grid and history check.
+    @Test func aLocalReadyBecomesTheLocalHistoryRestore() {
+        let local = TerminalSnapshotFrame(phase: .ready, generation: 2, offset: 9, version: 1, cols: 25, rows: 10,
+                                          localHistory: TerminalLocalHistoryCheck(rows: 7, digest: Data([9])),
+                                          data: Data("READY".utf8))
+        let expected = TerminalLocalHistory(columns: 25, rows: 10, historyRows: 7, digest: Data([9]))
+        #expect(DaemonTerminalIO.event(for: .snapshot(local)) == .snapshot(Data("READY".utf8), phase: .readyLocalHistory(expected)))
+        #expect(DaemonTerminalIO.attachLocalHistory == TerminalSession.restoresLocalHistory)
+    }
+
     /// The version comes from the linked GhosttyNextKit; 0 would mean the
     /// library cannot restore snapshots, and the attach must then not ask.
     @Test func attachAsksAtTheLinkedSnapshotVersion() {

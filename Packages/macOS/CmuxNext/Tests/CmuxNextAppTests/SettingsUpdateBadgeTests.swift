@@ -1,11 +1,11 @@
 import Testing
 @testable import CmuxNextApp
 @testable import CmuxNextSidebar
-import CmuxNextUpdater
+@testable import CmuxNextUpdater
 
 /// R53 (coordinator 2026-10-03): the update circle left with the window
-/// rail; an available update now shows as a badge on the Settings item,
-/// and a click on the badge opens the updater sheet.
+/// rail; a staged update shows as a badge on the Settings item (R114: only
+/// once it is ready), and one click on the badge installs it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct SettingsUpdateBadgeTests {
     @Test func settingsCarriesTheUpdateBadgeOnlyWhileAnUpdateIsAvailable() {
         let with = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, updateAvailable: true)
@@ -15,12 +15,16 @@ import CmuxNextUpdater
         #expect(without[LayoutItemID("itm_settings")]?.accessory == nil)
     }
 
-    @Test func theBadgeOpensTheUpdater() async throws {
+    /// R114: one click on the badge installs the staged update at once.
+    @Test func theBadgeInstallsTheStagedUpdate() async throws {
         let harness = try await ViewChangePermissionTests.harness()
         defer { harness.stop() }
-        var presented = 0
+        var presented = 0, installs = 0
         harness.services.updater.presentUpdateUI = { presented += 1 }
+        harness.services.updater.installStaged = { installs += 1 }
+        harness.services.updater.debugIndicatorPhase = .ready(version: "2")
         harness.window.sidebar.handle(.activateItemAccessory(LayoutItemID("itm_settings")))
-        #expect(presented == 1)
+        #expect(installs == 1)
+        #expect(presented == 0)
     }
 }

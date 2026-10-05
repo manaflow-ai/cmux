@@ -15,24 +15,30 @@ public final class NewScreenRequest implements WireValue {
     private final Field<String> color;
     private final Field<Integer> cols;
     private final Field<String> cwd;
+    private final Field<Map<String, String>> env;
     private final Field<String> group;
     private final Field<String> icon;
     private final Field<UInt64> index;
     private final Field<Boolean> pinned;
     private final Field<Integer> rows;
     private final Field<String> screenName;
+    private final Field<List<String>> shellArgs;
+    private final Field<String> terminalId;
     private final Field<UInt64> workspace;
 
     private NewScreenRequest(Builder builder) {
         this.color = builder.color;
         this.cols = builder.cols;
         this.cwd = builder.cwd;
+        this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         this.group = builder.group;
         this.icon = builder.icon;
         this.index = builder.index;
         this.pinned = builder.pinned;
         this.rows = builder.rows;
         this.screenName = builder.screenName;
+        this.shellArgs = builder.shellArgs.map(value -> List.copyOf(value));
+        this.terminalId = builder.terminalId;
         this.workspace = builder.workspace;
     }
 
@@ -41,12 +47,15 @@ public final class NewScreenRequest implements WireValue {
     public Field<String> color() { return color; }
     public Field<Integer> cols() { return cols; }
     public Field<String> cwd() { return cwd; }
+    public Field<Map<String, String>> env() { return env; }
     public Field<String> group() { return group; }
     public Field<String> icon() { return icon; }
     public Field<UInt64> index() { return index; }
     public Field<Boolean> pinned() { return pinned; }
     public Field<Integer> rows() { return rows; }
     public Field<String> screenName() { return screenName; }
+    public Field<List<String>> shellArgs() { return shellArgs; }
+    public Field<String> terminalId() { return terminalId; }
     public Field<UInt64> workspace() { return workspace; }
 
     public static NewScreenRequest fromWire(Object value) {
@@ -63,6 +72,10 @@ public final class NewScreenRequest implements WireValue {
         Object rawCwd = Wire.optional(object, "cwd");
         if (!Wire.isMissing(rawCwd)) {
             builder.cwd(rawCwd == null ? null : Wire.string(rawCwd, "NewScreenRequest.cwd"));
+        }
+        Object rawEnv = Wire.optional(object, "env");
+        if (!Wire.isMissing(rawEnv)) {
+            builder.env(rawEnv == null ? null : Wire.map(rawEnv, "NewScreenRequest.env", item -> Wire.string(item, "NewScreenRequest.env value")));
         }
         Object rawGroup = Wire.optional(object, "group");
         if (!Wire.isMissing(rawGroup)) {
@@ -88,6 +101,14 @@ public final class NewScreenRequest implements WireValue {
         if (!Wire.isMissing(rawScreenName)) {
             builder.screenName(rawScreenName == null ? null : Wire.string(rawScreenName, "NewScreenRequest.screen_name"));
         }
+        Object rawShellArgs = Wire.optional(object, "shell_args");
+        if (!Wire.isMissing(rawShellArgs)) {
+            builder.shellArgs(rawShellArgs == null ? null : Wire.array(rawShellArgs, "NewScreenRequest.shell_args", item -> Wire.string(item, "NewScreenRequest.shell_args item")));
+        }
+        Object rawTerminalId = Wire.optional(object, "terminal_id");
+        if (!Wire.isMissing(rawTerminalId)) {
+            builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "NewScreenRequest.terminal_id"));
+        }
         Object rawWorkspace = Wire.optional(object, "workspace");
         if (!Wire.isMissing(rawWorkspace)) {
             builder.workspace(rawWorkspace == null ? null : Wire.uint64(rawWorkspace, "NewScreenRequest.workspace"));
@@ -101,12 +122,15 @@ public final class NewScreenRequest implements WireValue {
         Wire.put(object, "color", color);
         Wire.put(object, "cols", cols);
         Wire.put(object, "cwd", cwd);
+        Wire.put(object, "env", env);
         Wire.put(object, "group", group);
         Wire.put(object, "icon", icon);
         Wire.put(object, "index", index);
         Wire.put(object, "pinned", pinned);
         Wire.put(object, "rows", rows);
         Wire.put(object, "screen_name", screenName);
+        Wire.put(object, "shell_args", shellArgs);
+        Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
@@ -114,11 +138,11 @@ public final class NewScreenRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewScreenRequest that)) return false;
-        return Objects.equals(color, that.color) && Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(group, that.group) && Objects.equals(icon, that.icon) && Objects.equals(index, that.index) && Objects.equals(pinned, that.pinned) && Objects.equals(rows, that.rows) && Objects.equals(screenName, that.screenName) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(color, that.color) && Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(group, that.group) && Objects.equals(icon, that.icon) && Objects.equals(index, that.index) && Objects.equals(pinned, that.pinned) && Objects.equals(rows, that.rows) && Objects.equals(screenName, that.screenName) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(color, cols, cwd, group, icon, index, pinned, rows, screenName, workspace); }
+    public int hashCode() { return Objects.hash(color, cols, cwd, env, group, icon, index, pinned, rows, screenName, shellArgs, terminalId, workspace); }
 
     @Override
     public String toString() { return "NewScreenRequest" + toWire(); }
@@ -127,12 +151,15 @@ public final class NewScreenRequest implements WireValue {
         private Field<String> color = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<String> cwd = Field.omitted();
+        private Field<Map<String, String>> env = Field.omitted();
         private Field<String> group = Field.omitted();
         private Field<String> icon = Field.omitted();
         private Field<UInt64> index = Field.omitted();
         private Field<Boolean> pinned = Field.omitted();
         private Field<Integer> rows = Field.omitted();
         private Field<String> screenName = Field.omitted();
+        private Field<List<String>> shellArgs = Field.omitted();
+        private Field<String> terminalId = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
         public Builder color(String value) {
@@ -145,6 +172,10 @@ public final class NewScreenRequest implements WireValue {
         }
         public Builder cwd(String value) {
             this.cwd = Field.ofNullable(value);
+            return this;
+        }
+        public Builder env(Map<String, String> value) {
+            this.env = Field.ofNullable(value);
             return this;
         }
         public Builder group(String value) {
@@ -169,6 +200,14 @@ public final class NewScreenRequest implements WireValue {
         }
         public Builder screenName(String value) {
             this.screenName = Field.ofNullable(value);
+            return this;
+        }
+        public Builder shellArgs(List<String> value) {
+            this.shellArgs = Field.ofNullable(value);
+            return this;
+        }
+        public Builder terminalId(String value) {
+            this.terminalId = Field.ofNullable(value);
             return this;
         }
         public Builder workspace(UInt64 value) {

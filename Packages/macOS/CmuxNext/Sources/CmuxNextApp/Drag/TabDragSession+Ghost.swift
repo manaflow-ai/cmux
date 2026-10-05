@@ -67,11 +67,15 @@ extension TabDragSession {
         removeMonitors(drag)
         if case .workspaces = drag.source.item { return finishWorkspaces(drag, commit: commit) }
         let outcome = commit ? drag.outcome : .cancel
+        if commit { reportRefusal(drag) }
         focusDragEnded(drag, outcome: outcome)
         let winner = drag.winner
         for provider in drag.touched.values where provider !== winner?.provider || outcome == .cancel {
             provider.dropEnded(committed: nil)
         }
+        // A strip slot's outline lives in a layout that may not have answered.
+        drag.outlinedLayout?.dropExited()
+        drag.outlinedLayout = nil
         switch outcome {
         case .cancel:
             drag.lifecycle.cancel()
@@ -99,6 +103,17 @@ extension TabDragSession {
                 land(drag, at: CGRect(x: target.midX - tab.width / 2, y: target.midY - tab.height / 2, width: tab.width, height: tab.height),
                      cardness: 1, opacity: 0, scale: DragTunables.ghostLandScale.value)
             }
+        }
+    }
+
+    /// A drop on a refused target says why (the preview showed it too); a
+    /// drop where nothing answered inside a window is a resolver defect and
+    /// says so instead of springing back silently (tab-dnd).
+    func reportRefusal(_ drag: Drag) {
+        switch drag.resolution.preview {
+        case .refused(_, let refusal): services.registry.refuse(TabDropStrings.reason(refusal))
+        case .none: services.registry.refuse(drag.noTargetReason ?? TabDropStrings.noTarget)
+        case .target, .stay, .newWindow: break
         }
     }
 

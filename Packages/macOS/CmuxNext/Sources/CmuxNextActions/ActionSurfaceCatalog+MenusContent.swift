@@ -172,7 +172,7 @@ nonisolated extension ActionSurfaceCatalog {
         "wakeTab": [p(.tab, .connection, 1, folder: .options)],
         "tab.moveToNewSplit": [p(.tab, .move, 404, folder: .move)],
         "tab.moveToNewColumn": [p(.tab, .move, 405, folder: .move)],
-        "tab.moveToNewStickyColumn": [p(.tab, .move, 408, folder: .move)],
+        "tab.moveToNewDockColumn": [p(.tab, .move, 408, folder: .move)],
         "tab.moveToWorkspace": [p(.tab, .move, 413, folder: .move)],
         "tab.moveToNewWindow": [p(.tab, .move, 407, folder: .move)],
         "tabGroup.moveLeft": [p(.tabGroup, .move, 200, folder: .move)],

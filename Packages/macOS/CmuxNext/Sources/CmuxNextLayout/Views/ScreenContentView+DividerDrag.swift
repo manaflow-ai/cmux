@@ -11,8 +11,8 @@ extension ScreenContentView {
         /// Minimum extents of the two sides (split) or of the column.
         var minimumA: CGFloat = 0
         var minimumB: CGFloat = 0
-        /// A sticky column's handle: on the right edge it grows leftward.
-        var stickyEdge: StickyEdge?
+        /// A docked column's handle: on the right edge it grows leftward.
+        var dockEdge: DockEdge?
         /// A row edge: the column's rows and their frames when the drag
         /// began (rows.md Z1).
         var rows: RowDragStart?
@@ -25,7 +25,7 @@ extension ScreenContentView {
     }
 
     /// `point` in the geometry space of `kind`: strip space for what
-    /// scrolls, view space for a sticky column's dividers and edge.
+    /// scrolls, view space for a docked column's dividers and edge.
     func contentPoint(fromWindow point: NSPoint, kind: DividerHandleView.Kind) -> CGPoint {
         let local = convert(point, from: nil)
         return scrolls(kind) ? CGPoint(x: local.x - stripShift, y: local.y) : local
@@ -57,7 +57,7 @@ extension ScreenContentView {
             case let .columnEdge(id):
                 guard let frame = geometry.columns[id] else { return }
                 let size = layout.columns.first { $0.id == id }.map { SplitGeometry.minimumSize(of: $0.root, style: context.style) } ?? .zero
-                let edge = geometry.columnEdges.first { $0.column == id }?.stickyEdge
+                let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
                 let grab: CGFloat = switch edge {
                 case .right?: point.x - frame.minX
                 case .top?: point.y - frame.maxY
@@ -66,7 +66,7 @@ extension ScreenContentView {
                 }
                 let band = edge?.isBand == true
                 activeDrag = ActiveDrag(kind: kind, transaction: .make(), grabOffset: grab, container: frame,
-                                        axis: band ? .vertical : .horizontal, minimumA: band ? size.height : size.width, stickyEdge: edge)
+                                        axis: band ? .vertical : .horizontal, minimumA: band ? size.height : size.width, dockEdge: edge)
             case let .rowEdge(columnID, upper):
                 guard let column = layout.columns.first(where: { $0.id == columnID }), let stack = baseGeometry.rowStacks[columnID],
                       let upperFrame = stack.frame(of: upper) else { return }
@@ -104,13 +104,13 @@ extension ScreenContentView {
             // width is a share of the whole view's width, a top or bottom
             // dock's height a share of its height (same formula).
             let extent: CGFloat
-            switch drag.stickyEdge {
+            switch drag.dockEdge {
             case .right?: extent = max(drag.container.maxX - (point.x - drag.grabOffset), drag.minimumA)
             case .top?: extent = max(point.y - drag.grabOffset - drag.container.minY, drag.minimumA)
             case .bottom?: extent = max(drag.container.maxY - (point.y - drag.grabOffset), drag.minimumA)
             case .left?, nil: extent = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
             }
-            let viewport = switch drag.stickyEdge {
+            let viewport = switch drag.dockEdge {
             case nil: geometry.stripWidth
             case .top?, .bottom?: bounds.height
             case .left?, .right?: bounds.width

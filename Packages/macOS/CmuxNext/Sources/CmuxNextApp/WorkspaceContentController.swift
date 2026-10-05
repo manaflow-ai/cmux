@@ -163,6 +163,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.workspace = self
         panes[pane] = controller
         sendTopology()
+        // Settings… asked before any window had a pane waits for the first one (R82). It opens
+        // its tab after this layout pass, never inside it.
+        if panes.count == 1, services.settingsWindow.isWaiting {
+            let settings = services.settingsWindow
+            Task { settings.windowDidShowContent() }
+        }
         return controller.view
     }
 

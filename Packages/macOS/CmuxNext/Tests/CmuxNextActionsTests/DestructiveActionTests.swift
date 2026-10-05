@@ -76,7 +76,7 @@ import Testing
         let registry = ActionRegistry.standard()
         var ran = 0
         var refusals: [String] = []
-        registry.refusalObserver = { refusals.append($0) }
+        registry.refusalObserver = { reason, _ in refusals.append(reason) }
         registry.bind("closeWorkspace", invoke: { _ in ran += 1 })
         registry.perform("closeWorkspace")
         #expect(ran == 0)

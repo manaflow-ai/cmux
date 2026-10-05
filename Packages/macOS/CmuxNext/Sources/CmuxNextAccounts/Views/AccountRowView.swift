@@ -64,16 +64,8 @@ struct AccountRowView: View {
         .accessibilityIdentifier("cmux.accounts.row.\(row.provider.rawValue)")
     }
 
-    /// `pro · From ~/.codex/auth.json` or `s…@e… · From …`: a redacted
-    /// account label, never an email or a secret.
-    private var detail: String? {
-        guard let detection = row.detection else { return nil }
-        let display = detection.account?.display
-        let parts = [display, detection.plan == display ? nil : detection.plan, detection.detail,
-                     detection.sources.first.map { AccountsStrings.source($0.label) }]
-        let text = parts.compactMap { $0 }.joined(separator: " · ")
-        return text.isEmpty ? nil : text
-    }
+    /// A redacted account label, never an email or a secret (shared with the Settings page).
+    private var detail: String? { AccountsModel.detail(row) }
 
     @ViewBuilder private var buttons: some View {
         HStack(spacing: Metrics.space3) {

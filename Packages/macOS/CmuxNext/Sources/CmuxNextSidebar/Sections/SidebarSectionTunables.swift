@@ -1,13 +1,13 @@
 public import CmuxNextDesign
 import Foundation
 
-/// How sticky sections look (Debug Settings `sidebar.sections.look`, the
+/// How pinned sections look (Debug Settings `sidebar.sections.look`, the
 /// prototype switch; plans/cmux-next/sidebar-sections.md 7).
 public nonisolated enum SectionsLookVariant: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// Icon + label rows with no fill at rest; a hairline separates sticky
+    /// Icon + label rows with no fill at rest; a hairline separates pinned
     /// bands from the scrolling list.
     case quiet
-    /// Each section of a sticky band sits in a rounded inset card.
+    /// Each section of a pinned band sits in a rounded inset card.
     case card
     /// Built-in sections lay out as an icon grid.
     case tray
@@ -44,7 +44,7 @@ public nonisolated enum SectionsLookVariant: String, Sendable, CaseIterable, Has
         }
     }
 
-    /// Whether a hairline separates the sticky bands from the list.
+    /// Whether a hairline separates the pinned bands from the list.
     public var drawsBandLines: Bool {
         switch self {
         case .quiet, .lines, .linesIcons: true
@@ -75,7 +75,7 @@ public nonisolated enum SectionsLookVariant: String, Sendable, CaseIterable, Has
 public nonisolated enum SidebarSectionTunables {
     public static let look = Tunable<SectionsLookVariant>.choice(
         "sidebar.sections.look", .sidebar, "Section look",
-        help: "How sticky sidebar sections draw: quiet rows with a hairline, inset cards, or an icon tray for built-in items.",
+        help: "How pinned sidebar sections draw: quiet rows with a hairline, inset cards, or an icon tray for built-in items.",
         default: .quiet, code: "SidebarSectionTunables.look")
     public static let localPrototype = Tunable<Bool>.toggle(
         "sidebar.sections.localPrototype", .sidebar, "Edit sections locally",

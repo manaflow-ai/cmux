@@ -1,0 +1,72 @@
+name: cmux-next source archive (dry run)
+
+# Builds the cmux-next release source archive (Ghostty and every Zig package of
+# the build, scripts/cmux-next/build-ghostty-source-archive.sh) and the Ghostty
+# dependency license tree, verifies both, and uploads them as workflow
+# artifacts only. It never publishes: the nightly-next workflow attaches the
+# archive to its release once vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1.
+on:
+  # feat-cmux-next takes direct pushes; a workflow that exists only there runs
+  # on push (a manual dispatch needs the file on the default branch).
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "ghostty"
+      - "cmux-tui/build-support/notices/ghostty/**"
+      - "scripts/cmux-next/notices/ghostty_source_archive.py"
+      - "scripts/cmux-next/notices/test_ghostty_source_archive.py"
+      - "scripts/cmux-next/build-ghostty-source-archive.sh"
+      - "scripts/install-zig-ci.sh"
+      - ".github/workflows/cmux-next-source-archive.yml"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Must stay false; publishing rides the nightly-next release.
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-source-archive-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  archive:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 30
+    steps:
+      - name: Refuse to publish
+        if: inputs.publish
+        run: |
+          echo "This workflow is a dry run; the nightly-next release publishes the archive." >&2
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out the Ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Notices tests
+        run: |
+          python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
+          python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
+
+      - name: Build and verify the source archive (twice, byte-identical)
+        run: ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive" "dryrun-${{ github.run_number }}"
+
+      - name: Upload the archive and the license tree (workflow artifact only)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-source-archive-dry-run
+          path: ${{ runner.temp }}/source-archive
+          if-no-files-found: error
+          retention-days: 3

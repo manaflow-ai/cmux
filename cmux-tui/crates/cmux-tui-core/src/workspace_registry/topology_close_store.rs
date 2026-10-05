@@ -7,8 +7,8 @@
 //! tombstones, the mutation receipt, and the journal record.
 
 use super::resource_store::{
-    apply_resource_patch, complete_terminal_close_patch, prune_resource_mutations,
-    resource_patch_replay, validate_resource_patch,
+    apply_resource_patch, apply_resource_patch_unrecorded, complete_terminal_close_patch,
+    prune_resource_mutations, resource_patch_replay, validate_resource_patch,
 };
 use super::*;
 
@@ -38,6 +38,7 @@ impl WorkspaceRegistry {
         terminals: &[(String, Option<String>)],
         workspace_close: Option<&ResourceWorkspaceClose>,
         tab_groups: Option<&TabGroupState>,
+        record_closed: bool,
     ) -> anyhow::Result<TopologyCloseCommit> {
         validate_identifier("resource operation", operation)?;
         validate_terminal_batch_close(mutation, terminals)?;
@@ -94,7 +95,12 @@ impl WorkspaceRegistry {
         }
         let terminal_batch =
             close_terminals_in_transaction(&tx, mutation, terminals, "topology-closed")?;
-        let patch = apply_resource_patch(&tx, &patch, sqlite_revision)?;
+        // A session-end close (`close-reason-v1`) stays out of the closed history.
+        let patch = if record_closed {
+            apply_resource_patch(&tx, &patch, sqlite_revision)?
+        } else {
+            apply_resource_patch_unrecorded(&tx, &patch, sqlite_revision)?
+        };
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],

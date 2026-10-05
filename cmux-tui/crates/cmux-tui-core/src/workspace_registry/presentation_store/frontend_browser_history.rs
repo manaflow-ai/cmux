@@ -3,8 +3,9 @@
 //! frontend restores across a relaunch. The daemon only checks that it is a
 //! bounded JSON object. It is not presentation state: it appends no journal
 //! record and never reaches the presentation snapshot, tree snapshots, or
-//! deltas. A row lives as long as its `frontend_browser_tabs` row, which a
-//! closed tab keeps (its tombstoned browser no longer resolves to a surface).
+//! deltas. A row lives as long as its `frontend_browser_tabs` row: the
+//! commit that closes the browser deletes both
+//! (state/conversation_tabs_store.rs `delete_closed_browser_rows`).
 
 use super::*;
 

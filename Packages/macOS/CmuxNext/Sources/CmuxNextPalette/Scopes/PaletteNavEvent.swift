@@ -31,6 +31,10 @@ nonisolated public enum PaletteNavEvent: Equatable, Sendable {
                  emptyQuerySelection: Int? = nil)
     /// The owner of the top level's data changed: reload, keep selection.
     case refresh
+    /// The top level shows another page in its place (a tree page moved,
+    /// `PaletteHierarchy`): the query is `query`, rows and selection start
+    /// over.
+    case restart(query: String)
 }
 
 /// Work for the palette model after a reducer step.

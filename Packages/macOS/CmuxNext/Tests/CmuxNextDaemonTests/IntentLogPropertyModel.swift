@@ -132,6 +132,9 @@ struct RefState: Equatable, CustomStringConvertible {
         case .setRowHeights:
             // The property world has no rows.
             return false
+        case .createTab:
+            // The property world creates no tabs (IntentCreateTabTests covers creation).
+            return false
         }
     }
 

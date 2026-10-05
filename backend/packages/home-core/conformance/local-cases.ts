@@ -29,6 +29,30 @@ export const localCases = (c: Corpus): void => {
   c.create("create: duplicate participant", { ...base, participants: [human(ALICE), human(ALICE)] }, "duplicate_participant")
   c.create("create: a human with an agent id", { ...base, participants: [human(ALICE), human(MUX)] }, "invalid_participant")
 
+  // Paired devices (server-remote-conversations.md section 5): a `remote_<install>` human names its
+  // person. The reducer accepts it; only the daemon's pairing path creates one (hosts refuse it
+  // from clients, and a cloud head never has one).
+  const DEVICE = "remote_inst_1"
+  const device = (person?: unknown) => ({ ...human(DEVICE, "Alice (MacBook)"), ...(person === undefined ? {} : { person }) }) as never
+  c.create("create: a device of the local user", { ...base, participants: [human(ALICE), agent(MUX), device(ALICE)] }, "commit")
+  c.create("create: a device without a person", { ...base, participants: [human(ALICE), device()] }, "invalid_participant")
+  c.create("create: a device whose person is an agent", { ...base, participants: [human(ALICE), device(MUX)] }, "invalid_participant")
+  c.create("create: a user with a person", { ...base, participants: [{ ...human(ALICE), person: EVE } as never] }, "invalid_participant")
+  c.create("create: an agent with a person", { ...base, participants: [human(ALICE), { ...agent(MUX), person: ALICE } as never] }, "invalid_participant")
+  c.create("create: a device as an agent", { ...base, participants: [human(ALICE), { ...agent(MUX), id: DEVICE } as never] }, "invalid_participant")
+  const paired = new CoreHost()
+  c.op(paired, "participants.add: a device of the local user", ALICE, "d0", { kind: "participants.add", participant: device(ALICE) }, "commit")
+  paired.send(ALICE, "d1", "from the Mac")
+  const local = paired.messages[0]!
+  c.op(paired, "device: sends as its own participant", DEVICE, "d2", send("d2", parts("from the MacBook")), "commit")
+  // The owner stamps the origin of a device message from its actor (the reducer never does).
+  const sent = paired.messages[1]!
+  paired.messages[1] = { ...sent, origin: { kind: "remote", install: "inst_1" } }
+  c.op(paired, "device: edits its own message, the origin stays", DEVICE, "d3", { kind: "message.edit", message_id: sent.id, parts: parts("edited") }, "commit")
+  c.op(paired, "device: cannot edit the local user's message", DEVICE, "d4", { kind: "message.edit", message_id: local.id, parts: parts("mine") }, "not_author")
+  c.op(paired, "device: a reaction keeps the target's origin", DEVICE, "d5", { kind: "reaction.add", message_id: local.id, part_index: 0, reaction: { tapback: "like" } }, "commit")
+  c.op(paired, "device: a mention of a device is valid", ALICE, "d6", send("d6", [{ type: "text", text: "hi", runs: [{ start: 0, length: 2, mention: DEVICE }] }]), "commit")
+
   const host = new CoreHost()
   c.op(host, "send: first message gets seq 1", ALICE, "c1", send("c1", parts("hi")), "commit")
   const first = host.messages[0]!

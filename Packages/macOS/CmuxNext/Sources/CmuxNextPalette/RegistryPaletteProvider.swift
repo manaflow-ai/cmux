@@ -20,6 +20,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var capturedTargets: [ActionTargetRef] = []
     /// Live preview for enumeration argument pages (`PaletteSources.argumentPreview`).
     public var argumentPreview: PaletteArgumentPreview?
+    /// Swatch strips for suggested argument values (`PaletteSources.argumentSwatches`).
+    public var argumentSwatches: PaletteArgumentSwatches?
     /// Palette-internal actions that should not list themselves.
     public var hiddenIDs: Set<ActionID> = ["commandPalette"]
     /// Opens the shortcut recorder for an action (the Actions menu's Edit
@@ -112,9 +114,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
         guard descriptor.arguments.contains(where: \.isRequired) else {
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
         }
-        return .deferred { [targets, capturedTargets, argumentPreview] in
+        return .deferred { [targets, capturedTargets, argumentPreview, argumentSwatches] in
             PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: targets, captured: capturedTargets,
-                                preview: argumentPreview)
+                                preview: argumentPreview, swatches: argumentSwatches)
                 .effect(collected: ActionInvocation())
         }
     }

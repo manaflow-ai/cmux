@@ -40,6 +40,11 @@ public final class TerminalSession {
         didSet { surfaceView.ownsGeometry = ownsGeometry }
     }
 
+    /// Why a dead terminal's host was lost (nil: its process ended, or it runs).
+    public var hostLoss: TerminalHostLoss? {
+        didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss) } }
+    }
+
     /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {
@@ -85,6 +90,12 @@ public final class TerminalSession {
     /// later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
     private(set) var swappedSurfaces = 0
+    /// Local-history restores whose history did not match the owner's (or
+    /// failed): each one asked the owner for READY + history.
+    private(set) var localHistoryMismatches = 0
+    /// Local-history READYs restored with the surface's own reflowed history
+    /// (proves the local path ran in dogfood).
+    private(set) var localSnapshots = 0
 
     public init(io: any TerminalIO, ownsGeometry: Bool = true) {
         self.io = io
@@ -114,6 +125,8 @@ public final class TerminalSession {
                     await io.focusGained()
                 case .reconnect:
                     await io.reconnectRequested()
+                case .resync:
+                    await io.resyncRequested()
                 }
             }
         }
@@ -199,7 +212,7 @@ public final class TerminalSession {
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
             let restored = await restoreSnapshot(data, phase: phase)
-            guard phase == .ready, restored else { return }
+            guard phase != .history, restored else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
             TerminalTimings.contentApplied()
@@ -273,6 +286,15 @@ public final class TerminalSession {
     }
 
     // MARK: From the surface view
+
+    func noteLocalSnapshot() {
+        localSnapshots += 1
+    }
+
+    func noteLocalHistoryMismatch() {
+        localHistoryMismatches += 1
+        input.resync()
+    }
 
     func surfaceDidGainFocus() {
         input.focusGained()

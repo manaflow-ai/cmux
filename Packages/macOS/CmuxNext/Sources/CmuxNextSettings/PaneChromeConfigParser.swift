@@ -3,7 +3,9 @@ import CoreGraphics
 
 /// Parses the pane chrome keys under `layout` in cmux.json:
 /// `layout.panePadding` (points, 0 allowed), `layout.paneCornerRadius`
-/// (points, 0 allowed), `layout.paneBorder` ("subtle" or "none"),
+/// (points, 0 allowed), `layout.paneSeparation` ("none", "dividers",
+/// "borders" or "cards"; unset follows the legacy `layout.paneBorder`),
+/// `layout.paneBorder` ("subtle" or "none"),
 /// `layout.paneBorderColor` ("#RRGGBB" or "#RRGGBBAA"; unset follows the
 /// Ghostty theme) and `layout.paneBorderWidth` (points, 0.5 to 4; unset is
 /// one device pixel). A bad value is skipped with a diagnostic and falls
@@ -27,6 +29,14 @@ enum PaneChromeConfigParser {
             } else {
                 let choices = PaneBorderStyle.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: " or ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.paneBorder", message: "expected \(choices)"))
+            }
+        }
+        if let value = members["paneSeparation"] {
+            if let text = value.stringValue, let separation = PaneSeparation(rawValue: text) {
+                overrides.separation = separation
+            } else {
+                let choices = PaneSeparation.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.paneSeparation", message: "expected one of \(choices)"))
             }
         }
         overrides.borderWidth = points(members["paneBorderWidth"], path: "layout.paneBorderWidth",

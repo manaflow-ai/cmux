@@ -15,7 +15,7 @@ import Testing
 
     @Test func defaultsResolveWithShortcutTooltips() {
         let registry = Coverage.boundServices().registry
-        let resolved = TabBarButtonResolver.resolve(SurfaceTabBarConfig.defaultButtons, registry: registry)
+        let resolved = TabBarButtonResolver.resolve(SurfaceTabBarConfig.builtInButtons, registry: registry)
         #expect(resolved.buttons.map(\.id) == ["cmux.newTerminal", "cmux.splitRight", "cmux.splitDown"])
         #expect(resolved.actions == ["cmux.newTerminal": "newSurface", "cmux.splitRight": "splitRight", "cmux.splitDown": "splitDown"])
         #expect(resolved.buttons.map(\.toolTip) == ["New Terminal Tab (⌃⇧⌘T)", "Split Right (⌘D)", "Split Down (⇧⌘D)"])
@@ -64,7 +64,8 @@ import Testing
 
         controller.apply(TabBarButtonsController.Input(tabBar: .defaults, commands: []))
         #expect(!services.registry.isBound("cmuxConfig.start-claude"))
-        #expect(controller.buttons.map(\.id) == ["cmux.newTerminal", "cmux.splitRight", "cmux.splitDown"])
+        // R120: the default tab bar has no trailing buttons.
+        #expect(controller.buttons.isEmpty)
     }
 
     @Test func buttonsFollowCmuxJSONLive() async throws {
@@ -87,8 +88,10 @@ import Testing
         try await eventually(settings) { controller.buttons.map(\.id) == ["go", "cmux.newBrowser"] }
         #expect(controller.actions == ["go": "cmuxConfig.go", "cmux.newBrowser": "openBrowser"])
 
-        // A shortcut rebind in the file updates the tooltip.
-        try Data(#"{"shortcuts": {"splitRight": "cmd+\\"}}"#.utf8).write(to: url, options: .atomic)
+        // A shortcut rebind in the file updates the tooltip. The default bar
+        // has no buttons (R120), so the file lists the one it checks.
+        try Data(#"{"shortcuts": {"splitRight": "cmd+\\"}, "ui": {"surfaceTabBar": {"buttons": ["cmux.splitRight"]}}}"#.utf8)
+            .write(to: url, options: .atomic)
         try await eventually(settings) { controller.buttons.first { $0.id == "cmux.splitRight" }?.toolTip == "Split Right (⌘\\)" }
         #expect(!services.registry.isBound("cmuxConfig.go"))
     }

@@ -16,11 +16,12 @@ import Testing
         #expect(plan.contextMenu == .exempt(.noTargetSurface))
     }
 
+    /// Without a path (the File menu, a shortcut) the cmux picker asks (R89).
     @Test func fileOpenTakesAPathAndWhereToOpenIt() throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "file.open" }, "file.open is not in the catalog")
         let path = try #require(descriptor.arguments.first { $0.name == "path" })
         #expect(path.kind == .string)
-        #expect(path.isRequired)
+        #expect(!path.isRequired)
         let place = try #require(descriptor.arguments.first { $0.name == "where" })
         guard case .enumeration(let cases) = place.kind else {
             Issue.record("where is not a choice")

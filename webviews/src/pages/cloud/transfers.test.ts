@@ -1,5 +1,5 @@
-// File push and pull after C10: the native action answers `{transfer, state: running}` at once, and
-// the copy's end comes as the `cmux.cloud.file.transfer.changed` event. The page subscribes before
+// File push and pull: the native action answers `{transfer, state: running}` at once, and the copy's
+// end comes as the `cmux.cloud.file.transfer.changed` event (`done`, `failed` or `cancelled`). The page subscribes before
 // it starts a transfer (no polling) and shows `transfer_busy` as a retryable message.
 import { describe, expect, test } from "bun:test";
 import { MockCloudProvider, sampleMachines, type MockOptions } from "./mockProvider";
@@ -7,7 +7,8 @@ import { ACTION_RUN, CloudOps, type CloudMachine } from "./ops";
 import { CloudStore } from "./store";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-const running = () => sampleMachines().find((machine) => machine.status === "running") as CloudMachine;
+const running = () =>
+  sampleMachines().find((machine) => machine.status === "running" && !machine.classic) as CloudMachine;
 
 async function browsing(options: MockOptions = {}) {
   const provider = new MockCloudProvider({ holdTransfers: true, ...options });
@@ -108,6 +109,15 @@ describe("Cloud file transfers", () => {
     expect(transfers(store).filter((t) => t.direction === "push")).toEqual([
       expect.objectContaining({ state: "running" }),
     ]);
+  });
+
+  test("a transfer cancelled elsewhere ends as cancelled", async () => {
+    const { provider, store } = await browsing();
+    await store.files.pull("/home/cmux/notes.txt");
+    const [ended] = provider.cancelTransfers();
+    expect(ended).toMatchObject({ state: "cancelled" });
+    expect(transfers(store)).toEqual([expect.objectContaining({ transfer: ended.transfer, state: "cancelled" })]);
+    expect(store.getSnapshot().error).toBeUndefined();
   });
 
   test("a declined panel starts no transfer", async () => {

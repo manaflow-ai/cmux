@@ -139,20 +139,121 @@ impl Vault {
         Ok(entry.value.clone())
     }
 
-    /// A masker for the current secrets (rebuild after every change).
+    /// A masker for the current secrets (rebuild after every change, and
+    /// for every use: TOTP codes change every 30 s). Every value is masked,
+    /// a TOTP seed included, and so is every code a server still accepts
+    /// (the windows before, at and after now), as a whole number.
     pub fn masker(&self) -> Masker {
-        let mut pairs: Vec<(String, String)> = Vec::new();
-        for (name, entry) in &self.entries {
-            if entry.totp {
-                continue;
+        let mut masker = Masker::for_secrets(
+            self.entries.iter().map(|(name, entry)| (name.as_str(), entry.value.as_str())),
+        );
+        let now = now_ms();
+        for (name, entry) in self.entries.iter().filter(|(_, entry)| entry.totp) {
+            if let Some(key) = base32_decode(&entry.value) {
+                masker.add_totp_codes(name, &key, now);
             }
+        }
+        masker
+    }
+
+    /// The decoded key of a TOTP secret, for the per-tab record.
+    pub fn totp_key(&self, name: &str) -> Option<Vec<u8>> {
+        self.entries
+            .get(name)
+            .filter(|entry| entry.totp)
+            .and_then(|entry| base32_decode(&entry.value))
+    }
+
+    /// The value of a non-TOTP secret, for the per-tab record of typed
+    /// secrets ([`TabSecrets`]); `None` for a TOTP or unknown secret.
+    pub fn typed_value(&self, name: &str) -> Option<&str> {
+        self.entries.get(name).filter(|entry| !entry.totp).map(|entry| entry.value.as_str())
+    }
+}
+
+/// Secrets typed into tabs, shared by every session of one host: once any
+/// session types a secret into a tab, every session's results and events
+/// from that tab mask it (frame.observe reads a tab another session holds).
+/// The record of a tab ends when the tab closes.
+/// No `Debug`: it holds secret values.
+#[derive(Default)]
+pub struct TabSecrets {
+    typed: std::sync::Mutex<BTreeMap<String, BTreeMap<String, String>>>,
+    /// TOTP secrets typed into tabs: tab -> name -> key; their current codes
+    /// are masked for the tab like typed values.
+    totp: std::sync::Mutex<BTreeMap<String, BTreeMap<String, Vec<u8>>>>,
+}
+
+impl TabSecrets {
+    fn typed(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, BTreeMap<String, String>>> {
+        self.typed.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn record(&self, target: &str, name: &str, value: &str) {
+        self.typed()
+            .entry(target.to_owned())
+            .or_default()
+            .insert(name.to_owned(), value.to_owned());
+    }
+
+    pub fn record_totp(&self, target: &str, name: &str, key: Vec<u8>) {
+        self.totp
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(target.to_owned())
+            .or_default()
+            .insert(name.to_owned(), key);
+    }
+
+    pub fn forget(&self, target: &str) {
+        self.typed().remove(target);
+        self.totp.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(target);
+    }
+
+    /// The masker for one tab's typed secrets, `None` when it has none.
+    pub fn masker(&self, target: &str) -> Option<Masker> {
+        let typed = self.typed();
+        let totp = self.totp.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !typed.contains_key(target) && !totp.contains_key(target) {
+            return None;
+        }
+        let mut masker = Masker::for_secrets(
+            typed.get(target).into_iter().flatten().map(|(n, v)| (n.as_str(), v.as_str())),
+        );
+        let now = now_ms();
+        for (name, key) in totp.get(target).into_iter().flatten() {
+            masker.add_totp_codes(name, key, now);
+        }
+        Some(masker)
+    }
+
+    /// One masker for every tab's typed secrets (files and other output
+    /// that belongs to no single tab).
+    pub fn all_masker(&self) -> Masker {
+        let typed = self.typed();
+        let mut masker =
+            Masker::for_secrets(typed.values().flatten().map(|(n, v)| (n.as_str(), v.as_str())));
+        let now = now_ms();
+        let totp = self.totp.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (name, key) in totp.values().flatten() {
+            masker.add_totp_codes(name, key, now);
+        }
+        masker
+    }
+}
+
+impl Masker {
+    /// Masks each `(name, value)` secret's variants as `<secret:name>`.
+    pub fn for_secrets<'a>(secrets: impl Iterator<Item = (&'a str, &'a str)>) -> Masker {
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for (name, value) in secrets {
             let mask = format!("<secret:{name}>");
             let mut variants = vec![
-                entry.value.clone(),
-                uri_component(&entry.value),
-                uri_component(&entry.value).replace("%20", "+"),
-                json_escaped(&entry.value),
-                html_escaped(&entry.value),
+                value.to_owned(),
+                uri_component(value),
+                uri_component(value).replace("%20", "+"),
+                json_escaped(value),
+                html_escaped(value),
             ];
             variants.sort();
             variants.dedup();
@@ -161,23 +262,94 @@ impl Vault {
             }
         }
         pairs.sort_by_key(|(variant, _)| std::cmp::Reverse(variant.len()));
-        Masker { pairs }
+        Masker { pairs, numbers: Vec::new() }
     }
 }
 
-/// Replaces secret value variants with `<secret:name>`, longest first.
+/// Replaces secret value variants with `<secret:name>`, longest first, and
+/// TOTP codes as whole numbers.
 #[derive(Debug, Clone, Default)]
 pub struct Masker {
     pairs: Vec<(String, String)>,
+    /// TOTP codes a server still accepts: masked only where no digit is
+    /// next to them (inside a longer number they are another number).
+    numbers: Vec<(String, String)>,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// `text` with every whole-number occurrence of `code` replaced by `mask`.
+fn replace_number(text: &str, code: &str, mask: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    let mut changed = false;
+    let mut from = 0;
+    while let Some(found) = text[from..].find(code) {
+        let at = from + found;
+        let end = at + code.len();
+        let digit_before = at > 0 && bytes[at - 1].is_ascii_digit();
+        let digit_after = end < bytes.len() && bytes[end].is_ascii_digit();
+        if !digit_before && !digit_after {
+            out.push_str(&text[last..at]);
+            out.push_str(mask);
+            last = end;
+            changed = true;
+        }
+        from = at + 1;
+    }
+    changed.then(|| {
+        out.push_str(&text[last..]);
+        out
+    })
 }
 
 impl Masker {
     pub fn is_empty(&self) -> bool {
-        self.pairs.is_empty()
+        self.pairs.is_empty() && self.numbers.is_empty()
+    }
+
+    /// Adds the codes of a TOTP secret for the windows before, at and after
+    /// `now_ms` (30 s, 6 digits).
+    pub fn add_totp_codes(&mut self, name: &str, key: &[u8], now_ms: u64) {
+        let mask = format!("<secret:{name}>");
+        for at in [now_ms.saturating_sub(30_000), now_ms, now_ms.saturating_add(30_000)] {
+            let code = totp(key, at, 6, 30);
+            if !self.numbers.iter().any(|(c, _)| c == &code) {
+                self.numbers.push((code, mask.clone()));
+            }
+        }
+    }
+
+    /// The texts a capture hides: every value variant and every TOTP code.
+    pub fn capture_needles(&self) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .pairs
+            .iter()
+            .chain(self.numbers.iter())
+            .map(|(variant, _)| variant.clone())
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// Adds another masker's values (a tab's typed secrets).
+    pub fn merge(&mut self, other: &Masker) {
+        self.pairs.extend(other.pairs.iter().cloned());
+        self.pairs.sort_by_key(|(variant, _)| std::cmp::Reverse(variant.len()));
+        self.numbers.extend(other.numbers.iter().cloned());
     }
 
     fn longest(&self) -> usize {
-        self.pairs.first().map(|(v, _)| v.len()).unwrap_or(0)
+        let pairs = self.pairs.first().map(|(v, _)| v.len()).unwrap_or(0);
+        // A code is whole only once the next character is known.
+        let numbers = self.numbers.iter().map(|(c, _)| c.len() + 1).max().unwrap_or(0);
+        pairs.max(numbers)
     }
 
     pub fn mask<'a>(&self, text: &'a str) -> Cow<'a, str> {
@@ -186,6 +358,42 @@ impl Masker {
             if out.contains(variant.as_str()) {
                 out = Cow::Owned(out.replace(variant.as_str(), mask));
             }
+        }
+        for (code, mask) in &self.numbers {
+            if let Some(replaced) = replace_number(&out, code, mask) {
+                out = Cow::Owned(replaced);
+            }
+        }
+        out
+    }
+
+    /// Masks bytes: UTF-8 text as text; other bytes by each value
+    /// variant's UTF-8 bytes (a value inside a binary body or file).
+    pub fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        if self.is_empty() {
+            return bytes.to_vec();
+        }
+        if let Ok(text) = std::str::from_utf8(bytes) {
+            return self.mask(text).into_owned().into_bytes();
+        }
+        let mut out = bytes.to_vec();
+        for (variant, mask) in self.pairs.iter().chain(self.numbers.iter()) {
+            let needle = variant.as_bytes();
+            if needle.is_empty() || !out.windows(needle.len()).any(|w| w == needle) {
+                continue;
+            }
+            let mut next = Vec::with_capacity(out.len());
+            let mut i = 0;
+            while i < out.len() {
+                if out[i..].starts_with(needle) {
+                    next.extend_from_slice(mask.as_bytes());
+                    i += needle.len();
+                } else {
+                    next.push(out[i]);
+                    i += 1;
+                }
+            }
+            out = next;
         }
         out
     }

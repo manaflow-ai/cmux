@@ -292,6 +292,30 @@ export class KeybindingsStore {
     return this.write(KeybindingOps.reset, { command: binding.command, idempotency_key: this.key() });
   }
 
+  /** Export Keymap…: the host asks where and writes the file. */
+  async exportKeymap(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(KeybindingOps.keymapExport, {});
+      if (this.snapshot.notice) this.set({ notice: undefined });
+    } catch (error) {
+      this.set(failure(error));
+    }
+  }
+
+  /** Import Keymap…: the host asks for a file and imports it; the table re-lists. */
+  async importKeymap(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.client.call(KeybindingOps.keymapImport, {});
+    } catch (error) {
+      this.set(failure(error));
+      return;
+    }
+    if (this.snapshot.notice) this.set({ notice: undefined });
+    await this.reload();
+  }
+
   private setParams(binding: Binding, key: string, when: string | null): SetParams {
     const params: SetParams = {
       command: binding.command,

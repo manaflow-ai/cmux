@@ -133,6 +133,27 @@
       "title" : "Interface Size",
       "type" : "number"
     },
+    "appearance.metrics.columnGap" : {
+      "description" : "appearance.metrics.columnGap",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Column Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarWidth" : {
+      "description" : "appearance.metrics.sidebarWidth",
+      "maximum" : 420,
+      "minimum" : 160,
+      "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.titlebarHeight" : {
+      "description" : "appearance.metrics.titlebarHeight",
+      "maximum" : 56,
+      "minimum" : 24,
+      "title" : "Titlebar Height",
+      "type" : "number"
+    },
     "appearance.saturation" : {
       "default" : 1,
       "description" : "Increase or reduce the tint color intensity.",
@@ -368,6 +389,71 @@
       "title" : "Never Hibernate",
       "type" : "array"
     },
+    "browser.links.cmdClick" : {
+      "default" : "backgroundTab",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Command-Click",
+      "type" : "string"
+    },
+    "browser.links.cmdShiftClick" : {
+      "default" : "foregroundTab",
+      "description" : "Shift-middle-click does the same.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Command-Click",
+      "type" : "string"
+    },
+    "browser.links.middleClick" : {
+      "default" : "backgroundTab",
+      "description" : "Chromium tabs use the Command-Click setting.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Middle-Click",
+      "type" : "string"
+    },
+    "browser.links.optionClick" : {
+      "default" : "download",
+      "description" : "Chromium tabs always download.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Option-Click",
+      "type" : "string"
+    },
+    "browser.links.shiftClick" : {
+      "default" : "newWindow",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Click",
+      "type" : "string"
+    },
     "browser.newTabPage" : {
       "default" : "",
       "description" : "An address such as https://example.com. Empty opens a blank page.",
@@ -542,6 +628,29 @@
       "title" : "Fixed Column Width",
       "type" : "number"
     },
+    "layout.dockColumnEdge" : {
+      "default" : "nearest",
+      "description" : "layout.dockColumnEdge",
+      "enum" : [
+        "nearest",
+        "right",
+        "left",
+        "top",
+        "bottom"
+      ],
+      "title" : "Dock Column Edge",
+      "type" : "string"
+    },
+    "layout.dockColumnMode" : {
+      "default" : "docked",
+      "description" : "layout.dockColumnMode",
+      "enum" : [
+        "docked",
+        "overlay"
+      ],
+      "title" : "Dock Column Mode",
+      "type" : "string"
+    },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
       "description" : "layout.frameOrientation",
@@ -615,6 +724,18 @@
       "title" : "Padding",
       "type" : "number"
     },
+    "layout.paneSeparation" : {
+      "default" : "borders",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "enum" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "title" : "Separation",
+      "type" : "string"
+    },
     "layout.rows" : {
       "default" : true,
       "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
@@ -629,29 +750,6 @@
         "halve"
       ],
       "title" : "Split Sizing",
-      "type" : "string"
-    },
-    "layout.stickyColumnEdge" : {
-      "default" : "nearest",
-      "description" : "layout.stickyColumnEdge",
-      "enum" : [
-        "nearest",
-        "right",
-        "left",
-        "top",
-        "bottom"
-      ],
-      "title" : "Sticky Column Edge",
-      "type" : "string"
-    },
-    "layout.stickyColumnMode" : {
-      "default" : "docked",
-      "description" : "layout.stickyColumnMode",
-      "enum" : [
-        "docked",
-        "overlay"
-      ],
-      "title" : "Sticky Column Mode",
       "type" : "string"
     },
     "layout.stripScrollbar" : {
@@ -994,10 +1092,34 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "picker.pinned" : {
+      "default" : [
+
+      ],
+      "description" : "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Folders",
+      "type" : "array"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
+    },
+    "sidebar.border" : {
+      "default" : false,
+      "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
+      "title" : "Border",
+      "type" : "boolean"
+    },
+    "sidebar.borderWidth" : {
+      "description" : "sidebar.borderWidth",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Border Width",
+      "type" : "number"
     },
     "sidebar.bottomBandMaxShare" : {
       "default" : 0.25,
@@ -1008,7 +1130,7 @@
       "type" : "number"
     },
     "sidebar.minimalMode" : {
-      "default" : "off",
+      "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
       "enum" : [
         "off",
@@ -1018,6 +1140,12 @@
       ],
       "title" : "Minimal Mode",
       "type" : "string"
+    },
+    "sidebar.pinnedBandsScroll" : {
+      "default" : true,
+      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
+      "title" : "Scroll Tall Sections",
+      "type" : "boolean"
     },
     "sidebar.sectionLook" : {
       "default" : "quiet",
@@ -1038,11 +1166,25 @@
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
     },
-    "sidebar.stickyBandsScroll" : {
-      "default" : true,
-      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
-      "title" : "Scroll Tall Sections",
-      "type" : "boolean"
+    "sidebar.side" : {
+      "default" : "left",
+      "description" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Sidebar Side",
+      "type" : "string"
+    },
+    "sidebar.spacesPosition" : {
+      "default" : "bottom",
+      "description" : "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Spaces Position",
+      "type" : "string"
     },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
@@ -1080,6 +1222,26 @@
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
+    "tabs.barOrder" : {
+      "default" : "aboveToolbar",
+      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "enum" : [
+        "aboveToolbar",
+        "belowToolbar"
+      ],
+      "title" : "Tab Bar and Browser Toolbar",
+      "type" : "string"
+    },
+    "tabs.barPosition" : {
+      "default" : "top",
+      "description" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Tab Bar Position",
+      "type" : "string"
+    },
     "tabs.newTabKind" : {
       "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
@@ -1092,6 +1254,16 @@
         "auto"
       ],
       "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tabs.plusButton" : {
+      "default" : "hover",
+      "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "New Tab Button",
       "type" : "string"
     },
     "tasks.layout" : {
@@ -1137,6 +1309,77 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.checkAutomatically" : {
+      "default" : true,
+      "description" : "updates.checkAutomatically",
+      "title" : "Check for Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.checkIntervalSeconds" : {
+      "default" : 3600,
+      "description" : "updates.checkIntervalSeconds",
+      "maximum" : 604800,
+      "minimum" : 900,
+      "title" : "Check Every",
+      "type" : "number"
+    },
+    "updates.downloadAutomatically" : {
+      "default" : true,
+      "description" : "Off: a found update waits, and one click downloads and installs it.",
+      "title" : "Download Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.installOnQuit" : {
+      "default" : true,
+      "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
+      "title" : "Install Updates When Quitting",
+      "type" : "boolean"
+    },
+    "updates.keepPreviousVersions" : {
+      "default" : 1,
+      "description" : "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
+      "maximum" : 5,
+      "minimum" : 0,
+      "title" : "Keep Previous Versions",
+      "type" : "number"
+    },
+    "updates.meteredNetwork" : {
+      "default" : "defer-low-data",
+      "description" : "While downloads wait, a found update shows as a card and one click downloads it.",
+      "enum" : [
+        "defer-low-data",
+        "defer-expensive",
+        "download"
+      ],
+      "title" : "On Metered Networks",
+      "type" : "string"
+    },
+    "updates.notify" : {
+      "default" : "card",
+      "description" : "updates.notify",
+      "enum" : [
+        "card",
+        "badge",
+        "silent"
+      ],
+      "title" : "When an Update Is Ready",
+      "type" : "string"
+    },
+    "updates.quietHours" : {
+      "description" : "No update card between these times.",
+      "properties" : {
+        "end" : {
+          "title" : "end",
+          "type" : "string"
+        },
+        "start" : {
+          "title" : "start",
+          "type" : "string"
+        }
+      },
+      "title" : "Quiet Hours",
+      "type" : "object"
+    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
@@ -1145,6 +1388,16 @@
         "standard"
       ],
       "title" : "Titlebar",
+      "type" : "string"
+    },
+    "window.titlebarButtons" : {
+      "default" : "hover",
+      "description" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Titlebar Buttons",
       "type" : "string"
     }
   },

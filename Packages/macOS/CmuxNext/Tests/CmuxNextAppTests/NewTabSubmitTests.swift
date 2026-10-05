@@ -10,8 +10,8 @@ import Testing
     let resolver = OmniboxResolver(searchEngine: .google)
     let home = URL(filePath: "/Users/me", directoryHint: .isDirectory)
 
-    func plan(_ text: String, _ mode: NewTabIntent.Mode = .ask, agent: String? = nil) -> NewTabSubmit {
-        NewTabSubmit.plan(text: text, mode: mode, agent: agent, resolver: resolver, home: home)
+    func plan(_ text: String, search: Bool = false, agent: String? = nil) -> NewTabSubmit {
+        NewTabSubmit.plan(text: text, search: search, agent: agent, resolver: resolver, home: home)
     }
 
     @Test func eachIntentBecomesItsTab() {
@@ -20,14 +20,17 @@ import Testing
         #expect(plan("github.com") == .browser(URL(string: "https://github.com")!))
         #expect(plan("fix the build") == .chat(prompt: "fix the build", harness: nil))
         #expect(plan("fix the build", agent: "codex") == .chat(prompt: "fix the build", harness: "codex"))
-        #expect(plan("node.js", .search) == .browser(resolver.searchEngine.searchURL(for: "node.js")!))
+        // A web search is the explicit choice (R86), even for an address-like text.
+        #expect(plan("node.js", search: true) == .browser(resolver.searchEngine.searchURL(for: "node.js")!))
+        #expect(plan("github.com", search: true) == .browser(resolver.searchEngine.searchURL(for: "github.com")!))
+        #expect(plan("!ls", search: true) == .terminal(command: "ls"))
     }
 
     @Test func theActionReachesPaletteCLIAndMCPWithTypedArguments() throws {
         let action = try #require(ActionCatalog.all.first { $0.id == NewTabSubmit.action })
         #expect(action.cliName == "tab new-from-text")
         #expect(action.surfaces.contains(.palette))
-        #expect(action.arguments.map(\.name) == ["text", "mode", "agent"])
+        #expect(action.arguments.map(\.name) == ["text", "search", "agent"])
         #expect(action.arguments.map(\.isRequired) == [true, false, false])
     }
 }

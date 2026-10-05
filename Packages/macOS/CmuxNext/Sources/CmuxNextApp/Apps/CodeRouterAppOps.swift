@@ -31,6 +31,11 @@ nonisolated struct CodeRouterAppOps: AppHostCapabilityHandler {
                 "scope": signedIn ? "personal" : .null,
                 "health": signedIn ? "ok" : "signed_out",
             ]
+        case "coderouter.detect":
+            // Presence-only detection of this Mac's sign-ins (no cmux account needed); the rows
+            // carry `acct_` handles and redacted labels, and `redact` shortens any email again.
+            let accounts = try await control("accounts.list", params)
+            return Self.redact(["providers": AppJSON(accounts["providers"] ?? .array([]))])
         case "coderouter.accounts.list":
             return Self.redact(AppJSON(try await control("coderouter.accounts.list", params)))
         case "coderouter.usage.get":

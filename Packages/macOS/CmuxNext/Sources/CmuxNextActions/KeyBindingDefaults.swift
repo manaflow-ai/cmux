@@ -57,7 +57,22 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut(down, modifiers: [.control, .command])], command: "resizePaneDown"),
     ]
 
-    /// The entries whose action still has a key in `registry`.
+    /// List navigation (R85): Ctrl-N / Ctrl-J move down and Ctrl-P /
+    /// Ctrl-K move up wherever a list-like control has the keyboard
+    /// (`listFocus`: comboboxes, menus, pickers, the sidebar list). Never in
+    /// a terminal or a plain text field, where `listFocus` is unset.
+    public static let listFocus = WhenClause.has(KeyContext.listFocus)
+
+    public static let listNavigation: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("n", modifiers: [.control])], command: "list.next", when: listFocus),
+        KeyBinding(keys: [Shortcut("j", modifiers: [.control])], command: "list.next", when: listFocus),
+        KeyBinding(keys: [Shortcut("p", modifiers: [.control])], command: "list.previous", when: listFocus),
+        KeyBinding(keys: [Shortcut("k", modifiers: [.control])], command: "list.previous", when: listFocus),
+    ]
+
+    /// The entries whose action still has a key in `registry` (tab
+    /// switching follows its actions' keys), then list navigation (removed
+    /// one by one with `-list.next` entries in keybindings.json).
     @MainActor static func entries(registry: ActionRegistry) -> [KeyBinding] {
         var entries = tabSwitching.filter { registry.effectiveShortcut(for: $0.command) != nil }
         entries += paneResizeAliases.filter { binding in
@@ -65,6 +80,7 @@ public nonisolated struct KeyBindingDefaults {
                 && !registry.shortcutOverrides.keys.contains(binding.command)
                 && registry.chordOverrides[binding.command] == nil
         }
+        entries += listNavigation.filter { registry.disabledFeature(for: $0.command) == nil }
         return entries
     }
 }

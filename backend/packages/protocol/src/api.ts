@@ -22,6 +22,8 @@ export interface CurrentPrincipalShape {
   readonly sso_team?: string
   /** The Stack session's refresh token id (Stack-signed), so install.register can find the SSO team that created it. */
   readonly stack_session?: string
+  /** "vm" for a VM install's token (signed claim `vm`): it may call only the cloud.vm.* ops. */
+  readonly install_kind?: string
 }
 export class CurrentPrincipal extends Context.Service<CurrentPrincipal, CurrentPrincipalShape>()("cmux/CurrentPrincipal") {}
 
@@ -46,7 +48,7 @@ export class PolicyRefused extends Schema.TaggedError<PolicyRefused>()(
 
 export class BadRequest extends Schema.TaggedError<BadRequest>()(
   "BadRequest",
-  { code: Schema.Literals(["validation.invalid", "selector.not_found"]), message: Schema.String },
+  { code: Schema.Literals(["validation.invalid", "selector.not_found", "cloud.machine.not_found", "cloud.machine.not_bound"]), message: Schema.String },
   { httpApiStatus: 400 }
 ) {}
 

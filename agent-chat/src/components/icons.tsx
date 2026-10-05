@@ -41,8 +41,10 @@ const tone = (value: BrandTone, dark: boolean) => (typeof value === "string" ? v
 /// The provider's brand mark from design/agent-icons (agentBrands.generated.ts), in the
 /// owner's colors for the theme; a provider without a mark draws a colored dot.
 export function ProviderIcon({ provider }: { provider: Provider }) {
-  const spec = agentBrandSpec(provider.id);
-  if (!spec) return <Dot id={provider.id} />;
+  const full = agentBrandSpec(provider.id);
+  if (!full) return <Dot id={provider.id} />;
+  // The icon is 15 px: a traced mark draws its owner's simpler small art.
+  const spec = full.small ? { ...full, viewBox: full.small.viewBox, paths: full.small.paths } : full;
   const dark = themeIsDark();
   const box = spec.tile?.viewBox ?? spec.viewBox;
   return (

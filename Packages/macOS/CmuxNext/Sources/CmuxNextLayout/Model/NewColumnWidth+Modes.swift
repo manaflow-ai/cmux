@@ -13,7 +13,7 @@ extension NewColumnWidth {
     ///   (`plan(columns:width:removing:)`).
     /// - `fitScreen`: the visible scrolling columns (with the anchor's) and
     ///   the new one share the strip equally; each visible column whose
-    ///   width differs resizes. Sticky columns never resize.
+    ///   width differs resizes. Docked columns never resize.
     public static func plan(mode: NewColumnWidthMode, columns: [LayoutColumn], anchor: ColumnID?, visible: [ColumnID],
                             fixedWidth: Double, removing: PaneID? = nil) -> NewColumnPlan {
         let range = ColumnWidthPreset.widthRange
@@ -25,7 +25,7 @@ extension NewColumnWidth {
             let width = anchor.flatMap { id in columns.first { $0.id == id }?.width } ?? 1.0
             return NewColumnPlan(width: clamp(width), resizes: [])
         case .fitScreen:
-            let scrolling = Set(columns.filter { $0.sticky == nil }.map(\.id))
+            let scrolling = Set(columns.filter { $0.dock == nil }.map(\.id))
             var shared = visible.filter(scrolling.contains)
             if let anchor, scrolling.contains(anchor), !shared.contains(anchor) { shared.append(anchor) }
             let share = clamp(1.0 / Double(shared.count + 1))

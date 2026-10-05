@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// One item of a sticky section: a row (built-in or list look) or a tray
+/// One item of a pinned section: a row (built-in or list look) or a tray
 /// tile. A pill shows on hover, while pressed and while the item is
 /// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
 /// pointer changes. The rail's icon-only items show unread items as a dot
@@ -75,6 +75,12 @@ final class SidebarItemRowView: NSView {
 
     override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
+    /// A drag from a press (window points): true once the region drags.
+    var onDragged: ((NSPoint, NSEvent) -> Bool)?
+    var onDragEnded: (() -> Void)?
+    private var pressLocation: NSPoint?
+    private var didDrag = false
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// Width of a chip showing `title` (and an unread count): padding,
@@ -148,10 +154,15 @@ final class SidebarItemRowView: NSView {
     }
 
     /// The pill's fill: pressed, then active, then hovered, then the
-    /// tile's resting fill.
+    /// tile's resting fill. A tile rests on `hoverFill`, so its hover takes
+    /// the next tonal step (`selectionFill`) and still shows a change (R97).
     var fill: NSColor? {
         let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive)
-        return performWithTheme { ChromeHover.fillColor(state, rest: style == .tile ? Palette.hoverFill : nil) }
+        return performWithTheme {
+            guard style == .tile else { return ChromeHover.fillColor(state) }
+            if state.hovering, !state.pressed, !state.selected { return Palette.selectionFill }
+            return ChromeHover.fillColor(state, rest: Palette.hoverFill)
+        }
     }
 
     private func pointerChanged() {
@@ -230,6 +241,8 @@ final class SidebarItemRowView: NSView {
         guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
         if hitsAccessory(point) { return onAccessory?() ?? () }
         isPressed = true
+        pressLocation = event.locationInWindow
+        didDrag = false
         if let onPressWithModifiers { onPressWithModifiers(event.modifierFlags) } else { onPress?() }
     }
 
@@ -258,7 +271,17 @@ final class SidebarItemRowView: NSView {
         }
     }
 
+    /// Past the drag threshold the region reorders in place (R77).
+    override func mouseDragged(with event: NSEvent) {
+        guard let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
+        didDrag = true
+        isPressed = false
+    }
+
     override func mouseUp(with event: NSEvent) {
+        if didDrag { onDragEnded?() }
+        pressLocation = nil
+        didDrag = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
     }

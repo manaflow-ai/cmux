@@ -27,13 +27,13 @@ import Testing
         let cmdBracket = Shortcut("[", modifiers: [.command])
         let goBack = Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command])
 
-        #expect(registry.resolve(cmdBracket)?.id != "focusHistoryBack")
-        #expect(registry.resolve(goBack)?.id == "focusHistoryBack")
+        #expect(registry.keyWinner(cmdBracket)?.command != "focusHistoryBack")
+        #expect(registry.keyWinner(goBack)?.command == "focusHistoryBack")
         registry.context = [.browserFocused]
-        #expect(registry.resolve(cmdBracket)?.id == "browserBack")
-        #expect(registry.performShortcut(cmdBracket))
-        #expect(registry.resolve(goBack)?.id == "focusHistoryBack")
-        #expect(registry.performShortcut(goBack))
+        #expect(registry.keyWinner(cmdBracket)?.command == "browserBack")
+        #expect(registry.performKey(cmdBracket))
+        #expect(registry.keyWinner(goBack)?.command == "focusHistoryBack")
+        #expect(registry.performKey(goBack))
         #expect(hits == ["browser", "history"])
     }
 
@@ -52,10 +52,10 @@ import Testing
         let registry = ActionRegistry.standard()
         var selected: [String] = []
         registry.bind("selectWorkspaceByNumber", argumentHandler: { selected.append($0) }) {}
-        let resolved = registry.resolve(Shortcut("3", modifiers: [.command]))
-        #expect(resolved?.id == "selectWorkspaceByNumber")
+        let resolved = registry.keyWinner(Shortcut("3", modifiers: [.command]))
+        #expect(resolved?.command == "selectWorkspaceByNumber")
         #expect(resolved?.argument == "3")
-        #expect(registry.performShortcut(Shortcut("7", modifiers: [.command])))
+        #expect(registry.performKey(Shortcut("7", modifiers: [.command])))
         #expect(selected == ["7"])
         #expect(registry.shortcutDisplay(for: "selectWorkspaceByNumber") == "⌘1…9")
     }
@@ -96,8 +96,8 @@ import Testing
         #expect(registry.shortcutDisplay(for: "splitRight") == "⌘D")
 
         registry.setShortcutOverride(Shortcut("\\", modifiers: [.command]), for: "splitRight")
-        #expect(registry.resolve(Shortcut("\\", modifiers: [.command]))?.id == "splitRight")
-        #expect(registry.resolve(Shortcut("d", modifiers: [.command])) == nil)
+        #expect(registry.keyWinner(Shortcut("\\", modifiers: [.command]))?.command == "splitRight")
+        #expect(registry.keyWinner(Shortcut("d", modifiers: [.command])) == nil)
         #expect(registry.shortcutDisplay(for: "splitRight") == "⌘\\")
 
         registry.setShortcutOverride(nil, for: "splitRight")

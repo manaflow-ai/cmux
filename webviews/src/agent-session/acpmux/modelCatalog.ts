@@ -1,4 +1,4 @@
-import { normalizeCatalog } from "./direct";
+import { harnessRefusal, normalizeCatalog } from "./direct";
 import type { AcpmuxSnapshot } from "./model";
 
 // The composer's model catalog. acpmux keeps its harness list (`_acpmux/harnesses`: names,
@@ -10,13 +10,18 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
 /// `names` (_acpmux/harnesses) with each harness's models from `probed` (_acpmux/models);
 /// harnesses only `probed` names (a peer's) are added. A list that already carries models
-/// (the mock daemon) keeps them.
+/// (the mock daemon) keeps them. A harness acpmux will not start keeps the reason as
+/// `unavailable`: its launcher check (`unavailable` on the _acpmux/harnesses entry) first, else its
+/// failed model probe (`probeError`, on either list's entry).
 export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
   const catalog = normalizeCatalog(names);
   const entries = (probed as { harnesses?: unknown } | undefined)?.harnesses;
   if (!Array.isArray(entries)) return catalog;
   const byHarness = new Map<string, Catalog[number]["models"]>();
-  for (const entry of entries as { harness?: unknown; models?: unknown }[]) {
+  const refused = new Map<string, string>();
+  for (const entry of entries as { harness?: unknown; models?: unknown; probeError?: unknown }[]) {
+    const reason = harnessRefusal({ probeError: entry?.probeError });
+    if (typeof entry?.harness === "string" && reason) refused.set(entry.harness, reason);
     if (typeof entry?.harness !== "string" || !Array.isArray(entry.models)) continue;
     byHarness.set(
       entry.harness,
@@ -27,11 +32,15 @@ export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
       })),
     );
   }
+  const withReason = (harness: Catalog[number]): Catalog[number] => {
+    const reason = harness.unavailable ?? refused.get(harness.id);
+    return reason ? { ...harness, unavailable: reason } : harness;
+  };
   const merged = catalog.map((harness) =>
-    harness.models.length > 0 ? harness : { ...harness, models: byHarness.get(harness.id) ?? [] },
+    withReason(harness.models.length > 0 ? harness : { ...harness, models: byHarness.get(harness.id) ?? [] }),
   );
   for (const [id, models] of byHarness) {
-    if (!merged.some((harness) => harness.id === id)) merged.push({ id, name: id, models });
+    if (!merged.some((harness) => harness.id === id)) merged.push(withReason({ id, name: id, models }));
   }
   return merged;
 }
