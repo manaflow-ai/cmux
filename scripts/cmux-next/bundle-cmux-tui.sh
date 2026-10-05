@@ -110,9 +110,11 @@ elif [[ -z "$src" && "$mode" == tree ]]; then
   source_kind="tree-hosted"
   url="https://files.cmux.com/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin"
   if [[ -f "$tree_dir/source.json" ]]; then
-    read -r expected_commit run_id < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("commit") or "-", d.get("run") or "-")' "$tree_dir/source.json")
+    read -r expected_commit run_id published_key < <(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("commit") or "-", d.get("run") or "-", d.get("key") or "-")' "$tree_dir/source.json")
     [[ "$expected_commit" == - ]] && expected_commit=""
     [[ "$run_id" == - ]] && run_id=""
+    # A tree fetched through its v1 publication (CMUX-TUI-TREE-KEY-V2) records that key.
+    [[ "$published_key" =~ ^[0-9a-f]{40}$ ]] && url="https://files.cmux.com/cmux-tui/tree/$published_key/cmux-tui-aarch64-apple-darwin"
   fi
 elif [[ -z "$src" ]]; then
   if [[ -f "$pin_file" && "$arch" == aarch64 ]]; then
