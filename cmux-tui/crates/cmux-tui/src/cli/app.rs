@@ -40,6 +40,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "accounts",
     "open",
     "keybinding",
+    "ghostty",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -168,6 +169,14 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
             }
             call("accounts.list", json!({}))
+        }
+        // The Ghostty config keys and keybind actions cmux does not apply
+        // (R92 diagnostics): the same report as Settings > Terminal.
+        ("ghostty", Some("diagnostics")) => {
+            if rest.len() > 1 {
+                return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
+            }
+            call("ghostty.diagnostics", json!({}))
         }
         // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
         ("bookmark", Some(verb @ ("list" | "search"))) => {
