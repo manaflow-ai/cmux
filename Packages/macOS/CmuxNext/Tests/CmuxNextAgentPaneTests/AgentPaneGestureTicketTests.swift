@@ -16,6 +16,8 @@ import Testing
         var transport: AgentPaneTransport { model.transport }
         var connection = 0
         var nextID = 100
+        /// The daemon's `_acpmux/web_modes` answer (nil: no daemon answer, the fail-closed rule).
+        var webModes = AcpmuxAskingModesFake.claude
 
         func start() async throws {
             try await server.start()
@@ -24,7 +26,7 @@ import Testing
 
         func connect() async throws {
             transport.deliver = { _, done in done() }
-            transport.modeAsks = AcpmuxAskingModesFake.claude
+            transport.webModes = webModes
             connection = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
             _ = await transport.send(connection: connection, frames: [AgentPaneGestureTicketTests.initialize])
             transport.sessions.add("s")
@@ -52,7 +54,7 @@ import Testing
     }
 
     static let mode: [String: Any] = ["method": "session/set_mode", "params": ["modeId": "default"]]
-    static let effort: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "fast", "value": true]]
+    static let effort: [String: Any] = ["method": "session/set_config_option", "params": ["configId": "thinking", "value": true]]
 
     @Test func theIntentContractIsExact() async throws {
         let rig = Rig()
@@ -90,9 +92,9 @@ import Testing
         #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "default", "force": true], ticket: await rig.ticket(Self.mode))
             == .gestureRequired)
         // "true" is not true.
-        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "fast", "value": "true"], ticket: await rig.ticket(Self.effort))
+        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "thinking", "value": "true"], ticket: await rig.ticket(Self.effort))
             == .gestureRequired)
-        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "fast", "value": true], ticket: await rig.ticket(Self.effort))
+        #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "thinking", "value": true], ticket: await rig.ticket(Self.effort))
             == nil)
         // A session that is not the pane's.
         #expect(await rig.send("session/set_mode", ["sessionId": "s-foreign", "modeId": "default"], ticket: await rig.ticket(Self.mode))

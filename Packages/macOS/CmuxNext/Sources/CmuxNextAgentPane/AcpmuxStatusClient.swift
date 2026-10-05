@@ -40,17 +40,20 @@ nonisolated enum AcpmuxStatusClient {
         ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", deadline: deadline))
     }
 
-    /// `_acpmux/web_modes {sessionId}` (read-only, unix socket only; the daemon lane adds it): whether
-    /// `mode` is in the asking table (`web_modes.rs`, config included) for the session's family.
-    /// Nil when the daemon cannot tell (no such op yet, no such session, an unknown family).
-    @concurrent static func modeAsks(socketPath: String, sessionId: String?, mode: String, deadline: Duration = .seconds(2)) async -> Bool? {
+    /// `_acpmux/web_modes {sessionId?, configId?, value?}` (read-only, unix socket only): the
+    /// daemon's Web mode fields, its free config ids and, for a known session with a string value,
+    /// whether that value keeps the session asking (the guard's own `config_value_asks`). Nil when
+    /// the daemon cannot answer (no socket, no such op, an error).
+    @concurrent static func webModes(socketPath: String, sessionId: String?, configId: String?, value: String?,
+                                     deadline: Duration = .seconds(2)) async -> AcpmuxWebModes? {
         var params: [String: any Sendable] = [:]
         if let sessionId { params["sessionId"] = sessionId }
+        if let configId { params["configId"] = configId }
+        if let value { params["value"] = value }
         guard let result = try? await call(socketPath: socketPath, method: "_acpmux/web_modes", params: params, deadline: deadline),
-              let families = result["families"] as? [String: [String]],
-              let family = (result["session"] as? [String: Any])?["family"] as? String,
-              let asking = families[family] else { return nil }
-        return asking.contains(mode)
+              let fields = result["modeFields"] as? [String], let free = result["freeConfigIds"] as? [String] else { return nil }
+        return AcpmuxWebModes(modeFields: Set(fields), freeConfigIds: Set(free),
+                              asks: (result["session"] as? [String: Any])?["asks"] as? Bool)
     }
 
     private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],

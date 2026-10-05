@@ -148,7 +148,7 @@ import Testing
         let rig = Rig()
         try await rig.start()
         defer { rig.server.stop() }
-        rig.transport.modeAsks = { _, _ in nil }
+        rig.transport.webModes = { _, _, _ in nil }
         let sheets = Sheets(on: rig.transport, reply: false)
         #expect(await rig.send("session/set_mode", ["sessionId": "s", "modeId": "plan"], ticket: await rig.ticket(Self.setMode("plan")))
             == .modeNotConfirmed)

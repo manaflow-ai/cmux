@@ -16,10 +16,12 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case firstFrameNotInitialize = "transport.first_frame"
     /// The method is not on ``AcpmuxPaneMethods``.
     case methodRefused = "transport.method_refused"
-    /// `transport.gesture` params break the intent contract (``AgentPaneGestureIntent``), or a
-    /// redeeming frame carries other `_meta`.
+    /// `transport.gesture` params break the intent contract (``AgentPaneGestureIntent``), a
+    /// redeeming frame carries other `_meta` (R1), or a method other than set_mode and
+    /// set_config_option names a mode field (P1).
     case intentInvalid = "transport.intent_invalid"
-    /// A mode that does not ask (not in the daemon's asking table) without the user's confirmation.
+    /// A mode, or a config option that is not free, which the daemon does not say keeps the
+    /// session asking, without the user's confirmation (R2, P2).
     case modeNotConfirmed = "transport.mode_not_confirmed"
     /// The frame grants (allows a permission, trusts a folder, prompts, sets a mode) without a
     /// fresh user gesture; the socket stays open.
@@ -171,7 +173,10 @@ public extension AgentPaneTransportPacer {
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
     /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).
-    public var modeAsks: @MainActor (_ sessionId: String?, _ mode: String) async -> Bool? = { _, _ in nil }
+    public var webModes: @MainActor (_ sessionId: String?, _ configId: String?, _ value: String?) async -> AcpmuxWebModes? = { _, _, _ in nil }
+    /// The daemon's mode fields for this connection (asked at open); nil when it did not answer,
+    /// which applies the fail-closed rule (``AcpmuxPaneMethods/knownParams``).
+    public private(set) var modeFields: Set<String>?
     /// Shows the native sheet that confirms a mode which does not ask; Cancel answers false.
     public var requestModeConfirmation: (@MainActor (_ mode: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
@@ -186,9 +191,9 @@ public extension AgentPaneTransportPacer {
         self.limits = limits
         self.gestures = gestures
         self.pacer = pacer ?? AgentPaneNextTurnPacer()
-        modeAsks = { [weak self] session, mode in
+        webModes = { [weak self] session, configId, value in
             guard let path = self?.socketPath else { return nil }
-            return await AcpmuxStatusClient.modeAsks(socketPath: path, sessionId: session, mode: mode)
+            return await AcpmuxStatusClient.webModes(socketPath: path, sessionId: session, configId: configId, value: value)
         }
     }
 
@@ -220,6 +225,11 @@ public extension AgentPaneTransportPacer {
             throw .connectFailed
         }
         guard self.socket === socket else { throw .staleConnection }
+        // P1: the daemon's mode fields, once per connection, before the page's first frame.
+        modeFields = nil
+        let answer = await webModes(nil, nil, nil)
+        guard self.socket === socket, id == current else { throw .staleConnection }
+        modeFields = answer?.modeFields
         Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
         return id
     }
@@ -271,7 +281,7 @@ public extension AgentPaneTransportPacer {
         // Only the connection's very first frame skips the folder check; every later one may need it.
         // A mode change may need the daemon's table and the user's confirmation: never on this turn.
         guard !parsed.enumerated().contains(where: { ((sentFirst || $0.offset > 0) && AcpmuxPathPolicy.needsCheck($0.element.object))
-            || AcpmuxPaneMethods.requestedMode($0.element.object) != nil })
+            || AcpmuxPaneMethods.requestedSetting($0.element.object) != nil })
         else { return nil }
         var firstError: AgentPaneTransportError?
         for frame in parsed {
@@ -355,17 +365,32 @@ public extension AgentPaneTransportPacer {
             }
         }
         decision = gate(connection: id, frame: frame, decision: decision)
-        // R2: a mode the daemon's table does not list as asking needs the user's native confirmation.
-        if case .send = decision, let requested = AcpmuxPaneMethods.requestedMode(frame.object) {
-            let asks = await modeAsks(requested.sessionId, requested.mode)
+        // R2 and P2: a mode, or a config option that is not free, needs the user's native
+        // confirmation unless the daemon says that the value keeps the session asking.
+        if case .send = decision, let requested = AcpmuxPaneMethods.requestedSetting(frame.object) {
+            let answer = await webModes(requested.sessionId, requested.configId, requested.value)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
-            if asks != true {
-                let confirmed = await confirm(mode: requested.mode)
+            let asks = requested.configId != "mode" || answer?.asks == true
+            if !asks {
+                let shown = requested.configId == "mode"
+                    ? requested.value ?? ""
+                    : "\(requested.configId) = \(requested.value ?? Self.configValueText(frame.object))"
+                let confirmed = await confirm(mode: shown)
                 guard id == current, self.socket === socket else { return .stop(.staleConnection) }
                 if !confirmed { decision = .refuse(.modeNotConfirmed, method: frame.method, requestID: frame.id) }
             }
         }
         return deliverToSocket(frame: frame, decision: decision, rootRequested: rootRequested)
+    }
+
+    /// A config option's value as text, for the sheet (a value that is not a string).
+    private static func configValueText(_ object: [String: Any]?) -> String {
+        let value = (object?["params"] as? [String: Any])?["value"]
+        guard let value else { return "" }
+        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) {
+            return String(decoding: data, as: UTF8.self)
+        }
+        return String(describing: value)
     }
 
     /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.
@@ -383,6 +408,10 @@ public extension AgentPaneTransportPacer {
     private func prepare(_ frame: PageFrame) -> AcpmuxPaneMethods.Decision {
         let decision = AcpmuxPaneMethods.decide(frame.text, isFirst: !sentFirst, localAppToken: localAppToken)
         if case .send = decision, sentFirst, let refusal = sessionRefusal(frame) { return refusal }
+        // P1: only set_mode and set_config_option may name a mode (they meet the sheet).
+        if case .send = decision, false, AcpmuxPaneMethods.carriesModeField(frame.object, modeFields: modeFields) {
+            return .refuse(.intentInvalid, method: frame.method, requestID: frame.id)
+        }
         return decision
     }
 

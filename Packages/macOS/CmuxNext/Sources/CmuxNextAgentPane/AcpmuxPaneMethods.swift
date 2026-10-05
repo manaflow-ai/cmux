@@ -156,18 +156,72 @@ public nonisolated enum AcpmuxPaneMethods {
         return (String(decoding: data, as: UTF8.self), value as? String ?? "", otherMeta)
     }
 
-    /// The mode a frame would put its session in (R2): `session/set_mode {modeId}`, or
-    /// `session/set_config_option` for the `mode` option. Nil for anything else (effort, model).
-    static func requestedMode(_ object: [String: Any]?) -> (sessionId: String?, mode: String)? {
+    /// The two methods that set a mode or an option; every other method may carry no mode field (P1).
+    static let settingMethods: Set<String> = ["session/set_mode", "session/set_config_option"]
+
+    /// What a session/set_mode or session/set_config_option asks for: set_mode is the `mode`
+    /// option. `value` is nil when it is not a string (the daemon then gives no `asks`).
+    static func requestedSetting(_ object: [String: Any]?) -> (sessionId: String?, configId: String, value: String?)? {
         guard let object, let params = object["params"] as? [String: Any] else { return nil }
         switch object["method"] as? String {
         case "session/set_mode":
-            return (params["sessionId"] as? String, params["modeId"] as? String ?? "")
-        case "session/set_config_option" where params["configId"] as? String == "mode":
-            return (params["sessionId"] as? String, (params["value"] as? String) ?? String(describing: params["value"] ?? ""))
+            return (params["sessionId"] as? String, "mode", params["modeId"] as? String)
+        case "session/set_config_option":
+            return (params["sessionId"] as? String, params["configId"] as? String ?? "", params["value"] as? String)
         default:
             return nil
         }
+    }
+
+    /// The fail-closed rule (P1) while the daemon gives no mode fields: each method's params, and
+    /// its `_meta.acpmux` keys, exactly as the pane sends them (`webviews/src/agent-session/acpmux`).
+    /// This is the pane's param schema, not a mode list: with the daemon's `modeFields`, the rule
+    /// is those fields instead. set_mode and set_config_option are not here (they meet the sheet).
+    static let knownParams: [String: (params: Set<String>, acpmux: Set<String>)] = [
+        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities"], []),
+        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer"]),
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId"]),
+        "session/set_model": (["sessionId", "modelId"], []),
+        "session/cancel": (["sessionId"], []),
+        "_acpmux/watch": (["enabled"], []),
+        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "kinds"], []),
+        "_acpmux/attach": (["sessionId", "limit", "kinds", "eventStream"], []),
+        "_acpmux/detach": (["sessionId"], []),
+        "_acpmux/warm": (["sessionIds", "limit"], []),
+        "_acpmux/kill": (["sessionId", "purge"], []),
+        "_acpmux/prewarm": (["harness", "cwd"], []),
+        "_acpmux/harnesses": ([], []),
+        "_acpmux/models": ([], []),
+        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId"], []),
+        "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
+        "_acpmux/handoff_get": (["sessionId", "handoffId"], []),
+        "_acpmux/handoff_draft": (["handoffId", "revision", "draftKey", "capsule", "checkpoint"], []),
+        "_acpmux/handoff_start": (["handoffId", "revision", "promptId", "capsule", "checkpoint"], []),
+        "_acpmux/handoff_discard": (["handoffId"], []),
+        "_acpmux/permission_groups": (["sessionId"], []),
+        "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
+        "_acpmux/permission_chat_revoke": (["sessionId"], []),
+        "acp.session.fork": (["sessionId", "throughSeq"], []),
+        "acp.trust.get": (["cwd"], []),
+        "acp.trust.set": (["cwd", "level"], []),
+    ]
+
+    /// P1: whether a page frame of a method other than set_mode and set_config_option names a
+    /// mode field in its params or its `_meta.acpmux`. With the daemon's `modeFields`, any of
+    /// those; without them (nil), any field outside the method's ``knownParams``.
+    static func carriesModeField(_ object: [String: Any]?, modeFields: Set<String>?) -> Bool {
+        guard let object, let method = object["method"] as? String, !settingMethods.contains(method) else { return false }
+        guard let rawParams = object["params"] else { return false }
+        guard let params = rawParams as? [String: Any] else { return true }
+        let meta = params["_meta"] as? [String: Any]
+        let acpmux = meta?["acpmux"] as? [String: Any] ?? [:]
+        if let modeFields {
+            return params.keys.contains(where: modeFields.contains) || acpmux.keys.contains(where: modeFields.contains)
+        }
+        guard let known = knownParams[method] else { return !params.isEmpty }
+        if params.keys.contains(where: { !known.params.contains($0) }) { return true }
+        if meta?["acpmux"] != nil, !(meta?["acpmux"] is [String: Any]) { return true }
+        return acpmux.keys.contains(where: { !known.acpmux.contains($0) })
     }
 
     /// A frame's method and raw JSON-RPC id, for a refusal.
