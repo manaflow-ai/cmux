@@ -900,9 +900,15 @@
   // here cannot reply around it. Past `limit` characters of JSON (at most
   // MAX_REPLY) the reply becomes a cut marker, which the runtime turns into
   // an error worded by core.readCutNote, as every read cut at its budget.
-  // A caller can lower the limit, never raise it.
-  const MAX_REPLY = Infinity;
+  // A caller can lower the limit, never raise it. The default is what a
+  // read within the page-read budget can return: MAX_SIZE characters of
+  // values and NODE_SIZE of keys for each of MAX_NODES nodes.
+  const MAX_REPLY = MAX_SIZE + MAX_NODES * NODE_SIZE;
   const REPLY_CUT = "__cmuxReplyCut";
+  // The reply of a method that stopped at its budget before it had all its
+  // answer: the runtime fails the call with core.readCutNote's words, as
+  // for a reply past the reply budget. `cut` is { truncated, maxNodes, maxSize }.
+  const cutReply = (cut) => ({ [REPLY_CUT]: cut });
   // The characters of JSON `value` takes, counted until they pass `max`.
   // Iterative, and it stops there, so measuring costs at most the limit.
   function replySize(value, max) {
@@ -928,8 +934,8 @@
   }
   function sealReply(value, limit) {
     const max = Math.min(MAX_REPLY, typeof limit === "number" && limit >= 0 ? Math.floor(limit) : MAX_REPLY);
-    if (max === Infinity || replySize(value, max) <= max) return value;
-    return { [REPLY_CUT]: { truncated: "size", maxSize: max } };
+    if (replySize(value, max) <= max) return value;
+    return cutReply({ truncated: "size", maxSize: max });
   }
   function reply(value, limit) {
     return value instanceof Promise ? value.then((v) => sealReply(v, limit)) : sealReply(value, limit);
@@ -1595,13 +1601,17 @@
 
   // Handles of the matches, the first `limit` when given: a handle is kept
   // in this world's table until its element goes, so a read that wants a
-  // few of a page-sized match list keeps only those.
+  // few of a page-sized match list keeps only those. It makes at most
+  // MAX_NODES handles (the page-read node budget): past that, a call
+  // without a limit is cut, and a limit above it keeps the first MAX_NODES.
   function queryAll(selector, scopeHandle, limit) {
     const inj = requireInjected();
     const root = scopeHandle ? element(scopeHandle) : document;
     const parsed = inj.parseSelector(selector);
     const found = withReadCaches(() => inj.querySelectorAll(parsed, root));
-    return (Number.isInteger(limit) && limit >= 0 ? found.slice(0, limit) : found).map(handleFor);
+    const asked = Number.isInteger(limit) && limit >= 0;
+    if (!asked && found.length > MAX_NODES) return cutReply({ truncated: "nodes", maxNodes: MAX_NODES });
+    return found.slice(0, asked ? Math.min(limit, MAX_NODES) : MAX_NODES).map(handleFor);
   }
 
   function describe(id) {
