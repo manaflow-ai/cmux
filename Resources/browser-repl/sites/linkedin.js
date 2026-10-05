@@ -136,40 +136,41 @@
             const account = who.publicIdentifier;
             const memberId = who.id;
             if (!account || !memberId) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell which LinkedIn member is signed in");
-            const changed = (now) => new S.SiteError("account_changed", `linkedin.post: the signed-in member is now ${now.publicIdentifier || "nobody"}${now.id ? ` (${now.id})` : ""}, not ${account} (${memberId}) as drafted; nothing was posted`);
-            const same = (now) => now.id === memberId && now.publicIdentifier === account;
             return {
               category: "[9] representational communication (public post)",
               summary: `Publish a LinkedIn post as ${account} (${text.length} characters)`,
-              preview: { account, memberId, text },
-              run: async () => {
-                const first = await me();
-                if (!same(first)) throw changed(first);
-                return t.withTab(`${ORIGIN}/feed/?shareActive=true&text=${encodeURIComponent(text)}`, async (page) => {
+              account: { account, memberId },
+              content: { text },
+              canon: { text: t.normText },
+              commit: (c) =>
+                t.withTab(`${ORIGIN}/feed/?shareActive=true&text=${encodeURIComponent(text)}`, async (page) => {
                   t.assertSignedIn("linkedin.post", page, SIGN_IN);
                   const box = page.locator('div[role="dialog"] div[role="textbox"]').first();
                   await box.waitFor({ timeout: 30000 });
-                  // The whole text, not its start: a page script or another
-                  // session could keep the drafted opening and add to it.
-                  if (!(await t.composerHolds(box, text))) throw new S.SiteError("compose_mismatch", "linkedin.post: the composer did not receive the drafted text, or holds more than it; nothing was posted");
-                  // The member this composer page posts as, read in that page
-                  // (its own session cookie) right before Post: the profile
-                  // can switch accounts while the composer loads. The click
-                  // follows the answer; a switch between the two is the
-                  // remaining window (LinkedIn has no post bound to a member).
-                  const r = await page.evaluate(voyager, { path: "/voyager/api/me" });
-                  const now = r && r.status >= 200 && r.status < 300 && r.json ? viewer(r.json) : { id: null, publicIdentifier: null };
-                  if (!same(now)) throw changed(now);
-                  await page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first().click();
-                  await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
-                  return { status: "posted" };
-                });
-              },
+                  // The member this composer page posts as, read in that
+                  // page (its own session cookie), and the whole text it
+                  // holds, right before Post: the profile can switch
+                  // accounts while the composer loads. A switch between the
+                  // read and the click is the remaining window (LinkedIn
+                  // has no post bound to a member).
+                  return c.write(
+                    async () => {
+                      const r = await page.evaluate(voyager, { path: "/voyager/api/me" });
+                      const now = r && r.status >= 200 && r.status < 300 && r.json ? viewer(r.json) : null;
+                      return { ...(now && now.publicIdentifier ? { account: now.publicIdentifier } : {}), ...(now && now.id ? { memberId: now.id } : {}), text: await t.composerText(box) };
+                    },
+                    async () => {
+                      await page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first().click();
+                      await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
+                      return { status: "posted" };
+                    },
+                  );
+                }),
             };
           });
         },
       };
     },
-    { summary: "LinkedIn viewer, profiles, people/company search, feed; confirmed-draft posts" },
+    { summary: "LinkedIn viewer, profiles, people/company search, feed; confirmed-draft posts", writes: ["post"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

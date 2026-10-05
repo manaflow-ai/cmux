@@ -25,9 +25,13 @@ const isMock = (href) => {
 
 // Options: signedIn (default true) adds the site session cookies;
 // authResponder(params, page) answers the native "auth.request" driver call
-// the way the app's credential sheet would.
-export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
+// the way the app's credential sheet would; gmailReplies (default false)
+// turns on confirmed Gmail replies, which are off in source until their
+// live check passes (sites/gmail.js), for tests of the reply path.
+export async function createSitesEnv({ signedIn = true, authResponder, gmailReplies = false } = {}) {
   const ns = loadRuntime();
+  const setGmailReplies = (on) => (ns.sites.shared.gmailReplies = { verified: !!on });
+  setGmailReplies(gmailReplies);
   const state = createState();
   let context;
   const browser = await createDevBrowser({
@@ -116,6 +120,11 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
         if (r.error) throw new Error(r.error);
         return JSON.parse(JSON.stringify(repl.scope.__v === undefined ? null : repl.scope.__v));
       },
+      // Evaluates `expr`, which must return a draft, confirms it and
+      // returns the confirmed result (JSON round trip).
+      async confirmed(expr) {
+        return s.value(`(async () => { const __d = await (${expr}); if (!__d || __d.status !== "draft") throw new Error("expected a draft, got " + JSON.stringify(__d)); return sites[__d.site][__d.action](__d.id, { confirm: true }); })()`);
+      },
       async error(expr) {
         const r = await s.run(`await (async () => (${expr}))();`);
         return r.error;
@@ -132,6 +141,7 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
   return {
     state,
     session,
+    setGmailReplies,
     workDir,
     context: () => context,
     async close() {

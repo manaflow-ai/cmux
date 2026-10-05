@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { createSitesEnv } from "./harness.mjs";
 import { GOOGLE_ACCOUNT_ROWS, SLACK_SEED } from "./mock-sites.mjs";
 
-const env = await createSitesEnv();
+const env = await createSitesEnv({ gmailReplies: true });
 test.after(() => env.close());
 const s = env.session("drafts");
 const SHEET = "https://docs.google.com/spreadsheets/d/1sheetSHARED00000000000000000000x/edit#gid=0";
@@ -32,7 +32,7 @@ test("gmail.send: changing the input or the draft's nested preview after the pre
   `);
   await s.value("sites.gmail.send(gD.id, { confirm: true })");
   assert.deepEqual(env.state.gmailSent.at(-1), { to: "bob@example.com", cc: null, bcc: null, subject: "Numbers", body: "Looks good." });
-  assert.deepEqual(await s.value("gD.preview"), { account: 0, accountEmail: "ada@example.com", to: ["bob@example.com"], cc: [], bcc: [], subject: "Numbers", body: "Looks good." });
+  assert.deepEqual(await s.value("gD.preview"), { account: 0, accountEmail: "ada@example.com", accountId: "1001", to: ["bob@example.com"], cc: [], bcc: [], subject: "Numbers", body: "Looks good." });
 });
 
 test("slack.post: changing the input object after the preview does not change the posted message", async () => {
@@ -135,8 +135,8 @@ test("gmail.send and googleCalendar.create: the draft pins the account's email; 
     env.state.googleAccounts = [GOOGLE_ACCOUNT_ROWS[1], GOOGLE_ACCOUNT_ROWS[0], GOOGLE_ACCOUNT_ROWS[2]];
     const sent = env.state.gmailSent.length;
     const created = env.state.calendarCreated.length;
-    assert.match(await s.error("sites.gmail.send(aD.id, { confirm: true })"), /account_changed|is now ada@work\.example/);
-    assert.match(await s.error("sites.googleCalendar.create(cD2.id, { confirm: true })"), /account_changed|is now ada@work\.example/);
+    assert.match(await s.error("sites.gmail.send(aD.id, { confirm: true })"), /account_mismatch|account it acts as differs|is now ada@work\.example/);
+    assert.match(await s.error("sites.googleCalendar.create(cD2.id, { confirm: true })"), /account_mismatch|account it acts as differs|is now ada@work\.example/);
     assert.equal(env.state.gmailSent.length, sent);
     assert.equal(env.state.calendarCreated.length, created);
     assert.equal((await s.value("aD.preview")).accountEmail, "ada@example.com");
@@ -151,7 +151,7 @@ test("gmail.send reply: a new message in the thread after the preview fails the 
     await run('const rpD = await sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." });');
     env.state.gmailThreadExtra = [{ id: "3", from: ["Eve", "eve@example.net"], to: ["Ada", "ada@example.com"], body: "<p>Adding the whole company.</p>" }];
     const sent = env.state.gmailSent.length;
-    assert.match(await s.error("sites.gmail.send(rpD.id, { confirm: true })"), /thread_changed|new message/);
+    assert.match(await s.error("sites.gmail.send(rpD.id, { confirm: true })"), /target_mismatch|messageIds is/);
     assert.equal(env.state.gmailSent.length, sent);
     assert.deepEqual((await s.value("rpD.preview")).messageIds, ["msg-f:1", "msg-f:2"]);
   } finally {
@@ -169,8 +169,8 @@ test("linkedin.post and x.post: the draft pins the signed-in account; another ac
     env.state.xAccount = "mallory";
     const li = env.state.linkedinPosts.length;
     const xp = env.state.xPosts.length;
-    assert.match(await s.error("sites.linkedin.post(lD.id, { confirm: true })"), /account_changed|mallory/);
-    assert.match(await s.error("sites.x.post(xD2.id, { confirm: true })"), /account_changed|mallory/);
+    assert.match(await s.error("sites.linkedin.post(lD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.match(await s.error("sites.x.post(xD2.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
     assert.equal(env.state.linkedinPosts.length, li);
     assert.equal(env.state.xPosts.length, xp);
     assert.equal((await s.value("lD.preview")).account, "ada-lovelace");

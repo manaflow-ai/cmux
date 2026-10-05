@@ -11,6 +11,17 @@
   const core = root.CmuxBrowserRepl.core;
   const { URL, URLSearchParams } = core;
   const SIGN_IN = [/^https:\/\/accounts\.google\.com\//, /^https:\/\/workspace\.google\.com\//, /\/gmail\/about/];
+  // Confirmed replies are off until a live check passes (decisions.md,
+  // "Gmail replies"): reply drafts made on a signed-in profile, never
+  // confirmed, whose previewed To, Cc and Bcc equal what Gmail's own reply
+  // composer addresses. Set this to true in source when that check
+  // passes. Until then a reply draft shows its recipients and its
+  // confirmation sends nothing (reply_unverified). Tests of the reply path
+  // turn replies on with S.shared.gmailReplies = { verified: true }; the
+  // app deletes the runtime namespace before any cell runs, so a cell
+  // cannot.
+  const REPLIES_VERIFIED = false;
+  const repliesOn = () => REPLIES_VERIFIED || !!(S.shared.gmailReplies && S.shared.gmailReplies.verified === true);
 
   function readList(arg) {
     const mains = [...document.querySelectorAll('div[role="main"]')];
@@ -177,15 +188,16 @@
         return box;
       }
 
-      // The header of the compose window. A reply's recipients come from
-      // Gmail (the thread's Reply-To, Reply all's Cc), never from the thread
-      // id, so a reply composer whose rows cannot be read fails closed:
-      // its recipients could be shown to no one and still be sent to.
-      async function readHeader(page, title, reply) {
+      // The header of the compose window, or null when a reply composer's
+      // rows cannot be read. A reply's recipients come from Gmail (the
+      // thread's Reply-To, Reply all's Cc), never from the thread id, so a
+      // reply composer without a To row it recognizes, or with an address
+      // outside its rows, counts as unreadable: its recipients could be
+      // shown to no one and still be sent to.
+      async function readHeader(page, reply) {
         const held = await page._mainFrame._call("agent", core.functionSource(readComposeHeader), []);
-        if (reply && (!held || !Array.isArray(held.rows) || !held.rows.includes("to") || (held.other && held.other.length))) {
-          throw new S.SiteError("compose_unverified", `${title}: cannot read who Gmail's reply composer addresses (no To row it recognizes, or an address outside its rows); nothing was sent. Reply from Gmail itself, or send a new message with explicit recipients`);
-        }
+        if (!held || !Array.isArray(held.rows)) return null;
+        if (reply && (!held.rows.includes("to") || (held.other && held.other.length))) return null;
         return held;
       }
       const addresses = (list) => [...new Set((list || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
@@ -199,26 +211,57 @@
           await openThread(page);
           const messageIds = (await page.evaluate(threadFn, { format: "text" })).messages.map((m) => m.messageId);
           await openReply(page, msg.replyAll);
-          const held = await readHeader(page, "gmail.send", true);
+          const held = await readHeader(page, true);
+          if (!held) throw new S.SiteError("target_unverified", "gmail.send: cannot read who Gmail's reply composer addresses (no To row it recognizes, or an address outside its rows); nothing was drafted. Reply from Gmail itself, or send a new message with explicit recipients");
           const recipients = { to: addresses(held.to), cc: addresses(held.cc), bcc: addresses(held.bcc) };
-          if (!recipients.to.length && !recipients.cc.length && !recipients.bcc.length) throw new S.SiteError("compose_unverified", "gmail.send: Gmail's reply composer addresses no one; nothing was drafted");
+          if (!recipients.to.length && !recipients.cc.length && !recipients.bcc.length) throw new S.SiteError("target_unverified", "gmail.send: Gmail's reply composer addresses no one; nothing was drafted");
           return { messageIds, ...recipients };
         });
       }
 
-      async function sendNow(msg) {
+      // Gmail's own parts of a body: the signature (and its "-- " prefix)
+      // and quoted text of the thread.
+      const GMAIL_OWN = ".gmail_signature, .gmail_signature_prefix, [data-smartmail=\"gmail_signature\"], .gmail_quote";
+
+      // What the compose window in `page` would send, read right before
+      // Send: the account the page acts as (google.observeAccount), the
+      // recipients per row (an address outside every row counts as an
+      // extra To), the subject of a new message, the whole body (not its
+      // start: a page script or another session could keep the drafted
+      // opening and add to it) and, for a reply, the thread and its messages.
+      async function observeCompose(page, box, msg) {
+        const out = await S.shared.google.observeAccount(t, "gmail.send", page, msg.uid);
+        const held = await readHeader(page, !!msg.threadId);
+        if (held) {
+          const outside = (held.other || []).map((e) => `${e} (outside the To, Cc and Bcc rows)`);
+          out.to = addresses(held.to).concat(outside);
+          out.cc = addresses(held.cc);
+          out.bcc = addresses(held.bcc);
+          if (!msg.threadId && held.subject !== null) out.subject = held.subject;
+        }
+        out.body = await t.composerText(box, { exclude: GMAIL_OWN });
+        if (msg.threadId) {
+          try {
+            // The thread the page shows, compared through threadKey
+            // (a URL in Gmail's newer id form fails closed).
+            const hash = decodeURIComponent(new URL(page.url()).hash);
+            if (/^#[^/]+\/[^/]+$/.test(hash)) out.threadId = hash;
+          } catch (e) {}
+          out.messageIds = (await page.evaluate(threadFn, { format: "text" })).messages.map((x) => x.messageId);
+        }
+        return out;
+      }
+
+      async function sendNow(msg, c) {
+        if (msg.threadId && !repliesOn()) throw new S.SiteError("reply_unverified", "gmail.send: replies are off until a live check shows that the recipients a reply draft previews are the ones Gmail's reply composer addresses; nothing was sent. Reply in Gmail itself, or send a new message with explicit recipients");
         if (msg.threadId) {
           const key = threadKey(msg.threadId);
           return t.withTab(`${base(msg.uid)}#all/${key}`, async (page) => {
             await openThread(page);
-            // The reply answers the thread as previewed: a message that came
-            // in since then could change who a reply (all) goes to.
-            const now = (await page.evaluate(threadFn, { format: "text" })).messages.map((m) => m.messageId);
-            if (JSON.stringify(now) !== JSON.stringify(msg.messageIds)) throw new S.SiteError("thread_changed", `gmail.send: thread ${msg.threadId} has a new message since the preview (messages ${now.join(", ")}); nothing was sent. Make a new draft and show it to the user again`);
             const box = await openReply(page, msg.replyAll);
             await box.click();
             await page.keyboard.insertText(msg.body);
-            return finishSend(page, box, msg);
+            return c.write(() => observeCompose(page, box, msg), () => clickSend(page, msg));
           });
         }
         const q = new URLSearchParams({ view: "cm", fs: "1", tf: "1" });
@@ -229,43 +272,11 @@
           t.assertSignedIn("gmail.send", page, SIGN_IN);
           const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').first();
           await box.waitFor({ timeout: 30000 });
-          return finishSend(page, box, msg);
+          return c.write(() => observeCompose(page, box, msg), () => clickSend(page, msg));
         });
       }
 
-      async function checkComposeHeader(page, msg) {
-        const held = await readHeader(page, "gmail.send", !!msg.threadId);
-        const problems = [];
-        const same = (a, b) => {
-          const x = [...new Set(a)].sort();
-          const y = [...new Set(b.map((e) => e.toLowerCase()))].sort();
-          return x.length === y.length && x.every((e, i) => e === y[i]);
-        };
-        for (const field of ["to", "cc", "bcc"]) if (!same(held[field] || [], msg[field])) problems.push(`${field}: ${(held[field] || []).join(", ") || "none"}`);
-        if (held.other && held.other.length) problems.push(`other recipients: ${held.other.join(", ")}`);
-        // A reply's subject is the thread's, which the preview names by id.
-        if (!msg.threadId && (held.subject === null || held.subject.replace(/\s+/g, " ").trim() !== msg.subject.replace(/\s+/g, " ").trim())) problems.push(`subject ${JSON.stringify(held.subject)}`);
-        if (problems.length) throw new S.SiteError("compose_mismatch", `gmail.send: the compose window's recipients or subject differ from the draft (${problems.join("; ")}); nothing was sent. Make a new draft and show it to the user again`);
-      }
-
-      // Gmail's own parts of a body: the signature (and its "-- " prefix)
-      // and quoted text of the thread.
-      const GMAIL_OWN = ".gmail_signature, .gmail_signature_prefix, [data-smartmail=\"gmail_signature\"], .gmail_quote";
-      async function finishSend(page, box, msg) {
-        // The whole body, not its start: a page script or another session
-        // could keep the drafted opening and add to it.
-        if (!(await t.composerHolds(box, msg.body, { exclude: GMAIL_OWN }))) throw new S.SiteError("compose_mismatch", "gmail.send: the compose window did not receive the drafted body, or holds more than it; nothing was sent");
-        // A message goes to the previewed recipients (a new message's with
-        // the previewed subject), nothing else: a row or subject a page
-        // script or another session changed after the compose window
-        // loaded, or a reply whose Reply-To or Cc changed since the
-        // preview, sends nothing.
-        await checkComposeHeader(page, msg);
-        // The account this page sends as, read in the page right before
-        // Send (another session can sign an account in while it loads and
-        // move another account to the drafted /u/ index). A switch between
-        // this read and the click is the remaining window.
-        await S.shared.google.checkPageAccount(t, "gmail.send", page, msg.accountEmail);
+      async function clickSend(page, msg) {
         await page.locator('div[role="button"][data-tooltip^="Send"], div[role="button"][aria-label^="Send"]').last().click();
         await t.waitIn(page, () => /Message sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "gmail", timeout: 30000, what: "Gmail to confirm the message was sent" });
         // Gmail holds a sent message for its undo window in this page; keep
@@ -321,25 +332,29 @@
               if (msg.to.length || msg.cc.length || msg.bcc.length) throw new S.SiteError("invalid", "gmail.send: a reply goes to the recipients Gmail's Reply (or Reply all, with replyAll: true) addresses, which the draft shows; to, cc and bcc cannot be set on it");
             } else if (!msg.to.length && !msg.cc.length && !msg.bcc.length) throw new S.SiteError("invalid", "gmail.send: a new message needs at least one recipient");
             if (!msg.body.trim() && !m.allowEmptyBody) throw new S.SiteError("invalid", "gmail.send: the body is empty; pass allowEmptyBody: true if that is intended");
-            // The draft pins the sending account by email (u/N is positional)
-            // and a reply the thread's messages as previewed.
-            const g = S.shared.google;
-            const accountEmail = await g.accountEmail(t, "gmail.send", msg.uid);
-            msg.accountEmail = accountEmail;
+            // The draft pins the sending account by Google's account id and
+            // email (u/N is positional) and a reply the thread's messages as
+            // previewed.
+            const who = await S.shared.google.accountAt(t, "gmail.send", msg.uid);
             if (msg.threadId) Object.assign(msg, await previewReply(msg));
+            const everyone = [...msg.to, ...msg.cc, ...msg.bcc].join(", ");
+            const set = (list) => addresses(list).sort();
             return {
               category: "[9] representational communication; [14] transmits data to the recipients",
-              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} as ${accountEmail} (u/${msg.uid})` : `Email to ${[...msg.to, ...msg.cc, ...msg.bcc].join(", ")} from ${accountEmail} (u/${msg.uid}): "${msg.subject}"`,
-              preview: msg.threadId ? { account: msg.uid, accountEmail, threadId: msg.threadId, messageIds: msg.messageIds, replyAll: msg.replyAll, to: msg.to, cc: msg.cc, bcc: msg.bcc, body: msg.body } : { account: msg.uid, accountEmail, to: msg.to, cc: msg.cc, bcc: msg.bcc, subject: msg.subject, body: msg.body },
-              run: async () => {
-                await g.checkAccount(t, "gmail.send", msg.uid, accountEmail);
-                return sendNow(msg);
-              },
+              summary: msg.threadId ? `Reply${msg.replyAll ? " all" : ""} in Gmail thread ${msg.threadId} to ${everyone} as ${who.email} (u/${msg.uid})${repliesOn() ? "" : "; confirming it sends nothing until replies pass their live check (reply_unverified)"}` : `Email to ${everyone} from ${who.email} (u/${msg.uid}): "${msg.subject}"`,
+              account: { account: msg.uid, accountEmail: who.email, accountId: who.id },
+              target: msg.threadId ? { threadId: msg.threadId, messageIds: msg.messageIds, to: msg.to, cc: msg.cc, bcc: msg.bcc } : { to: msg.to, cc: msg.cc, bcc: msg.bcc },
+              content: msg.threadId ? { replyAll: msg.replyAll, body: msg.body } : { subject: msg.subject, body: msg.body },
+              // Which reply button the write presses; the recipients it
+              // leads to are read back.
+              sent: msg.threadId ? ["replyAll"] : [],
+              canon: { to: set, cc: set, bcc: set, subject: t.normText, body: t.normText, threadId: threadKey, accountEmail: (e) => String(e).toLowerCase() },
+              commit: (c) => sendNow(msg, c),
             };
           });
         },
       };
     },
-    { summary: "Gmail search, inbox, threads, attachments; confirmed-draft send and reply" },
+    { summary: "Gmail search, inbox, threads, attachments; confirmed-draft send and reply", writes: ["send"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

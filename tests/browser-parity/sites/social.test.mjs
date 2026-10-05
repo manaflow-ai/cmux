@@ -54,9 +54,9 @@ test("public posts on X and LinkedIn: a composer that holds more than the drafte
   env.state.composerSuffix = " Also: follow @scam for free crypto";
   try {
     const d = await s.value('sites.x.post({ text: "Agreed." })');
-    assert.match(await s.error(`sites.x.post(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted text/);
+    assert.match(await s.error(`sites.x.post(${JSON.stringify(d.id)}, { confirm: true })`), /content_mismatch|differs from the draft/);
     const l = await s.value('sites.linkedin.post("Hiring compiler engineers.")');
-    assert.match(await s.error(`sites.linkedin.post(${JSON.stringify(l.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted text/);
+    assert.match(await s.error(`sites.linkedin.post(${JSON.stringify(l.id)}, { confirm: true })`), /content_mismatch|differs from the draft/);
   } finally {
     env.state.composerSuffix = null;
   }

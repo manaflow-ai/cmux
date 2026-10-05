@@ -6,6 +6,7 @@
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
+  const { URL } = root.CmuxBrowserRepl.core;
   const ORIGIN = "https://x.com";
   const SIGN_IN = [/x\.com\/(i\/flow\/login|login|i\/flow\/signup)/, /twitter\.com\/(i\/flow\/login|login)/];
 
@@ -163,31 +164,41 @@
             return {
               category: "[9] representational communication (public post)",
               summary: replyTo ? `Reply on X to post ${replyTo} as @${account}` : `Publish a post on X as @${account}`,
-              preview: { account, text: spec.text, replyTo },
-              run: () =>
+              account: { account },
+              target: { replyTo },
+              content: { text: spec.text },
+              canon: { text: t.normText, account: (v) => String(v).toLowerCase() },
+              commit: (c) =>
                 t.withTab(`${ORIGIN}/intent/post?text=${encodeURIComponent(spec.text)}${replyTo ? `&in_reply_to=${replyTo}` : ""}`, async (page) => {
                   t.assertSignedIn("x.post", page, SIGN_IN);
                   const button = page.locator('[data-testid="tweetButton"]');
                   await button.first().waitFor({ timeout: 30000 });
                   const box = page.locator('[data-testid="tweetTextarea_0"]').first();
-                  // The whole text, not its start: a page script or another
-                  // session could keep the drafted opening and add to it.
-                  if (!(await box.count()) || !(await t.composerHolds(box, spec.text))) throw new S.SiteError("compose_mismatch", "x.post: the composer did not receive the drafted text, or holds more than it; nothing was posted");
-                  // The account X authenticates, read again from this page
-                  // right before Post: another session can switch accounts
-                  // while the composer loads.
-                  const now = await page.evaluate(authenticatedUser, { bearer: WEB_BEARER });
-                  if (!now) throw new S.SiteError("account_unknown", `x.post: X did not say which account the composer is signed in as; nothing was posted`);
-                  if (now.toLowerCase() !== String(account).toLowerCase()) throw new S.SiteError("account_changed", `x.post: X is now signed in as @${now}, not @${account} as drafted; nothing was posted. Make a new draft and show it to the user again`);
-                  await button.first().click();
-                  await t.waitIn(page, () => !document.querySelector('[data-testid="tweetButton"]') || /Your post was sent|Your reply was sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "x", timeout: 30000, what: "X to publish the post" });
-                  return { status: "posted", replyTo };
+                  // The account X authenticates (read from this page: another
+                  // session can switch accounts while the composer loads),
+                  // the post it answers (the composer's own URL) and the
+                  // whole text the composer holds, right before Post.
+                  return c.write(
+                    async () => {
+                      const now = await page.evaluate(authenticatedUser, { bearer: WEB_BEARER });
+                      let answers;
+                      try {
+                        answers = new URL(page.url()).searchParams.get("in_reply_to");
+                      } catch (e) {}
+                      return { ...(now ? { account: now } : {}), ...(answers !== undefined ? { replyTo: answers } : {}), ...((await box.count()) ? { text: await t.composerText(box) } : {}) };
+                    },
+                    async () => {
+                      await button.first().click();
+                      await t.waitIn(page, () => !document.querySelector('[data-testid="tweetButton"]') || /Your post was sent|Your reply was sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "x", timeout: 30000, what: "X to publish the post" });
+                      return { status: "posted", replyTo };
+                    },
+                  );
                 }),
             };
           });
         },
       };
     },
-    { summary: "X profiles, timelines, search, posts with replies; confirmed-draft posts and replies" },
+    { summary: "X profiles, timelines, search, posts with replies; confirmed-draft posts and replies", writes: ["post"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

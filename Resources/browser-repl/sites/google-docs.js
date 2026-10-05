@@ -43,73 +43,81 @@
           return { title, blocks: await t.withTab("about:blank", (page) => page.evaluate(blocksOf, { html: text })) };
         },
         // Replaces every occurrence of `find` (Find and replace, match case off as in Docs):
-        // { status: "replaced", count, verified }. Private doc: at once; else a draft.
-        // The draft states the match count and offsets in the text export;
-        // Replace all edits every match, so the write runs only on that same
-        // text, read again right before it (document_changed otherwise).
+        // a draft; replace(draftId, { confirm: true }) -> { status: "replaced", count, verified }.
+        // The draft states the match count and offsets in the text export
+        // and the text's hash; Replace all edits every match, so the write
+        // runs only on that same text, read again right before it.
         async replace(doc, find, replacement, options) {
           if (typeof doc === "string" && /^draft-\d+-[0-9a-f]+$/.test(doc)) return ed.edit("googleDocs", "replace", "googleDocs.replace", null, doc, find);
           if (typeof find !== "string" || !find) throw new S.SiteError("invalid", "googleDocs.replace: find: expected text");
           // Read once, so the preview and the edit use the same text.
           replacement = String(replacement);
           const r = ref(doc, "googleDocs.replace", options || {});
-          const drafted = await plain(r);
-          const at = ed.matchesIn(drafted, find);
-          return ed.edit("googleDocs", "replace", "googleDocs.replace", r, {}, options, () => ({
-            summary: `Replace ${at.length} match(es) of "${find}" (case ignored) with "${replacement}" in Google Doc ${r.id}`,
-            preview: { file: doc, find, replace: replacement, matches: at.length, at: at.slice(0, 100) },
-            run: async (page, gate) => {
-              await gate();
-              const now = await plain(r);
-              if (now !== drafted) throw new S.SiteError("document_changed", `googleDocs.replace: the document changed since the ${at.length} match(es) were counted (it now has ${ed.matchesIn(now, find).length}); nothing was changed. Make a new call (a new draft for a shared file)`);
-              await ed.findReplace(page, find, replacement);
-              const verified = at.length === 0 || (await ed.verify(async () => { const after = await plain(r); return replacement.includes(find) ? count(after, replacement) >= at.length : count(after, find) === 0; }));
-              return { status: "replaced", count: at.length, verified };
-            },
-          }));
+          const read = async () => {
+            const text = await plain(r);
+            const at = ed.matchesIn(text, find);
+            return { matches: at.length, at: at.slice(0, 100), textHash: t.hash(text) };
+          };
+          return ed.edit("googleDocs", "replace", "googleDocs.replace", r, {}, options, async () => {
+            const drafted = await read();
+            return {
+              summary: `Replace ${drafted.matches} match(es) of "${find}" (case ignored) with "${replacement}" in Google Doc ${r.id}`,
+              content: { find, replace: replacement, ...drafted },
+              sent: ["find", "replace"],
+              observe: read,
+              act: async (page) => {
+                await ed.findReplace(page, find, replacement);
+                const verified = drafted.matches === 0 || (await ed.verify(async () => { const after = await plain(r); return replacement.includes(find) ? count(after, replacement) >= drafted.matches : count(after, find) === 0; }));
+                return { status: "replaced", count: drafted.matches, verified };
+              },
+            };
+          });
         },
-        // Inserts text right after a unique anchor (a heading's text or any phrase): { status: "inserted", verified }.
+        // Inserts text right after a unique anchor (a heading's text or any
+        // phrase): a draft; insertAfter(draftId, { confirm: true }) -> { status: "inserted", verified }.
         async insertAfter(doc, anchor, text, options) {
           if (typeof doc === "string" && /^draft-\d+-[0-9a-f]+$/.test(doc)) return ed.edit("googleDocs", "insertAfter", "googleDocs.insertAfter", null, doc, anchor);
           if (typeof anchor !== "string" || !anchor) throw new S.SiteError("invalid", "googleDocs.insertAfter: anchor: expected text");
           if (typeof text !== "string" || !text) throw new S.SiteError("invalid", "googleDocs.insertAfter: text: expected text");
           const r = ref(doc, "googleDocs.insertAfter", options || {});
-          // The document as drafted: the anchor's one match and its offset
-          // in the text export. Find and replace edits every match, so the
-          // write runs only on this same text (no second match, no other
-          // change), read again right before Replace all.
-          const drafted = await plain(r);
-          // Find and replace ignores case: the anchor must occur once that
-          // way, and that one match must be the anchor as given.
-          const n = ed.matchesIn(drafted, anchor).length;
-          if (n !== 1 || count(drafted, anchor) !== 1) throw new S.SiteError("invalid", `googleDocs.insertAfter: anchor ${JSON.stringify(anchor)} occurs ${n} times; it must occur exactly once`);
-          const at = drafted.indexOf(anchor);
-          return ed.edit("googleDocs", "insertAfter", "googleDocs.insertAfter", r, {}, options, () => ({
-            summary: `Insert text after "${anchor}" (its one match, at character ${at}) in Google Doc ${r.id}`,
-            preview: { file: doc, anchor, text, matches: 1, at },
-            run: async (page, gate) => {
-              await gate();
-              const now = await plain(r);
-              if (now !== drafted) {
-                const k = ed.matchesIn(now, anchor).length;
-                throw new S.SiteError("document_changed", `googleDocs.insertAfter: the document changed since ${k === 1 ? "the anchor was found" : `the anchor was found; it now occurs ${k} times`}; nothing was changed. Make a new call (a new draft for a shared file)`);
-              }
-              await ed.findReplace(page, anchor, anchor + text);
-              const verified = await ed.verify(async () => (await plain(r)).includes(anchor + text));
-              return { status: "inserted", verified };
-            },
-          }));
+          // The document as drafted: the anchor's one match, its offset in
+          // the text export and the text's hash. Find and replace edits
+          // every match, so the write runs only on this same text (no
+          // second match, no other change), read again right before
+          // Replace all. Find and replace ignores case: the anchor must
+          // occur once that way, and that one match must be the anchor as given.
+          const read = async () => {
+            const now = await plain(r);
+            return { matches: ed.matchesIn(now, anchor).length, at: count(now, anchor) === 1 ? now.indexOf(anchor) : null, textHash: t.hash(now) };
+          };
+          return ed.edit("googleDocs", "insertAfter", "googleDocs.insertAfter", r, {}, options, async () => {
+            const drafted = await read();
+            if (drafted.matches !== 1 || drafted.at === null) throw new S.SiteError("invalid", `googleDocs.insertAfter: anchor ${JSON.stringify(anchor)} occurs ${drafted.matches} times; it must occur exactly once`);
+            return {
+              summary: `Insert text after "${anchor}" (its one match, at character ${drafted.at}) in Google Doc ${r.id}`,
+              content: { anchor, text, ...drafted },
+              sent: ["anchor", "text"],
+              observe: read,
+              act: async (page) => {
+                await ed.findReplace(page, anchor, anchor + text);
+                const verified = await ed.verify(async () => (await plain(r)).includes(anchor + text));
+                return { status: "inserted", verified };
+              },
+            };
+          });
         },
-        // Appends a paragraph at the end of the document: { status: "appended", verified }.
+        // Appends a paragraph at the end of the document: a draft;
+        // append(draftId, { confirm: true }) -> { status: "appended", verified }.
         append(doc, text, options) {
           if (typeof doc === "string" && /^draft-\d+-[0-9a-f]+$/.test(doc)) return ed.edit("googleDocs", "append", "googleDocs.append", null, doc, text);
           if (typeof text !== "string" || !text) throw new S.SiteError("invalid", "googleDocs.append: text: expected text");
           const r = ref(doc, "googleDocs.append", options || {});
           return ed.edit("googleDocs", "append", "googleDocs.append", r, {}, options, () => ({
             summary: `Append a paragraph to Google Doc ${r.id}`,
-            preview: { file: doc, text },
-            run: async (page, gate) => {
-              await gate();
+            content: { text },
+            sent: ["text"],
+            observe: async () => ({}),
+            act: async (page) => {
               await page.locator(".kix-appview-editor").first().click();
               await page.keyboard.press("Meta+ArrowDown");
               await page.keyboard.press("Enter");
@@ -135,6 +143,6 @@
         },
       };
     },
-    { summary: "Read (Markdown/text/HTML) and export (md/pdf/docx/...) Google Docs" },
+    { summary: "Read (Markdown/text/HTML) and export (md/pdf/docx/...) Google Docs; confirmed-draft edits", writes: ["replace", "insertAfter", "append"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

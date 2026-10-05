@@ -6,14 +6,15 @@
 // input: the Sheets name box and a paste from cmux's per-tab clipboard, the
 // Docs and Slides Find and replace dialog, typing at the end of a document.
 //
-// Rule for writes: a file whose Share button says "Private to only me" is
-// edited at once (nobody else sees it); any other file, or one whose
-// sharing cannot be read, gets a draft first (reference B's confirmation
-// taxonomy, [9]: edits others can see).
+// Rule for writes: every edit is a draft first (reference B's confirmation
+// taxonomy, [9]: edits others can see). The Share button's label is page
+// text, so it never decides that a file is private enough to skip the
+// draft; the draft shows it, and the confirmation requires it again.
 (function (root) {
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
+  const { URL } = root.CmuxBrowserRepl.core;
 
   // Runs in a blank page (for DecompressionStream): unzips base64 bytes and
   // returns the text of entries whose names match arg.want.
@@ -145,24 +146,9 @@
           return body(page);
         });
       },
-      // Reloads the editor and fails (sharing_changed) unless its Share
-      // button still says `expected`: sharing can change after the label
-      // that decided between an immediate edit and a draft, or after a
-      // draft's preview. Each write calls it right before its first input.
-      // `account`: the Google account the decision or the preview was made
-      // as; the reloaded editor must be signed in as it (account_changed),
-      // since its /u/ index is positional and another session can sign an
-      // account in or out.
-      async recheckSharing(name, page, expected, when, account) {
-        await page.reload({ waitUntil: "load", timeout: 45000 });
-        await editors.waitEditor(name, page);
-        const now = await editors.sharing(page);
-        if (now !== expected) throw new S.SiteError("sharing_changed", `${name}: the file's sharing is now "${now || "unknown"}", not "${expected || "unknown"}" as ${when}; nothing was changed. Make a new ${when === "previewed" ? "draft and show it to the user again" : "call"}`);
-        if (account) await g.checkPageAccount(t, name, page, account, "nothing was changed");
-      },
       // The Share button's description: "Share. Private to only me" and the
-      // like, or "" when it is unknown. It decides whether an edit runs at
-      // once, so it is read only from the editor's own Share button: the one
+      // like, or "" when it is unknown. A draft shows it and its commit
+      // requires it again, so it is read only from the editor's own Share button: the one
       // element with its id in the document, inside the editor's title bar
       // (the id sits on an unlabeled wrapper, the label on the button in
       // it), through locators (the agent's isolated world). Every sharing
@@ -198,34 +184,55 @@
           await t.sleep(150);
         }
       },
-      isPrivate: (label) => /private to only me/i.test(label),
       // Offsets of `find` in `text` as the editors' Find and replace
       // matches it by default: case ignored, no overlaps.
       matchesIn(text, find) {
         const re = new RegExp(String(find).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
         return [...String(text).matchAll(re)].map((m) => m.index);
       },
-      // A write: at once on a private file, else a draft confirmed later.
-      // spec(label, page) (may be async) -> { summary, preview, run(page,
-      // gate) }. run calls gate() right before its first input to the
-      // file: it reloads the editor and requires the sharing label this
-      // decision (or the preview) was made on, as the Google account the
-      // editor was signed in as then (the draft shows it).
+      // What a commit reads back in the file's editor right before the
+      // write: the file (its id in the editor's URL), its title, its
+      // sharing and the account the editor acts as (observeAccount).
+      async observe(name, ref, page) {
+        let fileId;
+        try {
+          fileId = (/\/d\/([\w-]+)\//.exec(new URL(page.url()).pathname) || [])[1];
+        } catch (e) {}
+        const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; }).catch(() => null);
+        const label = await editors.sharing(page);
+        const who = await g.observeAccount(t, name, page, ref.uid);
+        return { fileId, title: typeof title === "string" ? title : undefined, sharing: label || undefined, account: who.accountEmail, accountId: who.accountId };
+      },
+      // A write to a Google file, always as a draft (sites.<site>.<action>
+      // in the loader's commit protocol). spec(page) (may be async), in the
+      // file's editor at draft time -> { summary, target, content, sent,
+      // canon, observe(page), act(page) }. The draft binds the account the
+      // editor acts as (email and Google's account id), the file (id,
+      // title, sharing) and the spec's target and content; the commit opens
+      // the editor again, reads all of it back (observe() and
+      // spec.observe(page)) and only then runs spec.act(page).
       edit(site, action, name, ref, input, options, spec) {
         if (typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input)) return t.write(site, action, input, options);
-        return editors.inEditor(name, ref, async (page) => {
-          const label = await editors.sharing(page);
-          const account = await g.pageAccount(t, name, page);
-          const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; });
-          const s = await spec(label, page);
-          if (editors.isPrivate(label)) return s.run(page, () => editors.recheckSharing(name, page, label, "when the edit started", account));
-          return t.write(site, action, { draft: true }, undefined, () => ({
-            category: "[9] edit content others can see",
-            summary: `${s.summary} as ${account}`,
-            preview: { ...s.preview, title, sharing: label || "unknown", account },
-            run: () => editors.inEditor(name, ref, (p) => s.run(p, () => editors.recheckSharing(name, p, label, "previewed", account))),
-          }));
-        });
+        if (options && options.confirm) return t.write(site, action, { draft: true }, options);
+        return t.write(site, action, { draft: true }, undefined, () =>
+          editors.inEditor(name, ref, async (page) => {
+            const now = await editors.observe(name, ref, page);
+            if (!now.sharing) throw new S.SiteError("target_unverified", `${name}: could not read the file's sharing from its Share button; nothing was drafted`);
+            if (!now.account || !now.accountId || !/^[^\s()]+@[^\s()]+$/.test(now.account)) throw new S.SiteError("account_unverified", `${name}: could not tell which Google account the editor acts as (its header and Google's account list must agree); nothing was drafted`);
+            if (!now.fileId || now.fileId !== ref.id) throw new S.SiteError("target_unverified", `${name}: the editor opened ${now.fileId || "no file"}, not ${ref.id}; nothing was drafted`);
+            const s = await spec(page);
+            return {
+              category: s.category || "[9] edit content others can see",
+              summary: `${s.summary} as ${now.account}`,
+              account: { account: now.account, accountId: now.accountId },
+              target: { fileId: ref.id, title: now.title === undefined ? null : now.title, sharing: now.sharing, ...(s.target || {}) },
+              content: s.content || {},
+              sent: s.sent,
+              canon: s.canon,
+              commit: (c) => editors.inEditor(name, ref, (p) => c.write(async () => ({ ...(await editors.observe(name, ref, p)), ...(await s.observe(p)) }), () => s.act(p))),
+            };
+          }),
+        );
       },
       // Find and replace (Meta+Shift+H) in Docs or Slides: replaces every match.
       async findReplace(page, find, replacement) {

@@ -4,6 +4,7 @@
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
+  const { URL } = root.CmuxBrowserRepl.core;
   S.register(
     "googleSlides",
     (t) => {
@@ -20,42 +21,58 @@
           return ed.deck("googleSlides.slides", ref(deck, "googleSlides.slides", options));
         },
         // Sets one slide's speaker notes (1-based index), replacing what is
-        // there: { status: "notes set", slide, verified }. Private deck: at once; else a draft.
+        // there: a draft; setNotes(draftId, { confirm: true }) -> { status:
+        // "notes set", slide, verified }.
         async setNotes(deck, index, text, options) {
           if (typeof deck === "string" && /^draft-\d+-[0-9a-f]+$/.test(deck)) return ed.edit("googleSlides", "setNotes", "googleSlides.setNotes", null, deck, index);
           if (!Number.isInteger(index) || index < 1) throw new S.SiteError("invalid", `googleSlides.setNotes: index: expected a slide number from 1, got ${JSON.stringify(index)}`);
           if (typeof text !== "string") throw new S.SiteError("invalid", "googleSlides.setNotes: text: expected text");
           const r = ref(deck, "googleSlides.setNotes", options || {});
-          const slides = await ed.deck("googleSlides.setNotes", r);
-          const count = slides.length;
-          if (index > count) throw new S.SiteError("invalid", `googleSlides.setNotes: slide ${index} does not exist; the deck has ${count} slides`);
           const norm = (x) => String(x).replace(/\s+/g, " ").trim();
           // Filmstrip thumbnails are g#filmstrip-slide-<position>-<object id>:
-          // the object id stays with the slide when slides move.
-          const findSlide = (arg) => {
+          // the object id (stable) of each slide, in deck order.
+          const filmstrip = () => {
+            const out = [];
             for (const g of document.querySelectorAll('[id^="filmstrip-slide-"]')) {
               const m = /^filmstrip-slide-(\d+)-(.+)$/.exec(g.id);
-              if (m && (arg.id === undefined ? Number(m[1]) === arg.position : m[2] === arg.id)) return { position: Number(m[1]), id: m[2] };
+              if (m) out[Number(m[1])] = m[2];
             }
-            return null;
+            return out.every((x) => typeof x === "string") ? out : null;
           };
-          return ed.edit("googleSlides", "setNotes", "googleSlides.setNotes", r, {}, options, async (label, page) => {
-            // The draft names the slide by its object id, read from the
-            // editor now; the write finds that slide wherever it moved.
-            const found = await page.evaluate(findSlide, { position: index - 1 });
-            if (!found || !/^[\w-]+$/.test(found.id)) throw new S.SiteError("not_found", `googleSlides.setNotes: slide ${index} is not in the editor's filmstrip`);
-            const slideId = found.id;
-            const slideTitle = slides[index - 1].title;
+          // The deck as the editor (object ids) and the export (titles,
+          // notes) both show it: the editor's order read before and after
+          // the export, so the export's slide at a position is the slide
+          // with that position's id. Nothing when the two disagree (a
+          // collaborator moved, added or removed a slide meanwhile).
+          const both = async (page) => {
+            const before = await page.evaluate(filmstrip);
+            const slides = await ed.deck("googleSlides.setNotes", r);
+            const after = await page.evaluate(filmstrip);
+            if (!before || !after || before.join("\n") !== after.join("\n") || before.length !== slides.length) return null;
+            return before.map((id, i) => ({ id, title: slides[i].title, notes: slides[i].notes }));
+          };
+          return ed.edit("googleSlides", "setNotes", "googleSlides.setNotes", r, {}, options, async (page) => {
+            // The draft names the slide by its object id and the title the
+            // export gives the slide with that id; the write requires both
+            // again, at the same position.
+            const slides = await both(page);
+            if (!slides) throw new S.SiteError("target_unverified", "googleSlides.setNotes: the editor's slides and the deck's export disagree (a collaborator is moving slides); nothing was drafted. Try again");
+            if (index > slides.length) throw new S.SiteError("invalid", `googleSlides.setNotes: slide ${index} does not exist; the deck has ${slides.length} slides`);
+            const slide = slides[index - 1];
+            if (!/^[\w-]+$/.test(slide.id)) throw new S.SiteError("target_unverified", `googleSlides.setNotes: slide ${index} has no object id in the editor's filmstrip`);
             return {
-              summary: `Set the speaker notes of slide ${index} ("${slideTitle}", object ${slideId}) in Google Slides ${r.id}`,
-              preview: { file: deck, slide: index, slideId, slideTitle, notes: text },
-              run: async (page, gate) => {
-                await gate();
-                const now = await page.evaluate(findSlide, { id: slideId });
-                if (!now) throw new S.SiteError("slide_changed", `googleSlides.setNotes: slide ${slideId} ("${slideTitle}") is no longer in the deck; nothing was changed`);
-                const at = now.position + 1;
-                return setNotesOn(page, `[id="filmstrip-slide-${now.position}-${slideId}"]`, at);
+              summary: `Set the speaker notes of slide ${index} ("${slide.title}", object ${slide.id}) in Google Slides ${r.id}`,
+              target: { slide: index, slideId: slide.id, slideTitle: slide.title },
+              content: { notes: text },
+              sent: ["notes"],
+              observe: async (p) => {
+                const now = await both(p);
+                const at = now ? now.findIndex((x) => x.id === slide.id) : -1;
+                if (!now) return {};
+                if (at < 0) return { slideId: null };
+                return { slide: at + 1, slideId: slide.id, slideTitle: now[at].title };
               },
+              act: (p) => setNotesOn(p, `[id="filmstrip-slide-${index - 1}-${slide.id}"]`, index),
             };
           });
           // The slide's thumbnail in the filmstrip, then the notes box, with typed keys.
@@ -80,7 +97,7 @@
           }
         },
         // Replaces every occurrence of `find` in the deck (Find and replace):
-        // { status: "replaced", count, verified }. Private deck: at once; else a draft.
+        // a draft; replace(draftId, { confirm: true }) -> { status: "replaced", count, verified }.
         async replace(deck, find, replacement, options) {
           if (typeof deck === "string" && /^draft-\d+-[0-9a-f]+$/.test(deck)) return ed.edit("googleSlides", "replace", "googleSlides.replace", null, deck, find);
           if (typeof find !== "string" || !find) throw new S.SiteError("invalid", "googleSlides.replace: find: expected text");
@@ -88,26 +105,29 @@
           replacement = String(replacement);
           const r = ref(deck, "googleSlides.replace", options || {});
           const occurrences = (slides) => slides.flatMap((s) => [...s.text, s.notes]).reduce((n, x) => n + (x.split(find).length - 1), 0);
-          // The deck as drafted (pptx export: slide text and notes) and the
-          // matches per slide, case ignored as Find and replace does. Replace
-          // all edits every match, so the write runs only on that same deck,
-          // read again right before it (document_changed otherwise).
-          const drafted = await ed.deck("googleSlides.replace", r);
-          const draftedJSON = JSON.stringify(drafted);
-          const at = drafted.map((s) => ({ slide: s.index, matches: ed.matchesIn([...s.text, s.notes].join("\n"), find).length })).filter((x) => x.matches);
-          const total = at.reduce((n, x) => n + x.matches, 0);
-          return ed.edit("googleSlides", "replace", "googleSlides.replace", r, {}, options, () => ({
-            summary: `Replace ${total} match(es) of "${find}" (case ignored) with "${replacement}" in Google Slides ${r.id}`,
-            preview: { file: deck, find, replace: replacement, matches: total, at },
-            run: async (page, gate) => {
-              await gate();
-              const now = await ed.deck("googleSlides.replace", r);
-              if (JSON.stringify(now) !== draftedJSON) throw new S.SiteError("document_changed", `googleSlides.replace: the deck changed since the ${total} match(es) were counted; nothing was changed. Make a new call (a new draft for a shared deck)`);
-              await ed.findReplace(page, find, replacement);
-              const verified = total === 0 || replacement.includes(find) || (await ed.verify(async () => occurrences(await ed.deck("googleSlides.replace", r)) === 0));
-              return { status: "replaced", count: total, verified };
-            },
-          }));
+          // The deck (pptx export: slide text and notes) as its hash, and
+          // the matches per slide, case ignored as Find and replace does.
+          // Replace all edits every match, so the write runs only on that
+          // same deck, read again right before it.
+          const read = async () => {
+            const slides = await ed.deck("googleSlides.replace", r);
+            const at = slides.map((s) => ({ slide: s.index, matches: ed.matchesIn([...s.text, s.notes].join("\n"), find).length })).filter((x) => x.matches);
+            return { matches: at.reduce((n, x) => n + x.matches, 0), at, deckHash: t.hash(JSON.stringify(slides)) };
+          };
+          return ed.edit("googleSlides", "replace", "googleSlides.replace", r, {}, options, async () => {
+            const drafted = await read();
+            return {
+              summary: `Replace ${drafted.matches} match(es) of "${find}" (case ignored) with "${replacement}" in Google Slides ${r.id}`,
+              content: { find, replace: replacement, ...drafted },
+              sent: ["find", "replace"],
+              observe: read,
+              act: async (page) => {
+                await ed.findReplace(page, find, replacement);
+                const verified = drafted.matches === 0 || replacement.includes(find) || (await ed.verify(async () => occurrences(await ed.deck("googleSlides.replace", r)) === 0));
+                return { status: "replaced", count: drafted.matches, verified };
+              },
+            };
+          });
         },
         // { title, text }: the slides' text, in order.
         async read(deck, options = {}) {
@@ -123,6 +143,6 @@
         },
       };
     },
-    { summary: "Read (text) and export (pptx/pdf/...) Google Slides" },
+    { summary: "Read (text) and export (pptx/pdf/...) Google Slides; confirmed-draft edits", writes: ["setNotes", "replace"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

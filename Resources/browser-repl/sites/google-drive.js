@@ -10,12 +10,8 @@
     (t) => {
       const g = S.shared.google;
       const ed = S.shared.editors.create(t);
-      const created = new Set();
-      // Moves the file open in `page` (its editor) to the trash. gate()
-      // runs right before the first input: it reloads the editor and fails
-      // unless the Share button still says what the decision was made on.
-      async function trashIn(page, ref, gate) {
-        await gate();
+      // Moves the file open in `page` (its editor) to the trash.
+      async function trashIn(page, ref) {
         await t.waitIn(page, () => !!document.querySelector("#docs-file-menu"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.trash", what: "the editor's File menu", timeout: 45000 });
         await t.sleep(1500);
         // File > Move to trash (matched by the item's text; retried once if the menu did not open).
@@ -29,7 +25,6 @@
         }
         await item.click();
         await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
-        created.delete(ref.id);
         // A trashed file still opens for its owner, with "File is in trash".
         return t.withTab(ed.editURL(ref), async (check) => {
           const verified = await t.waitIn(check, () => /\b(is|moved to) (in )?(the )?(trash|bin)\b/i.test(document.body.innerText), undefined, { timeout: 20000, what: "the trash notice" }).then(() => true, () => false);
@@ -93,7 +88,8 @@
           return driveRows("googleDrive.search", `search?q=${encodeURIComponent(query)}`, options);
         },
         // Creates a private Google file and names it: create("spreadsheets" | "document" | "presentation", title, { uid })
-        // -> { id, url, title, account }. Files made this way can be trashed without a draft while private.
+        // -> { id, url, title, account }. The new file is private to the
+        // account, so this is not a draft (nobody else sees it).
         async create(kind, title, options = {}) {
           if (!["document", "spreadsheets", "presentation"].includes(kind)) throw new S.SiteError("invalid", `googleDrive.create: kind: expected document, spreadsheets or presentation, got ${JSON.stringify(kind)}`);
           if (typeof title !== "string" || !title.trim()) throw new S.SiteError("invalid", "googleDrive.create: title: expected a name");
@@ -103,7 +99,7 @@
           // The /u/ index is positional (another session's sign-in moves
           // accounts to other indexes), so the URL names the account by the
           // email at that index now, which Google accepts as authuser.
-          const account = await g.accountEmail(t, "googleDrive.create", uid);
+          const account = (await g.accountAt(t, "googleDrive.create", uid)).email;
           return t.withTab(`https://docs.google.com/${kind}/create?${new URLSearchParams({ authuser: account })}`, async (page) => {
             await t.waitIn(page, () => /\/d\/[\w-]+\/edit/.test(location.pathname) && !!document.querySelector(".docs-title-input"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.create", what: "the new file's editor", timeout: 45000 });
             const id = /\/d\/([\w-]+)\//.exec(new URL(page.url()).pathname)[1];
@@ -135,36 +131,27 @@
               } catch (e) {}
             }
             if (!saved) throw new S.SiteError("rename_failed", `googleDrive.create: created ${kind} ${id} but its new name did not save`);
-            created.add(id);
             return { id, url: `https://docs.google.com/${kind}/d/${id}/edit`, title, account };
           });
         },
-        // Moves a Google file to the trash through its editor's File menu.
-        // A file made by googleDrive.create in this session is trashed at
-        // once while its Share button says it is private; any other file,
-        // or one shared since, needs a draft (deleting data, [1]) that
-        // shows its sharing. Either way the editor is reloaded right before
-        // the File menu, and the trash fails (sharing_changed) unless the
-        // sharing is still what the decision or the preview was made on.
+        // Moves a Google file to the trash through its editor's File menu:
+        // a draft (deleting data, [1]) that shows the file, its sharing and
+        // the account; trash(draftId, { confirm: true }) reads all of it
+        // back in a fresh editor right before the File menu.
         trash(file, options) {
           const name = "googleDrive.trash";
           if ((typeof file === "string" && /^draft-\d+-[0-9a-f]+$/.test(file)) || (options && options.confirm)) return t.write("googleDrive", "trash", file, options);
           const input = S.copyInput(file, `sites.${name}`);
           const ref = g.parse(input, name);
           if (!g.FORMATS[ref.kind]) throw new S.SiteError("invalid", `${name}: expected a Google Docs, Sheets or Slides URL`);
-          return ed.inEditor(name, ref, async (page) => {
-            const label = await ed.sharing(page);
-            // The account the editor is signed in as: the draft shows it,
-            // and the trash runs only in an editor signed in as it.
-            const account = await g.pageAccount(t, name, page);
-            if (created.has(ref.id) && ed.isPrivate(label)) return trashIn(page, ref, () => ed.recheckSharing(name, page, label, "when the trash started", account));
+          return ed.edit("googleDrive", "trash", name, ref, {}, undefined, async (page) => {
             const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; });
-            return t.write("googleDrive", "trash", { draft: true }, undefined, () => ({
+            return {
               category: "[1] delete data",
-              summary: `Move Google file ${ref.id}${title ? ` ("${title}")` : ""} to the trash as ${account}`,
-              preview: { file: input, title, sharing: label || "unknown", account },
-              run: () => ed.inEditor(name, ref, (p) => trashIn(p, ref, () => ed.recheckSharing(name, p, label, "previewed", account))),
-            }));
+              summary: `Move Google file ${ref.id}${title ? ` ("${title}")` : ""} to the trash`,
+              observe: async () => ({}),
+              act: (p) => trashIn(p, ref),
+            };
           });
         },
         // Exports a Docs/Sheets/Slides file given by any Drive or Docs URL; { path, title, format }.
@@ -176,6 +163,6 @@
         },
       };
     },
-    { summary: "Download Drive files; export Google files found by Drive URL" },
+    { summary: "Download Drive files; export Google files found by Drive URL; create private files; confirmed-draft trash", writes: ["trash"] },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

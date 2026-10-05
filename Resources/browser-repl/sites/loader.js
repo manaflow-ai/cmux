@@ -8,16 +8,21 @@
 //   the call runs in the page's own world, same-origin. A token a site keeps
 //   in the page stays in the page; no tool returns a credential.
 // - Reads run directly. A write that reaches other people returns a draft;
-//   only `tool.method(draftId, { confirm: true })` performs it.
+//   only `tool.method(draftId, { confirm: true })` performs it, through the
+//   commit protocol (createDrafts): the draft's typed intent is read back
+//   from the site right before the write, which runs only when it matches.
 (function (root) {
   "use strict";
   const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
   const registry = [];
   const shared = {};
 
+  // meta: { summary, writes: [method names] }. A tool's writes are the
+  // methods that change what other people see; each returns a draft and
+  // performs it through the commit protocol (see createDrafts).
   function register(name, factory, meta = {}) {
     const at = registry.findIndex((r) => r.name === name);
-    const entry = { name, factory, summary: meta.summary || "" };
+    const entry = { name, factory, summary: meta.summary || "", writes: Object.freeze([...(meta.writes || [])]) };
     if (at >= 0) registry[at] = entry;
     else registry.push(entry);
   }
@@ -199,6 +204,9 @@
   }
 
   const DRAFT_TTL_MS = 30 * 60 * 1000;
+  // Text compared as a person reads it: whitespace runs are one space,
+  // zero-width characters dropped, ends trimmed.
+  const normText = (v) => String(v === undefined || v === null ? "" : v).replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
 
   // A private deep copy of plain data, so a write keeps no object its caller
   // can still change. Each own enumerable property is read once (a getter or
@@ -240,13 +248,104 @@
     return value;
   }
 
+  // JSON with object keys sorted, so two values compare by content.
+  function canonicalJSON(value) {
+    if (Array.isArray(value)) return "[" + value.map(canonicalJSON).join(",") + "]";
+    if (value && typeof value === "object") return "{" + Object.keys(value).sort().map((k) => JSON.stringify(k) + ":" + canonicalJSON(value[k])).join(",") + "}";
+    return JSON.stringify(value === undefined ? null : value);
+  }
+  const shown = (v) => {
+    const text = typeof v === "string" ? JSON.stringify(v) : canonicalJSON(v);
+    return text.length > 160 ? text.slice(0, 159) + "…" : text;
+  };
+  // 64-bit FNV-1a of a string as 16 hex digits: a draft shows it for
+  // content too long to show (a document's text), and its commit compares
+  // the hash of what the site holds then.
+  function hash(text) {
+    let h = 0xcbf29ce484222325n;
+    const s = String(text);
+    for (let i = 0; i < s.length; i++) h = ((h ^ BigInt(s.charCodeAt(i))) * 0x100000001b3n) & 0xffffffffffffffffn;
+    return h.toString(16).padStart(16, "0");
+  }
+  const INTENT_GROUPS = ["account", "target", "content"];
+  const GROUP_WORDS = { account: "account it acts as", target: "object it acts on", content: "content it sends" };
+
+  // The typed intent of a write: `account` (the principal that acts, by
+  // stable ids), `target` (the object it acts on or the people it
+  // reaches, by stable ids) and `content` (every other field). The
+  // preview is the three groups merged, so the draft shows every bound
+  // field and nothing else. `sent` names content fields the write sends
+  // from the frozen intent itself (a post's text in an API body), which no
+  // page holds to read back; account and target fields are always read
+  // back. `canon` maps a field to the form both sides are compared in.
+  function intentOf(site, action, spec) {
+    const where = `sites.${site}.${action}`;
+    const groupOf = {};
+    const preview = {};
+    for (const g of INTENT_GROUPS) {
+      const fields = spec[g] === undefined && g !== "account" ? {} : spec[g];
+      if (!fields || typeof fields !== "object" || Array.isArray(fields)) throw new SiteError("invalid", `${where}: the draft's ${g} is not an object (a site tool bug)`);
+      for (const k of Object.keys(fields)) {
+        if (k in groupOf) throw new SiteError("invalid", `${where}: the draft names ${k} twice (a site tool bug)`);
+        groupOf[k] = g;
+        preview[k] = fields[k];
+      }
+    }
+    if (!Object.keys(spec.account).length) throw new SiteError("invalid", `${where}: the draft names no account (a site tool bug)`);
+    const sent = new Set(spec.sent || []);
+    for (const k of sent) if (groupOf[k] !== "content") throw new SiteError("invalid", `${where}: ${k} is not a content field; only content may be sent from the draft without reading it back (a site tool bug)`);
+    if (typeof spec.commit !== "function") throw new SiteError("invalid", `${where}: the draft has no commit (a site tool bug)`);
+    return { preview, groupOf, sent, canon: spec.canon || {} };
+  }
+
+  // Compares what the page holds right before the write with the draft:
+  // every field not `sent` must be read back and equal. A difference fails
+  // as <group>_mismatch, a field the page did not give as
+  // <group>_unverified; account first, then target, then content.
+  function checkIntent(where, entry, observed) {
+    const { preview, groupOf, sent, canon } = entry.intent;
+    const problems = { account: [], target: [], content: [] };
+    const unknown = { account: [], target: [], content: [] };
+    const has = (k) => !!observed && typeof observed === "object" && Object.prototype.hasOwnProperty.call(observed, k) && observed[k] !== undefined;
+    for (const k of Object.keys(preview)) {
+      if (sent.has(k)) continue;
+      const g = groupOf[k];
+      if (!has(k)) {
+        unknown[g].push(k);
+        continue;
+      }
+      let a;
+      let b;
+      try {
+        const c = canon[k] || ((x) => x);
+        a = canonicalJSON(c(observed[k]));
+        b = canonicalJSON(c(preview[k]));
+      } catch (e) {
+        unknown[g].push(k);
+        continue;
+      }
+      if (a !== b) problems[g].push(`${k} is ${shown(observed[k])}, not ${shown(preview[k])}`);
+    }
+    for (const k of observed && typeof observed === "object" ? Object.keys(observed) : []) if (!(k in preview)) problems.content.push(`it also holds ${k} ${shown(observed[k])}, which the draft does not show`);
+    for (const g of INTENT_GROUPS) if (problems[g].length) throw new SiteError(`${g}_mismatch`, `${where}: the ${GROUP_WORDS[g]} differs from the draft (${problems[g].join("; ")}); nothing was sent. Make a new draft and show it to the user again`);
+    for (const g of INTENT_GROUPS) if (unknown[g].length) throw new SiteError(`${g}_unverified`, `${where}: could not read ${unknown[g].join(", ")} back from the site right before the write, so the ${GROUP_WORDS[g]} is not verified; nothing was sent`);
+    return Object.keys(preview).filter((k) => !sent.has(k));
+  }
+
   // Drafts live in the REPL session that made them, so a draft can be
   // confirmed only by the session the user saw it in (use --session NAME).
-  // A draft's record (status, expiry, preview) stays here; the agent gets
-  // frozen views of it. The preview is a frozen JSON copy whose canonical
-  // text is kept: confirming runs the draft with that same preview, after
-  // checking the text still matches, so the action is the one shown.
-  function createDrafts(host) {
+  // A draft's record (status, expiry, intent) stays here; the agent gets
+  // frozen views of it. The preview is a frozen JSON copy of the intent
+  // whose canonical text is kept: confirming runs the draft's commit with
+  // that same intent, after checking the text still matches.
+  //
+  // The commit protocol: commit(c) prepares the write (opens the page,
+  // fills the composer) and then calls c.write(observe, act) once.
+  // observe() reads every bound field back from the site; the loader
+  // compares it with the intent (checkIntent) and calls act(), the write
+  // itself, only when all of it matches. A commit that returns without
+  // calling c.write fails (commit_unverified).
+  function createDrafts(host, writesOf) {
     const drafts = new Map();
     let n = 0;
     const now = () => (host.now ? host.now() : Date.now());
@@ -260,38 +359,58 @@
         summary: e.summary,
         category: e.category,
         preview: e.preview,
+        checked: Object.freeze([...(e.checked || [])]),
         expiresAt: new Date(e.expiresAt).toISOString(),
         confirm: `await sites.${e.site}.${e.action}(${JSON.stringify(e.id)}, { confirm: true })`,
       });
     return {
-      create({ site, action, category, summary, preview, run }) {
+      create(site, action, spec) {
+        const where = `sites.${site}.${action}`;
+        if (!writesOf(site).includes(action)) throw new SiteError("invalid", `${where} is not a declared write of sites.${site} (a site tool bug)`);
+        const intent = intentOf(site, action, spec);
         let canonical;
         try {
-          canonical = JSON.stringify(preview === undefined ? null : preview);
+          canonical = JSON.stringify(intent.preview);
         } catch (e) {
-          throw new SiteError("invalid", `sites.${site}.${action}: the draft preview is not JSON data (${(e && e.message) || e})`);
+          throw new SiteError("invalid", `${where}: the draft preview is not JSON data (${(e && e.message) || e})`);
         }
+        const preview = deepFreeze(JSON.parse(canonical));
+        // Compare with the JSON form the user sees (a Date as its string).
+        intent.preview = preview;
         const id = `draft-${++n}-${rand()}`;
-        const entry = { id, site, action, status: "draft", summary: String(summary), category: String(category), preview: deepFreeze(JSON.parse(canonical)), canonical, expiresAt: now() + DRAFT_TTL_MS, run };
+        const entry = { id, site, action, status: "draft", summary: String(spec.summary), category: String(spec.category), preview, canonical, intent, expiresAt: now() + DRAFT_TTL_MS, commit: spec.commit, checked: null };
         drafts.set(id, entry);
         return view(entry);
       },
       async run(id, site, action) {
+        const where = `sites.${site}.${action}`;
         const entry = drafts.get(id);
-        if (!entry) throw new SiteError("draft_not_found", `sites.${site}.${action}: no draft ${JSON.stringify(id)} in this REPL session. Drafts live in the session that made them; run both calls in one named session (cmux browser repl --session NAME).`);
-        if (entry.site !== site || entry.action !== action) throw new SiteError("draft_mismatch", `sites.${site}.${action}: draft ${id} is a sites.${entry.site}.${entry.action} draft`);
-        if (entry.status !== "draft") throw new SiteError("draft_used", `sites.${site}.${action}: draft ${id} is ${entry.status}; make a new draft`);
+        if (!entry) throw new SiteError("draft_not_found", `${where}: no draft ${JSON.stringify(id)} in this REPL session. Drafts live in the session that made them; run both calls in one named session (cmux browser repl --session NAME).`);
+        if (entry.site !== site || entry.action !== action) throw new SiteError("draft_mismatch", `${where}: draft ${id} is a sites.${entry.site}.${entry.action} draft`);
+        if (entry.status !== "draft") throw new SiteError("draft_used", `${where}: draft ${id} is ${entry.status}; make a new draft`);
         if (now() > entry.expiresAt) {
           entry.status = "expired";
-          throw new SiteError("draft_expired", `sites.${site}.${action}: draft ${id} expired; make a new draft and show it to the user again`);
+          throw new SiteError("draft_expired", `${where}: draft ${id} expired; make a new draft and show it to the user again`);
         }
         if (JSON.stringify(entry.preview) !== entry.canonical) {
           entry.status = "failed";
-          throw new SiteError("draft_changed", `sites.${site}.${action}: draft ${id} no longer matches its preview; nothing was sent. Make a new draft and show it to the user again`);
+          throw new SiteError("draft_changed", `${where}: draft ${id} no longer matches its preview; nothing was sent. Make a new draft and show it to the user again`);
         }
         entry.status = "sending";
+        let wrote = false;
+        const c = Object.freeze({
+          intent: entry.preview,
+          async write(observe, act) {
+            if (wrote) throw new SiteError("commit_reused", `${where}: a draft writes once (a site tool bug)`);
+            wrote = true;
+            const observed = await observe();
+            entry.checked = checkIntent(where, entry, observed);
+            return act();
+          },
+        });
         try {
-          const result = await entry.run(entry.preview);
+          const result = await entry.commit(c);
+          if (!wrote) throw new SiteError("commit_unverified", `${where}: the tool returned without reading the draft back before its write (a site tool bug); treat the result as unverified`);
           entry.status = "sent";
           return result;
         } catch (e) {
@@ -312,7 +431,10 @@
 
   function createSites(ctx) {
     const { session, host, fs, path } = ctx;
-    const drafts = createDrafts(host);
+    const drafts = createDrafts(host, (site) => {
+      const r = registry.find((x) => x.name === site);
+      return r ? r.writes : [];
+    });
     let files = 0;
 
     const tool = {
@@ -324,6 +446,7 @@
       decodeEntities,
       parseCSV,
       parseA1Range,
+      hash,
       URL: ctx.URL,
       Buffer: ctx.Buffer,
       fs,
@@ -434,18 +557,6 @@
           await session.sleep(150);
         }
       },
-      // Whether the composer at `locator` holds exactly `expected`, all of
-      // it, before a public send: compared with whitespace collapsed (a
-      // line break in the draft and a block boundary in the composer are
-      // both one space) and zero-width characters dropped. A composer that
-      // keeps the draft's start and holds more (a page script, another
-      // session) fails. `exclude`: a selector for the site's own additions
-      // that are not the draft (Gmail's signature and quoted text).
-      async composerHolds(locator, expected, { exclude } = {}) {
-        const shown = await locator._read("composerText", exclude || null, {}, "composer text");
-        const norm = (v) => String(v || "").replace(/[\u200b-\u200d\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();
-        return norm(shown) === norm(expected);
-      },
       // Throws not_signed_in when a tab landed on a sign-in page.
       assertSignedIn(name, page, patterns) {
         const url = page.url();
@@ -455,13 +566,13 @@
       copyInput,
       // A write that reaches other people: the first call returns a draft; a
       // second call with the draft id and { confirm: true } performs it.
-      // make() receives a private copy of input, so what it captures for
-      // run() cannot be changed by the caller afterwards; run() receives the
-      // frozen preview. make() may be async: a site resolves the concrete
-      // destination and account (ids, emails) when it drafts, shows them in
-      // the preview, and its run() sends only there, after checking they
-      // still hold, so state another session changes between the preview
-      // and the confirmation cannot redirect the action.
+      // make() receives a private copy of input, so what it captures cannot
+      // be changed by the caller afterwards. make() (may be async) resolves
+      // the concrete account and target (ids, emails) and returns { category,
+      // summary, account, target, content, sent?, canon?, commit(c) }: the
+      // typed intent the draft shows, and the commit that reads it back
+      // right before the write (createDrafts). State another session
+      // changes between the preview and the confirmation fails the write.
       write(site, action, input, options, make) {
         const isDraftId = typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input);
         if (isDraftId) {
@@ -470,9 +581,20 @@
         }
         if (options && options.confirm) throw new SiteError("draft_required", `sites.${site}.${action}: { confirm: true } takes a draft id. Call sites.${site}.${action}(input) first, show the returned draft to the user, then confirm it.`);
         const spec = make(copyInput(input, `sites.${site}.${action}`));
-        const create = (s) => drafts.create({ site, action, category: s.category, summary: s.summary, preview: s.preview, run: s.run });
+        const create = (s) => drafts.create(site, action, s);
         return spec && typeof spec.then === "function" ? spec.then(create) : create(spec);
       },
+      // The whole text the composer at `locator` holds, for a commit's
+      // observe(): read in the agent's isolated world, hidden text
+      // included, whitespace collapsed and zero-width characters dropped
+      // (normText), so a composer that keeps the draft's start and holds
+      // more differs. `exclude`: a selector for the site's own additions
+      // that are not the draft (Gmail's signature and quoted text).
+      async composerText(locator, { exclude } = {}) {
+        const text = await locator._read("composerText", exclude || null, {}, "composer text");
+        return typeof text === "string" ? normText(text) : undefined;
+      },
+      normText,
     };
 
     const sites = {};
@@ -491,7 +613,7 @@
       },
       // One line per tool; sites.help(name) for its methods.
       list: {
-        value: () => registry.map((r) => ({ name: r.name, summary: r.summary, ...(failed[r.name] ? { error: failed[r.name] } : {}) })),
+        value: () => registry.map((r) => ({ name: r.name, summary: r.summary, writes: [...r.writes], ...(failed[r.name] ? { error: failed[r.name] } : {}) })),
         enumerable: false,
       },
       help: {
@@ -507,5 +629,5 @@
     return sites;
   }
 
-  ns.sites = { register, createSites, shared, SiteError, copyInput, embeddedJSON, decodeEntities, parseCSV, parseA1Range, pageFunction, ELEMENT_MARKDOWN };
+  ns.sites = { register, createSites, shared, SiteError, copyInput, hash, embeddedJSON, decodeEntities, parseCSV, parseA1Range, pageFunction, ELEMENT_MARKDOWN };
 })(typeof globalThis !== "undefined" ? globalThis : this);
