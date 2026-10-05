@@ -54,7 +54,7 @@ extension MockBrowserTab: PageInfoProviding {
 
 extension MockBrowserTab: BrowserCertificateWarningRevoking {
     public var certificateWarningsTurnedOff: Bool { pageInfoFake.certificateWarningsOff }
-    public var certificateWarningScope: BrowserCertificateWarningScope { .site }
+    public var certificateWarningScope: BrowserCertificateWarningScope { engineKind == .cef ? .profile : .site }
 
     public func turnOnCertificateWarnings() async -> Bool {
         guard pageInfoFake.certificateWarningsOff else { return false }

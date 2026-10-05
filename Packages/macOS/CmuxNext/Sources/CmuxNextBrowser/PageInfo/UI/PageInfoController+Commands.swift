@@ -53,7 +53,12 @@ extension PageInfoController {
         case .reenableCertificateWarnings:
             guard let revoking = tab as? any BrowserCertificateWarningRevoking else { return }
             close()
-            Task { _ = await revoking.turnOnCertificateWarnings() }
+            // The notice says what was turned on: Chromium clears every site of the profile.
+            let notice = PageInfoStrings.certificateWarningsOnAgain(revoking.certificateWarningScope)
+            Task {
+                guard await revoking.turnOnCertificateWarnings() else { return }
+                tab.delegate?.browserTab(tab, didRequest: .notice(notice))
+            }
         case .show, .close, .reload:
             break
         }
@@ -114,9 +119,12 @@ extension PageInfoController {
         )
         model.supported = provider.supportedSitePermissions
         model.certificateFailure = activity.failedCertificateReason
-        let warningsOff = (tab as? any BrowserCertificateWarningRevoking)?.certificateWarningsTurnedOff ?? false
-        if warningsOff != model.certificateWarningsOff {
+        let revoking = tab as? any BrowserCertificateWarningRevoking
+        let warningsOff = revoking?.certificateWarningsTurnedOff ?? false
+        let scope = revoking?.certificateWarningScope ?? .site
+        if warningsOff != model.certificateWarningsOff || scope != model.certificateWarningScope {
             model.certificateWarningsOff = warningsOff
+            model.certificateWarningScope = scope
             if isShown, model.page == .security { render() }
         }
         if rows != model.permissions {
