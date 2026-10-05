@@ -54,6 +54,7 @@ fn unanswered_renderer_mint_fails_with_a_typed_code_and_its_cause() {
     let host_pid = record.host_pid as libc::pid_t;
     // SAFETY: the durable record identifies this harness's live terminal host.
     assert_eq!(unsafe { libc::kill(host_pid, libc::SIGSTOP) }, 0);
+    wait_until_stopped(host_pid);
 
     // The stopped host never answers MintCapability: the daemon's control
     // deadline expires.
