@@ -30,6 +30,8 @@ fn derivation_follows_the_hello_role_and_verification() {
 #[test]
 fn claims_only_narrow_off_a_page_relay() {
     let params = json!({});
+    // apps.list is not a catalog operation, so page_access.rs (every catalog
+    // operation is refused for a page) does not hide the claim result.
     let forbidden = || Err("origin.forbidden".to_string());
     for (verified, origin, expected) in [
         (false, RequestOrigin::Page, Ok(RequestOrigin::Page)),
@@ -41,13 +43,13 @@ fn claims_only_narrow_off_a_page_relay() {
     ] {
         let mut conn = connection(HelloRole::Main, verified);
         let claim = claim(origin, None);
-        assert_eq!(code(conn.request_origin("session.ping", &params, Some(&claim), 0)), expected);
+        assert_eq!(code(conn.request_origin("apps.list", &params, Some(&claim), 0)), expected);
     }
     let mut user = connection(HelloRole::Main, true);
     // A confirmation means nothing off a page relay.
     let confirmed = claim(RequestOrigin::Page, Some("t"));
     assert_eq!(
-        code(user.request_origin("session.ping", &params, Some(&confirmed), 0)),
+        code(user.request_origin("apps.list", &params, Some(&confirmed), 0)),
         Err("origin.forbidden".to_string())
     );
 }

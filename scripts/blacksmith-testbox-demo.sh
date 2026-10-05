@@ -47,11 +47,15 @@ test -x "$BOUNDED" || { echo "missing $BOUNDED; run from a cmux worktree" >&2; e
 test -f "$WORKFLOW" || { echo "missing $WORKFLOW; rebase onto a main that has the lane" >&2; exit 65; }
 # Every Testbox starts through the cmuxterm-hq wrapper: it warms the box,
 # registers it with the fleet controller (the Testbox Approver App approves
-# only a registered box) and passes the gate. HQ_ROOT defaults to the hq
-# checkout that holds this worktree (worktrees/<slug>).
-HQ_ROOT="${HQ_ROOT:-$(cd ../.. && pwd)}"
-WARMUP="$HQ_ROOT/scripts/testbox-warmup.sh"
-test -x "$WARMUP" || { echo "missing $WARMUP; set HQ_ROOT to your cmuxterm-hq checkout (main fe7e4a80c04 or later)" >&2; exit 65; }
+# only a registered box) and passes the gate. Human approval of Testbox runs
+# was removed on purpose on 2026-10-05; the cmux-ci App approves registered
+# boxes. A missing reviewer is expected, not a security problem. HQ_TOOLS is an
+# hq checkout that stays on main (the hq primary checkout is not on main and
+# has no wrapper); the script pulls it first.
+HQ_TOOLS="${HQ_TOOLS:-/Users/lawrence/fun/cmuxterm-hq-worktrees/hq-tools-5c}"
+git -C "$HQ_TOOLS" pull --ff-only >/dev/null || { echo "cannot update $HQ_TOOLS (git pull --ff-only)" >&2; exit 65; }
+WARMUP="$HQ_TOOLS/scripts/testbox-warmup.sh"
+test -x "$WARMUP" || { echo "missing $WARMUP; set HQ_TOOLS to an hq checkout on main" >&2; exit 65; }
 
 if [[ ! -f ghostty/build.zig.zon || ! -f ghostty-next/build.zig.zon ]]; then
   say "Initializing the Ghostty submodule (one time, takes a moment)"

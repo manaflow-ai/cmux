@@ -67,9 +67,7 @@ pub(super) async fn handle_request(
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
     let mut reply = dispatch_request(hub, conn, m, params).await;
-    // One place for every reply (status, the peer listings of peer_add,
-    // peer_reconnect and peer_remove, forwarded peer replies): only the
-    // local socket ever reads a token back.
+    // Every reply, forwarded ones included: only the unix socket reads a token back.
     if conn.origin != Origin::Local
         && let Ok(v) = &mut reply
     {
@@ -226,6 +224,9 @@ async fn dispatch_request(
                 remote: conn.origin == Origin::Web,
             };
             let s = hub.new_session(req).await?;
+            if conn.origin == Origin::Web {
+                super::remote_guard::settle_web_session_mode(hub, &s).await?;
+            }
             attach(hub, conn, &s.id);
             let meta = s.meta();
             Ok(json!({
@@ -981,9 +982,8 @@ async fn dispatch_request(
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => hub.handoff_start(&params).await,
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
-        // Anything else that names a session goes to the agent untouched,
-        // from the unix socket only: a harness extension method may take
-        // params that spawn or read (`remote_guard.rs`).
+        // Anything else that names a session goes to the agent untouched, from the
+        // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
         other => {
             if conn.origin != Origin::Local && session_key(&params).is_ok() {
                 return Err(RpcError::invalid_params(format!(

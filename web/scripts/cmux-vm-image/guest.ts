@@ -17,9 +17,23 @@ const HOME_PREFIX = 'export HOME="${HOME:-$(getent passwd $(id -u) | cut -d: -f6
 /** The exec API caps one call at 5 minutes. */
 export const STEP_TIMEOUT_MS = 300_000;
 
+/**
+ * FREESTYLE_API_KEY, or FREESTYLE_API_KEY_FILE (a path; the key is read here and never
+ * printed), so an operator passes the key by path instead of through a shell variable.
+ */
+export function freestyleApiKey(env: Record<string, string | undefined> = process.env): string {
+  if (env.FREESTYLE_API_KEY) return env.FREESTYLE_API_KEY;
+  const file = env.FREESTYLE_API_KEY_FILE;
+  if (file) {
+    const key = readFileSync(file, "utf8").trim();
+    if (key) return key;
+    throw new Error("FREESTYLE_API_KEY_FILE is empty");
+  }
+  throw new Error("set FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE");
+}
+
 export function freestyleClient(): Freestyle {
-  const apiKey = process.env.FREESTYLE_API_KEY;
-  if (!apiKey) throw new Error("FREESTYLE_API_KEY is not set");
+  const apiKey = freestyleApiKey();
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   return new Freestyle({ apiKey, baseUrl });
 }
