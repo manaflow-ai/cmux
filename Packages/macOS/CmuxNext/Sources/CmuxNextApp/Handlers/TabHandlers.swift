@@ -86,10 +86,8 @@ enum TabHandlers {
             // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
-        registry.bind("palette.goToTab", invoke: { invocation in
-            guard let ref = invocation["tab"]?.targetValue ?? invocation.target ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
-            reveal(tabID: ref.id, ctx: ctx)
-        })
+        // `palette.goToTab` is an alias of `tab.search`, which TabSearchHandlers binds (a tab target
+        // reveals the tab, as here; no target opens Search Tabs). A second bind here replaced it.
         // `cmux tab <id> focus`: the same path, by target.
         registry.bind("tab.focus", invoke: { invocation in
             guard let ref = invocation.target ?? ctx.scope(invocation).tab.map({ ActionTargetRef(kind: .tab, id: $0.id.rawValue) })

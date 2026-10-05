@@ -20,8 +20,9 @@ enum TabSearchHandlers {
         }
         services.palette.sources.actionPages["tab.search"] = { page("") }
         registry.bind("tab.search", run: { invocation in
-            if let target = invocation.target, target.kind == .tab {
-                return TabHandlers.reveal(tabID: target.id, ctx: context)
+            // A tab (the `tab` argument or the target): reveal it (Go to Tab, `palette.goToTab`).
+            if let tab = invocation["tab"]?.targetValue ?? invocation.target, tab.kind == .tab {
+                return TabHandlers.reveal(tabID: tab.id, ctx: context)
             }
             guard invocation.allowsViewChange else { throw ActionFailure(message: TabSearchAppStrings.needsFocus) }
             services.palette.show(page: page(invocation["query"]?.stringValue ?? ""), relativeTo: context.activeWindow?.window)
