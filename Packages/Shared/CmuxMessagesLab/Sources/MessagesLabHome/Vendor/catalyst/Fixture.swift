@@ -61,7 +61,9 @@ enum Fixture {
 
     static var background: UIColor { themed(\.background) ?? UIColor(white: (inactive ? 30 : 25) / 255, alpha: 1) }
     static var incoming: UIColor { themed(\.incoming) ?? UIColor(white: (inactive ? 59 : 49) / 255, alpha: 1) }
-    static var outgoing: UIColor { themed(\.outgoing) ?? UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) }
+    // cmux: a theme without an accent keeps the measured blue and its gradient.
+    private static var themedAccent: Bool { theme.map { !$0.measuredAccent } ?? false }
+    static var outgoing: UIColor { (themedAccent ? themed(\.outgoing) : nil) ?? UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) }
     static var connector: UIColor { themed(\.connector) ?? UIColor(white: (inactive ? 66 : 80) / 255, alpha: 1) }
     static var badge: UIColor { themed(\.badge) ?? (inactive ? UIColor(white: 59 / 255, alpha: 1) : UIColor(red: 59 / 255, green: 59 / 255, blue: 61 / 255, alpha: 1)) }
     /// Outgoing bubbles shade with their position in the window (measured:
@@ -84,7 +86,7 @@ enum Fixture {
     private static let inactiveGradient = gradient(activeStops.map { ($0.0, 0.5 * $0.1 + 61, 0.67 * $0.2 + 57) }, blue: 248)
     /// cmux: the themed outgoing gradient as (2x px window y, colour) stops;
     /// nil keeps the measured stops (`gradientStops`, `gradientBlue`).
-    static var themedGradient: [(CGFloat, UIColor)]? { theme.map { (inactive ? $0.inactive : $0.active).gradientStops } }
+    static var themedGradient: [(CGFloat, UIColor)]? { themedAccent ? theme.map { (inactive ? $0.inactive : $0.active).gradientStops } : nil }
     static func color(in s: [(CGFloat, UIColor)], atPx px: CGFloat) -> UIColor {
         guard s.count > 1 else { return s.first?.1 ?? outgoing }
         var i = 1
@@ -97,11 +99,11 @@ enum Fixture {
                        blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)
     }
     static var outgoingGradient: CGGradient {
-        if let t = theme { return (inactive ? t.inactive : t.active).outgoingGradient }
+        if let t = theme, themedAccent { return (inactive ? t.inactive : t.active).outgoingGradient }
         return inactive ? inactiveGradient : activeGradient
     }
     static var incomingText: UIColor { themed(\.incomingText) ?? UIColor(white: 220 / 255, alpha: 1) }
-    static var outgoingText: UIColor { themed(\.outgoingText) ?? UIColor.white }
+    static var outgoingText: UIColor { (themedAccent ? themed(\.outgoingText) : nil) ?? UIColor.white }
     static var secondaryText: UIColor { themed(\.secondaryText) ?? UIColor(white: 148 / 255, alpha: 1) }
     // cmux: the field and typing colours MessagesLab draws as fixed dark
     // values, from the theme on a light one; nil keeps the measured values.

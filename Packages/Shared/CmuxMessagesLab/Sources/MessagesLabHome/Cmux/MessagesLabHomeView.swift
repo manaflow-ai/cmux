@@ -72,8 +72,10 @@ public final class MessagesLabHomeView: NSView {
 
     /// The theme's palettes for the key and the non-key window. One theme
     /// per app: the palette is process-wide (`Fixture.theme`).
-    public func applyTheme(active: HomePalette, inactive: HomePalette) {
-        let theme = FixtureTheme(active: active, inactive: inactive)
+    /// `measuredAccent`: the theme names no accent, so sent bubbles keep
+    /// MessagesLab's measured blue and gradient.
+    public func applyTheme(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
+        let theme = FixtureTheme(active: active, inactive: inactive, measuredAccent: measuredAccent)
         defer {
             // Per view: a second Home tab finds the process-wide theme set.
             controller.host.headerBackdrop.setTint(Fixture.background)

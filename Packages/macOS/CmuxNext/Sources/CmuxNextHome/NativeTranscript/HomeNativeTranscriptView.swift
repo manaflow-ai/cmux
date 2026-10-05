@@ -177,7 +177,8 @@ public final class HomeNativeTranscriptView: NSView {
         let accent = accentOverride
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, accentOverride: accent) }
         let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, accentOverride: accent) }
-        transcript.applyTheme(active: active, inactive: inactive)
+        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
+        transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
             noticeLabel.textColor = Palette.textSecondary

@@ -66,9 +66,13 @@ struct FixtureTheme: Equatable {
 
     let active: Colors
     let inactive: Colors
+    /// The theme names no accent: sent bubbles keep MessagesLab's measured
+    /// blue and gradient (Fixture.outgoing, activeStops) and white text.
+    let measuredAccent: Bool
 
-    init(active: HomePalette, inactive: HomePalette) {
+    init(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
         self.active = Colors(active)
         self.inactive = Colors(inactive)
+        self.measuredAccent = measuredAccent
     }
 }
