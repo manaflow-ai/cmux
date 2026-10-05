@@ -41,6 +41,8 @@ enum DebugShowcase {
             "agent_tab": services.showcase.agentTabs[pane.paneKey].map(CmuxNextSettings.JSONValue.string) ?? .null,
             "feed_items": .number(Double(services.feed.model.confirmed.count)),
             "focused": .bool(params["focus"]?.boolValue == true),
+            "dense": .bool(params["dense"]?.boolValue == true),
+            "scene": params["scene"] ?? .null,
         ])
     }
 

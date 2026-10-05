@@ -26,7 +26,7 @@ final class CaptureSceneRegistry {
         })
     }
 
-    /// Seeds one real scene, waits for two display frames, and snapshots the app window.
+    /// Seeds one dense real scene, waits for the agent page to paint, and snapshots the app window.
     func render(_ params: [String: JSONValue]) async -> JSONValue {
         let name = params["scene"]?.stringValue ?? "main-showcase"
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {
@@ -46,9 +46,9 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("no app window is ready"), "scene": .string(name)])
         }
 
-        // All scenes use the production showcase fixture and differ by their requested name.
-        // Scene-specific controls can be added here while the route and artifact contract stay stable.
-        let seed = DebugShowcase.seed(["focus": .bool(true)], services: services)
+        // Every scene starts from the same dense production fixture. Scene-specific controls below
+        // then make the named capture visibly different while preserving real app ownership.
+        let seed = DebugShowcase.seed(["focus": .bool(true), "dense": .bool(true), "scene": .string(definition.name)], services: services)
         guard case .object(let seedReport) = seed, seedReport["seeded"]?.boolValue == true else {
             return .object(["error": .string("showcase fixture did not seed"), "scene": .string(definition.name)])
         }
@@ -58,7 +58,10 @@ final class CaptureSceneRegistry {
             until: { [self] in
                 // Workspace creation and agent-tab insertion are asynchronous production paths.
                 // A display frame alone is not evidence that the fixture is visible.
-                self.services.showcase.workspaces.count >= 3 && !self.services.showcase.agentTabs.isEmpty
+                self.services.showcase.workspaces.count >= 3 && self.services.showcase.agentTabs.values.contains {
+                    guard let view = self.services.agentTabs.existingView($0) else { return false }
+                    return view.webView.window != nil && !view.webView.isLoading
+                }
             },
             start: start,
             window: 100,
@@ -75,17 +78,67 @@ final class CaptureSceneRegistry {
             ])
         }
 
+        let turn = await DebugAgentPane.handle(["action": .string("seed_rows"), "fixture": .string("worked-turn")], services)
+        guard case .object(let turnReport) = turn,
+              (turnReport["rows"]?.intValue ?? 0) > 0 else {
+            return .object(["error": .string("worked agent turn did not seed"), "scene": .string(definition.name), "turn": turn])
+        }
+
+        let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
+        guard case .object(let readinessReport) = readiness,
+              (readinessReport["body_text_length"]?.intValue ?? 0) > 0,
+              (readinessReport["transcript_rows"]?.intValue ?? 0) > 0,
+              readinessReport["composer_visible"]?.boolValue == true else {
+            return .object([
+                "error": .string("agent pane is blank or composer is hidden"),
+                "scene": .string(definition.name), "readiness": readiness, "turn": turn,
+            ])
+        }
+
+        let sceneAction = await applySceneAction(definition.name)
         var snapshotParams = params
         snapshotParams["kind"] = .string("main")
-        let snapshot = DebugWindowSnapshot.capture(snapshotParams, services: services)
+        let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         guard case .object(var result) = snapshot else { return snapshot }
+        guard (result["webviews_composited"]?.intValue ?? 0) > 0 else {
+            return .object([
+                "error": .string("agent web view was not composited"),
+                "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
+            ])
+        }
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
         result["settled_ms"] = settled.map(JSONValue.number) ?? .null
         result["frames"] = frameStats
         result["workspaces"] = .number(Double(services.showcase.workspaces.count))
         result["agent_tabs"] = .number(Double(services.showcase.agentTabs.count))
+        result["turn"] = turn
+        result["readiness"] = readiness
+        result["scene_action"] = sceneAction
+        if definition.name == "hints-cmd-held" || definition.name == "hints-ctrl-held" {
+            _ = await DebugShortcutHintControl().handle(["modifier": .string("release")], services: services)
+        }
         return .object(result)
+    }
+
+    private func applySceneAction(_ name: String) async -> JSONValue {
+        switch name {
+        case "composer":
+            return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
+        case "sidebar-tiles":
+            services.windows.active?.sidebar.restore(width: 300, hidden: false)
+            return .object(["sidebar": .string("shown"), "width": .number(300)])
+        case "settings":
+            return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Effort")], services)
+        case "history-narrow":
+            return await DebugAgentPane.handle(["action": .string("open_changes")], services)
+        case "hints-cmd-held":
+            return await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
+        case "hints-ctrl-held":
+            return await DebugShortcutHintControl().handle(["modifier": .string("ctrl")], services: services)
+        default:
+            return .object(["scene": .string(name)])
+        }
     }
 
     private static let definitions: [CaptureSceneDefinition] = [
