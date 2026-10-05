@@ -122,7 +122,7 @@ enum AgentRestoreAttachCommand {
             }
         }
         guard words.count >= 4,
-              words[0].map({ URL(fileURLWithPath: $0).lastPathComponent == "tmux" }) == true,
+              URL(fileURLWithPath: words[0]).lastPathComponent == "tmux",
               words[1] == "attach" || words[1] == "attach-session",
               words[2] == "-t" else { return nil }
         return raw
