@@ -46,31 +46,25 @@ def read_lock(path: Path) -> dict[Key, LockPackage]:
 TARGETS: dict[str, dict[str, object]] = {}
 
 
+TARGET_CFG = Path(__file__).resolve().parent / "target_cfg.json"
+CFG_KEYS = ("target_arch", "target_os", "target_vendor", "target_env", "target_abi",
+            "target_family", "target_pointer_width", "target_endian")
+
+
 def target_info(triple: str) -> dict[str, object]:
-    arch, _, rest = triple.partition("-")
-    vendor, _, os_env = rest.partition("-")
-    if vendor in ("apple",):
-        osname = "ios" if "ios" in os_env else "macos"
-        env = "sim" if os_env.endswith("-sim") else ""
-    elif os_env.startswith("linux"):
-        osname, env = "linux", os_env.partition("-")[2] or "gnu"
-    elif os_env.startswith("windows"):
-        osname, env = "windows", os_env.partition("-")[2] or "msvc"
-    else:
-        raise NoticeError(f"unsupported --target {triple}")
-    family = "windows" if osname == "windows" else "unix"
-    arch = {"arm64": "aarch64"}.get(arch, arch)
-    return {
-        "target_arch": arch,
-        "target_os": osname,
-        "target_vendor": "pc" if osname == "windows" else ("apple" if vendor == "apple" else "unknown"),
-        "target_env": env,
-        "target_family": family,
-        "target_pointer_width": "64",
-        "target_endian": "little",
-        "flags": {family},
-        "triple": triple,
-    }
+    """The cfg values rustc sets for `triple` (target_cfg.json, generated from
+    `rustc --print cfg --target <triple>`; never derived from the name)."""
+    table = json.loads(TARGET_CFG.read_text(encoding="utf-8"))["targets"]
+    cfg = table.get(triple)
+    if cfg is None:
+        raise NoticeError(
+            f"unsupported --target {triple}: add it to {TARGET_CFG.name} from "
+            "`rustc --print cfg --target` on a Testbox"
+        )
+    info: dict[str, object] = {key: cfg.get(key, "") for key in CFG_KEYS}
+    info["flags"] = set(cfg.get("flags", []))
+    info["triple"] = triple
+    return info
 
 
 def _tokens(text: str) -> list[str]:
