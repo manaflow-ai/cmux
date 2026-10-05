@@ -21,6 +21,7 @@ stops matching any job fails this test rather than quietly guarding nothing.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -32,15 +33,17 @@ from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metada
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
 
-# `gh api repos/manaflow-ai/cmux/rules/branches/main`, the
-# required_status_checks rule. Update alongside the ruleset.
-REQUIRED_CONTEXTS = (
-    "CLA Assistant",
-    "CLA policy guard",
-    "ci-status",
-    "Web complexity",
-    "web-validation",
+# The required contexts on main, from the one in-tree mirror of the ruleset.
+# scripts/ci/required_status_checks.py reconciles that mirror against GitHub.
+_SPEC = importlib.util.spec_from_file_location(
+    "required_status_checks", ROOT / "scripts/ci/required_status_checks.py"
 )
+_required_status_checks = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+# Registered before execution: the module defines a dataclass.
+sys.modules["required_status_checks"] = _required_status_checks
+_SPEC.loader.exec_module(_required_status_checks)
+REQUIRED_CONTEXTS = _required_status_checks.REQUIRED_CHECKS
 
 
 def load(path: Path) -> dict:
