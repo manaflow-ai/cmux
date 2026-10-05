@@ -81,9 +81,12 @@ import Testing
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
         CFRunLoopRunInMode(.defaultMode, 0.4, false)
-        let stall = try #require(watchdog.log.records().max { $0.duration < $1.duration }, "no stall recorded")
-        #expect(stall.frames.contains { $0.symbol?.contains("stallForTest") == true },
-                "frames: \(stall.frames.prefix(8).map(\.description))")
+        // The full package run shares the main run loop with other tests, so
+        // other stalls can be recorded too; one record must be this stall's.
+        let records = watchdog.log.records()
+        try #require(!records.isEmpty, "no stall recorded")
+        #expect(records.contains { $0.frames.contains { $0.symbol?.contains("stallForTest") == true } },
+                "frames: \(records.map { $0.frames.prefix(4).map(\.description) })")
     }
     #endif
 
