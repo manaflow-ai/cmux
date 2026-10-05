@@ -51,9 +51,10 @@ def status(annotations, created='2026-09-15T00:00:00.000Z'):
 if args[:2] == ['deployments', 'status']:
     print(state_path.read_text())
 elif args[:2] == ['versions', 'view']:
-    migration_tag = 'older-tag' if os.environ['PROBE_SCENARIO'] == 'pending-migration' else 'iroh-v2-fresh-storage-1'
+    migration_tag = 'older-tag' if os.environ['PROBE_SCENARIO'] == 'pending-migration' else 'iroh-v2-account-control-1'
     bindings = [{'name':'TEAM_CONTROL','type':'durable_object_namespace','class_name':'TeamControl','namespace_id':'team-ns'},
                 {'name':'USER_USAGE','type':'durable_object_namespace','class_name':'UserUsage','namespace_id':'user-ns'},
+                {'name':'ACCOUNT_CONTROL','type':'durable_object_namespace','class_name':'AccountControl','namespace_id':'account-ns'},
                 {'name':'CMUX_SOURCE_REVISION','type':'plain_text','text':'${MOCK_HEAD}'}]
     if os.environ['PROBE_SCENARIO'] == 'script-migration-resource':
         print(json.dumps({'id': 'old-version', 'resources': {'bindings': bindings, 'script': {'migration_tag': migration_tag}}}))
