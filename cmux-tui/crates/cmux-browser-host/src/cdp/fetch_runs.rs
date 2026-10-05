@@ -69,7 +69,9 @@ impl Runs {
         }
     }
 
-    fn sweep(&mut self, _now: Instant) {}
+    fn sweep(&mut self, now: Instant) {
+        self.early.retain(|_, at| now.saturating_duration_since(*at) < EARLY_CANCEL_TTL);
+    }
 
     #[cfg(test)]
     fn len(&self) -> usize {
