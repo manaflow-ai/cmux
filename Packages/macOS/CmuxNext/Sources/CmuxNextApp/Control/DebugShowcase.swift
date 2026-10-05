@@ -73,13 +73,18 @@ enum DebugShowcase {
             ("docs-site", "~/code/docs-site"),
             ("infra", "~/code/infra"),
         ]
-        for (name, cwd) in workspaces where services.showcase.workspaces[name] == nil {
+        for (name, cwd) in workspaces {
+            if let existing = services.showcase.workspaces[name], services.machines.workspace(id: existing) != nil {
+                continue
+            }
+            services.showcase.workspaces[name] = nil
             var spawn = WorkspaceSpawn(cwd: cwd, name: name)
             spawn.onListed = { [weak services] id, _ in services?.showcase.workspaces[name] = id }
             Task { @MainActor in
                 do {
                     let id = try await services.windows.createWorkspace(spawn, into: windowID)
                     services.showcase.workspaces[name] = id
+                    services.windows.reconcileMembership()
                 } catch {
                     services.daemon.logger.error("showcase workspace \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }

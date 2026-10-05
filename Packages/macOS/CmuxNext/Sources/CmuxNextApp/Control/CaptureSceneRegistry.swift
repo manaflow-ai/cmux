@@ -58,7 +58,10 @@ final class CaptureSceneRegistry {
             until: { [self] in
                 // Workspace creation and agent-tab insertion are asynchronous production paths.
                 // A display frame alone is not evidence that the fixture is visible.
-                self.services.showcase.workspaces.count >= 3 && self.services.showcase.agentTabs.values.contains {
+                self.services.showcase.workspaces.count >= 3
+                    && self.services.windows.registry.members(of: self.services.windows.active?.state.id ?? "").count >= 3
+                    && self.services.windows.active?.sidebar.model.sections.flatMap(\.workspaces).contains { $0.rowState != .placeholder } == true
+                    && self.services.showcase.agentTabs.values.contains {
                     guard let view = self.services.agentTabs.existingView($0) else { return false }
                     return view.webView.window != nil && !view.webView.isLoading
                 }
@@ -74,6 +77,7 @@ final class CaptureSceneRegistry {
                 "scene": .string(definition.name),
                 "frames": frameStats,
                 "workspaces": .number(Double(services.showcase.workspaces.count)),
+                "window_workspaces": .number(Double(services.windows.registry.members(of: services.windows.active?.state.id ?? "").count)),
                 "agent_tabs": .number(Double(services.showcase.agentTabs.count)),
             ])
         }
@@ -111,6 +115,7 @@ final class CaptureSceneRegistry {
         result["settled_ms"] = settled.map(JSONValue.number) ?? .null
         result["frames"] = frameStats
         result["workspaces"] = .number(Double(services.showcase.workspaces.count))
+        result["window_workspaces"] = .number(Double(services.windows.registry.members(of: services.windows.active?.state.id ?? "").count))
         result["agent_tabs"] = .number(Double(services.showcase.agentTabs.count))
         result["turn"] = turn
         result["readiness"] = readiness

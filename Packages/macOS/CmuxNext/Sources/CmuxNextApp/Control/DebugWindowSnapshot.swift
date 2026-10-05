@@ -46,9 +46,10 @@ enum DebugWindowSnapshot {
         do {
             let webViews = visibleWebViews(in: window)
             // AppKit drawing supplies the chrome and backdrop without stale
-            // remote WebKit layers. The page snapshots below then fill every
-            // visible WebView rectangle exactly once.
-            let base = webViews.isEmpty ? try baseImage(for: window) : try appKitBaseImage(for: window)
+            // remote WebKit layers. Hide the live views while drawing the
+            // native base so the page snapshots below fill each rectangle
+            // exactly once.
+            let base = webViews.isEmpty ? try baseImage(for: window) : try nativeBaseImage(for: window, hiding: webViews)
             var images: [(WKWebView, CGImage)] = []
             var failed = 0
             for webView in webViews {
@@ -94,6 +95,22 @@ enum DebugWindowSnapshot {
     private static func appKitBaseImage(for window: NSWindow) throws -> (image: CGImage, method: WindowSnapshotMethod) {
         guard let rep = window.renderSnapshot(), let image = rep.cgImage else { throw CocoaError(.fileWriteUnknown) }
         return (image, .appkit)
+    }
+
+    private static func nativeBaseImage(for window: NSWindow, hiding webViews: [WKWebView]) throws -> (image: CGImage, method: WindowSnapshotMethod) {
+        let states = webViews.map { ($0, $0.isHidden, $0.layer?.isHidden ?? false) }
+        for (webView, _, _) in states {
+            webView.isHidden = true
+            webView.layer?.isHidden = true
+        }
+        defer {
+            for (webView, isHidden, layerHidden) in states {
+                webView.isHidden = isHidden
+                webView.layer?.isHidden = layerHidden
+            }
+        }
+        window.contentView?.displayIfNeeded()
+        return try appKitBaseImage(for: window)
     }
 
     private static func visibleWebViews(in window: NSWindow) -> [WKWebView] {
