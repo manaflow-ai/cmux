@@ -228,14 +228,14 @@ final class SidebarListView: NSView {
         }
         // Existing rows move, new rows (group expand, insert) appear, and
         // removed rows (group collapse, close) leave faster still.
-        Motion.animate(.move, moves)
-        Motion.animate(.appear) {
+        Motion.animate(.move, in: self, moves)
+        Motion.animate(.appear, in: self) {
             for (view, target) in appearing {
                 view.animator().frame = target
                 view.animator().alphaValue = 1
             }
         }
-        Motion.animate(.disappear, {
+        Motion.animate(.disappear, in: self, {
             for view in leaving {
                 view.animator().alphaValue = 0
                 view.animator().frame = view.frame.offsetBy(dx: 0, dy: -Metrics.space3)
