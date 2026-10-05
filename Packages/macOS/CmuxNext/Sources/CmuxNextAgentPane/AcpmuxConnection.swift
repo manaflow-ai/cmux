@@ -16,17 +16,20 @@ public nonisolated struct AcpmuxConnection: Sendable, Equatable {
     public var url: URL
     public var dashboardToken: String
     public var localAppToken: String?
+    /// The daemon's unix socket, for the host's own read-only questions (`_acpmux/web_modes`).
+    public var socketPath: String?
 
-    public init(url: URL, dashboardToken: String, localAppToken: String?) {
+    public init(url: URL, dashboardToken: String, localAppToken: String?, socketPath: String? = nil) {
         self.url = url
         self.dashboardToken = dashboardToken
         self.localAppToken = localAppToken
+        self.socketPath = socketPath
     }
 
     /// The daemon's endpoint and this launch's LocalApp token, read now from `home`.
-    public init(endpoint: AcpmuxWebEndpoint, home: URL?) {
+    public init(endpoint: AcpmuxWebEndpoint, home: URL?, socketPath: String? = nil) {
         self.init(url: endpoint.url, dashboardToken: endpoint.token,
-                  localAppToken: home.flatMap(AcpmuxLocalAppToken.read(home:)))
+                  localAppToken: home.flatMap(AcpmuxLocalAppToken.read(home:)), socketPath: socketPath)
     }
 
     /// The upgrade request: bearer token and the pane's Origin.

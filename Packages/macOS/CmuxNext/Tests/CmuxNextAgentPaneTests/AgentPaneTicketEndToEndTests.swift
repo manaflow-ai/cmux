@@ -38,6 +38,7 @@ private actor TicketHost: AgentPaneHostProviding {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ticket-e2e-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let model = AgentPaneModel(host: TicketHost(url: server.url))
+        model.transport.modeAsks = AcpmuxAskingModesFake.claude
         model.workspaceRoots = { [root.path] }
         let view = try #require(AgentPaneView(model: model))
         defer { view.close() }

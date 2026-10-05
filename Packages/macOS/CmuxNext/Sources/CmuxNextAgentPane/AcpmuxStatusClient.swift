@@ -40,6 +40,19 @@ nonisolated enum AcpmuxStatusClient {
         ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", deadline: deadline))
     }
 
+    /// `_acpmux/web_modes {sessionId}` (read-only, unix socket only; the daemon lane adds it): whether
+    /// `mode` is in the asking table (`web_modes.rs`, config included) for the session's family.
+    /// Nil when the daemon cannot tell (no such op yet, no such session, an unknown family).
+    @concurrent static func modeAsks(socketPath: String, sessionId: String?, mode: String, deadline: Duration = .seconds(2)) async -> Bool? {
+        var params: [String: any Sendable] = [:]
+        if let sessionId { params["sessionId"] = sessionId }
+        guard let result = try? await call(socketPath: socketPath, method: "_acpmux/web_modes", params: params, deadline: deadline),
+              let families = result["families"] as? [String: [String]],
+              let family = (result["session"] as? [String: Any])?["family"] as? String,
+              let asking = families[family] else { return nil }
+        return asking.contains(mode)
+    }
+
     private static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                              deadline: Duration) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)

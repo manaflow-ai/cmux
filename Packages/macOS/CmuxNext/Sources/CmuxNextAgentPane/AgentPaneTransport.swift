@@ -16,8 +16,11 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case firstFrameNotInitialize = "transport.first_frame"
     /// The method is not on ``AcpmuxPaneMethods``.
     case methodRefused = "transport.method_refused"
-    /// `transport.gesture` params break the intent contract (``AgentPaneGestureIntent``).
+    /// `transport.gesture` params break the intent contract (``AgentPaneGestureIntent``), or a
+    /// redeeming frame carries other `_meta`.
     case intentInvalid = "transport.intent_invalid"
+    /// A mode that does not ask (not in the daemon's asking table) without the user's confirmation.
+    case modeNotConfirmed = "transport.mode_not_confirmed"
     /// The frame grants (allows a permission, trusts a folder, prompts, sets a mode) without a
     /// fresh user gesture; the socket stays open.
     case gestureRequired = "transport.gesture_required"
@@ -165,6 +168,14 @@ public extension AgentPaneTransportPacer {
     /// Folders the user added or picked by a gesture: roots from then on.
     public private(set) var addedRoots: [String] = []
     private var askingRoot = false
+    /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
+    /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
+    /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).
+    public var modeAsks: @MainActor (_ sessionId: String?, _ mode: String) async -> Bool? = { _, _ in nil }
+    /// Shows the native sheet that confirms a mode which does not ask; Cancel answers false.
+    public var requestModeConfirmation: (@MainActor (_ mode: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+    private var confirmingMode = false
+    private var socketPath: String?
 
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
@@ -174,6 +185,10 @@ public extension AgentPaneTransportPacer {
         self.limits = limits
         self.gestures = gestures
         self.pacer = pacer ?? AgentPaneNextTurnPacer()
+        modeAsks = { [weak self] session, mode in
+            guard let path = self?.socketPath else { return nil }
+            return await AcpmuxStatusClient.modeAsks(socketPath: path, sessionId: session, mode: mode)
+        }
     }
 
     public var connection: Int? { socket == nil ? nil : current }
@@ -190,6 +205,7 @@ public extension AgentPaneTransportPacer {
         current += 1
         let id = current
         localAppToken = connection.localAppToken
+        socketPath = connection.socketPath
         sentFirst = false
         let socket = AcpmuxPaneSocket(request: connection.request, limits: limits, options: permissionOptions, sessions: sessions) { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.arrived(id) } }
@@ -252,7 +268,9 @@ public extension AgentPaneTransportPacer {
         guard !sendBusy, id == current, socket != nil else { return nil }
         let parsed = frames.map(PageFrame.init)
         // Only the connection's very first frame skips the folder check; every later one may need it.
-        guard !parsed.enumerated().contains(where: { (sentFirst || $0.offset > 0) && AcpmuxPathPolicy.needsCheck($0.element.object) })
+        // A mode change may need the daemon's table and the user's confirmation: never on this turn.
+        guard !parsed.enumerated().contains(where: { ((sentFirst || $0.offset > 0) && AcpmuxPathPolicy.needsCheck($0.element.object))
+            || AcpmuxPaneMethods.requestedMode($0.element.object) != nil })
         else { return nil }
         var firstError: AgentPaneTransportError?
         for frame in parsed {
@@ -335,7 +353,18 @@ public extension AgentPaneTransportPacer {
                 if refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath { rootRequested = offerRoot(folder) }
             }
         }
-        return finish(connection: id, frame: frame, decision: decision, rootRequested: rootRequested)
+        decision = gate(connection: id, frame: frame, decision: decision)
+        return deliverToSocket(frame: frame, decision: decision, rootRequested: rootRequested)
+    }
+
+    /// Asks the user to confirm a mode that does not ask (the native sheet); false without one.
+    private func confirm(mode: String) async -> Bool {
+        guard let requestModeConfirmation, !confirmingMode else { return false }
+        confirmingMode = true
+        defer { confirmingMode = false }
+        return await withCheckedContinuation { continuation in
+            requestModeConfirmation(mode) { continuation.resume(returning: $0) }
+        }
     }
 
     /// The allowlist and the session scope (no disk).
@@ -347,13 +376,19 @@ public extension AgentPaneTransportPacer {
 
     /// The gesture rule, then the socket (or the refusal's answer).
     private func finish(connection id: Int, frame: PageFrame, decision start: AcpmuxPaneMethods.Decision, rootRequested: Bool) -> Step {
-        guard id == current, let socket else { return .stop(.staleConnection) }
+        guard id == current, socket != nil else { return .stop(.staleConnection) }
+        return deliverToSocket(frame: frame, decision: gate(connection: id, frame: frame, decision: start), rootRequested: rootRequested)
+    }
+
+    /// The gesture rule: a ticket for its exact pick (R1: nothing else in `_meta`), else a live gesture.
+    private func gate(connection id: Int, frame: PageFrame, decision start: AcpmuxPaneMethods.Decision) -> AcpmuxPaneMethods.Decision {
         var decision = start
         // A frame that grants uses the user's gesture (one per grant): the one reserved at its pick
         // (a ticket in the frame), else the live one. The ticket never reaches the daemon.
         if case .send(let raw) = decision, sentFirst {
-            let (text, ticket) = AcpmuxPaneMethods.takeGestureTicket(raw)
+            let (text, ticket, otherMeta) = AcpmuxPaneMethods.takeGestureTicket(raw)
             decision = .send(text)
+            _ = otherMeta
             let granted: Bool
             if let ticket {
                 // B2: only set_mode and set_config_option redeem a ticket, for their exact pick, into
@@ -368,6 +403,12 @@ public extension AgentPaneTransportPacer {
             }
             if !granted { decision = .refuse(.gestureRequired, method: frame.method, requestID: frame.id) }
         }
+        return decision
+    }
+
+    /// Sends a decided frame, or answers its refusal.
+    private func deliverToSocket(frame: PageFrame, decision: AcpmuxPaneMethods.Decision, rootRequested: Bool) -> Step {
+        guard let socket else { return .stop(.staleConnection) }
         switch decision {
         case .send(let text):
             if !sentFirst {

@@ -24,6 +24,7 @@ import Testing
 
         func connect() async throws {
             transport.deliver = { _, done in done() }
+            transport.modeAsks = AcpmuxAskingModesFake.claude
             connection = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
             _ = await transport.send(connection: connection, frames: [AgentPaneGestureTicketTests.initialize])
             transport.sessions.add("s")

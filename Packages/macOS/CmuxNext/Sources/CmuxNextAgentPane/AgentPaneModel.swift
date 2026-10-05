@@ -105,6 +105,9 @@ public final class AgentPaneModel {
         if let sessionId { transport.sessions.add(sessionId) }
     }
 
+    /// Asks the user to confirm a mode that does not ask before it acts (the view's native sheet).
+    @ObservationIgnored public var onConfirmMode: (@MainActor (_ mode: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+
     /// Asks the user to add a folder the page named outside every root (the view's native sheet).
     @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 

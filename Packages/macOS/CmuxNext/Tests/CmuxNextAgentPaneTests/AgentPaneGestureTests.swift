@@ -109,6 +109,7 @@ import Testing
         let model = AgentPaneModel(host: MockAgentPaneHost())
         let transport = model.transport
         transport.deliver = { _, done in done() }
+        transport.modeAsks = AcpmuxAskingModesFake.claude
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
         _ = await transport.send(connection: id, frames: [Self.initialize])
         transport.sessions.add("s")

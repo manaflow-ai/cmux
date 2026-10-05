@@ -140,16 +140,34 @@ public nonisolated enum AcpmuxPaneMethods {
     /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
     public static let gestureTicketKey = "cmuxGesture"
 
-    /// The frame's gesture ticket, and the frame without it (the daemon never sees it).
-    static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?) {
+    /// The frame's gesture ticket, the frame without it (the daemon never sees it), and whether
+    /// its `_meta` held anything besides the ticket (R1: a redeeming frame may carry nothing else).
+    static func takeGestureTicket(_ text: String) -> (text: String, ticket: String?, otherMeta: Bool) {
         // Parsed every time: an escaped key must still be stripped before the daemon.
         guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               var params = object["params"] as? [String: Any], var meta = params["_meta"] as? [String: Any],
-              let value = meta.removeValue(forKey: gestureTicketKey) else { return (text, nil) }
+              let value = meta.removeValue(forKey: gestureTicketKey) else { return (text, nil, false) }
+        let otherMeta = !meta.isEmpty
         if meta.isEmpty { params.removeValue(forKey: "_meta") } else { params["_meta"] = meta }
         object["params"] = params
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else { return (text, nil) }
-        return (String(decoding: data, as: UTF8.self), value as? String ?? "")
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
+            return (text, nil, otherMeta)
+        }
+        return (String(decoding: data, as: UTF8.self), value as? String ?? "", otherMeta)
+    }
+
+    /// The mode a frame would put its session in (R2): `session/set_mode {modeId}`, or
+    /// `session/set_config_option` for the `mode` option. Nil for anything else (effort, model).
+    static func requestedMode(_ object: [String: Any]?) -> (sessionId: String?, mode: String)? {
+        guard let object, let params = object["params"] as? [String: Any] else { return nil }
+        switch object["method"] as? String {
+        case "session/set_mode":
+            return (params["sessionId"] as? String, params["modeId"] as? String ?? "")
+        case "session/set_config_option" where params["configId"] as? String == "mode":
+            return (params["sessionId"] as? String, (params["value"] as? String) ?? String(describing: params["value"] ?? ""))
+        default:
+            return nil
+        }
     }
 
     /// A frame's method and raw JSON-RPC id, for a refusal.
