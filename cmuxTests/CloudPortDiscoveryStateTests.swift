@@ -177,7 +177,7 @@ struct CloudPortDiscoveryStateTests {
         _ = discovery.complete(CloudPortScanResult(ports: [3000]), request: request, at: now, socketPath: "first")
         let cached = discovery.cachedScan(at: now.addingTimeInterval(20), socketPath: "first", force: false)
         #expect(cached?.ports == [3000])
-        let expired = discovery.cachedScan(at: now.addingTimeInterval(31), socketPath: "first", force: false)
+        let expired = discovery.cachedScan(at: now.addingTimeInterval(121), socketPath: "first", force: false)
         #expect(expired == nil)
         let otherSocket = discovery.cachedScan(at: now, socketPath: "second", force: false)
         #expect(otherSocket == nil)

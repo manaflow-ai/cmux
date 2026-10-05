@@ -12,7 +12,9 @@ struct CloudPortDiscovery: Sendable {
     private var requestID: UInt64 = 0
     private var activeScan: UInt64?
     private var blocker: CloudPortDiscoveryState?
-    private let cacheLifetime: TimeInterval = 30
+    /// Routine machine refreshes reconcile port state at most every two minutes.
+    /// Explicit Refresh bypasses this cache, so a user-requested check remains immediate.
+    private let cacheLifetime: TimeInterval = 120
 
     /// SSH machines reach their ports over the SSH link's loopback forward, so they opt in with `allowLoopback`.
     mutating func reconcile(supportsPreviews: Bool, isAwake: Bool, privateAddress: String?, allowLoopback: Bool = false) {
