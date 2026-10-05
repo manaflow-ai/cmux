@@ -12,10 +12,14 @@ public enum CmuxExtensionScope: String, Codable, CaseIterable, Equatable, Sendab
     case workspaceGroups
     /// Observed agent lifecycle and identity metadata for surfaces.
     case agentRuntime
+    /// Accepted project tags, former names, summaries, and retained analyses.
+    case workspaceContext
 
     /// The API required to interpret this declared capability.
     var minimumAPIVersion: CmuxExtensionAPIVersion {
         switch self {
+        case .workspaceContext:
+            return .sidebarV2_2
         case .workspaceGroups, .agentRuntime:
             return .sidebarV2_1
         case .workspaceList, .workspaceMetadata, .surfaceMetadata, .workspacePaths,
@@ -68,10 +72,16 @@ public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, 
     case colorWorkspace
     /// Move a workspace within the native sidebar ordering.
     case reorderWorkspace
+    /// Edit revision-guarded project metadata, analyze proposals, reject tags, and undo.
+    case editWorkspaceContext
+    /// Bind an explicitly supplied session to an exact live process generation.
+    case bindAgentSession
 
     /// The API required to interpret this declared capability.
     var minimumAPIVersion: CmuxExtensionAPIVersion {
         switch self {
+        case .editWorkspaceContext, .bindAgentSession:
+            return .sidebarV2_2
         case .renameWorkspace, .renameSurface, .renameWorkspaceGroup, .createWorkspaceGroup, .pinWorkspace,
              .setWorkspaceImportance, .collapseWorkspaceGroup, .moveWorkspaceToGroup,
              .ungroupWorkspaceGroup, .deleteWorkspaceGroup, .manageNotifications,

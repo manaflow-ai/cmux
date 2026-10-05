@@ -21,6 +21,8 @@ public struct CmuxSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
     public var isMuted: Bool
     /// Native custom color in hexadecimal form, or `nil` for the default color.
     public var customColorHex: String?
+    /// Host-owned project context, shared only with the workspace-context scope.
+    public var context: CmuxSidebarWorkspaceContext?
 
     public init(
         id: UUID,
@@ -38,7 +40,8 @@ public struct CmuxSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
         groupID: UUID? = nil,
         importance: CmuxSidebarWorkspaceImportance = .none,
         isMuted: Bool = false,
-        customColorHex: String? = nil
+        customColorHex: String? = nil,
+        context: CmuxSidebarWorkspaceContext? = nil
     ) {
         self.id = id
         self.title = title
@@ -56,6 +59,7 @@ public struct CmuxSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
         self.importance = importance
         self.isMuted = isMuted
         self.customColorHex = customColorHex
+        self.context = context
     }
 
     public init(from decoder: Decoder) throws {
@@ -76,6 +80,7 @@ public struct CmuxSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
         importance = try container.decodeIfPresent(CmuxSidebarWorkspaceImportance.self, forKey: .importance) ?? .none
         isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
         customColorHex = try container.decodeIfPresent(String.self, forKey: .customColorHex)
+        context = try container.decodeIfPresent(CmuxSidebarWorkspaceContext.self, forKey: .context)
     }
 
     @_spi(CmuxHostTransport)
@@ -97,7 +102,8 @@ public struct CmuxSidebarWorkspace: Codable, Equatable, Identifiable, Sendable {
             groupID: scopeSet.contains(.workspaceGroups) ? groupID : nil,
             importance: importance,
             isMuted: isMuted,
-            customColorHex: customColorHex
+            customColorHex: customColorHex,
+            context: scopeSet.contains(.workspaceContext) ? context : nil
         )
     }
 }

@@ -45,6 +45,8 @@ public struct CmuxSidebarSurface: Codable, Equatable, Identifiable, Sendable {
     public var workingDirectory: String?
     /// Native agent evidence, shared only with the agent-runtime scope.
     public var runtime: CmuxSidebarRuntimeObservation?
+    /// Exact per-session observations; nil for legacy hosts or without the agent-runtime scope.
+    public var runtimeObservations: [CmuxSidebarRuntimeObservation]?
 
     /// Creates a sidebar surface value.
     public init(
@@ -55,7 +57,8 @@ public struct CmuxSidebarSurface: Codable, Equatable, Identifiable, Sendable {
         isPinned: Bool = false,
         unreadCount: Int = 0,
         workingDirectory: String? = nil,
-        runtime: CmuxSidebarRuntimeObservation? = nil
+        runtime: CmuxSidebarRuntimeObservation? = nil,
+        runtimeObservations: [CmuxSidebarRuntimeObservation]? = nil
     ) {
         self.id = id
         self.title = title
@@ -65,6 +68,7 @@ public struct CmuxSidebarSurface: Codable, Equatable, Identifiable, Sendable {
         self.unreadCount = unreadCount
         self.workingDirectory = workingDirectory
         self.runtime = runtime
+        self.runtimeObservations = runtimeObservations
     }
 
     @_spi(CmuxHostTransport)
@@ -79,7 +83,8 @@ public struct CmuxSidebarSurface: Codable, Equatable, Identifiable, Sendable {
             isPinned: isPinned,
             unreadCount: unreadCount,
             workingDirectory: scopeSet.contains(.workspacePaths) ? workingDirectory : nil,
-            runtime: scopeSet.contains(.agentRuntime) ? runtime : nil
+            runtime: scopeSet.contains(.agentRuntime) ? runtime : nil,
+            runtimeObservations: scopeSet.contains(.agentRuntime) ? runtimeObservations : nil
         )
     }
 }

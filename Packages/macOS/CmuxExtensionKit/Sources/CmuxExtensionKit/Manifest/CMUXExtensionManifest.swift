@@ -24,13 +24,13 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
     ///   - displayName: Name shown in host permission and management UI.
     ///   - readScopes: Data permissions requested from CMUX; none by default.
     ///   - actionScopes: Action permissions requested from CMUX; none by default.
-    ///   - minimumAPIVersion: Required host API; new extensions require sidebar 2.1.
+    ///   - minimumAPIVersion: Required host API; new extensions require sidebar 2.2.
     public init(
         id: String,
         displayName: String,
         readScopes: [CmuxExtensionScope] = [],
         actionScopes: [CmuxExtensionActionScope] = [],
-        minimumAPIVersion: CmuxExtensionAPIVersion = .sidebarV2_1
+        minimumAPIVersion: CmuxExtensionAPIVersion = .sidebarV2_2
     ) {
         self.id = id
         self.displayName = displayName
@@ -51,7 +51,7 @@ public struct CmuxExtensionManifest: Codable, Equatable, Identifiable, Sendable 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         displayName = try container.decode(String.self, forKey: .displayName)
-        minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV2_1
+        minimumAPIVersion = try container.decodeIfPresent(CmuxExtensionAPIVersion.self, forKey: .minimumAPIVersion) ?? .sidebarV2_2
         readScopes = try container.decode([CmuxExtensionScope].self, forKey: .readScopes)
         actionScopes = try container.decodeIfPresent(
             [CmuxExtensionActionScope].self,

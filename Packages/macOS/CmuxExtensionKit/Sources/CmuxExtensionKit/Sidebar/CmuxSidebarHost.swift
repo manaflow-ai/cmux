@@ -144,6 +144,9 @@ public struct CmuxSidebarHost {
             if result.rejectionReason == .cancelled {
                 throw CmuxSidebarActionError.cancelled
             }
+            if result.rejectionReason == .revisionConflict {
+                throw CmuxSidebarActionError.revisionConflict(message)
+            }
             throw CmuxSidebarActionError.rejected(message)
         }
     }

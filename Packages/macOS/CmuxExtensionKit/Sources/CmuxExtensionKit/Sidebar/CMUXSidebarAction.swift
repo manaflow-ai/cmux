@@ -59,6 +59,17 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     /// Moves a workspace before another workspace, or to the end when nil.
     case moveWorkspace(workspaceID: UUID, beforeWorkspaceID: UUID?)
 
+    /// Applies one deliberate metadata mutation to the exact native revision.
+    case mutateWorkspaceContext(workspaceID: UUID, expectedRevision: UInt64, mutation: CmuxSidebarWorkspaceContextMutation)
+    /// Persists an analyzed proposal without accepting its metadata.
+    case storeWorkspaceContextProposal(workspaceID: UUID, expectedRevision: UInt64, proposal: CmuxSidebarWorkspaceContextProposal)
+    /// Accepts explicitly selected fields from the exact retained proposal.
+    case applyWorkspaceContextProposal(workspaceID: UUID, expectedRevision: UInt64, proposalID: UUID, tagIDs: [String], acceptTitle: Bool, acceptSummary: Bool)
+    /// Reverses the latest context edit; its native revision remains monotonic.
+    case undoWorkspaceContext(workspaceID: UUID, expectedRevision: UInt64)
+    /// Binds a user-supplied identity only while the captured process generation still owns the surface.
+    case bindAgentSession(workspaceID: UUID, surfaceID: UUID, toolID: String, sessionID: String, expectedProcessGeneration: UInt64)
+
     public var requiredScopes: Set<CmuxExtensionActionScope> {
         switch self {
         case .createWorkspace(_, let workingDirectory, _):
@@ -117,6 +128,14 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
             return [.colorWorkspace]
         case .moveWorkspace:
             return [.reorderWorkspace]
+        case .mutateWorkspaceContext, .storeWorkspaceContextProposal:
+            return [.editWorkspaceContext]
+        case .applyWorkspaceContextProposal(_, _, _, _, let acceptTitle, _):
+            return acceptTitle ? [.editWorkspaceContext, .renameWorkspace] : [.editWorkspaceContext]
+        case .undoWorkspaceContext:
+            return [.editWorkspaceContext, .renameWorkspace]
+        case .bindAgentSession:
+            return [.bindAgentSession]
         }
     }
 }
