@@ -6,14 +6,18 @@ import { ComposerContext } from "./ComposerContext";
 import {
   ArrowUpIcon,
   AtIcon,
+  BuildIcon,
   PaperclipIcon,
   Picker,
   PlusIcon,
   SearchIcon,
+  PlanIcon,
+  ShieldIcon,
   SlashIcon,
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { seededText } from "./composerDraft";
@@ -79,7 +83,9 @@ type Props = {
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
-  onProject?(cwd: string): void;
+  onProject?(cwd: string, peer?: string): void;
+  /// Changes the approval mode from the + menu while keeping the keyboard shortcut path intact.
+  onMode?(modeId: string): void;
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
@@ -104,6 +110,7 @@ export function Composer({
   onAttach,
   searchFiles,
   onProject,
+  onMode,
   onOpenInWindow,
   handle,
 }: Props) {
@@ -222,6 +229,34 @@ export function Composer({
     pendingCaret.current = draft.length;
   }, [draft]);
   const commands = snapshot.commands;
+  const modeChoices: Choice[] = (snapshot.summary?.modes?.availableModes ?? [])
+    .filter((mode) => !/(^|[-_])plan$/i.test(mode.id))
+    .map((mode) => ({
+      id: `mode:${mode.id}`,
+      name: mode.name || mode.id,
+      description: mode.description,
+      icon: <ShieldIcon />,
+    }));
+  const plan = snapshot.summary?.modes?.availableModes?.find((mode) => /(^|[-_])plan$/i.test(mode.id));
+  const currentModeId = snapshot.summary?.modes?.currentModeId;
+  const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
+  if (lastMode.current.sessionId !== snapshot.summary?.sessionId) {
+    lastMode.current = { sessionId: snapshot.summary?.sessionId };
+  }
+  if (currentModeId && !/(^|[-_])plan$/i.test(currentModeId)) lastMode.current.mode = currentModeId;
+  const planning = plan?.id === currentModeId;
+  const modePlanChoices: Choice[] = [
+    ...modeChoices,
+    ...(plan
+      ? [
+          {
+            id: `plan:${plan.id}`,
+            name: planning ? "Build" : "Plan",
+            icon: planning ? <BuildIcon /> : <PlanIcon />,
+          },
+        ]
+      : []),
+  ];
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
@@ -385,10 +420,12 @@ export function Composer({
       <ComposerContext
         summary={snapshot.summary}
         sessions={snapshot.sessions}
+        peers={snapshot.peers}
+        started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
         onProject={
           onProject &&
-          ((cwd) => {
-            onProject(cwd);
+          ((cwd, peer) => {
+            onProject(cwd, peer);
             field.current?.focus();
           })
         }
@@ -473,13 +510,37 @@ export function Composer({
               align="start"
               returnFocus={false}
               sections={[
+                ...(modePlanChoices.length > 0 && onMode
+                  ? [
+                      {
+                        title: "Mode",
+                        choices: modePlanChoices,
+                        onPick: (id: string) => {
+                          if (id.startsWith("mode:")) onMode(id.slice("mode:".length));
+                          else if (id.startsWith("plan:"))
+                            onMode(
+                              planning
+                                ? (lastMode.current.mode ?? modeChoices[0]?.id?.slice(5) ?? id.slice(5))
+                                : id.slice(5),
+                            );
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   choices: [
                     ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
                     { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
                     ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
-                      ? [{ id: "commands", name: COMPOSER_LABELS.commands, icon: <SlashIcon />, hint: "/" }]
+                      ? [
+                          {
+                            id: "commands",
+                            name: COMPOSER_LABELS.commands,
+                            icon: <SlashIcon />,
+                            hint: "/",
+                          },
+                        ]
                       : []),
                   ],
                   onPick: (id) =>
