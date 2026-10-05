@@ -62,6 +62,8 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_TOGGLE_VISIBILITY: return .host(.toggleVisibility)
         case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW: return .host(.toggleTabOverview)
         case GHOSTTY_ACTION_PRESENT_TERMINAL: return .host(.presentTerminal)
+        case GHOSTTY_ACTION_GOTO_WINDOW: return .host(.gotoWindow(next: payload.goto_window == GHOSTTY_GOTO_WINDOW_NEXT))
+        case GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW: return .host(.moveTabToNewWindow)
         case GHOSTTY_ACTION_CHECK_FOR_UPDATES: return .host(.checkForUpdates)
         case GHOSTTY_ACTION_UNDO: return .host(.undo)
         case GHOSTTY_ACTION_REDO: return .host(.redo)
