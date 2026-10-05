@@ -339,7 +339,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
             xpcHost.sendSnapshotDidChange(snapshot)
         }
         .onChange(of: selectedExtensionBundleID) { _, _ in
-            applyEnabledExtensionIdentities(enabledIdentities)
+            applyEnabledExtensionIdentities(enabledIdentities, resetBudget: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: CMUXSidebarRecoveryDiagnostics.reconnectNotification)) { _ in
             startReconnect(manual: true)
@@ -1202,7 +1202,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         }
     }
 
-    private func applyEnabledExtensionIdentities(_ identities: [AppExtensionIdentity]) {
+    private func applyEnabledExtensionIdentities(_ identities: [AppExtensionIdentity], resetBudget: Bool = false) {
         let sortedIdentities = deduplicatedExtensionIdentities(identities)
         enabledIdentities = sortedIdentities
         let nextIdentity: AppExtensionIdentity?
@@ -1216,7 +1216,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         if nextIdentity != identity {
             recoveryTask?.cancel()
             activationTimeoutTask?.cancel()
-            let generation = recovery.begin(resetBudget: nextIdentity?.bundleIdentifier != identity?.bundleIdentifier)
+            let generation = recovery.begin(resetBudget: resetBudget)
             xpcHost.invalidate()
             effectiveGrant = nil
             blockedManifestReason = nil
@@ -1247,7 +1247,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         selectedExtensionBundleID = selectedIdentity.bundleIdentifier
         UserDefaults.standard.set(selectedIdentity.bundleIdentifier, forKey: Self.selectedExtensionBundleIDDefaultsKey)
         UserDefaults.standard.set(selectedIdentity.localizedName, forKey: Self.selectedExtensionNameDefaultsKey)
-        applyEnabledExtensionIdentities(enabledIdentities)
+        applyEnabledExtensionIdentities(enabledIdentities, resetBudget: true)
     }
 
     private func updateSelectedExtensionName(_ selectedIdentity: AppExtensionIdentity?) {
