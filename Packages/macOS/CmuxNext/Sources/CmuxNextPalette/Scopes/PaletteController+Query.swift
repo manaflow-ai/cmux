@@ -37,11 +37,12 @@ extension PaletteController {
         guard let (page, state) = await loadedPage(scope) else { return nil }
         let ranked: [PaletteRankedSection]
         if FuzzyQuery(text).isEmpty {
-            ranked = PaletteRanker.rankEmpty(entries: state.entries, sectionOrders: state.sectionOrders, frecency: model.frecency,
+            ranked = model.ranker.rankEmpty(entries: state.entries, sectionOrders: state.sectionOrders, frecency: model.frecency,
                                              now: model.now(), showsRecent: page.showsRecent)
         } else {
-            // A searcher of its own: the open palette's index stays as it is.
-            let searcher = PaletteSearcher()
+            // Reuse the model's bridge and index cache. The versioned install
+            // keeps this headless query from rebuilding the JavaScript context.
+            let searcher = model.searcher
             await searcher.install(entries: state.entries, version: state.version)
             ranked = await searcher.search(query: text, generation: 0, sectionOrders: state.sectionOrders, frecency: model.frecency,
                                            now: model.now(), showsRecent: page.showsRecent,
