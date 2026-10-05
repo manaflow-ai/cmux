@@ -397,7 +397,8 @@ public extension AgentPaneTransportPacer {
     private func noteSent(_ frame: PageFrame) {
         guard let object = frame.object, let method = object["method"] as? String else { return }
         let params = object["params"] as? [String: Any] ?? [:]
-        if method == "_acpmux/attach", let session = params["sessionId"] as? String, !sessions.contains(session) { // RED STUB: any attach
+        if method == "_acpmux/attach", let session = params["sessionId"] as? String, !sessions.contains(session),
+           gestures.consume() {
             sessions.add(session)
         }
         if AcpmuxPaneSessions.starting.contains(method) {

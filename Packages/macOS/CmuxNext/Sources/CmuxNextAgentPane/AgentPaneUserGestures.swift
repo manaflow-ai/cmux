@@ -34,7 +34,6 @@ import Synchronization
     /// Binds the current gesture to a frame the page sends later (a pick queued behind a harness
     /// switch): consumes the gesture and returns a single-use ticket, nil when there is none.
     public func reserve() -> String? {
-        if true { return nil } // RED STUB: no reservation
         guard consume() else { return nil }
         let at = now()
         tickets = tickets.filter { at - $0.value <= Self.ticketLifetime }
