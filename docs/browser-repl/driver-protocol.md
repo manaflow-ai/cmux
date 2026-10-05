@@ -198,14 +198,15 @@ ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<t
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `frames.list` | `{ targetId }` | `[{ frameId, parentFrameId, url, name, crossOrigin }]`, parents before children, document order |
+| `frames.list` | `{ targetId }` | `[{ frameId, parentFrameId, url, name, crossOrigin }]`, parents before children, document order. In a tab the session did not create, and for a frame its domain policy blocks, `url` has its userinfo and credential-named query and fragment parameters reading `redacted`, as in `tabs.list`; a blocked frame's `name` is the tree's, not read from the page |
 | `frame.evaluate` | `{ targetId, frameId, world: "agent"\|"page", source, args, awaitPromise, timeoutMs }` | JSON-serializable return value |
 | `frame.ownerBox` | `{ targetId, frameId }` | owner `<iframe>` content box in parent-frame coordinates |
 
 `world: "agent"` runs in an isolated content world where the driver has
 already installed the page agent (`Resources/browser-repl/page-agent.js`) and
 Playwright's injected script. Cross-origin frames are reachable. `source` is a
-function expression called with `args`. The agent world survives until the
+function expression called with `args`; text that is not one expression on
+its own fails with `invalid` before anything runs (see "Guards"). The agent world survives until the
 frame navigates; after navigation the driver reinstalls it before the next call.
 
 Input to an element in a child frame goes to the tab at the element's point
