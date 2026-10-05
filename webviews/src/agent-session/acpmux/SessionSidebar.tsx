@@ -10,6 +10,7 @@ import {
   type SessionMark,
 } from "./sessionList";
 import { type StringKey, useT } from "./i18n";
+
 import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
 
@@ -75,6 +76,7 @@ export function SessionSidebar({
   /** Preview features are on (`labs.previewFeatures`): the rail offers the Pull requests view. */
   preview?: boolean;
 }) {
+  const t = useT();
   const [picked, setView] = useState<SidebarView>("sessions");
   // Pull requests turned off while shown falls back to the session list, and stays there.
   const view = picked === "pulls" && !preview ? "sessions" : picked;
@@ -83,7 +85,6 @@ export function SessionSidebar({
   }, [preview]);
   // Kept here so expanded projects and a search survive a trip to another rail view.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const t = useT();
   const [query, setQuery] = useState("");
   const needsInput = useMemo(
     () => sessions.some((session) => sessionMark(session, session.sessionId === selectedId) === "input"),
@@ -93,7 +94,8 @@ export function SessionSidebar({
     <OpenSessions.Provider value={openIds}>
       <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label={t("sidebar.label")}>
         <div className="acpmux-rail">
-          <RailButton label={t("sidebar.newChat")} title={t("sidebar.newChatTitle")} onClick={onNewChat} icon="home" />
+          <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
+
           <RailButton
             label={t("sidebar.sessions")}
             current={view === "sessions"}

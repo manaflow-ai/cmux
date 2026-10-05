@@ -74,6 +74,14 @@ public struct NewConversationTabRequest: DaemonRequest {
         self.transaction = transaction
     }
 
+    /// The first agent tab creates the workspace's first pane without a shell.
+    public init(agentSession: AgentSessionRef, workspace: WorkspaceHandle, origin: String? = nil, mutationID: String? = nil) {
+        self.agentSession = agentSession
+        self.workspace = workspace
+        self.origin = origin
+        self.mutationID = mutationID
+    }
+
     enum CodingKeys: String, CodingKey {
         case conversation, owner, pane, workspace, origin, transaction
         case agentSession = "agent_session"

@@ -91,8 +91,10 @@ final class AgentTabStore {
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
-    /// Tabs opened as the new tab page, and what each does with the kind
-    /// the user picks there (``PaneController/newTabPage()``).
+    /// Shared conversion and project actions for a direct blank chat, without a chooser page.
+    var blankChatHandler: ((String) -> NewTabPageHandler?)?
+
+    /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
@@ -222,7 +224,8 @@ final class AgentTabStore {
             host: host,
             sessionId: sessions[key] ?? record.session,
             seed: seeds.removeValue(forKey: key),
-            newTab: newTabPages[key]?.page
+            newTab: newTabPages[key]?.page,
+            allowsTabConversion: true
         )
         model.sessionMustExist = linkedSessions.contains(key)
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
@@ -258,12 +261,12 @@ final class AgentTabStore {
             BenchSpans.mark("bridge.tab.open")
             guard let self else { return }
             let key = resolve(provisional)
-            newTabPages[key]?.handler.open(key, request)
+            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
         model.onTypeAhead = { [weak self] text in
             guard let self else { return }
             let key = resolve(provisional)
-            newTabPages[key]?.handler.typeAhead(key, text)
+            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
         }
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
@@ -271,6 +274,23 @@ final class AgentTabStore {
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
         model.onRunAction = { [weak self] id in
             _ = self?.actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+        }
+        model.onBrowseProject = { [weak self] in
+            guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }
+            return await handler.browseProject()
+        }
+        model.onListProjects = { [weak self] query in
+            guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
+            return await handler.listProjects(query)
+        }
+        model.onImportAndSync = { [weak self] in
+            guard let self else { return }
+            if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
+            else { _ = actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
+        }
+        model.onAppAction = { [weak self] id in
+            guard let self else { return }
+            newTabPages[resolve(provisional)]?.handler.action(id)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.

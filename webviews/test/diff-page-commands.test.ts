@@ -7,8 +7,21 @@ import { pageError, type PageClient } from "../src/pages/shared/pageClient";
 // The commands the app's key dispatcher sends a diff page (CmuxNextPages DiffPageCommand.all plus
 // the shared find and focusSearch), diff-host.md S4.
 const HOST_COMMANDS = [
-  "nextLine", "previousLine", "halfPageDown", "halfPageUp", "nextHunk", "previousHunk", "goToTop",
-  "goToBottom", "nextFile", "previousFile", "toggleViewed", "collapseFile", "expandFile", "find", "focusSearch",
+  "nextLine",
+  "previousLine",
+  "halfPageDown",
+  "halfPageUp",
+  "nextHunk",
+  "previousHunk",
+  "goToTop",
+  "goToBottom",
+  "nextFile",
+  "previousFile",
+  "toggleViewed",
+  "collapseFile",
+  "expandFile",
+  "find",
+  "focusSearch",
 ];
 
 /** A page bridge that serves the config and keeps the page streams' handlers. */
@@ -63,7 +76,14 @@ describe("diff page host commands", () => {
   test("the booted page runs the commands the host pushes on cmux.page.command", async () => {
     const { page, push, streams } = fakePage();
     const ran: string[] = [];
-    await bootPageDiff(page, () => undefined, () => undefined, undefined, undefined, (action) => (ran.push(action), true));
+    await bootPageDiff(
+      page,
+      () => undefined,
+      () => undefined,
+      undefined,
+      undefined,
+      (action) => (ran.push(action), true),
+    );
     expect(streams.has("cmux.page.command")).toBe(true);
     push({ command: "nextFile" });
     push({ command: "collapseFile" });

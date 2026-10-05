@@ -65,6 +65,22 @@ import Testing
         #expect(opened == 0)
     }
 
+    @Test func aDirectBlankChatCanConvertWithoutAChooserPage() async throws {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), allowsTabConversion: true)
+        var opened: AgentPaneOpenTab?
+        var typed: String?
+        model.onOpenTab = { opened = $0 }
+        model.onTypeAhead = { typed = $0 }
+        #expect(await model.respond(to: .openTab(.terminal, text: "", cwd: "/src/app", run: false))["ok"] as? Bool == true)
+        #expect(opened?.cwd == "/src/app")
+        #expect(opened?.run == false)
+        _ = await model.respond(to: .persistSession("blank-project-session"))
+        #expect(await model.respond(to: .typeAhead("git status"))["ok"] as? Bool == true)
+        #expect(typed == "git status")
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["newTab"] == nil)
+    }
+
     @Test func pickingTerminalOrBrowserReachesTheApp() async {
         let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
         var opened: [String] = []
