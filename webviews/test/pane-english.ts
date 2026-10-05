@@ -2,12 +2,12 @@
 // sources instead of its string table (acpmux/i18n.ts, Localizable.xcstrings). It parses each file
 // with the TypeScript compiler and reports string literals that render: JSX text, string values of
 // text attributes (placeholder, aria-label, title, label, alt), text fields of UI objects (label,
-// title, placeholder, hint, description, userMessage), the text shown when an error has no message, any text in a label table (a constant named
-// *_LABELS, *_TITLES, *_TEXT or *_MESSAGES), and English sentences given to an Error's constructor. Template
-// literals count by their fixed text.
-// A line (or the comment line above it) marked `l10n-allow: <reason>` is exempt, and so is a file
-// whose header says `l10n-allow-file: <reason>`: protocol
-// validation text that never shows, product names, symbols.
+// title, placeholder, hint, description, userMessage), the text shown when an error has no
+// message, any text in a label table (a constant named *_LABELS, *_TITLES, *_TEXT or *_MESSAGES,
+// or a camelCase *Strings table), a sentence given to a call or as a `message` parameter's
+// default, and sentences given to an Error's constructor. Template literals count by their fixed
+// text. A line (or the comment line above it) marked `l10n-allow: <reason>` is exempt, and so is
+// a file whose header says `l10n-allow-file: <reason>`: product names, symbols, a caller's bug.
 import fs from "node:fs";
 import path from "node:path";
 import * as ts from "typescript";
@@ -23,7 +23,7 @@ const SKIP_DIRS = new Set(["prototype", "shiki", "generated"]);
 const ALLOW = /l10n-allow:\s*\S/;
 /** A file whose header says `l10n-allow-file: <reason>` is exempt as a whole (a wire validator). */
 const ALLOW_FILE = /l10n-allow-file:\s*\S/;
-const LABEL_TABLE = /^[A-Z_]*(LABELS?|TITLES?|TEXT|MESSAGES)$/;
+const LABEL_TABLE = /^([A-Z_]*(LABELS?|TITLES?|TEXT|MESSAGES)|[a-z]\w*Strings)$/;
 
 /** Text a person reads: two letters in a row, and a space or a capitalized word. */
 export function looksEnglish(text: string): boolean {
@@ -96,6 +96,16 @@ function inLabelTable(node: ts.Node, text: string): boolean {
   return false;
 }
 
+/** A sentence handed on as an error's text: the default of a `message` parameter, or a sentence
+ * (ending in . ! ? or …) given to any call, such as a validator's `record(value, "Invalid item.")`. */
+function messageArgument(node: ts.Node, value: string): boolean {
+  const parent = node.parent;
+  if (ts.isParameter(parent) && parent.initializer === node) return /message$/i.test(parent.name.getText());
+  if (!ts.isCallExpression(parent) || !parent.arguments.includes(node as ts.Expression)) return false;
+  if (parent.expression.getText().startsWith("console.")) return false;
+  return /[A-Za-z] [A-Za-z]/.test(value) && /[.!?…]$/.test(value.trim());
+}
+
 /** The other branch of `error instanceof Error ? error.message : "text"`: shown in its place. */
 function fallsBackForMessage(node: ts.Node): boolean {
   const parent = node.parent;
@@ -148,6 +158,7 @@ export function scan(): Finding[] {
             parent.expression.getText().endsWith("Error") &&
             parent.arguments?.includes(node as ts.Expression)) ||
           fallsBackForMessage(node) ||
+          messageArgument(node, value) ||
           inLabelTable(node, text)
         )
           report(node, value);

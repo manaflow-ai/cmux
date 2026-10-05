@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 
 extension WindowController {
     /// The sidebar's shown state reaches the top row: the incognito badge after the traffic lights,
@@ -15,6 +16,7 @@ extension WindowController {
                 root.sidebarHidden = hidden
                 root.layoutSubtreeIfNeeded()
                 relayoutTopRowStrips()
+                pagesDidChangeChrome()
             }
         }
     }
@@ -31,4 +33,13 @@ extension WindowController {
     /// Full screen keeps the window's controls as they are (no collapse).
     func windowDidEnterFullScreen(_ notification: Notification) { root.applyCornerReveal() }
     func windowDidExitFullScreen(_ notification: Notification) { root.applyCornerReveal() }
+
+    /// Pages in this window read the sidebar state (`data-app-sidebar`).
+    private func pagesDidChangeChrome() {
+        for pane in content?.panes.values.map({ $0 }) ?? [] {
+            for key in services.pages.tabIDs(in: pane.paneKey) {
+                (services.pages.existingView(key)?.content as? PageWebView)?.windowDidChangeChrome()
+            }
+        }
+    }
 }

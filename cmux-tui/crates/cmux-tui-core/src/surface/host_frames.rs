@@ -8,9 +8,12 @@
 //! timed out after `CONTROL_RESPONSE_TIMEOUT` although the host had answered
 //! at once.
 //!
-//! A reader thread now owns the socket. `InputAck` and `TerminateAck` carry
-//! no state the output path needs, so the thread resolves them as they
-//! arrive. On a smart-renderer connection it also resolves
+//! A reader thread now owns the socket. `InputAck`, `TerminateAck` and
+//! `Capability` carry no state the output path needs, so the thread resolves
+//! them as they arrive. A smart host applies `SetDefaults` by publishing
+//! `ResyncRequired` and answers a following `MintCapability` behind it, so a
+//! renderer mint right after a default-colors update depends on this thread
+//! too. On a smart-renderer connection it also resolves
 //! `KittyGraphicsLimitsAck`: a smart host answers a Kitty limits update with
 //! `ResyncRequired` and then the acknowledgement, and the surface's reader
 //! stops reading the stream at `ResyncRequired`, so only this thread can
@@ -83,7 +86,7 @@ impl EarlyResponses {
     /// Whether the reader thread resolves responses of `kind`.
     pub(super) fn resolves(self, kind: MessageKind) -> bool {
         match kind {
-            MessageKind::InputAck | MessageKind::TerminateAck => true,
+            MessageKind::InputAck | MessageKind::TerminateAck | MessageKind::Capability => true,
             MessageKind::KittyGraphicsLimitsAck => self.smart_renderer,
             _ => false,
         }
@@ -295,6 +298,7 @@ mod tests {
         let legacy = EarlyResponses::new(false);
         assert!(resolves_early(&frame(MessageKind::InputAck, 7, version), version, SMART));
         assert!(resolves_early(&frame(MessageKind::TerminateAck, 7, version), version, legacy));
+        assert!(resolves_early(&frame(MessageKind::Capability, 7, version), version, legacy));
         assert!(resolves_early(
             &frame(MessageKind::KittyGraphicsLimitsAck, 7, version),
             version,
@@ -333,6 +337,34 @@ mod tests {
             kitty.recv_timeout(Duration::from_secs(1)).unwrap().kind,
             MessageKind::KittyGraphicsLimitsAck
         );
+    }
+
+    /// `set-default-colors` makes a smart host publish ResyncRequired, and a
+    /// renderer mint sent right after it is answered behind that marker. The
+    /// surface's reader abandons the stream at ResyncRequired and fails its
+    /// ordered waiters; the mint's Capability must still reach its requester,
+    /// whether the requester registered before or after the abandon.
+    #[test]
+    fn capability_after_resync_reaches_its_waiter() {
+        let version = version();
+        for early in [SMART, EarlyResponses::new(false)] {
+            let responses = ControlResponses::new_for_test();
+            let mint = responses.wait_for_test(11, MessageKind::Capability);
+            // The surface's reader abandons the stream (`HostFrames::abandon`).
+            responses.fail_all_except(|kind| early.resolves(kind));
+            let queue = queue();
+            queue.state.lock().unwrap().abandoned = true;
+            let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
+            resync.version = version;
+            let mut capability = frame(MessageKind::Capability, 11, version);
+            capability.payload = vec![7; 32];
+            read_stream(stream_of(&[resync, capability]), &responses, version, early, &queue);
+            let reply = mint
+                .recv_timeout(Duration::from_secs(1))
+                .expect("the Capability reply after ResyncRequired was dropped");
+            assert_eq!(reply.kind, MessageKind::Capability);
+            assert_eq!(reply.payload, vec![7; 32]);
+        }
     }
 
     /// At the end of the stream the thread fails only the waiters it owns: a

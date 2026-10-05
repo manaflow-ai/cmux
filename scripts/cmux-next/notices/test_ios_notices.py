@@ -8,6 +8,7 @@ import importlib.util
 import json
 import plistlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -33,14 +34,21 @@ class RepositoryTests(unittest.TestCase):
     def test_the_pane_omits_only_what_the_real_link_proves_absent(self) -> None:
         # The evidence is the real link of a cmux-ci iOS build for the CURRENT pin
         # (ghosttykit_repin.py rewrites it on a pin change; the 134477ce13b2 pin used
-        # job 9bd58301641521918a3561ba, the 736e8f05256b pin job 3ec204658b6b4cf775f360e9).
+        # job 9bd58301641521918a3561ba, the 736e8f05256b pin job 3ec204658b6b4cf775f360e9,
+        # the 788fe6a6e42f pin job 3cb75148fdc2bb261c043703).
         record = json.loads(ios.LINK_SET.read_text())["app_link"]
         self.assertEqual(record["pin_sha256"], ios.ghostty_kit_pin()["sha256"])
         job, artifact = record["evidence"]["cmux_ci_job"], record["evidence"]["artifact_sha256"]
         self.assertRegex(job, r"^[0-9a-f]{24}$")
         self.assertRegex(artifact, r"^[0-9a-f]{64}$")
-        self.assertIn("zig-package:gettext", record["absent_owners"])
-        self.assertIn("vendored:pkg/libintl", record["absent_owners"])
+        # Since D1 (ghostty-next 3320bd06e) the xcframework has no gettext at all: it is
+        # not an owner of the archive, so the app link has nothing to prove absent.
+        links = json.loads(ios.LINK_SET.read_text())
+        self.assertFalse(links["libintl"])
+        for gettext in ("zig-package:gettext", "vendored:pkg/libintl"):
+            self.assertNotIn(gettext, links["dwarf_owners"])
+            self.assertNotIn(gettext, record["absent_owners"])
+            self.assertNotIn(gettext, record["present_owners"])
         self.assertEqual(sorted(record["absent_zig_packages"]), ["iterm2_themes", "zig_js"])
         pane = plistlib.loads(ios.PANE.read_bytes())["PreferenceSpecifiers"]
         titles = {group["Title"] for group in pane}
@@ -134,10 +142,26 @@ class LibintlRuleTests(unittest.TestCase):
         stripped.write_bytes(MACHO + b"\0GETTEXT_LOG_UNTRANSLATED\0")
         self.assertTrue(ios.libintl_errors("0" * 64, [stripped], self.exceptions))
 
-    def test_the_repository_lists_the_current_and_the_next_pre_d1_pins(self) -> None:
-        pins = json.loads(ios.EXCEPTIONS.read_text())["pins"]
-        self.assertIn(PIN, pins)
-        self.assertIn("736e8f05256b6453ef2dd05c58eff3088cfc1eda7ae748c041e877c8a66741ba", pins)
+    def test_the_repository_has_no_exception_after_d1(self) -> None:
+        self.assertEqual(json.loads(ios.EXCEPTIONS.read_text())["pins"], {})
+
+    def test_libintl_fails_check_binaries_for_the_current_pin(self) -> None:
+        # Negative test with the committed exceptions file: libintl in a slice of the
+        # current pin fails `ios_notices.py check-binaries`, stripped or not.
+        stripped = self.tmp / "stripped.a"
+        stripped.write_bytes(MACHO + b"\0GETTEXT_LOG_UNTRANSLATED\0")
+        for path in (self.with_intl, stripped):
+            with self.subTest(path=path.name):
+                result = subprocess.run(
+                    [sys.executable, str(Path(ios.__file__)), "check-binaries", str(self.without), str(path)],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("LGPL-2.1 libintl", result.stderr)
+        clean = subprocess.run(
+            [sys.executable, str(Path(ios.__file__)), "check-binaries", str(self.without)], capture_output=True, text=True,
+        )
+        self.assertEqual(clean.returncode, 0, clean.stdout + clean.stderr)
 
     def test_clean_binaries_pass_for_a_new_pin(self) -> None:
         self.assertEqual(ios.libintl_errors("1" * 64, [self.without], self.exceptions), [])
@@ -158,14 +182,22 @@ class BuiltAppTests(unittest.TestCase):
         return app
 
     def test_refuses_an_app_that_links_a_package_the_pane_omits(self) -> None:
+        # The current pin proves no owner absent, so the rule is shown on a record that does.
+        record = json.loads(ios.LINK_SET.read_text())["app_link"]
+        record["absent_owners"] = {"zig-package:gettext": {"members": ["dcigettext.o"], "symbols": ["_libintl_dcigettext"]}}
         self.symbols.add("_libintl_dcigettext")
-        errors = ios.check_app(self.app())
+        errors = ios.app_link_errors([self.app() / "cmux"], [], {"app_link": record})
         self.assertTrue(any("zig-package:gettext is omitted" in error for error in errors), errors)
 
-    def test_refuses_libintl_strings_when_the_pane_omits_gettext(self) -> None:
-        app = self.app()
-        (app / "cmux").write_bytes(MACHO + b"\0GETTEXT_LOG_UNTRANSLATED\0")
-        self.assertTrue(any("gettext (libintl) is omitted" in error for error in ios.check_app(app)))
+    def test_refuses_an_app_with_libintl(self) -> None:
+        # The pane has no gettext and the current pin has no exception: libintl in the
+        # app fails, by its symbol name or by the string literal that survives strip.
+        for data in (MACHO + b"\0_libintl_dcigettext\0", MACHO + b"\0GETTEXT_LOG_UNTRANSLATED\0"):
+            with self.subTest(data=data[-26:]):
+                app = self.app()
+                (app / "cmux").write_bytes(data)
+                errors = ios.check_app(app)
+                self.assertTrue(any("LGPL-2.1 libintl" in error for error in errors), errors)
 
     def test_refuses_an_app_without_symbols(self) -> None:
         # Absence of a symbol proves nothing in a stripped binary: fail closed.

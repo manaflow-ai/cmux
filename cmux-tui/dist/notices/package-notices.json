@@ -8,8 +8,8 @@
   },
   "libghostty_vt": {
     "source": "ghostty-next",
-    "commit": "94fe869496857eb5d70fcf870554deb1480a7aa3",
-    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37287309363",
+    "commit": "3320bd06ec13ca5479ef842372be1736d9cdfecf",
+    "license_tree": "collect-ghostty-licenses.py tree of the cmux-next source archive dry run 37315600598",
     "owners": {
       "ghostty-next": {
         "name": "Ghostty",
@@ -17,7 +17,7 @@
           {
             "file": "texts/ghostty-next/LICENSE",
             "sha256": "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1",
-            "source": "https://github.com/manaflow-ai/ghostty-next/blob/94fe869496857eb5d70fcf870554deb1480a7aa3/LICENSE"
+            "source": "https://github.com/manaflow-ai/ghostty-next/blob/3320bd06ec13ca5479ef842372be1736d9cdfecf/LICENSE"
           }
         ]
       },
