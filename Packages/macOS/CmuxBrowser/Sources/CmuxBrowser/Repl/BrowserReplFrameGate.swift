@@ -295,25 +295,35 @@ public final class BrowserReplFrameGate {
     /// (`http`, `https`) is left to the policy alone.
     public var localDocumentRoots: @MainActor (WKWebView) -> [String]? = { _ in nil }
 
-    /// The directories `webView`'s local documents are judged by, or nil
-    /// when they are not judged (``localDocumentRoots``).
-    private func localRoots(in webView: WKWebView) -> [String]? {
-        if let scheme = webView.url?.scheme?.lowercased(), scheme == "http" || scheme == "https" { return nil }
-        return localDocumentRoots(webView)
+    /// The authority that judges `webView`'s documents, and the tab as it
+    /// needs it: the gate's policy, and the session's directories when
+    /// ``localDocumentRoots`` names them for this tab (a tab the session did
+    /// not create). The gate decides nothing itself.
+    private func authority(in webView: WKWebView) -> (BrowserReplDocumentAuthority, BrowserReplTabFacts) {
+        let roots = localDocumentRoots(webView)
+        let authority = BrowserReplDocumentAuthority(sessionID: Self.gateSession, policy: policy, fileRoots: roots)
+        // `localDocumentRoots` answers nil for the session's own tab: such a
+        // tab is the gate session's, and its local documents are not judged.
+        let tab = BrowserReplTabFacts(mainFrameURL: webView.url, creatorSessionID: roots == nil ? Self.gateSession : nil)
+        return (authority, tab)
     }
+
+    /// The session the gate's authority speaks for; the gate serves one.
+    private static let gateSession = "frame-gate"
 
     /// Whether the gate judges `webView`'s frames: a domain policy is in
     /// force, or its local documents are judged (``localDocumentRoots``).
     public func isActive(in webView: WKWebView) -> Bool {
-        policy.isActive || localRoots(in: webView) != nil
+        let (authority, tab) = authority(in: webView)
+        return authority.isActive(in: tab)
     }
 
-    /// Why a frame of `webView` that shows `document` is refused: the
-    /// policy blocks it, or it is a local document the session may not read.
+    /// Why a frame of `webView` that shows `document` is refused
+    /// (``BrowserReplDocumentAuthority/verdict(_:)``): the policy blocks it,
+    /// or it is a local document the session may not read.
     public func blockReason(_ document: BrowserReplFrameDocument, in webView: WKWebView) -> String? {
-        if let reason = policy.blockReason(document: document) { return reason }
-        guard let roots = localRoots(in: webView) else { return nil }
-        return Self.localBlockReason(document, roots: roots)
+        let (authority, tab) = authority(in: webView)
+        return authority.verdict(BrowserReplAccess(.document(document), in: tab)).reason
     }
 
     /// Why a session whose directories are `roots` may not read `document`
@@ -325,7 +335,7 @@ public final class BrowserReplFrameGate {
     /// no file, so an opaque document is judged by its makers
     /// (``BrowserReplDocumentProvenance``, which passes an opaque maker's
     /// own makers on).
-    public static func localBlockReason(_ document: BrowserReplFrameDocument, roots: [String]) -> String? {
+    nonisolated public static func localBlockReason(_ document: BrowserReplFrameDocument, roots: [String]) -> String? {
         if let local = document.local {
             return BrowserReplFileSandbox.localPageRefusal(url: local, documentOrigin: document.origin, roots: roots)
         }

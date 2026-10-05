@@ -76,7 +76,7 @@ final class BrowserReplTabAttachments {
     func panelDidClose(_ panelID: UUID) {
         Self.typedSecrets.tabClosed(panelID.uuidString)
         guard let attachment = attachments.removeValue(forKey: panelID) else { return }
-        attachment.emit("tab.closed", [:])
+        attachment.emit(.tabClosed, [:])
         attachment.detachAll()
     }
 
@@ -372,8 +372,8 @@ final class BrowserReplTabAttachment {
     /// (``BrowserReplTabOwnership/route(for:from:policy:)``).
     private func route(for event: BrowserReplTabEvent, from frame: WKFrameInfo) -> BrowserReplEventRoute {
         guard isAttached else { return .user }
-        return deliverable(ownership.route(for: event, from: BrowserReplFrameDocument(info: frame)) {
-            BrowserReplPolicyBoard.shared.policy(for: $0)
+        return deliverable(ownership.route(for: event, from: BrowserReplFrameDocument(info: frame), in: nil) {
+            Self.authority(for: $0)
         })
     }
 
@@ -614,11 +614,11 @@ final class BrowserReplTabAttachment {
     /// Whether the creating session granted `request` (`camera`,
     /// `microphone`, `geolocation`, `notifications`) to the origin and frame
     /// that ask: only those its current domain policy allows
-    /// (``BrowserReplPermissionRequest/isGranted(by:policy:)``). Grants apply
+    /// (``BrowserReplPermissionRequest/isGranted(by:authority:in:)``). Grants apply
     /// only to tabs the session created; a user's tab keeps cmux's own answer.
     func grants(_ request: BrowserReplPermissionRequest) -> Bool {
         guard let creator = creatorSessionID else { return false }
-        return request.isGranted(by: contextOptions.permissions, policy: BrowserReplPolicyBoard.shared.policy(for: creator))
+        return request.isGranted(by: contextOptions.permissions, authority: Self.authority(for: creator), in: nil)
     }
 
     /// Puts ``contextOptions`` (user agent, headers, domain rule list) on
@@ -668,9 +668,9 @@ final class BrowserReplTabAttachment {
                 // A frame the creating session's policy blocks can still run
                 // here (it loaded before the policy tightened); what it
                 // writes must not reach the agent through clipboard.read.
-                guard let creator = BrowserReplTabAttachments.shared.attachment(showing: webView)?.creatorSessionID,
-                      let policy = BrowserReplPolicyBoard.shared.policy(for: creator) else { return nil }
-                return policy.blockReason(document: BrowserReplFrameDocument(info: frame))
+                guard let creator = BrowserReplTabAttachments.shared.attachment(showing: webView)?.creatorSessionID else { return nil }
+                let document = BrowserReplFrameDocument(info: frame)
+                return BrowserReplTabAttachment.authority(for: creator).verdict(BrowserReplAccess(.document(document))).reason
             },
             onWrite: { webView, items in
                 // Only while the creating session holds the tab: a kept tab's
@@ -825,23 +825,47 @@ final class BrowserReplTabAttachment {
         }
     }
 
-    /// Sends an event to every attached session.
-    func emit(_ name: String, _ payload: [String: Any]) {
+    /// Sends an event to every attached session, when the guard table
+    /// delivers it that way (``BrowserReplEventSpec/Delivery/everyAttached(_:)``).
+    func emit(_ event: BrowserReplDriverEvent, _ payload: [String: Any]) {
+        guard event.isDelivered(as: .everyAttached("")) else { return }
         var body = payload
         body["targetId"] = targetID
-        for sink in sinks.values { sink(name, body) }
+        for sink in sinks.values { sink(event.rawValue, body) }
+    }
+
+    /// The live session that created this tab (attached, with a sink), or nil.
+    var liveCreatorSessionID: String? {
+        guard let creator = creatorSessionID, sinks[creator] != nil else { return nil }
+        return creator
+    }
+
+    /// This tab as ``BrowserReplDocumentAuthority`` judges its documents.
+    var authorityFacts: BrowserReplTabFacts {
+        BrowserReplTabFacts(
+            id: panelID,
+            mainFrameURL: panel?.webView.url,
+            creatorSessionID: liveCreatorSessionID,
+            attachedSessionIDs: Set(sinks.keys)
+        )
+    }
+
+    /// The authority of `sessionID` as the policy board publishes it.
+    static func authority(for sessionID: String) -> BrowserReplDocumentAuthority {
+        BrowserReplPolicyBoard.shared.authority(for: sessionID)
     }
 
     /// Sends a console message or page error from `document` only to the
-    /// sessions whose domain policy allows that document
+    /// sessions whose authority allows that document
     /// (``BrowserReplPageTelemetry``).
-    private func emitTelemetry(_ name: String, _ payload: [String: Any], from document: BrowserReplFrameDocument) {
+    private func emitTelemetry(_ event: BrowserReplDriverEvent, _ payload: [String: Any], from document: BrowserReplFrameDocument) {
+        guard event.isDelivered(as: .fromDocument) else { return }
         var body = payload
         body["targetId"] = targetID
-        let recipients = BrowserReplPageTelemetry().recipients(of: document, among: Array(sinks.keys)) {
-            BrowserReplPolicyBoard.shared.policy(for: $0)
+        let recipients = BrowserReplPageTelemetry().recipients(of: document, in: nil, among: Array(sinks.keys)) {
+            Self.authority(for: $0)
         }
-        for sessionID in recipients { sinks[sessionID]?(name, body) }
+        for sessionID in recipients { sinks[sessionID]?(event.rawValue, body) }
     }
 
     /// Sends a network event only to the sessions it belongs to
@@ -849,21 +873,24 @@ final class BrowserReplTabAttachment {
     /// with its credentials (headers, and credential values in URLs) only
     /// for the tab's creator.
     private func emitNetwork(_ name: String, _ payload: [String: Any]) {
+        guard let event = BrowserReplDriverEvent(rawValue: name), event.isDelivered(as: .network) else { return }
         let requestID = payload["requestId"] as? String ?? ""
         for recipient in ownership.networkRecipients(event: name, requestID: requestID) {
             guard let sink = sinks[recipient.sessionID] else { continue }
             var body = recipient.seesCredentials ? payload : payload.redactingBrowserReplCredentials()
             body["targetId"] = targetID
-            sink(name, body)
+            sink(event.rawValue, body)
         }
     }
 
     /// Sends a routed event (dialog, file chooser, download) to the one
-    /// session it was routed to.
-    private func emit(_ name: String, _ payload: [String: Any], to sessionID: String) {
+    /// session it was routed to, when the guard table routes it
+    /// (``BrowserReplEventSpec/Delivery``).
+    private func emit(_ event: BrowserReplDriverEvent, _ payload: [String: Any], to sessionID: String) {
+        guard event.isDelivered(as: .routedFromDocument) || event.isDelivered(as: .download) else { return }
         var body = payload
         body["targetId"] = targetID
-        sinks[sessionID]?(name, body)
+        sinks[sessionID]?(event.rawValue, body)
     }
 
     private func makeID(_ prefix: String) -> String {
@@ -884,7 +911,7 @@ final class BrowserReplTabAttachment {
         let isReplacement = hasInstrumentedWebView
         hasInstrumentedWebView = true
         instrumentedWebView = webView
-        if isReplacement { emit("tab.replaced", [:]) }
+        if isReplacement { emit(.tabReplaced, [:]) }
         let observer = BrowserReplResourceLoadObserver { [weak self] event, payload in
             guard let self else { return }
             if event == "request" { self.requestGeneration += 1 }
@@ -993,7 +1020,7 @@ final class BrowserReplTabAttachment {
             // Held, the dialog would keep WebKit's Copy, Cut or Paste open.
             // Answer it as a dialog nobody handles is answered, and report it.
             respond(false, nil)
-            emit("dialog.opened", [
+            emit(.dialogOpened, [
                 "dialogId": id,
                 "type": type,
                 "message": message,
@@ -1003,7 +1030,7 @@ final class BrowserReplTabAttachment {
             return true
         }
         dialogs.add(id: id, owner: owner, respond: (respond, BrowserReplFrameDocument(info: frame)))
-        emit("dialog.opened", [
+        emit(.dialogOpened, [
             "dialogId": id,
             "type": type,
             "message": message,
@@ -1039,7 +1066,7 @@ final class BrowserReplTabAttachment {
     ///   session's answer never reaches that page.
     func respondToDialog(id: String, sessionID: String, accept: Bool, promptText: String?) throws -> Bool {
         guard let dialog = dialogs.take(id: id, sessionID: sessionID) else { return false }
-        if let reason = BrowserReplPolicyBoard.shared.policy(for: sessionID)?.blockReason(document: dialog.document) {
+        if let reason = Self.authority(for: sessionID).verdict(BrowserReplAccess(.document(dialog.document))).reason {
             dialog.respond(false, nil)
             throw WebKitBrowserReplDriver.error("blocked", "Dialog \(id) came from a frame showing \(dialog.document.origin ?? dialog.document.place), which the domain policy blocks: \(reason); it was dismissed")
         }
@@ -1072,7 +1099,7 @@ final class BrowserReplTabAttachment {
         let frameID = frame.isMainFrame ? nil : BrowserReplFrameTree.frameID(of: frame)
         Task { @MainActor [weak self] in
             let element = await self?.chooserElementHandle(in: frame)
-            self?.emit("filechooser.opened", [
+            self?.emit(.fileChooserOpened, [
                 "chooserId": id,
                 "frameId": frameID ?? NSNull(),
                 "element": element ?? NSNull(),
@@ -1211,8 +1238,9 @@ final class BrowserReplTabAttachment {
             "url": url.absoluteString,
         ]
         if forInputSession != nil { payload["userOwned"] = true }
+        guard BrowserReplDriverEvent.tabCreated.isDelivered(as: .oneSession("")) else { return }
         for sink in recipients.values {
-            sink("tab.created", payload)
+            sink(BrowserReplDriverEvent.tabCreated.rawValue, payload)
         }
     }
 
@@ -1411,7 +1439,8 @@ final class BrowserReplTabAttachment {
                 ]
                 var body = seesCredentials ? payload : payload.redactingBrowserReplCredentials()
                 body["targetId"] = targetID
-                sink("navigation.blocked", body)
+                guard BrowserReplDriverEvent.navigationBlocked.isDelivered(as: .everyAttached("")) else { continue }
+                sink(BrowserReplDriverEvent.navigationBlocked.rawValue, body)
             }
             return false
         case .session(let delivery):
@@ -1424,7 +1453,7 @@ final class BrowserReplTabAttachment {
                 "suggestedFilename": suggestedFilename,
             ]
             // Only the tab's creator gets the URL's credential values.
-            emit("download.started", delivery.seesCredentials ? payload : payload.redactingBrowserReplCredentials(), to: owner)
+            emit(.downloadStarted, delivery.seesCredentials ? payload : payload.redactingBrowserReplCredentials(), to: owner)
             return true
         }
     }
@@ -1441,7 +1470,7 @@ final class BrowserReplTabAttachment {
             policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
             fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
         ) else { return true }
-        emit("download.finished", ["downloadId": id, "error": "refused: \(refusal.reason)"], to: refusal.sessionID)
+        emit(.downloadFinished, ["downloadId": id, "error": "refused: \(refusal.reason)"], to: refusal.sessionID)
         return !isLiveCreator(refusal.sessionID)
     }
 
@@ -1454,7 +1483,7 @@ final class BrowserReplTabAttachment {
             guard let owner = sessionDownloads.remove(id) else { return .user }
             var payload: [String: Any] = ["downloadId": id]
             if let error { payload["error"] = error }
-            emit("download.finished", payload, to: owner)
+            emit(.downloadFinished, payload, to: owner)
             return .session
         }
         switch sessionDownloads.finish(
@@ -1466,10 +1495,10 @@ final class BrowserReplTabAttachment {
             return .user
         case .session(let owner):
             downloadPaths[id] = path
-            emit("download.finished", ["downloadId": id, "path": path], to: owner)
+            emit(.downloadFinished, ["downloadId": id, "path": path], to: owner)
             return .session
         case .refused(let owner, let reason):
-            emit("download.finished", ["downloadId": id, "error": "refused: \(reason)"], to: owner)
+            emit(.downloadFinished, ["downloadId": id, "error": "refused: \(reason)"], to: owner)
             return isLiveCreator(owner) ? .refused : .user
         }
     }
@@ -1521,9 +1550,9 @@ final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
 
     /// Called with the event, its payload and the document that sent it,
     /// as WebKit recorded it (the sessions whose policy blocks it get none).
-    private let emit: (String, [String: Any], BrowserReplFrameDocument) -> Void
+    private let emit: (BrowserReplDriverEvent, [String: Any], BrowserReplFrameDocument) -> Void
 
-    init(emit: @escaping (String, [String: Any], BrowserReplFrameDocument) -> Void) {
+    init(emit: @escaping (BrowserReplDriverEvent, [String: Any], BrowserReplFrameDocument) -> Void) {
         self.emit = emit
     }
 
@@ -1537,12 +1566,12 @@ final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
         let document = BrowserReplFrameDocument(info: message.frameInfo)
         switch kind {
         case "console":
-            emit("console", [
+            emit(.console, [
                 "type": body["type"] as? String ?? "log",
                 "text": body["text"] as? String ?? "",
             ], document)
         case "pageerror":
-            emit("pageerror", [
+            emit(.pageError, [
                 "message": body["message"] as? String ?? "",
                 "stack": body["stack"] as? String ?? "",
             ], document)
