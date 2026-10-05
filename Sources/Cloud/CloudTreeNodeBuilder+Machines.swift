@@ -137,7 +137,7 @@ extension CloudTreeNodeBuilder {
         nodes.append(CloudTreeNode(
             id: "coderouter-section",
             kind: .coderouterSection,
-            children: [CloudTreeNode(id: "coderouter-section/add-account", kind: .coderouterAddAccount)]
+            children: []
         ))
         return nodes
     }
