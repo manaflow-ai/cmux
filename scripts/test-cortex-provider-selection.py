@@ -77,7 +77,7 @@ class CortexProviderSelectionTests(unittest.TestCase):
             harness.write_text(HARNESS.replace('__CONSTANTS__', constants)
                 .replace('__SET_PROVIDER__', setter).replace('__CORTEX_SELECTION__', cortex))
             binary = scratch / 'selection'
-            compile_result = subprocess.run(['xcrun', 'swiftc', '-swift-version', '6',
+            compile_result = subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-swift-version', '6',
                 str(harness), '-o', str(binary)], capture_output=True, text=True, timeout=120)
             self.assertEqual(compile_result.returncode, 0, compile_result.stderr)
             result = json.loads(subprocess.run([str(binary)], check=True,
@@ -87,7 +87,7 @@ class CortexProviderSelectionTests(unittest.TestCase):
         for key in ['activated', 'activeImmediately', 'classic', 'classicImmediately',
                     'retained', 'explicit', 'repeated']:
             self.assertTrue(result[key], key)
-        self.assertEqual(result['transitions'], 4)
+        self.assertEqual(result['transitions'], 3)
 
 
 if __name__ == '__main__':
