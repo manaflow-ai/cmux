@@ -15,6 +15,32 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    let catalog: SurfaceCatalog
+
+    /// Builds snapshots from the app's shared surface catalog.
+    @MainActor
+    init(workspace: Workspace, settings: SidebarTabItemSettingsSnapshot, showsAgentActivity: Bool) {
+        self.init(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            catalog: SurfaceCatalog.shared
+        )
+    }
+
+    /// Builds snapshots from an explicit catalog, including isolated test catalogs.
+    @MainActor
+    init(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool,
+        catalog: SurfaceCatalog
+    ) {
+        self.workspace = workspace
+        self.settings = settings
+        self.showsAgentActivity = showsAgentActivity
+        self.catalog = catalog
+    }
 
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -26,7 +52,12 @@ struct SidebarWorkspaceSnapshotFactory {
         let showsBranchDirectoryRows = detailVisibility.showsBranchDirectory && !settings.compactsAgentStatus
         let showsPullRequestRows = detailVisibility.showsPullRequests && !settings.compactsAgentStatus
         let orderedPanelIds = workspace.sidebarOrderedPanelIds()
-        let cloud = CloudWorkspaceSidebarPresentation(workspace: workspace, orderedPanelIDs: orderedPanelIds, usesLastSegmentPath: settings.usesLastSegmentPath)
+        let cloud = CloudWorkspaceSidebarPresentation(
+            workspace: workspace,
+            orderedPanelIDs: orderedPanelIds,
+            usesLastSegmentPath: settings.usesLastSegmentPath,
+            catalog: catalog
+        )
         let hasCloudProjection = workspace.cloudVMID != nil
             || workspace.cloudBindingState.projectedResources.values.contains { $0.machine.cloudMachineID != nil }
         let taskStatusInput = SidebarWorkspaceTaskStatusSnapshot.capture(workspace: workspace, orderedPanelIds: orderedPanelIds)

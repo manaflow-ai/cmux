@@ -272,7 +272,7 @@ public final class UpdateStateModel {
             if install.relaunchBlockers != nil {
                 return String(localized: "update.readyWaiting", defaultValue: "Update Ready")
             }
-            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
+            return install.isAutoUpdate ? String(localized: "update.readyWaiting", defaultValue: "Update Ready") : String(localized: "update.installing.status", defaultValue: "Installing…")
         case .notFound:
             return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
         case .error(let err):
@@ -348,7 +348,7 @@ public final class UpdateStateModel {
             if let blockers = install.relaunchBlockers {
                 return Self.relaunchBlockersDescription(blockers)
             }
-            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
+            return install.isAutoUpdate ? String(localized: "update.readyWaiting", defaultValue: "Update Ready") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
         case .notFound:
             return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
         case .error(let err):

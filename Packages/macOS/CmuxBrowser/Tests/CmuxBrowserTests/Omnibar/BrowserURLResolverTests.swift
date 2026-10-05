@@ -4,7 +4,7 @@ import Testing
 
 @testable import CmuxBrowser
 
-@Suite struct BrowserURLResolverTests {
+@Suite(.serialized) struct BrowserURLResolverTests {
     private let resolver = BrowserURLResolver()
 
     @Test func resolvesWrappedOAuthURLWithoutRewriting() throws {

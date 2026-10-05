@@ -912,7 +912,7 @@ class GhosttyApp {
                }) {
                 representations.append(.init(mimeType: "text/plain", string: fallback))
             }
-            GhosttyApp.terminalPasteboard.writeRepresentations(representations, to: location)
+            GhosttySurfaceScrollView.writeClipboard(representations, to: location, from: callbackContext)
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
@@ -5404,6 +5404,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Consume the committed bounds and let the portal's queued convergence
         // pass handle any later geometry change.
         _ = reapplyPaneGeometry()
+        // A surface can become visible before its hosted view is reattached to
+        // the real window. In that order the visibility transition correctly
+        // waits for presentation readiness, but no geometry delta may follow
+        // the attachment. Replay the readiness edge here so a renderer born
+        // hidden cannot remain released after its first real window attach.
+        terminalSurface?.rendererPresentationReadinessDidChange()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
         GhosttyApp.shared.synchronizeThemeWithAppearance(
@@ -7701,7 +7707,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         button: ghostty_input_mouse_button_e,
         mods: ghostty_input_mods_e
     ) -> Bool {
-        withPotentialClipboardPasteIntent {
+        withPointerDispatchIntents {
             ghostty_surface_mouse_button(surface, state, button, mods)
         }
     }
