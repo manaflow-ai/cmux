@@ -25,6 +25,8 @@ on:
       - web/**
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/clear-stale-scheme-build-state.sh
+      - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/cef-manifest.json
@@ -39,6 +41,7 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_stale_pcm_cleanup.sh
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -62,6 +65,8 @@ on:
       - web/**
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/clear-stale-scheme-build-state.sh
+      - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/cef-manifest.json
@@ -76,6 +81,7 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_stale_pcm_cleanup.sh
   workflow_dispatch:
 
 permissions:
@@ -340,15 +346,22 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      - name: Stale scheme PCM cleanup
+        id: stale-pcm-cleanup
+        continue-on-error: true
+        run: bash tests/test_cmux_next_stale_pcm_cleanup.sh
+
       # Behavior tests of the build scripts: pin-cmux-tui.sh fetch on a stale
       # --ref mirror and on a reused runner workspace, embed-cef.sh reaching
       # ensure-cef.sh under set -u, and ensure-cef.sh's controller artifact
-      # store source.
+      # store source. The run-check test covers the same-tree wait failing
+      # fast when the artifacts run for its commit was cancelled or superseded.
       - name: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
         id: script-tests
         continue-on-error: true
         run: |
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
+          bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/check-action-surfaces-fleet-only.test.sh
@@ -377,6 +390,7 @@ jobs:
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
+            ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
@@ -404,6 +418,10 @@ jobs:
     if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next swift test
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # actions: read lets the same-tree cmux-tui wait read the artifacts runs.
+    permissions:
+      actions: read
+      contents: read
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
     # dependencies) and the whole suite.
     timeout-minutes: 60
@@ -437,12 +455,24 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Install Rust (sidebar layout reducer)
-        run: ./scripts/install-rust-ci.sh
+      - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Rust targets (sidebar layout reducer)
+        working-directory: cmux-tui
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Test sidebar layout reducer
         working-directory: cmux-tui
         run: cargo test -p cmux-layout-reducer --locked
+
+      # The reducer test harness may create the isolated FFI crate's lockfile
+      # while exercising the shared sources. It is generated state, not a
+      # pinned source input, and must not make the reused checkout dirty before
+      # the release pin check.
+      - name: Clean generated layout-reducer FFI lockfile
+        if: ${{ always() }}
+        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
 
       - name: Build sidebar layout reducer FFI
         env:
@@ -502,6 +532,10 @@ jobs:
           # waits for its own source-addressed publication. pin-cmux-tui.sh
           # reports which key it is waiting for.
           CMUX_TUI_TREE_WAIT_SECONDS: "2700"
+          # Push and dispatch runs fail fast when the artifacts runs for this
+          # commit were cancelled or superseded (pin-cmux-tui.sh --help).
+          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Check the same-tree cmux-tui serves the app's daemon capabilities
@@ -674,6 +708,10 @@ jobs:
     if: ${{ !cancelled() && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux app scheme compile (Debug)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # actions: read lets the same-tree cmux-tui wait read the artifacts runs.
+    permissions:
+      actions: read
+      contents: read
     # Debug arm64 xcodebuild of the cmux app scheme: the app host and every
     # local package it links (CmuxControlSocket, CmuxCore, ...), which the
     # CmuxNext jobs above never compile. A main merge once left
@@ -714,6 +752,10 @@ jobs:
           # See the package test job above. The helper compares the merge tree
           # with its first parent and waits for the base artifact when equal.
           CMUX_TUI_TREE_WAIT_SECONDS: "2700"
+          # Push and dispatch runs fail fast when the artifacts runs for this
+          # commit were cancelled or superseded (pin-cmux-tui.sh --help).
+          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Install Rust (diff sidecar)

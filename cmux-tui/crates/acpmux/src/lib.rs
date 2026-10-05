@@ -35,5 +35,6 @@ pub mod store;
 pub mod transcript;
 pub mod trust;
 pub mod tui;
+pub mod web_modes;
 
 pub mod model_catalog;

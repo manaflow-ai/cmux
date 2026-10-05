@@ -1,0 +1,310 @@
+#!/usr/bin/env python3
+# Copyright 2026 Manaflow, Inc.
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""THIRD_PARTY_LICENSES.md for each cmux-tui npm package and PyPI wheel.
+
+  package_notices.py generate --out-dir DIR --source-tag SHA [--cache DIR]
+                              [--target RUST_TARGET ...]
+  package_notices.py check-data
+
+`generate` writes DIR/<kind>-<rust target>.md for kind `cmux-tui` (bin/cmux-tui
+and bin/cmux-tui-hook: npm cmux-tui-<os>-<cpu>, every wheel) and `relay`
+(bin/chatmux-relay and bin/cmux-tui: npm cmux-relay-<os>-<cpu>). package_npm.py
+and package_pypi.py copy them into the packages; validate_package_contract.py
+fails a package without its notice or with a different one.
+
+Each notice names everything the static binaries link, for that target:
+  - the Rust crates of the exact target closure (rust_notices.py, with the
+    license texts; first-party crates point at --source-tag),
+  - the Rust standard library: rustc's COPYRIGHT-library.html for the
+    cmux-tui/rust-toolchain.toml version (toolchains.json),
+  - Zig's std and compiler_rt (libghostty-vt): Zig's LICENSE (toolchains.json),
+  - libghostty-vt: Ghostty's LICENSE and the texts of every Zig package and
+    vendored directory that vt-link-graph.json says the archive links for the
+    target (cmux-tui/dist/notices/package-notices.json, owned by the license
+    review; the texts must be for the graph's ghostty-next commit),
+  - Linux musl targets: musl's COPYRIGHT (package-notices.json).
+Windows (x86_64-pc-windows-gnu) is refused: it links the mingw-w64 runtime,
+whose notices nobody has reviewed yet.
+
+Crate sources come from fetch_crates.py's CARGO_HOME-shaped cache (network on
+first use; no cargo). Python 3.11+ standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[2]
+NOTICES = HERE.parent / "notices"
+BUILD_SUPPORT = ROOT / "cmux-tui/build-support/notices"
+GHOSTTY_PINNED = BUILD_SUPPORT / "ghostty/pinned-licenses"
+VT_GRAPH = ROOT / "scripts/cmux-next/notices/vt-link-graph.json"
+NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
+
+sys.path.insert(0, str(BUILD_SUPPORT / "toolchains"))
+import toolchain_notices  # noqa: E402
+
+# rust target -> zig target of libghostty-vt (ghostty-vt-sys build_support.rs).
+TARGETS = {
+    "aarch64-apple-darwin": "aarch64-macos",
+    "x86_64-apple-darwin": "x86_64-macos",
+    "x86_64-unknown-linux-musl": "x86_64-linux-musl",
+    "aarch64-unknown-linux-musl": "aarch64-linux-musl",
+}
+REFUSED = {
+    "x86_64-pc-windows-gnu": "it links the mingw-w64 runtime (crt, winpthreads), whose notices are not reviewed yet",
+}
+KINDS = {
+    "cmux-tui": {"roots": ("cmux-tui",), "binaries": ("bin/cmux-tui", "bin/cmux-tui-hook")},
+    "relay": {"roots": ("chatmux-relay", "cmux-tui"), "binaries": ("bin/chatmux-relay", "bin/cmux-tui")},
+}
+
+
+class NoticeError(RuntimeError):
+    pass
+
+
+@dataclasses.dataclass
+class Inputs:
+    data: dict
+    graph: dict
+    toolchains: "toolchain_notices.Manifest"
+    rust_version: str
+    vendored: dict
+    pinned: dict
+
+
+def notice_name(kind: str, rust_target: str) -> str:
+    return f"{kind}-{rust_target}.md"
+
+
+def load_inputs() -> Inputs:
+    toolchains = toolchain_notices.load()
+    channel = re.search(r'^\s*channel\s*=\s*"([^"]+)"', (ROOT / "cmux-tui/rust-toolchain.toml").read_text(), re.M)
+    pinned_manifest = json.loads((GHOSTTY_PINNED / "MANIFEST.json").read_text(encoding="utf-8"))
+    return Inputs(
+        data=json.loads((NOTICES / "package-notices.json").read_text(encoding="utf-8")),
+        graph=json.loads(VT_GRAPH.read_text(encoding="utf-8")),
+        toolchains=toolchains,
+        rust_version=channel.group(1) if channel else "",
+        vendored=pinned_manifest.get("vendored", {}),
+        pinned=pinned_manifest.get("packages", {}),
+    )
+
+
+def _read(path: Path, sha256: str, label: str) -> str:
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != sha256:
+        raise NoticeError(f"{label}: {path} does not match its sha256")
+    return data.decode("utf-8")
+
+
+def _fence(text: str) -> str:
+    longest = max((len(m) for m in re.findall(r"`+", text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def _block(title: str, text: str, lang: str = "text") -> str:
+    fence = _fence(text)
+    return f"#### {title}\n\n{fence}{lang}\n{text.rstrip(chr(10))}\n{fence}\n\n"
+
+
+def _vt_owner_texts(inputs: Inputs, owner: str) -> tuple[str, list[tuple[str, str]]]:
+    """(display name, [(title, text)]) for a libghostty-vt owner: a Zig package
+    hash, `ghostty-next`, or a vendored directory resolved through the Ghostty
+    vendored review (covered_by ghostty / zig-dependency:<name> / pinned:<name>)."""
+    owners = inputs.data["libghostty_vt"]["owners"]
+    if owner in owners:
+        entry = owners[owner]
+        return entry["name"], [
+            (f"{entry['name']}: {Path(f['file']).name} ({f['source']})", _read(NOTICES / f["file"], f["sha256"], owner))
+            for f in entry["files"]
+        ]
+    review = inputs.vendored.get(owner)
+    if review is None:
+        raise NoticeError(f"libghostty-vt links {owner}, which has no texts in package-notices.json and no vendored review")
+    covered = review.get("covered_by", "")
+    if covered == "ghostty":
+        return owner, []  # Ghostty's own code: Ghostty's LICENSE
+    if covered.startswith("zig-dependency:"):
+        name = covered.split(":", 1)[1]
+        if not any(entry["name"] == name for entry in owners.values()):
+            raise NoticeError(f"{owner} is covered by the Zig package {name}, which has no texts in package-notices.json")
+        return owner, []
+    if covered.startswith("pinned:"):
+        name = covered.split(":", 1)[1]
+        files = inputs.pinned.get(name, {}).get("files", [])
+        if not files:
+            raise NoticeError(f"{owner} is covered by pinned:{name}, which has no pinned texts")
+        return name, [
+            (f"{name}: {f['filename']} ({f['upstream']})", _read(GHOSTTY_PINNED / f["path"], f["sha256"], name))
+            for f in files
+        ]
+    raise NoticeError(f"{owner}: unknown vendored coverage {covered!r}")
+
+
+def data_problems(inputs: Inputs) -> list[str]:
+    """Pinned texts match; the libghostty-vt texts cover the graph's linked set."""
+    problems = []
+    musl = inputs.data["musl"]
+    try:
+        _read(NOTICES / musl["file"], musl["sha256"], "musl")
+    except (OSError, NoticeError) as error:
+        problems.append(f"{musl['file']}: {error}")
+    vt = inputs.data["libghostty_vt"]
+    if (inputs.graph.get("source"), inputs.graph.get("commit")) != (vt["source"], vt["commit"]):
+        problems.append(
+            f"package-notices.json has libghostty-vt texts for {vt['source']} {vt['commit']}, but vt-link-graph.json "
+            f"is for {inputs.graph.get('source')} {inputs.graph.get('commit')}; copy the texts of the linked packages "
+            "from that commit's collected license tree"
+        )
+    linked = set()
+    for entry in inputs.graph.get("targets", {}).values():
+        linked.update(entry.get("packages", []))
+        linked.update(entry.get("vendored", {}))
+    for owner in ["ghostty-next", *sorted(linked)]:
+        try:
+            _vt_owner_texts(inputs, owner)
+        except (OSError, NoticeError) as error:
+            problems.append(str(error))
+    problems += toolchain_notices.text_problems(inputs.toolchains)
+    return problems
+
+
+def compose(kind: str, rust_target: str, crates_markdown: str, inputs: Inputs) -> str:
+    if rust_target in REFUSED:
+        raise NoticeError(f"no reviewed notices for {rust_target}: {REFUSED[rust_target]}")
+    if rust_target not in TARGETS:
+        raise NoticeError(f"unknown target {rust_target}")
+    zig_target = TARGETS[rust_target]
+    spec = KINDS[kind]
+    rust = next((r for r in inputs.toolchains.rust if r.version == inputs.rust_version), None)
+    if rust is None:
+        raise NoticeError(f"toolchains.json has no Rust {inputs.rust_version} (cmux-tui/rust-toolchain.toml)")
+    [zig] = inputs.toolchains.zig
+    graph = inputs.graph["targets"].get(zig_target)
+    if graph is None:
+        raise NoticeError(f"vt-link-graph.json has no {zig_target}")
+    out = [
+        f"# Third-party notices: {', '.join(spec['binaries'])} ({rust_target})\n\n",
+        "<!-- Generated by cmux-tui/dist/scripts/package_notices.py; do not edit. -->\n\n",
+        f"The binaries of this package ({', '.join(spec['binaries'])}) are cmux, licensed under "
+        "GPL-3.0-or-later (LICENSE). They are statically linked and contain the third-party code below.\n\n",
+        f"## Rust standard library (rustc {rust.version})\n\n",
+        "std, core, alloc, compiler_builtins and the crates they vendor, as the Rust project lists them in "
+        f"COPYRIGHT-library.html of rustc {rust.version} ({rust.source}):\n\n",
+        _block(f"COPYRIGHT-library.html (rustc {rust.version})", _read(rust.path, rust.sha256, "rust"), "html"),
+        f"## Zig {zig.version} standard library and compiler_rt\n\n",
+        "libghostty-vt is built with Zig, which links its std and compiler_rt into the archive "
+        f"(MIT License (Expat); {zig.source}):\n\n",
+        _block(f"Zig {zig.version} LICENSE", _read(zig.path, zig.sha256, "zig")),
+    ]
+    vt = inputs.data["libghostty_vt"]
+    owners = ["ghostty-next", *graph["packages"], *graph.get("vendored", {})]
+    out.append(f"## libghostty-vt ({vt['source']} {vt['commit']})\n\n")
+    out.append(
+        "Ghostty's terminal library and the Zig packages and vendored directories whose code its archive "
+        f"contains for {zig_target} (vt-link-graph.json):\n\n"
+    )
+    for owner in owners:
+        name, texts = _vt_owner_texts(inputs, owner)
+        out.append(f"### {name}{'' if name == owner else f' ({owner})'}\n\n")
+        if not texts:
+            out.append("Covered by the texts above (Ghostty's own code or its Zig package).\n\n")
+        for title, text in texts:
+            out.append(_block(title, text))
+    if rust_target.endswith("-linux-musl"):
+        musl = inputs.data["musl"]
+        out.append(f"## musl libc {musl['version']}\n\n")
+        out.append(f"The Linux binaries are statically linked with musl ({musl['source']}):\n\n")
+        out.append(_block(f"musl {musl['version']} COPYRIGHT", _read(NOTICES / musl["file"], musl["sha256"], "musl")))
+    out.append(crates_markdown.rstrip("\n") + "\n")
+    return "".join(out)
+
+
+def crates_markdown(kind: str, rust_target: str, cache: Path, source_tag: str) -> str:
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "crates.md"
+        command = [
+            sys.executable, str(BUILD_SUPPORT / "rust_notices.py"),
+            "--lock", str(ROOT / "cmux-tui/Cargo.lock"), "--lock-label", "cmux-tui/Cargo.lock",
+            "--workspace", str(ROOT / "cmux-tui"), "--repo-root", str(ROOT),
+            "--first-party", "cmux-tui/crates/*", "--first-party", "cmux-tui/bindings/*",
+            "--first-party-license", str(ROOT / "cmux-tui/dist/npm/cmux/LICENSE"),
+            "--reviewed", str(BUILD_SUPPORT / "reviewed.json"),
+            "--source-tag", source_tag, "--target", rust_target,
+            "--format", "markdown", "--section-id", "rust-crates", "--title", f"Rust crates ({rust_target})",
+            "--out", str(out),
+        ]
+        for root in KINDS[kind]["roots"]:
+            command += ["--root", root]
+        result = subprocess.run(command, env={**os.environ, "CARGO_HOME": str(cache)}, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise NoticeError(f"rust_notices.py failed for {kind} {rust_target}:\n{result.stderr}")
+        return out.read_text(encoding="utf-8")
+
+
+def generate(args: argparse.Namespace) -> int:
+    if not re.fullmatch(r"[0-9a-f]{40}", args.source_tag):
+        raise NoticeError("--source-tag must be the full commit the binaries are built from")
+    inputs = load_inputs()
+    problems = data_problems(inputs)
+    if problems:
+        raise NoticeError("\n".join(problems))
+    targets = args.target or list(TARGETS)
+    for target in targets:
+        if target in REFUSED:
+            raise NoticeError(f"no reviewed notices for {target}: {REFUSED[target]}")
+    fetch = subprocess.run(
+        [sys.executable, str(BUILD_SUPPORT / "fetch_crates.py"), "--cache", str(args.cache), "--lock", str(ROOT / "cmux-tui/Cargo.lock")],
+        capture_output=True, text=True,
+    )
+    if fetch.returncode != 0:
+        raise NoticeError(f"fetch_crates.py failed:\n{fetch.stderr}")
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    for target in targets:
+        for kind in KINDS:
+            text = compose(kind, target, crates_markdown(kind, target, args.cache, args.source_tag), inputs)
+            (args.out_dir / notice_name(kind, target)).write_text(text, encoding="utf-8")
+            print(f"package_notices: wrote {notice_name(kind, target)} ({len(text)} bytes)")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+    gen = sub.add_parser("generate")
+    gen.add_argument("--out-dir", type=Path, required=True)
+    gen.add_argument("--source-tag", required=True, help="full commit of the cmux tree the binaries are built from")
+    gen.add_argument("--cache", type=Path, default=Path(os.environ.get("CMUX_NOTICES_CACHE", Path.home() / ".cache/cmux-notices")))
+    gen.add_argument("--target", action="append")
+    sub.add_parser("check-data")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "generate":
+            return generate(args)
+        problems = data_problems(load_inputs())
+    except NoticeError as error:
+        print(f"package_notices: error: {error}", file=sys.stderr)
+        return 1
+    for problem in problems:
+        print(f"package_notices: error: {problem}", file=sys.stderr)
+    if problems:
+        return 1
+    print("package_notices: package notice data matches vt-link-graph.json and its sha256 values")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

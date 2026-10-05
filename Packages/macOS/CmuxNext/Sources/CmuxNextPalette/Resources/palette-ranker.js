@@ -483,7 +483,20 @@
 
   // src/palette/ranker-bridge.ts
   function installPaletteRankerBridge(target = globalThis) {
-    target.__cmuxPaletteRank = (requestJSON) => JSON.stringify(rankPaletteRequest(JSON.parse(requestJSON)));
+    let installed;
+    target.__cmuxPaletteInstall = (version, entriesJSON) => {
+      installed = { version, entries: JSON.parse(entriesJSON) };
+    };
+    target.__cmuxPaletteRank = (requestJSON) => {
+      const request = JSON.parse(requestJSON);
+      if (request.entries == null) {
+        if (!installed || installed.version !== request.version) {
+          throw new Error(`palette ranker: no entries installed for version ${String(request.version)}`);
+        }
+        request.entries = installed.entries;
+      }
+      return JSON.stringify(rankPaletteRequest(request));
+    };
   }
   installPaletteRankerBridge();
 })();
