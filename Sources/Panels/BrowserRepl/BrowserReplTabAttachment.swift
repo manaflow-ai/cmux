@@ -327,6 +327,16 @@ final class BrowserReplTabAttachment {
         return false
     }
 
+    /// Whether a link activated in this tab may go to the user's configured
+    /// external browser
+    /// (``BrowserReplTabOwnership/handsLinksToExternalBrowser(userIsWorkingInTab:)``):
+    /// always in a tab no session drives; in one a session drives, only a
+    /// user's tab the user is working in, while no session's input runs.
+    var handsLinksToExternalBrowser: Bool {
+        guard isAttached else { return true }
+        return ownership.handsLinksToExternalBrowser(userIsWorkingInTab: !opensPopupsInBackground)
+    }
+
     /// The attached session whose input the page is handling now, if
     /// exactly one session's input is in flight
     /// (``BrowserReplTabOwnership/inputSessionID``).

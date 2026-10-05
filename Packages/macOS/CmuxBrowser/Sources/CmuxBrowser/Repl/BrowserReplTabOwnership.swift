@@ -329,9 +329,15 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     }
 
     /// Whether a link activated in the tab may go to the user's configured
-    /// external browser.
+    /// external browser (a rule that opens matching links with
+    /// `NSWorkspace`, outside the tab and its domain policy). An agent's
+    /// synthesized click is a link activation to WebKit, and a page
+    /// activates links itself (`a.click()`), so only a user's tab the user
+    /// is working in (`userIsWorkingInTab`: shown and focused in the key
+    /// window), with no session's input in flight, hands one off. Any other
+    /// activation loads in the tab, under the usual guards.
     public func handsLinksToExternalBrowser(userIsWorkingInTab: Bool) -> Bool {
-        true
+        !isSessionOwned && inputSessionIDs.isEmpty && userIsWorkingInTab
     }
 
     /// Ends one ``beginInput(sessionID:)``.

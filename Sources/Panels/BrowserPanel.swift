@@ -8932,6 +8932,12 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 return nil
             }
         }
+        // As in the navigation delegate: a tab a browser REPL session drives
+        // hands a window's link to the external browser only when the user
+        // activated it there.
+        let replAllowsExternalOpen = owner.map {
+            BrowserReplTabAttachments.shared.attachment(for: $0.id)?.handsLinksToExternalBrowser ?? true
+        } ?? true
         if let url = navigationAction.request.url {
             if navigationAction.navigationType == .linkActivated,
                navigationAction.targetFrame?.isMainFrame != false,
@@ -8942,11 +8948,11 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
                 return nil
             }
-            switch externalNavigationHandler.openConfiguredExternallyResult(
+            switch replAllowsExternalOpen ? externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: navigationAction.navigationType,
                 targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
-            ) {
+            ) : .notConfigured {
             case .opened:
                 return nil
             case .failed:
