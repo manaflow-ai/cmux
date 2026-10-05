@@ -346,7 +346,10 @@ public struct RecentProjectScan: Sendable {
                                                              includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                                                              options: [.skipsHiddenFiles])) ?? []
             for entry in entries.prefix(maxEntriesPerDirectory) where isDirectory(entry, manager: manager) {
-                queue.append((entry, depth + 1))
+                // Directory enumeration may canonicalize an ancestor (/var
+                // to /private/var). Keep the caller's root spelling so these
+                // repositories merge with session and history cwd hints.
+                queue.append((directory.appending(path: entry.lastPathComponent, directoryHint: .isDirectory), depth + 1))
             }
         }
         return found

@@ -111,7 +111,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         }
     }
 
-    /// Longest list of each kind sent to the page.
+    /// Bound for recent project, command, action and browser-history suggestions.
     public static let maximumEntries = 40
 
     public var tabs: [Tab]
@@ -127,9 +127,9 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
     public init(tabs: [Tab] = [], workspaces: [Workspace] = [], folders: [String] = [], projects: [String] = [],
                 actions: [Action] = [], commands: [String] = [], history: [Page] = []) {
         let cap = Self.maximumEntries
-        self.tabs = Array(tabs.prefix(cap))
-        self.workspaces = Array(workspaces.prefix(cap))
-        self.folders = Array(folders.prefix(cap))
+        self.tabs = tabs
+        self.workspaces = workspaces
+        self.folders = folders
         self.projects = Array(projects.prefix(cap))
         self.actions = Array(actions.prefix(cap))
         self.commands = Array(commands.prefix(cap))

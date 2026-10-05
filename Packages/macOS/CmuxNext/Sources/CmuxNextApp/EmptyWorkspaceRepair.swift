@@ -141,10 +141,6 @@ final class EmptyWorkspaceRepair {
             if Self.hasPane(workspace) {
                 notePopulated(key)
             } else {
-                // A workspace seen populated on an earlier connection still
-                // needs a current-epoch claim before cause() can decide
-                // between a user close and a lost terminal.
-                if everPopulated.contains(key), populated[key] == nil { populated[key] = epoch() }
                 closeIfEmptied(key)
             }
         }
