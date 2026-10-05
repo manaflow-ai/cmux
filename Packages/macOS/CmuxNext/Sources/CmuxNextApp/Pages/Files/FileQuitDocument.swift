@@ -19,15 +19,18 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     private var flushers: [UUID: () async -> Bool] = [:]
     private var work: [Task<Void, Never>] = []
     private let clock: any Clock<Duration>
-    /// How long the quit waits for one page's flush. A crashed page never answers; after this the
-    /// host writes the last reported text itself. Under the hook's 3 s `quitFlushDeadline`.
+    private let pageFlushTimeout: Duration
+    /// How long the quit waits for the pages' flushes (all pages together). A crashed page never
+    /// answers; after this the host writes the last reported text itself, inside the registry's
+    /// own deadline (`quitFlushDeadline`, 3 s; the registry does not cancel a timed-out flush).
     static let pageFlushTimeout: Duration = .seconds(2)
 
     /// `id` defaults to `QuitParticipantID.file(path:)` (host "local"); tests pass a malformed one.
     init(url: URL, id: String? = nil, drafts: RecoveryDraftStore, writable: @escaping () -> Bool,
-         clock: any Clock<Duration> = ContinuousClock()) {
+         clock: any Clock<Duration> = ContinuousClock(), pageFlushTimeout: Duration = FileQuitDocument.pageFlushTimeout) {
         self.url = url
         self.clock = clock
+        self.pageFlushTimeout = pageFlushTimeout
         quitParticipantID = id ?? QuitParticipantID.file(path: url.path)
         self.drafts = drafts
         self.writable = writable
@@ -82,9 +85,8 @@ final class FileQuitDocument: QuitUnsavedParticipant {
 
     func flushForQuit() async throws {
         // Each page saves through the host first (a save marks the document clean).
-        for flush in Array(flushers.values) where hasUnsavedChanges {
-            await bounded(flush)
-        }
+        if hasUnsavedChanges, !flushers.isEmpty { await askPages(Array(flushers.values)) }
+        // After the wait: a Don't Save (discardForQuit) or a page's own save cleared the state.
         guard hasUnsavedChanges, let text = latestText else { return }
         let name = url.lastPathComponent
         do {
@@ -100,22 +102,24 @@ final class FileQuitDocument: QuitUnsavedParticipant {
         }
     }
 
-    /// Runs `flush` until it answers or `pageFlushTimeout` passes, whichever is first. The flush
-    /// task is not awaited after the timeout: a dead page's call ends when its page closes.
-    private func bounded(_ flush: @escaping () async -> Bool) async {
-        let clock = clock
+    /// Asks every page to save at once and waits until all answered or `pageFlushTimeout` passed.
+    /// The page calls are not awaited after the timeout: a dead page's call ends when it closes.
+    private func askPages(_ flushes: [() async -> Bool]) async {
+        let clock = clock, timeout = pageFlushTimeout
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            let once = FlushAnswer(done)
-            // task-owner: the quit's wait for one page; ends at the page's answer or the timeout
+            let answers = FlushAnswer(done, waiting: flushes.count)
+            // task-owner: the quit's wait for the pages; ends when all answered or at the timeout
             let deadline = Task { @MainActor in
-                do { try await clock.sleep(for: Self.pageFlushTimeout) } catch { return } // wakeup-allow: bounded quit flush
-                once.finish()
+                do { try await clock.sleep(for: timeout) } catch { return } // wakeup-allow: bounded quit flush
+                answers.finish()
             }
-            // task-owner: one page's flush call; a dead page's call ends when the page closes
-            Task { @MainActor in
-                _ = await flush()
-                deadline.cancel()
-                once.finish()
+            answers.onFinish = { deadline.cancel() }
+            for flush in flushes {
+                // task-owner: one page's flush call; a dead page's call ends when the page closes
+                Task { @MainActor in
+                    _ = await flush()
+                    answers.answered()
+                }
             }
         }
     }
@@ -137,13 +141,25 @@ final class FileQuitDocument: QuitUnsavedParticipant {
     }
 }
 
-/// Resumes a bounded flush once: at the page's answer or at the timeout, whichever is first.
+/// Resumes the pages' flush wait once: when every page answered, or at the timeout.
 private final class FlushAnswer {
     private var continuation: CheckedContinuation<Void, Never>?
-    init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+    private var waiting: Int
+    var onFinish: (() -> Void)?
+    init(_ continuation: CheckedContinuation<Void, Never>, waiting: Int) {
+        self.continuation = continuation
+        self.waiting = waiting
+    }
+    func answered() {
+        waiting -= 1
+        if waiting <= 0 { finish() }
+    }
     func finish() {
-        continuation?.resume()
-        continuation = nil
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume()
+        onFinish?()
+        onFinish = nil
     }
 }
 
