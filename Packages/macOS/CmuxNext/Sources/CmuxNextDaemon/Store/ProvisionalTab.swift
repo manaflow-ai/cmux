@@ -1,19 +1,25 @@
 import Foundation
 
-/// Ids of tabs a create intent shows before the daemon has the tab.
-public enum ProvisionalTab {
+/// The id and surface of a tab a create intent shows before the daemon has the tab: neither can
+/// name a daemon tab.
+public struct ProvisionalTab: Sendable, Hashable {
     /// The tab id prefix (`TabModel.id`) of a provisional tab.
     public static let idPrefix = "pending_tab_"
     /// Daemon surfaces count up from 1; provisional ones live far above them.
     private static let surfaceBase: UInt64 = 1 << 62
     @MainActor private static var next: UInt64 = 0
 
-    @MainActor public static func surface() -> SurfaceID {
-        next += 1
-        return SurfaceID(rawValue: surfaceBase + next)
-    }
+    /// The provisional tab's id (`TabModel.id`).
+    public let id: String
+    /// Its surface, far above every daemon surface.
+    public let surface: SurfaceID
 
-    public static func id() -> String { idPrefix + UUID().uuidString.lowercased() }
+    /// A fresh provisional tab.
+    @MainActor public init() {
+        Self.next += 1
+        id = Self.idPrefix + UUID().uuidString.lowercased()
+        surface = SurfaceID(rawValue: Self.surfaceBase + Self.next)
+    }
 
     public static func isProvisional(_ id: String) -> Bool { id.hasPrefix(idPrefix) }
 

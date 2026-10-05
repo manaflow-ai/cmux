@@ -33,8 +33,8 @@ public enum Intent: Sendable, Hashable {
     case setRowHeights(column: ColumnID, heights: [RowHeightValue])
     /// A tab the client is creating (an agent chat tab, `new-conversation-tab`): `provisional`
     /// shows at the end of `pane` until the daemon's tab replaces it (the intent settles) or the
-    /// creation fails. Its surface is from ``ProvisionalTab/surface()``, its id from
-    /// ``ProvisionalTab/id()``, so neither can name a daemon tab.
+    /// creation fails. Its id and surface come from a ``ProvisionalTab``,
+    /// so neither can name a daemon tab.
     case createTab(pane: PaneID, provisional: TabSnapshot)
 }
 
