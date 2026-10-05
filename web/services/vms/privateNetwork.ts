@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import type { ProviderId } from "./drivers";
 import { trace } from "@opentelemetry/api";
 import { setSpanAttributes } from "../telemetry";
@@ -367,14 +368,21 @@ function resolveTeamNetwork(input: {
     if (!input.billingTeamId || input.billingTeamId === input.userId) return { network: null, fallbackReason: "solo_team" as const };
     const getNetwork = input.providers.getNetwork;
     if (!input.teamDirectory || !getNetwork) return { network: null, fallbackReason: "no_capability" as const };
-    // Membership is checked before the provider read, and on reuse as well as
-    // on create, so a caller who left the team never lands on its network.
-    const result = yield* listTeamMemberIdsWithTimeout(input.teamDirectory, input.billingTeamId, input.directoryTimeoutMs);
-    if ("error" in result) return { network: null, fallbackReason: result.error === "timeout" ? "directory_timeout" as const : "directory_error" as const };
-    if (result.memberIds === null) return { network: null, fallbackReason: "directory_error" as const };
-    if (!result.memberIds.includes(input.userId)) return { network: null, fallbackReason: "not_member" as const };
     const slug = networkSlugForTeam(input.billingTeamId);
-    const existing = yield* getNetwork(input.provider, slug);
+    // The directory lookup and the provider read by slug are independent, so
+    // every create pays the slower of the two instead of their sum (the two
+    // were ~400ms and ~240ms in sequence). Membership still gates the result,
+    // on reuse as well as on create, so a caller who left the team never lands
+    // on its network. Only a current member joins the read, so only a member
+    // sees its failure; every fallback interrupts it and returns at once.
+    const existingRead = yield* Effect.fork(getNetwork(input.provider, slug));
+    const fallBack = (fallbackReason: Exclude<TeamNetworkResolution["fallbackReason"], null>) =>
+      Fiber.interruptFork(existingRead).pipe(Effect.as({ network: null, fallbackReason }));
+    const result = yield* listTeamMemberIdsWithTimeout(input.teamDirectory, input.billingTeamId, input.directoryTimeoutMs);
+    if ("error" in result) return yield* fallBack(result.error === "timeout" ? "directory_timeout" : "directory_error");
+    if (result.memberIds === null) return yield* fallBack("directory_error");
+    if (!result.memberIds.includes(input.userId)) return yield* fallBack("not_member");
+    const existing = yield* Fiber.join(existingRead);
     if (existing) return { network: teamNetworkFromProvider(existing, slug), fallbackReason: null };
     if (result.memberIds.length <= 1) return { network: null, fallbackReason: "solo_team" as const };
     // No members-reach-each-other rule: each team VM admits the team network
@@ -409,13 +417,19 @@ export function resolveOwnerNetwork(input: {
 > {
   return Effect.gen(function* () {
     const { providers, repo } = yield* requireOwnerNetworkComposition(input.provider);
-    const teamResolution = yield* resolveTeamNetwork({ ...input, providers });
+    // The account's own row is read alongside the team lookup: a create that
+    // falls back to the personal network would otherwise start this read only
+    // after the directory and provider round trips finish.
+    const [teamResolution, userRow] = yield* Effect.all(
+      [resolveTeamNetwork({ ...input, providers }), repo.findNetwork(input.userId, input.provider)],
+      { concurrency: 2 },
+    );
     const span = trace.getActiveSpan();
     if (span) setSpanAttributes(span, teamResolution.network
       ? { "cmux.vm.network.scope": "team", "cmux.vm.network.team_fallback": false }
       : { "cmux.vm.network.scope": "user", "cmux.vm.network.team_fallback": teamResolution.fallbackReason ?? "no_capability" });
     if (teamResolution.network) return { ...teamResolution.network, memberIngress: true, scope: "team" as const };
-    const network = yield* resolveUserNetwork(input, providers, repo);
+    const network = yield* resolveUserNetwork(input, providers, repo, userRow);
     return { ...network, memberIngress: false, scope: "user" as const };
   });
 }
@@ -454,10 +468,11 @@ function resolveUserNetwork(
   input: { readonly userId: string; readonly provider: ProviderId },
   providers: PrivateNetworkGateway,
   repo: PrivateNetworkRepo,
+  preloaded?: CloudVmNetworkRow | null,
 ) {
   return Effect.gen(function* () {
     const slug = networkSlugForUser(input.userId);
-    const existing = yield* repo.findNetwork(input.userId, input.provider);
+    const existing = preloaded !== undefined ? preloaded : yield* repo.findNetwork(input.userId, input.provider);
     // A namespaced deployment never reuses a network outside its namespace: a
     // dev database created before namespaces holds a row for the user's
     // production network. The upsert below replaces that row. Production
