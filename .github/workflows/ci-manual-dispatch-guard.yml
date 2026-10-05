@@ -7,7 +7,6 @@ on:
   workflow_run:
     workflows: [CI]
     types: [requested]
-    branches: [main]
 
 permissions: {}
 
@@ -15,10 +14,26 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
 
 jobs:
+  ignore:
+    name: Ignore non-manual CI run
+    # GitHub cannot filter workflow_run by the producer's event name. Keep
+    # non-manual CI requests out of the skipped-run count without granting the
+    # cancellation token to an unrelated request.
+    if: >-
+      github.event.workflow_run.path != '.github/workflows/ci.yml' ||
+      github.event.workflow_run.event != 'workflow_dispatch' ||
+      github.event.workflow_run.head_branch != 'main'
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted Actions control-plane token
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Record that this request is outside the guard scope
+        run: echo "CI manual dispatch guard is limited to workflow_dispatch on main."
+
   guard:
     # Manual CI dispatches are supported only from main. The event filter
-    # avoids starting this watcher for requests on feature branches, while
-    # the job condition keeps the source workflow identity explicit.
+    # cannot filter the producer's event or branch at request time, so the
+    # job condition keeps the source workflow identity and branch explicit.
     if: >-
       github.event.workflow_run.path == '.github/workflows/ci.yml' &&
       github.event.workflow_run.event == 'workflow_dispatch' &&

@@ -10,6 +10,7 @@ from test_seed_derived_data import evaluate, github_context
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci-manual-dispatch-guard.yml"
 CI = ROOT / ".github" / "workflows" / "ci.yml"
+CLAUDE = ROOT / ".github" / "workflows" / "claude.yml"
 
 
 def trigger(document: dict) -> dict:
@@ -19,7 +20,7 @@ def trigger(document: dict) -> dict:
 def test_watcher_is_requested_ci_workflow_run() -> None:
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     event = trigger(document)
-    assert event["workflow_run"] == {"workflows": ["CI"], "types": ["requested"], "branches": ["main"]}
+    assert event["workflow_run"] == {"workflows": ["CI"], "types": ["requested"]}
     assert document["env"]["SOURCE_WORKFLOW_PATHS"] == ".github/workflows/ci.yml"
     assert document["permissions"] == {}
     watcher_env = document["jobs"]["guard"]["steps"][-1]["env"]
@@ -51,6 +52,23 @@ def test_only_manual_dispatches_get_a_writer() -> None:
         "pull-requests": "read",
     }
     assert "scripts/ci/manual_dispatch_guard.py" in guard["steps"][-1]["run"]
+
+
+def test_non_manual_requests_are_acknowledged_without_writer_permissions() -> None:
+    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    ignore = document["jobs"]["ignore"]
+    assert "github.event.workflow_run.event != 'workflow_dispatch'" in ignore["if"]
+    assert ignore["permissions"] == {}
+    assert ignore["steps"][0]["run"].startswith("echo ")
+
+
+def test_non_mentions_are_acknowledged_without_claude_permissions() -> None:
+    document = yaml.safe_load(CLAUDE.read_text(encoding="utf-8"))
+    ignore = document["jobs"]["ignore"]
+    assert "github.event_name == 'issue_comment'" in ignore["if"]
+    assert "contains(github.event.comment.body, '@claude')" in ignore["if"]
+    assert ignore["permissions"] == {}
+    assert ignore["steps"][0]["run"].startswith("echo ")
 
 
 def test_ci_changes_job_remains_read_only() -> None:
