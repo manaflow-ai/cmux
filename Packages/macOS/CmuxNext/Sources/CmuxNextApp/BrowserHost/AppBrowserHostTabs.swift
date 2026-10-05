@@ -137,6 +137,23 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// Tabs belong to the person's layout: the provider never closes one.
     func closeAutomationTab(_ id: BrowserTabID) {}
 
+    /// The one exception: a browser session's end closes the tabs it created and did not keep
+    /// (the host filters out kept, person-driven and paused tabs). It is a normal store close
+    /// (`close-tabs`), marked `session_end` so Reopen Closed leaves it out; an older daemon
+    /// without `close-reason-v1` keeps the tab (never an unmarked close).
+    func endSessionTab(_ id: String) {
+        guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return }
+        let daemon = services.daemon
+        guard daemon.supports(DaemonCapabilities.shared.closeReason) else { return }
+        let surface = tab.surface
+        services.registry.track(Task {
+            let closed = await daemon.run(CloseTabsRequest.command) { connection in
+                _ = try await connection.closeTabs([surface], endTerminals: false, reason: .sessionEnd)
+            }
+            return closed ? nil : "close-tabs (session end) failed (see the app log)"
+        })
+    }
+
     /// Selecting a tab changes the person's view: not through the provider.
     func activateAutomationTab(_ id: BrowserTabID) {}
 }

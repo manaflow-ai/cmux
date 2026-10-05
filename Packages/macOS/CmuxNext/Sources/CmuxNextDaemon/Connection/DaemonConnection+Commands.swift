@@ -59,9 +59,9 @@ extension DaemonConnection {
     /// `endTerminals`, each terminal whose tabs all close ends too, unless kept.
     @discardableResult
     public func closeTabs(_ surfaces: [SurfaceID], endTerminals: Bool = true,
-                          transaction: ClientTransactionID? = nil) async throws -> CloseTabsResult {
+                          transaction: ClientTransactionID? = nil, reason: CloseReason? = nil) async throws -> CloseTabsResult {
         try await requestNew(CloseTabsRequest(surfaces: surfaces, endTerminals: endTerminals, transaction: transaction,
-                                              mutation: mutation()))
+                                              mutation: mutation(), reason: reason))
     }
 
     // Terminals, tabs, panes, columns, screens
