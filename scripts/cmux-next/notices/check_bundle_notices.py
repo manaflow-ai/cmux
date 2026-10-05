@@ -14,7 +14,8 @@ an entry of the map, and every requirement of each matching entry must hold:
   ghostty-license-tree:<path>
                    <app>/<path> is a Ghostty dependency license tree that
                    verify-ghostty-license-bundle.py accepts, for the Ghostty
-                   revision --ghostty-revision names (or, without it, the
+                   revision --ghostty-revision (Contents/Resources/ghostty-licenses)
+                   or --tree-revision PATH=SHA names (or, without one, the
                    revision in the tree's own SOURCE-MANIFEST.json)
 `resources` entries name non-Mach-O third-party data (a path relative to the
 .app); when the bundle has that path, its notices must hold too. A bundle that
@@ -40,9 +41,10 @@ FAT_MAGICS = {0xCAFEBABE, 0xCAFEBABF}
 MARKER = re.compile(r"<!-- notices-section: ([A-Za-z0-9._-]+) -->")
 GHOSTTY_VERIFIER = HERE.parents[2] / "cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py"
 # Third-party data that a bundle may carry only with a bundle-map `resources`
-# entry: the nightly-next Ghostty dependency license tree (nightly.yml,
-# "Inject the Ghostty dependency licenses").
-REQUIRED_RESOURCES = ("Contents/Resources/ghostty-licenses",)
+# entry: the nightly-next Ghostty dependency license trees (nightly.yml,
+# "Inject the Ghostty dependency licenses"): Ghostty's, and ghostty-next's for
+# the libghostty-vt in bin/cmux.
+REQUIRED_RESOURCES = ("Contents/Resources/ghostty-licenses", "Contents/Resources/ghostty-next-licenses")
 
 
 def _ghostty_verifier():
@@ -96,6 +98,7 @@ def macho_files(app: Path) -> list[str]:
 
 def check(
     app: Path, bundle_map: dict, notices: Path | None = None, ghostty_revision: str | None = None,
+    tree_revisions: dict[str, str] | None = None,
 ) -> list[str]:
     notices = notices or app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
     sections = set(MARKER.findall(notices.read_text(encoding="utf-8"))) if notices.is_file() else set()
@@ -111,7 +114,9 @@ def check(
         if kind == "file":
             return _non_empty(app / value)
         if kind == "ghostty-license-tree":
-            problem = ghostty_license_tree_problem(app / value, ghostty_revision)
+            revisions = {REQUIRED_RESOURCES[0]: ghostty_revision} if ghostty_revision else {}
+            revisions.update(tree_revisions or {})
+            problem = ghostty_license_tree_problem(app / value, revisions.get(value))
             if problem is not None:
                 reasons[need] = problem
             return problem is None
@@ -153,9 +158,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("app", type=Path)
     parser.add_argument("--map", type=Path, default=HERE / "bundle-map.json")
     parser.add_argument("--notices", type=Path, help="check this THIRD_PARTY_LICENSES.md instead of the bundled one (a candidate before a build)")
+    parser.add_argument("--tree-revision", action="append", default=[], help="PATH=SHA: the Ghostty commit a bundled license tree at PATH must name (e.g. Contents/Resources/ghostty-next-licenses=<ghostty-next gitlink>)")
     parser.add_argument("--ghostty-revision", help="the Ghostty commit the app was built from; a bundled Ghostty license tree must name it")
     args = parser.parse_args(argv)
-    errors = check(args.app, json.loads(args.map.read_text(encoding="utf-8")), args.notices, args.ghostty_revision)
+    tree_revisions = {}
+    for item in args.tree_revision:
+        path, sep, revision = item.partition("=")
+        if not sep or not revision:
+            parser.error(f"--tree-revision needs PATH=SHA, not {item!r}")
+        tree_revisions[path] = revision
+    errors = check(args.app, json.loads(args.map.read_text(encoding="utf-8")), args.notices, args.ghostty_revision, tree_revisions)
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     if errors:

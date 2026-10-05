@@ -10,6 +10,12 @@
 # SOURCE-MANIFEST.json) and <out dir>/cmux-next-source-<build>.tar.gz (build
 # defaults to the commit's first 11 characters). Builds the archive twice and
 # fails unless both are byte-identical. Publishing is a separate, gated step.
+#
+# bin/cmux links libghostty-vt from the submodule that ghostty-vt-sys's
+# build.rs selects, at this commit's gitlink (check_ghostty_vt_notices.py
+# --print-source; ghostty-next today). When that is not `ghostty`, the script
+# also fetches that tree's Zig packages, writes <out dir>/<submodule>-licenses/
+# and puts the tree and its packages in the archive.
 set -euo pipefail
 [[ $# -ge 1 ]] || { echo "usage: $0 <out dir> [<build number>]" >&2; exit 2; }
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -34,12 +40,30 @@ python3 "$notices/collect-ghostty-licenses.py" --ghostty-source "$ghostty" --zig
   --output "$out/ghostty-licenses" --revision "$revision" \
   --release-source-offer "$(python3 "$archive_tool" offer)"
 python3 "$notices/verify-ghostty-license-bundle.py" --root "$out/ghostty-licenses" --revision "$revision"
+# The libghostty-vt source of bin/cmux, from this commit's tree (never a constant).
+vt_line="$(python3 "$ROOT/scripts/cmux-next/notices/check_ghostty_vt_notices.py" --repo "$ROOT" --print-source | sed -n 's/^libghostty-vt source: //p')"
+vt_name="${vt_line%% *}" vt_revision="${vt_line##* }"
+[[ -n "$vt_name" && "$vt_revision" =~ ^[0-9a-f]{40}$ ]] || { echo "error: could not resolve the libghostty-vt source" >&2; exit 1; }
+echo "libghostty-vt source: $vt_name $vt_revision"
+next_build=() next_verify=()
+if [[ "$vt_name" != ghostty ]]; then
+  vt="$ROOT/$vt_name"
+  [[ "$(git -C "$vt" rev-parse HEAD 2>/dev/null)" == "$vt_revision" ]] || { echo "error: the $vt_name submodule is not checked out at $vt_revision" >&2; exit 1; }
+  (cd "$vt" && zig build --fetch=all)
+  rm -rf "$out/$vt_name-licenses"
+  python3 "$notices/collect-ghostty-licenses.py" --ghostty-source "$vt" --zig-cache "$ZIG_GLOBAL_CACHE_DIR" \
+    --output "$out/$vt_name-licenses" --revision "$vt_revision" \
+    --release-source-offer "$(python3 "$archive_tool" offer)"
+  python3 "$notices/verify-ghostty-license-bundle.py" --root "$out/$vt_name-licenses" --revision "$vt_revision"
+  next_verify=(--next-name "$vt_name" --next-license-manifest "$out/$vt_name-licenses/SOURCE-MANIFEST.json" --next-revision "$vt_revision")
+  next_build=("${next_verify[@]}" --next-source "$vt")
+fi
 archive="$out/cmux-next-source-$build.tar.gz"
 args=(--ghostty-source "$ghostty" --zig-cache "$ZIG_GLOBAL_CACHE_DIR" --license-manifest "$out/ghostty-licenses/SOURCE-MANIFEST.json"
-  --revision "$revision" --cmux-commit "$commit" --tag "cmux-next-src-${commit:0:11}")
+  --revision "$revision" --cmux-commit "$commit" --tag "cmux-next-src-${commit:0:11}" ${next_build[@]+"${next_build[@]}"})
 python3 "$archive_tool" build "${args[@]}" --out "$archive"
 python3 "$archive_tool" build "${args[@]}" --out "$archive.again"
 cmp "$archive" "$archive.again" || { echo "error: two builds of the source archive differ" >&2; exit 1; }
 rm -f "$archive.again"
-python3 "$archive_tool" verify --archive "$archive" --license-manifest "$out/ghostty-licenses/SOURCE-MANIFEST.json" --revision "$revision"
+python3 "$archive_tool" verify --archive "$archive" --license-manifest "$out/ghostty-licenses/SOURCE-MANIFEST.json" --revision "$revision" ${next_verify[@]+"${next_verify[@]}"}
 shasum -a 256 "$archive"

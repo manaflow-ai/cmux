@@ -59,6 +59,8 @@ nonisolated enum UpdaterStrings {
     static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
     static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
 
+    static func whatsNewTitle(_ version: String) -> String { format("updater.card.whatsNew", "What's New in cmux %@", version) }
+
     // R114 card
     static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
     static func cardReadyDetail(_ version: String) -> String { format("updater.card.readyDetail", "cmux %@ is ready", version) }

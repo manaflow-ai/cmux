@@ -398,6 +398,43 @@ impl Masker {
         out
     }
 
+    /// Masks every string inside JSON text (keys included) and keeps the
+    /// rest byte for byte: key order, number text and untouched strings
+    /// stay as the engine wrote them (a9 raw_value). Each string literal is
+    /// decoded first, so a value behind a JSON escape is masked too.
+    pub fn mask_json_text(&self, json: &str) -> String {
+        if self.is_empty() {
+            return json.to_owned();
+        }
+        let bytes = json.as_bytes();
+        let mut out = String::with_capacity(json.len());
+        let (mut copied, mut at) = (0, 0);
+        while at < bytes.len() {
+            if bytes[at] != b'"' {
+                at += 1;
+                continue;
+            }
+            // A string literal: up to the next unescaped quote. Quotes and
+            // backslashes are ASCII, so the slice bounds are char bounds.
+            let start = at;
+            at += 1;
+            while at < bytes.len() && bytes[at] != b'"' {
+                at += if bytes[at] == b'\\' { 2 } else { 1 };
+            }
+            let end = (at + 1).min(bytes.len());
+            at = end;
+            let literal = &json[start..end];
+            let Ok(text) = serde_json::from_str::<String>(literal) else { continue };
+            if let Cow::Owned(masked) = self.mask(&text) {
+                out.push_str(&json[copied..start]);
+                out.push_str(&Value::String(masked).to_string());
+                copied = end;
+            }
+        }
+        out.push_str(&json[copied..]);
+        out
+    }
+
     /// Masks every string inside a JSON value (keys included).
     pub fn mask_value(&self, value: &Value) -> Value {
         if self.is_empty() {

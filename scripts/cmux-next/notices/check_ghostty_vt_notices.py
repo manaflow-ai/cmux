@@ -28,6 +28,13 @@ must pass ghostty_vendored.py too. Exit 1 names every uncovered package.
 
 CMUX_GHOSTTY_SRC overrides build.rs's source for out-of-tree builds; the
 cmux-tui workflows set it empty, so the gitlink is what ships.
+
+Product override: a product that builds cmux-tui with its own Ghostty pin
+(cmux-browser: cmux-tui-ghostty-revision.txt) passes --ghostty-revision SHA or
+--ghostty-revision-file FILE. It wins over the gitlink, must exist in the vt
+repository, and the output says `commit source: product override (...)`.
+Without it the commit is the gitlink of REV (`commit source: gitlink of REV`),
+the rule for cmux-next.
 """
 
 from __future__ import annotations
@@ -127,15 +134,33 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--vt-git-dir", type=Path, help="the Ghostty repository that holds the gitlink commit (default: the submodule in --repo)")
     parser.add_argument("--license-manifest", type=Path, action="append", default=[], help="a collected SOURCE-MANIFEST.json (repeatable)")
     parser.add_argument("--print-source", action="store_true", help="print the resolved source and commit only")
+    override = parser.add_mutually_exclusive_group()
+    override.add_argument("--ghostty-revision", help="product override: the Ghostty commit the product builds cmux-tui with")
+    override.add_argument("--ghostty-revision-file", type=Path, help="product override: a pin file whose first line is that commit")
     args = parser.parse_args(argv)
     try:
         path, commit = resolve_vt_source(args.repo, args.rev)
+        vt_git_dir = args.vt_git_dir or args.repo / path
+        origin = f"gitlink of {args.rev}"
+        if args.ghostty_revision_file is not None:
+            args.ghostty_revision = args.ghostty_revision_file.read_text(encoding="utf-8").split()[0]
+            origin = f"product override ({args.ghostty_revision_file})"
+        elif args.ghostty_revision is not None:
+            origin = "product override (--ghostty-revision)"
+        if args.ghostty_revision is not None:
+            if not re.fullmatch(r"[0-9a-f]{40}", args.ghostty_revision):
+                raise CheckError(f"override {args.ghostty_revision!r} is not a 40-hex commit")
+            try:
+                git(vt_git_dir, "cat-file", "-e", f"{args.ghostty_revision}^{{commit}}")
+            except CheckError:
+                raise CheckError(f"override commit {args.ghostty_revision} does not exist in {vt_git_dir}") from None
+            commit = args.ghostty_revision
         print(f"libghostty-vt source: {path} {commit}")
+        print(f"commit source: {origin}")
         if args.print_source:
             return 0
         if not args.license_manifest:
             parser.error("pass --license-manifest (or --print-source)")
-        vt_git_dir = args.vt_git_dir or args.repo / path
         packages = declared_packages(vt_git_dir, commit)
         vendored_problems, _ = ghostty_vendored.check_tree(
             ghostty_vendored.Tree.from_git(vt_git_dir, commit),

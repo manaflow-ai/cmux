@@ -128,6 +128,45 @@ class ResolveSourceTest(unittest.TestCase):
                 vt.resolve_vt_source(fixture.cmux, "HEAD")
 
 
+class OverrideTest(unittest.TestCase):
+    """cmux-browser builds cmux-tui with its own Ghostty pin
+    (cmux-tui-ghostty-revision.txt), not the cmux gitlink."""
+
+    def test_no_override_uses_the_gitlink(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            fixture = Fixture(Path(raw), "ghostty", arm="Err(_)")
+            result = fixture.run("--print-source")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"libghostty-vt source: ghostty {fixture.vt_commit}", result.stdout)
+            self.assertIn("commit source: gitlink of HEAD", result.stdout)
+
+    def test_override_revision_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            fixture = Fixture(Path(raw), "ghostty", arm="Err(_)")
+            result = fixture.run("--print-source", "--ghostty-revision", fixture.other_commit)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"libghostty-vt source: ghostty {fixture.other_commit}", result.stdout)
+            self.assertIn("commit source: product override (--ghostty-revision)", result.stdout)
+
+    def test_override_file_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            fixture = Fixture(work, "ghostty", arm="Err(_)")
+            pin = work / "cmux-tui-ghostty-revision.txt"
+            pin.write_text(f"{fixture.other_commit}\n")
+            result = fixture.run("--print-source", "--ghostty-revision-file", pin)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"libghostty-vt source: ghostty {fixture.other_commit}", result.stdout)
+            self.assertIn(f"commit source: product override ({pin})", result.stdout)
+
+    def test_override_commit_that_does_not_exist_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            fixture = Fixture(Path(raw), "ghostty", arm="Err(_)")
+            result = fixture.run("--print-source", "--ghostty-revision", "d" * 40)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("d" * 40, result.stderr)
+
+
 class DependencyTest(unittest.TestCase):
     def test_declared_closure_follows_path_packages_and_ignores_comments(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -180,7 +219,7 @@ class CheckTest(unittest.TestCase):
             fixture = Fixture(Path(raw), "ghostty-next")
             result = fixture.run("--print-source")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), f"libghostty-vt source: ghostty-next {fixture.vt_commit}")
+            self.assertEqual(result.stdout.splitlines()[0], f"libghostty-vt source: ghostty-next {fixture.vt_commit}")
 
     def test_vendored_directories_of_the_vt_tree_are_checked(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -141,6 +141,15 @@ impl Driver for HeadlessDriver {
     fn end_session(&self) {
         self.driver.end_session();
     }
+
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<crate::driver::Reply, DriverError> {
+        self.driver.call_reply_announced(method, params, announce)
+    }
 }
 
 impl crate::host::Engines for HostEngines {

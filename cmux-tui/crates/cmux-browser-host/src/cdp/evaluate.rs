@@ -3,6 +3,7 @@
 use super::driver::{Inner, Session};
 use super::state::{AGENT_WORLD, HOST_WORLD, World, error_message};
 use crate::protocol::{DriverError, ErrorCode, required_str, timeout_of};
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -20,6 +21,21 @@ const STALE_MARKER: &str = "cmux-stale-handle:";
 fn handle_group() -> String {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     format!("cmux-handles-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
+
+/// `Runtime.callFunctionOn` with `returnByValue`, parsed once: the value
+/// stays the JSON text Chromium sent (a9 raw_value: the page's key order).
+#[derive(serde::Deserialize)]
+struct CallReply {
+    result: CallResult,
+    #[serde(rename = "exceptionDetails")]
+    exception_details: Option<Value>,
+}
+
+#[derive(serde::Deserialize)]
+struct CallResult {
+    /// Absent for `undefined` and for values JSON cannot hold.
+    value: Option<Box<RawValue>>,
 }
 
 /// A script context: the CDP session that owns it and its id there.
@@ -185,7 +201,15 @@ impl Inner {
         )
     }
 
+    /// A script's value, parsed (internal callers read fields of it).
     pub(super) fn evaluate(&self, params: &Value) -> Result<Value, DriverError> {
+        let raw = self.evaluate_raw(params)?;
+        serde_json::from_str(raw.get())
+            .map_err(|e| DriverError::invalid(format!("the script's value is not JSON: {e}")))
+    }
+
+    /// A script's value as the JSON text Chromium sent.
+    pub(super) fn evaluate_raw(&self, params: &Value) -> Result<Box<RawValue>, DriverError> {
         let session = self.session(params)?;
         let deadline = Instant::now() + timeout_of(params);
         let frame_id = self.frame_or_main(&session, params)?;
@@ -211,7 +235,7 @@ impl Inner {
         world: World,
         params: &Value,
         deadline: Instant,
-    ) -> Result<Value, DriverError> {
+    ) -> Result<Box<RawValue>, DriverError> {
         let source = required_str(params, "source")?;
         let args: Vec<Value> =
             params.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -263,8 +287,9 @@ impl Inner {
             }
         };
         arguments.extend(args.into_iter().map(|value| json!({"value": value})));
-        let reply = self.send_on(
-            &context.session,
+        let left = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+        let reply: Result<CallReply, DriverError> = self.conn.call_typed(
+            Some(&context.session),
             "Runtime.callFunctionOn",
             json!({
                 "functionDeclaration": declaration,
@@ -274,16 +299,20 @@ impl Inner {
                 "awaitPromise": params.get("awaitPromise").and_then(Value::as_bool).unwrap_or(true),
                 "userGesture": true,
             }),
-            deadline,
+            left,
         );
         if let Some((group_session, group)) = used_group {
             self.release_handles(&group_session, &group);
         }
         let reply = reply?;
-        if let Some(details) = reply.get("exceptionDetails") {
+        if let Some(details) = &reply.exception_details {
             return Err(evaluation_error(details));
         }
-        Ok(reply["result"].get("value").cloned().unwrap_or(Value::Null))
+        match reply.result.value {
+            Some(value) => Ok(value),
+            None => RawValue::from_string("null".to_owned())
+                .map_err(|e| DriverError::invalid(e.to_string())),
+        }
     }
 
     /// Agent handles -> remote objects in the page world, through backend node ids.
