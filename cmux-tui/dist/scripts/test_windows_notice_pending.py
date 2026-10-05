@@ -32,6 +32,7 @@ def _load(name: str):
 
 package_npm = _load("package_npm")
 package_notices = _load("package_notices")
+package_contract = _load("package_contract")
 pending = _load("windows_notice_pending")
 WINDOWS = "x86_64-pc-windows-gnu"
 
@@ -85,6 +86,22 @@ class PublishPathTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 package_npm.copy_notice(Path(tmp), "cmux-tui", WINDOWS, Path(tmp))
             self.assertIn("missing third-party notice", str(raised.exception))
+
+    def test_publish_contract_refuses_a_pending_windows_notice(self) -> None:
+        # Publishing takes packages only from cmux-tui-release.yml runs, whose notices
+        # come from package_notices.py generate (no Windows file). A Windows package that
+        # carries the dogfood pending text fails that contract.
+        with tempfile.TemporaryDirectory() as tmp:
+            release_notices = Path(tmp)
+            problem = package_contract._notice_problem(
+                pending.TEXT.encode(), release_notices, "cmux-tui", WINDOWS, "cmux-tui-win32-x64"
+            )
+            self.assertIsNotNone(problem)
+            self.assertIn("no generated notice", problem)
+
+    def test_publish_workflows_take_packages_only_from_release_runs(self) -> None:
+        for name in ("tui-publish-npm.yml", "tui-publish-pypi.yml"):
+            self.assertIn('artifact_path=".github/workflows/cmux-tui-release.yml"', _workflow(name), name)
 
 
 if __name__ == "__main__":
