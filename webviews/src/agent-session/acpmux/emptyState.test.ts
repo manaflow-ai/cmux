@@ -28,5 +28,7 @@ test("an unavailable resumed chat never becomes a blank chat", () => {
 
 test("a host-created chat stops offering blank-chat actions once work starts", () => {
   expect(isNewChat(blank({ isWorking: true }), true)).toBe(false);
-  expect(isNewChat(blank({ rows: [{ id: "prompt", version: 1, at: 1, kind: "user", text: "hello" }] }), true)).toBe(false);
+  expect(isNewChat(blank({ rows: [{ id: "prompt", version: 1, at: 1, kind: "user", text: "hello" }] }), true)).toBe(
+    false,
+  );
 });

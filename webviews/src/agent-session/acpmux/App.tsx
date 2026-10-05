@@ -910,6 +910,7 @@ function AcpmuxPane() {
   const t = useT();
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
+  const [newSession, setNewSession] = useState(false);
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -958,7 +959,7 @@ function AcpmuxPane() {
     ["draft", "starting"].includes(handoff.state) &&
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
-  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot);
+  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
   // A folder the user hasn't decided on is asked about beside the chat's other permission asks,
   // once its first prompt went; nothing waits on the answer.
   const trustAsk = useFolderTrustAsk(trustSource, {
@@ -1451,6 +1452,7 @@ function AcpmuxPane() {
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
+        setNewSession(host.newSession === true && !host.sessionId);
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)

@@ -21,8 +21,12 @@ export function projectName(cwd: string | undefined): string | undefined {
 /// nothing is on screen or queued. Requiring that summary keeps the hero away while
 /// no daemon is reachable and between a session's reset and its attach. A daemon
 /// that doesn't count turns still has older history to page in for an old session.
-export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
+export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean {
   const summary = snapshot.summary;
+  // The host knows a direct chat is new before an agent can produce a summary.
+  // Keep its conversion and project controls usable while that agent starts.
+  if (newSession && !summary && !snapshot.sessionId && !snapshot.canLoadOlder)
+    return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0;
   // A harness switch's new chat has no session yet; its summary is the one the switch draws.
   if (!summary || (summary.sessionId !== snapshot.sessionId && !snapshot.switching)) return false;
   if (/^(connecting|disconnected|failed)/.test(snapshot.connection)) return false;
