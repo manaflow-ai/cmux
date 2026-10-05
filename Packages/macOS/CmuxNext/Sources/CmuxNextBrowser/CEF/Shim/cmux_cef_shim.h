@@ -437,8 +437,9 @@ CMUX_SHIM_EXPORT void cmux_shim_shutdown(void);
 // The effective setting for url in the browser's request context; url NULL
 // or "" returns the default for the type. -1 for an unknown type or browser.
 CMUX_SHIM_EXPORT int cmux_shim_content_setting(int browser_id, const char* url, const char* type);
-// Stores value for url (0 = CEF_CONTENT_SETTING_VALUE_DEFAULT clears it).
-// Returns 1 when stored.
+// Stores value for url (0 = CEF_CONTENT_SETTING_VALUE_DEFAULT clears it);
+// url "" sets the profile default (not for an incognito context). Returns 1
+// when handed to CEF.
 CMUX_SHIM_EXPORT int cmux_shim_set_content_setting(int browser_id, const char* url, const char* type, int value);
 // Visits every cookie of the browser's request context. REPLY with `reply`
 // follows, s1 = [{"name","domain","path"}]. Returns 0 when not started.
