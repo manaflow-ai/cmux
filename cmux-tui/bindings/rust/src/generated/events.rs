@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0228313c21b75745c349140874aa1a9358b4bd6bb65f8ba88a1261b30fecc6c0.
+// cmux-tui mux protocol 12, IR e9b7e2c070196a5f42d5544650e1ab37e245710329c020c586743196a38cd18b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -496,6 +496,21 @@ pub struct TabRenamedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardReadEvent {
+    pub host: T::TerminalClipboardHost,
+    pub location: T::TerminalClipboardLocation,
+    pub request_id: String,
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardReadCancelledEvent {
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalReapedEvent {
     pub grace_ms: u64,
     pub terminal: Nullable<String>,
@@ -686,6 +701,8 @@ pub enum Event {
     TabChanged(TabChangedEvent),
     TabClosed(TabClosedEvent),
     TabRenamed(TabRenamedEvent),
+    TerminalClipboardRead(TerminalClipboardReadEvent),
+    TerminalClipboardReadCancelled(TerminalClipboardReadCancelledEvent),
     TerminalReaped(TerminalReapedEvent),
     TerminalRegistryChanged(TerminalRegistryChangedEvent),
     TitleChanged(TitleChangedEvent),
@@ -751,6 +768,8 @@ impl Event {
             Self::TabChanged(_) => Some("tab-changed"),
             Self::TabClosed(_) => Some("tab-closed"),
             Self::TabRenamed(_) => Some("tab-renamed"),
+            Self::TerminalClipboardRead(_) => Some("terminal-clipboard-read"),
+            Self::TerminalClipboardReadCancelled(_) => Some("terminal-clipboard-read-cancelled"),
             Self::TerminalReaped(_) => Some("terminal-reaped"),
             Self::TerminalRegistryChanged(_) => Some("terminal-registry-changed"),
             Self::TitleChanged(_) => Some("title-changed"),
@@ -815,6 +834,8 @@ impl Event {
             Self::TabChanged(_) => Some(&TAB_CHANGED_EVENT_METADATA),
             Self::TabClosed(_) => Some(&TAB_CLOSED_EVENT_METADATA),
             Self::TabRenamed(_) => Some(&TAB_RENAMED_EVENT_METADATA),
+            Self::TerminalClipboardRead(_) => Some(&TERMINAL_CLIPBOARD_READ_EVENT_METADATA),
+            Self::TerminalClipboardReadCancelled(_) => Some(&TERMINAL_CLIPBOARD_READ_CANCELLED_EVENT_METADATA),
             Self::TerminalReaped(_) => Some(&TERMINAL_REAPED_EVENT_METADATA),
             Self::TerminalRegistryChanged(_) => Some(&TERMINAL_REGISTRY_CHANGED_EVENT_METADATA),
             Self::TitleChanged(_) => Some(&TITLE_CHANGED_EVENT_METADATA),
@@ -1198,6 +1219,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("tab-renamed") => match serde_json::from_value::<TabRenamedEvent>(raw.clone()) {
             Ok(event) => Event::TabRenamed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-clipboard-read") => match serde_json::from_value::<TerminalClipboardReadEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalClipboardRead(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-clipboard-read-cancelled") => match serde_json::from_value::<TerminalClipboardReadCancelledEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalClipboardReadCancelled(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
