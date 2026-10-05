@@ -23,7 +23,9 @@ extension CloudTreeOutlineView.Coordinator {
 /// helper and its standby display before the first New Display.
 @MainActor
 final class CloudDisplaysDiscoveryDemand {
-    private var requested: Set<SurfaceMachineID> = []
+    /// The current discovery per machine. A completion from a discovery the
+    /// tab has since closed and reopened past no longer matches and is ignored.
+    private var requested: [SurfaceMachineID: UUID] = [:]
     /// Failed discoveries per shown machine; retries stop at the limit until
     /// the tab is reopened or the machine leaves and returns to the tree.
     private var failures: [SurfaceMachineID: Int] = [:]
@@ -37,9 +39,9 @@ final class CloudDisplaysDiscoveryDemand {
             }
         }
         // A machine that leaves the tree, or whose tab closes, asks again next time.
-        requested.formIntersection(shown)
+        requested = requested.filter { shown.contains($0.key) }
         failures = failures.filter { shown.contains($0.key) }
-        for machine in shown where !requested.contains(machine) {
+        for machine in shown where requested[machine] == nil {
             request(machine, actions: actions)
         }
     }
@@ -50,17 +52,21 @@ final class CloudDisplaysDiscoveryDemand {
     /// starting it is not the same as finishing it.
     private func request(_ machine: SurfaceMachineID, actions: CloudTreeNodeActions) {
         guard failures[machine, default: 0] < Self.maxAttempts else { return }
+        // Registered before the call, so a completion that runs synchronously
+        // still finds its own token.
+        let token = UUID()
+        requested[machine] = token
         let started = actions.discoverDisplays(machine) { [weak self] succeeded in
-            guard let self, self.requested.contains(machine) else { return }
+            guard let self, self.requested[machine] == token else { return }
             if succeeded {
                 self.failures[machine] = nil
                 return
             }
             self.failures[machine, default: 0] += 1
-            self.requested.remove(machine)
+            self.requested[machine] = nil
             self.request(machine, actions: actions)
         }
-        if started { requested.insert(machine) }
+        if !started, requested[machine] == token { requested[machine] = nil }
     }
 }
 
