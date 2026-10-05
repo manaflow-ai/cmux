@@ -662,10 +662,7 @@ fn ungrouped_first_remaps_only_top_level_slots() {
         resolve(&request),
         Some(Target::Position { section: machine("local"), group: None, index: 1 })
     );
-    let g1_row = rows
-        .iter()
-        .find(|row| row.key == RowKey::Workspace { id: "g1".into() })
-        .unwrap();
+    let g1_row = rows.iter().find(|row| row.key == RowKey::Workspace { id: "g1".into() }).unwrap();
     let mut into = request_with_rows(
         g1_row.y + 1.0,
         Payload::Workspaces { ids: vec!["a".into()] },
