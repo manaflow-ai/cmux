@@ -51,6 +51,15 @@ rm "$RESOURCES_PATH/bin/unmapped-helper"
 printf '\xcf\xfa\xed\xfe\x0c\x00\x00\x01' > "$RESOURCES_PATH/bin/cmux"
 "$VERIFIER" "$APP_PATH"
 
+# A bundled Ghostty license tree must verify (bundle-map.json resources entry).
+mkdir -p "$RESOURCES_PATH/ghostty-licenses"
+printf '{}\n' > "$RESOURCES_PATH/ghostty-licenses/SOURCE-MANIFEST.json"
+if "$VERIFIER" "$APP_PATH" >/dev/null 2>&1; then
+  echo "FAIL: verifier accepted a Ghostty license tree that does not verify" >&2
+  exit 1
+fi
+rm -rf "$RESOURCES_PATH/ghostty-licenses"
+
 python3 "$ROOT_DIR/scripts/cmux-next/notices/test_check_bundle_notices.py"
 
 echo "PASS: app bundle license compliance verifier rejects incomplete artifacts"

@@ -16,7 +16,10 @@ stale). Do not edit it by hand.
 - `bundle-map.json` maps every Mach-O file of the app bundle to the notices it
   needs. `scripts/verify-app-bundle-licenses.sh` runs `check_bundle_notices.py`
   and fails on an unmapped binary or a missing notice. Add a map entry in the
-  same change that adds a binary to the bundle.
+  same change that adds a binary to the bundle. Its `resources` entries cover
+  third-party data: a bundle with `Contents/Resources/ghostty-licenses/` needs
+  that entry, and the tree must pass `verify-ghostty-license-bundle.py` for the
+  checkout's Ghostty revision.
 
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
