@@ -16,6 +16,8 @@ public struct MockPageInfoData {
     public private(set) var deletedDomains: [String] = []
     /// The page was loaded past a certificate warning the user turned off.
     public var certificateWarningsOff = false
+    /// Pages the warning page's Proceed loaded, in order.
+    public var certificateProceeds: [URL] = []
 
     public init() {}
 
@@ -62,5 +64,14 @@ extension MockBrowserTab: BrowserCertificateWarningRevoking {
         pageInfoFake.certificateWarningsOff = false
         reload()
         return true
+    }
+}
+
+extension MockBrowserTab: BrowserCertificateBypassing {
+    public func proceedPastCertificateError() {
+        guard let url = state.loadError?.failingURL else { return }
+        pageInfoFake.certificateProceeds.append(url)
+        pageInfoFake.certificateWarningsOff = true
+        load(url)
     }
 }
