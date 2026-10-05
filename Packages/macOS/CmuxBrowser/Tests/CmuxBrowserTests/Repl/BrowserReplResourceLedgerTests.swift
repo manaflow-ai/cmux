@@ -320,4 +320,43 @@ struct BrowserReplResourceLedgerTests {
         #expect(text.contains("JavaScript heap") && text.contains("at most 64 MiB"), "\(text)")
         #expect(text.contains("fresh"))
     }
+    /// A fetch's body reaches the session's JavaScript as Base64 in a JSON
+    /// result, a third larger than the bytes that arrived; that result is
+    /// what waits for the session's thread, so that is what the ledger
+    /// holds, and a result past the limit is refused.
+    @Test("A fetch's body is held at the size of the result that carries it")
+    func fetchBodiesAreHeldAtTheirResultSize() async throws {
+        let server = try BrowserReplTestHTTPServer { path, _, _ in
+            (200, ["Content-Type": "application/octet-stream"], Data(repeating: 0x61, count: path == "/large" ? 900 << 10 : 600 << 10))
+        }
+        try await server.start()
+        defer { server.stop() }
+        let driver = HeldCookiesDriver()
+        driver.releaseAll()
+        let ledger = BrowserReplResourceLedger(limits: BrowserReplResourceLimits.unbounded.with(.fetchBodyBytes, 1 << 20).with(.fetchBodyBytes, each: 1 << 20))
+        let fetcher = BrowserReplFetcher(driver: driver, ledger: ledger)
+        defer { fetcher.invalidate() }
+        func request(_ path: String) -> String {
+            JSONSerialization.browserReplString(["url": "http://127.0.0.1:\(server.port)\(path)", "credentials": "omit"]) ?? "{}"
+        }
+
+        let (small, held) = await fetcher.fetchHoldingBody(requestJSON: request("/small"), onResponse: nil)
+        guard case .success(let json) = small else {
+            Issue.record("the 600 KiB fetch failed: \(small)")
+            return
+        }
+        #expect(held >= json.utf8.count, "\(held) bytes held for a \(json.utf8.count)-byte result")
+        #expect(ledger.held(.fetchBodyBytes) == held)
+        fetcher.bodyBudget.release(held)
+
+        // 900 KiB arrives within the 1 MiB limit; its 1.2 MiB result does not fit.
+        let (large, largeHeld) = await fetcher.fetchHoldingBody(requestJSON: request("/large"), onResponse: nil)
+        if case .failure(let error) = large {
+            #expect(error.message.contains("REPL session limit: response bodies the session's fetches hold"), "\(error.message)")
+        } else {
+            Issue.record("a 900 KiB body was held as a \(largeHeld)-byte result within a 1 MiB limit")
+        }
+        fetcher.bodyBudget.release(largeHeld)
+        #expect(ledger.held(.fetchBodyBytes) == 0)
+    }
 }
