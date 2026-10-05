@@ -273,7 +273,7 @@ public final class BrowserChromeView: NSView {
         if let onOmnibarEvent { return onOmnibarEvent(event) }
         switch event {
         case .didEndEditing(.commit), .didEndEditing(.open), .didEndEditing(.cancel), .didEndEditing(.keyword): returnFocusToPage()
-        case .didBeginEditing, .didEndEditing(.blur): break
+        case .didBeginEditing, .didEndEditing(.blur), .didEndEditing(.switchToTab): break
         }
     }
 
