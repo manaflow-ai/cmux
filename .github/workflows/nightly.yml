@@ -85,15 +85,14 @@ concurrency:
   # A nightly-next promotion request builds nothing here, so it gets its own
   # group and never replaces a pending main build (the job serializes itself).
   # A six-hour cache warmup must not wait behind a publishing nightly build or
-  # hold one behind a saturated runner pool. Only that schedule gets a separate
-  # group, and a newer tick may replace the older warmup. The daily 08:47 UTC
-  # publishing schedule, pushes, manual full runs, fast dogfood runs, and
-  # build-only measurements retain their existing serialization rules.
+  # hold one behind a saturated runner pool. Each lane has its own group, and
+  # a newer run may replace only a pending run. An in-flight nightly must always
+  # finish so a 42-minute macOS build is not discarded by the next push.
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
   group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
-  cancel-in-progress: ${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
