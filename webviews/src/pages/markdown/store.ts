@@ -124,7 +124,8 @@ export class MarkdownStore {
     this.client
       .call<unknown>(MARKDOWN_EDITED_OP, { path: config.path, text: this.currentText(), baseHash: this.baseHash })
       .catch((error) => {
-        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) console.warn("cmux markdown edited", error);
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux markdown edited", error);
       });
   }
 

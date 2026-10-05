@@ -61,7 +61,9 @@ afterEach(() => {
 describe("diff page stores", () => {
   test("prefs load and save through the host's ops, one set per key, with no web storage", async () => {
     const { page, calls } = fakePage((op) =>
-      op === "cmux.diff.prefs.get" ? { prefs: { wordWrap: true, layout: "stacked", collapsedFiles: ["/r\u0000a"] } } : {},
+      op === "cmux.diff.prefs.get"
+        ? { prefs: { wordWrap: true, layout: "stacked", collapsedFiles: ["/r\u0000a"] } }
+        : {},
     );
     installPageDiffStore(page, STORE_OPS);
     expect(await loadViewerPrefs()).toEqual({ wordWrap: true, collapsedFiles: ["/r\u0000a"] });
@@ -102,9 +104,15 @@ describe("diff page stores", () => {
 
   test("the boot installs the stores the config lists", async () => {
     const { page } = fakePage((op) =>
-      op === "cmux.diff.config" ? { payload: { title: "Diff" }, ops: STORE_OPS } : Promise.reject(pageError("cmux.protocol.unknown_op", op)),
+      op === "cmux.diff.config"
+        ? { payload: { title: "Diff" }, ops: STORE_OPS }
+        : Promise.reject(pageError("cmux.protocol.unknown_op", op)),
     );
-    await bootPageDiff(page, () => undefined, () => undefined);
+    await bootPageDiff(
+      page,
+      () => undefined,
+      () => undefined,
+    );
     expect(pageDiffPrefsClient()).toBe(page);
     expect(pageDiffViewedClient()).toBe(page);
   });

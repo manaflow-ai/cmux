@@ -166,7 +166,8 @@ export class EditorStore {
     this.client
       .call<unknown>(EDITOR_EDITED_OP, { path: file.path, text: this.view.text(), baseHash: this.baseHash })
       .catch((error) => {
-        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) console.warn("cmux editor edited", error);
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux editor edited", error);
       });
   }
 
@@ -232,9 +233,10 @@ export class EditorStore {
     this.savedText = config.text;
     this.baseHash = config.hash;
     const readOnly = config.readOnly === true;
-    this.recovered = !readOnly && typeof config.recoveredText === "string" && config.recoveredText !== config.text
-      ? config.recoveredText
-      : null;
+    this.recovered =
+      !readOnly && typeof config.recoveredText === "string" && config.recoveredText !== config.text
+        ? config.recoveredText
+        : null;
     const size = typeof config.size === "number" ? config.size : config.text.length;
     this.set({
       phase: "ready",

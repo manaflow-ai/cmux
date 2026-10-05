@@ -3106,7 +3106,15 @@ function useNativeViewerNavigation(
       document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
       disposeManualInputReset();
     };
-  }, [dispatch, findBridgeRef, onJumpAdjacentFile, onJumpAdjacentHunk, onSetCurrentCollapsed, onToggleViewed, viewerRef]);
+  }, [
+    dispatch,
+    findBridgeRef,
+    onJumpAdjacentFile,
+    onJumpAdjacentHunk,
+    onSetCurrentCollapsed,
+    onToggleViewed,
+    viewerRef,
+  ]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
