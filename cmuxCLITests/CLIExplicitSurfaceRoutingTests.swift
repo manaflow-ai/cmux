@@ -171,6 +171,101 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
+    @Test func newSurfaceAcceptsSeparatedAndEqualsOptions() throws {
+        let cases: [[String]] = [
+            [
+                "new-surface",
+                "--window", Self.reproWindowId,
+                "--type", "browser",
+                "--url", "https://example.com",
+                "--focus", "true",
+            ],
+            [
+                "new-surface",
+                "--window=\(Self.reproWindowId)",
+                "--type=browser",
+                "--url=https://example.com",
+                "--focus=true",
+            ],
+        ]
+
+        var projectedPayloads: [[String: String]] = []
+        for (index, arguments) in cases.enumerated() {
+            let execution = try runMockCommand(
+                arguments: arguments,
+                socketName: "new-surface-valid-\(index)"
+            ) { line in
+                guard let request = Self.jsonObject(line),
+                      let id = request["id"] as? String,
+                      let method = request["method"] as? String else {
+                    return Self.malformedRequestResponse(raw: line)
+                }
+                guard method == "surface.create" else {
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected_method", "message": method]
+                    )
+                }
+                return Self.v2Response(id: id, ok: true, result: [:])
+            }
+
+            #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+            #expect(
+                execution.result.status == 0,
+                Comment(rawValue: execution.result.stderr + execution.result.stdout)
+            )
+            let requests = try execution.state.requestObjects()
+            #expect(requests.compactMap { $0["method"] as? String } == ["surface.create"])
+            let request = try #require(requests.first)
+            let params = try #require(request["params"] as? [String: Any])
+            #expect(params["window_id"] as? String == Self.reproWindowId)
+            #expect(params["type"] as? String == "browser")
+            #expect(params["url"] as? String == "https://example.com")
+            #expect(params["focus"] as? Bool == true)
+            projectedPayloads.append([
+                "window_id": params["window_id"] as? String ?? "",
+                "type": params["type"] as? String ?? "",
+                "url": params["url"] as? String ?? "",
+                "focus": String(params["focus"] as? Bool ?? false),
+            ])
+        }
+        #expect(projectedPayloads.count == 2)
+        #expect(projectedPayloads[0] == projectedPayloads[1])
+    }
+
+    @Test func newSurfaceRejectsMalformedArgumentsBeforeCreate() throws {
+        let cases: [[String]] = [
+            ["new-surface", "--type", "browser", "--url", "https://example.com", "--typo"],
+            ["new-surface", "--type", "browser", "--url", "https://example.com", "--unknown=value"],
+            ["new-surface", "--type", "browser", "--url", "https://example.com", "--focus"],
+            ["new-surface", "--focus", "--command", "echo hi", "true"],
+            ["new-surface", "--workspace=   ", "--type", "browser"],
+            ["new-surface", "--window", "   ", "--type", "browser"],
+            ["new-surface", "--pane", "\t", "--type", "terminal"],
+        ]
+
+        // Validation runs before the CLI opens the socket, so no server listens here:
+        // a mock server would wait for a connection that valid rejection prevents.
+        for (index, arguments) in cases.enumerated() {
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: arguments,
+                environment: cliEnvironment(
+                    socketPath: Self.makeSocketPath("new-surface-invalid-\(index)")
+                ),
+                timeout: Self.processTimeout
+            )
+
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(
+                result.status != 0,
+                Comment(rawValue: result.stderr + result.stdout)
+            )
+            #expect(result.stderr.contains("invalid arguments"), Comment(rawValue: result.stderr))
+        }
+    }
+
     @Test func numericSurfaceHandleStillInheritsCallerWorkspaceForIndexResolution() throws {
         let socketPath = Self.makeSocketPath("numeric")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
