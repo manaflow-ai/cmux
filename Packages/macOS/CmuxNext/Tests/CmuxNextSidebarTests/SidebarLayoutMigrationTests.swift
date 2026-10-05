@@ -49,6 +49,22 @@ import Testing
         #expect(once.layoutMigrationOps.isEmpty)
         #expect(once.layoutMigration == once)
     }
+
+    /// Lawrence 2026-10-05: plain rows are the default top again. A stored
+    /// plain-row top section (with CodeRouter after it or not) stays rows;
+    /// no migration turns it into the large tiles.
+    @Test func aPlainRowTopSectionStaysRows() {
+        let rows = [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
+                    LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]
+        let coderouter = LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))
+        for items in [rows, rows + [coderouter]] {
+            var stored = SidebarLayoutDocument.defaults
+            stored.revision = 3
+            stored.sections[0] = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, items: items)
+            #expect(stored.layoutMigrationOps.isEmpty)
+            #expect(stored.layoutMigration.section(SidebarLayoutDocument.topSectionID)?.arrangement == .list)
+        }
+    }
 }
 
 /// R53: the sections default before the grid bottom row (one inline line)

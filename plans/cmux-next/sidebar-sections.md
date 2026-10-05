@@ -18,7 +18,7 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `tiles` arrangement, 4 columns): Home, the App Store, New Workspace, Import and Sync as large labeled tiles on a tonal card, with a section gap before the list. A stored top section still equal to the earlier plain-row default (Home and the App Store, CodeRouter after them or not) migrates to the tiles |
+| Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `list` arrangement): Home and the App Store as plain rows (Lawrence 2026-10-05: rows; the large-tiles default of #17349 is reverted, `tiles` stays an opt-in arrangement). New Workspace and Import and Sync are reached through their actions (palette, menu, shortcut) |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
 | Bottom | pinned above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
 
