@@ -243,9 +243,11 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
   // Why a cookie on `domain` is out of the session's reach, as
   // BrowserReplDomainPolicy.cookieBlockReason: hosts, not origins, so a
   // pattern's scheme and port do not narrow it; an allowed pattern covers a
-  // cookie its host receives (on the host or a parent domain of it).
+  // Domain cookie (leading dot) its host receives (on the host or a parent
+  // domain of it), and a host-only cookie only when it names that host.
   function cookieBlockReason(domain) {
     if (!active()) return null;
+    const hostOnlyCookie = !String(domain || "").trim().startsWith(".");
     const host = T.normalizeHost(String(domain || "").replace(/^\.+/, ""));
     if (!host) return "the cookie names no domain";
     if (policy.blockIPs && T.isIPHost(host)) return "IP addresses are blocked (session.blockIPAddresses)";
@@ -253,6 +255,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     const names = (p, h) => T.urlMatches(`http://${h}/`, hostOnly(p), false);
     const receives = (p) => {
       if (names(p, host) || p.host === "*") return true;
+      if (hostOnlyCookie) return false;
       const named = String(p.host).replace(/^\*\./, "");
       return named.endsWith("." + host);
     };
@@ -268,12 +271,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     const base = cookieBlockReason(domain);
     if (base || !active()) return base;
     const raw = String(domain || "").trim();
-    if (!raw.startsWith(".")) {
-      const host = T.normalizeHost(raw);
-      const hostOnly = (p) => ({ ...p, scheme: null, port: null });
-      if (policy.allowed && !policy.allowed.some((p) => T.urlMatches(`http://${host}/`, hostOnly(p), false))) return `not in session.allowedDomains (${policy.allowed.map((p) => p.raw).join(", ")})`;
-      return null;
-    }
+    // A host-only cookie's reach is its host, which cookieBlockReason checked.
+    if (!raw.startsWith(".")) return null;
     const host = T.normalizeHost(raw.replace(/^\.+/, ""));
     const covers = (p) => p.host === "*" || (p.host.startsWith("*.") && (host === p.host.slice(2) || host.endsWith("." + p.host.slice(2))));
     if (policy.allowed && !policy.allowed.some(covers)) return `a cookie on ${host} reaches its other subdomains, which session.allowedDomains (${policy.allowed.map((p) => p.raw).join(", ")}) does not all allow; set it on the allowed host itself`;
