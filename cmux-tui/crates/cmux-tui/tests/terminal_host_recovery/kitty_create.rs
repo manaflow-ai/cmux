@@ -138,8 +138,13 @@ fn a_hosted_png_reaches_a_snapshot_images_viewer() {
             continue;
         }
         match message["phase"].as_str() {
+            // The attach's own size (100x30) resizes the terminal, so a
+            // local READY (no history, no images) can follow on a loaded host;
+            // a later plain READY restarts its history and images.
+            Some("ready") if message["history"] == "local" => {}
             Some("ready") => {
-                assert!(ready.is_none(), "a second READY: {message}");
+                history_done = false;
+                images.clear();
                 ready = Some(message);
             }
             Some("history") => history_done = message["done"] == true,
