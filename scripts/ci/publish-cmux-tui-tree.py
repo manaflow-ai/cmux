@@ -164,6 +164,14 @@ def publish_tree(
             raise PublicationError(
                 f"tree source metadata commit {metadata_commit!r} does not match {source_commit}"
             )
+        metadata_binaries = metadata.get("binaries", {})
+        if not isinstance(metadata_binaries, dict):
+            raise PublicationError("tree source metadata binaries must be an object")
+        for name, digest in metadata_binaries.items():
+            if name in digests and digest != digests[name]:
+                raise PublicationError(
+                    f"tree source metadata digest for {name} does not match commit manifest"
+                )
 
     cache = "public, max-age=31536000, immutable"
     prefix = f"cmux-tui/tree/{key}"

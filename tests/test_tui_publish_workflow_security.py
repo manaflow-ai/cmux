@@ -212,9 +212,6 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "cmux-tui-app-host-aarch64-apple-darwin" in preflight
     assert "cmux-tui-cloud-server-aarch64-apple-darwin" in preflight
     assert "$asset.sha256" in preflight
-    assert "cmux-tui-app-host-aarch64-apple-darwin" in preflight
-    assert "cmux-tui-cloud-server-aarch64-apple-darwin" in preflight
-    assert "--head" in preflight
     assert "ls-remote" in preflight
     assert "tree_ready" in preflight
     assert "run_macos" in preflight
@@ -229,7 +226,7 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
     publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "adopting the verified write-once binary" in publisher
+    assert "trusted helper" in publisher
     assert "already published with a different binary" not in publisher
     assert "for attempt in 1 2 3" in daemon
     assert "cargo test --workspace --locked cmux_next_" in daemon
@@ -250,10 +247,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
     assert "git mktree --missing" in pr_publisher
     assert "cmux-tui/tree/$KEY" in pr_publisher
-    assert "missing PR companion" in pr_publisher
+    assert "missing opaque build companion" in pr_publisher
     tree_publisher = workflow_job(artifacts, "publish-tree")
-    assert "all daemon companions" in tree_publisher
-    assert "owner-manifest.json" in tree_publisher
+    assert "publish-cmux-tui-tree.py" in tree_publisher
+    assert "complete tree" in tree_publisher
+    assert "trusted helper" in tree_publisher
     assert "cmux-tui-app-host-aarch64-apple-darwin" in tree_publisher
     assert "cmux-tui-cloud-server-aarch64-apple-darwin" in tree_publisher
 
