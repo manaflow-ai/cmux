@@ -40,6 +40,8 @@ RUN_CLASSES = ("std", "light", "xl")
 # glaeda-[root-|side-|gui-]<class>-xcode-<version>: one family of labels on the same machines.
 OWNED_FAMILY = re.compile(r"^glaeda-(?:root-|side-|gui-)?(?P<family>(?:std|light|xl)-xcode-[0-9]+(?:\.[0-9]+)*)$")
 XCODE_VERSION = re.compile(r"(?:^|/)Xcode_(?P<version>[0-9]+(?:\.[0-9]+)*)\.app(?:/|$)")
+# Ten pages of 100 is twice the organization's runners today.
+MAX_RUNNER_PAGES = 10
 
 
 def owned_family(label: str) -> str:
@@ -172,10 +174,15 @@ class LiveState:
 
     def runners(self) -> list[Mapping[str, Any]]:
         owner = self.repository.split("/", 1)[0]
-        # Keep this to one bounded read. The organization has fewer than one
-        # page of routing runners; a partial response is safer than spending
-        # the shared Actions API quota on pagination for every run.
-        return self._get(f"/orgs/{owner}/actions/runners?per_page=100").get("runners") or []
+        # The routing runners can sit behind several pages, so read all pages
+        # that can contain the current fleet while keeping the API usage bounded.
+        runners: list[Mapping[str, Any]] = []
+        for page in range(1, MAX_RUNNER_PAGES + 1):
+            batch = self._get(f"/orgs/{owner}/actions/runners?per_page=100&page={page}").get("runners") or []
+            runners.extend(batch)
+            if len(batch) < 100:
+                break
+        return runners
 
     def snapshot(self) -> Mapping[str, Any] | None:
         """The queue janitor's newest trusted pool snapshot, or None when missing or stale (two API calls)."""
