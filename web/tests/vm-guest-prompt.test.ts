@@ -311,7 +311,7 @@ module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
 print(json.dumps(calls))
 `, script, fixture()], { env: { ...process.env, CMUX_PROMPT_RUN_DIR: run } });
     expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toEqual(["terminal term_adopted history clear --quiet", "terminal term_adopted keys ctrl+c --quiet"]);
+    expect(JSON.parse(result.stdout)).toEqual(["terminal term_adopted history clear --quiet", "terminal term_adopted keys ctrl+l --quiet"]);
   });
 
   test("prompt sync clears the baked prompt even after the clone prompt is named", async () => {
@@ -339,7 +339,7 @@ print(json.dumps(calls))
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toEqual([
       "terminal term_adopted history clear --quiet",
-      "terminal term_adopted keys ctrl+c --quiet",
+      "terminal term_adopted keys ctrl+l --quiet",
     ]);
   });
 
