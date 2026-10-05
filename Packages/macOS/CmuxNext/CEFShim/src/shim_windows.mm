@@ -78,7 +78,8 @@ int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features, std::str
     return 0;
   }
   // The new tab's pending navigation is the popup's target, when Chromium
-  // already shows it.
+  // already shows it. A tab with no visible URL here takes no popup
+  // (PendingPopups::Take): no disposition, no user gesture.
   std::string visible;
   if (CefRefPtr<CefNavigationEntry> entry = browser->GetHost()->GetVisibleNavigationEntry()) {
     visible = entry->GetURL().ToString();
