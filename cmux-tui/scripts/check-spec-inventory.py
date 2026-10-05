@@ -558,6 +558,9 @@ def serialized_literal_event_names(source: str) -> set[str]:
     return names
 
 
+CONTROL_EVENT_MODULES = ("server/url_open.rs",)
+
+
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
@@ -567,6 +570,15 @@ def event_names() -> set[str]:
     names.update(inserted_event_names(tokens, constants))
     names.update(assigned_event_names(tokens, constants))
     names.update(serialized_literal_event_names(production))
+
+    # Frontend brokers build their targeted control events in their own
+    # server modules.
+    for module in CONTROL_EVENT_MODULES:
+        source = (TUI / "crates/cmux-tui-core/src" / module).read_text()
+        source = strip_rust_comments(source.split("\n#[cfg(test)]\nmod tests", 1)[0])
+        module_tokens = rust_tokens(source)
+        module_constants = rust_string_constants(module_tokens)
+        names.update(json_macro_event_names(module_tokens, module_constants))
 
     # The local conversation owner builds its subscribe-stream events itself.
     conversations = TUI / "crates/cmux-tui-core/src/conversation_store.rs"

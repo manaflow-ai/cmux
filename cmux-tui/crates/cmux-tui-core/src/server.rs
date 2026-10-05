@@ -3723,12 +3723,6 @@ struct MessageWriter {
 }
 
 impl MessageWriter {
-    fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
-        self.send_control(&json!({
-            "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
-        }))
-    }
-
     #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
         Self::new_with_render_service(sink, Arc::new(RenderService::new()))
@@ -12769,16 +12763,9 @@ fn handle_command_with_cancellation(
         return remote;
     }
     match cmd {
-        Command::UrlOpenSubscribe { terminal_ids } => {
-            mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
-            Ok(json!({"url_open_ready": true}))
-        }
-        Command::UrlOpenClaim { request_id } => {
-            Ok(json!({"claimed": mux.control_clients.url_opens.claim(&request_id)}))
-        }
-        Command::UrlOpenResult { request_id, opened } => {
-            Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
-        }
+        cmd @ (Command::UrlOpenSubscribe { .. }
+        | Command::UrlOpenClaim { .. }
+        | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
         Command::UrlOpen { .. } => {
             anyhow::bail!("URL opening requires the asynchronous request path")
         }
