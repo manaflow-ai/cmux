@@ -14,6 +14,9 @@ public nonisolated struct TabSearchMatch: Sendable, Hashable {
 public final class TabSearchRanker: @unchecked Sendable {
     private let ranker: PaletteRanker
     private let lock = NSLock()
+    private var cachedEntries: [PaletteSearchEntry] = []
+    private var cachedSectionOrders: [Int] = []
+    private var snapshotVersion = 0
 
     /// Creates a tab-search ranker with a persistent JavaScriptCore context.
     public init() {
@@ -41,7 +44,12 @@ public final class TabSearchRanker: @unchecked Sendable {
                                       isVisibleWhenQueryEmpty: row.isVisibleWhenQueryEmpty, sectionIndex: index)
         }
         var index = PaletteSearchIndex(entries: searchEntries)
-        let ranked = ranker.rank(index: &index, query: query, sectionOrders: sectionOrders, frecency: FrecencyStore(),
+        if searchEntries != cachedEntries || sectionOrders != cachedSectionOrders {
+            cachedEntries = searchEntries
+            cachedSectionOrders = sectionOrders
+            snapshotVersion &+= 1
+        }
+        let ranked = ranker.rank(index: &index, version: snapshotVersion, query: query, sectionOrders: sectionOrders, frecency: FrecencyStore(),
                                         now: now, showsRecent: false, keepsSectionOrder: true)
         return ranked.flatMap(\.rows).prefix(max(0, limit)).map { TabSearchMatch(row: rows[$0.index], score: $0.score) }
     }

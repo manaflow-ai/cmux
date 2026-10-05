@@ -2,7 +2,7 @@ public import CmuxNextActions
 
 /// The searchable text and ranking inputs of one item. Sendable, so an
 /// index can be built and searched off the main actor.
-nonisolated public struct PaletteSearchEntry: Sendable {
+nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     public var title: String
     public var keywords: [String]
     public var subtitle: String?
