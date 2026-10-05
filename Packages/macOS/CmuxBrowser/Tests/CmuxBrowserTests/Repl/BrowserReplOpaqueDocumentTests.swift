@@ -96,6 +96,45 @@ struct BrowserReplOpaqueDocumentTests {
         #expect(error?.code == "blocked", "the blocked page's data: document was read through the frame's earlier verdict: \(String(describing: error))")
     }
 
+    /// WebKit asks the navigation delegate about a navigation before it
+    /// commits, but the gate's call can be on its way to the frame by then:
+    /// the blocked page's `data:` document is shown when the script arrives,
+    /// and its maker is recorded only after the gate's check. The script
+    /// must not run in that document (its result being refused afterwards is
+    /// not enough: it could already have changed the document).
+    @Test("A script does not run in an opaque document the frame showed after the gate's check")
+    func aScriptDoesNotRunInAnOpaqueDocumentRecordedAfterTheCheck() async throws {
+        let page = try await OpaquePage.load(recording: true)
+        let gate = Self.gate(locked: false)
+        let allowed = try #require(page.frame(showing: "allowed.test secret"))
+        _ = try await gate.callAsyncJavaScript("return 1", arguments: [:], in: page.webView, frame: allowed, contentWorld: .page)
+        page.delegate.deferred = []
+        _ = try await page.webView.callAsyncJavaScript(
+            "document.querySelectorAll('iframe')[1].src = 'cmux-test://blocked.test/pivot'; return true",
+            arguments: [:], in: nil, contentWorld: .page
+        )
+        _ = try await FramePage.settle(page.webView) { frames in
+            frames.dropFirst().filter { ($0.url.removingPercentEncoding ?? $0.url).contains("blocked.test secret") }.count == 2
+        }
+        let webView = SendableBox(page.webView)
+        let call = Task { @MainActor () -> String? in
+            let value = try await gate.callAsyncJavaScript(
+                "document.body.dataset.ran = '1'; return document.body.innerText",
+                arguments: [:], in: webView.value, frame: allowed, contentWorld: .page
+            )
+            return value as? String
+        }
+        // The call is on its way; the navigation is recorded now.
+        await Task.yield()
+        page.delegate.flush(in: page.webView)
+        let error = await Self.error { try await call.value }
+        #expect(error?.code == "blocked", "the blocked page's data: document was read: \(String(describing: error))")
+        let ran = try await page.webView.callAsyncJavaScript(
+            "return document.body.dataset.ran ?? null", arguments: [:], in: allowed.info, contentWorld: .page
+        )
+        #expect(ran as? String == nil, "the script ran in the blocked page's data: document")
+    }
+
     // MARK: Support
 
     static func gate(locked: Bool) -> BrowserReplFrameGate {
@@ -133,6 +172,8 @@ struct OpaquePage {
     /// `recording`, as cmux's navigation delegate does.
     final class Recorder: NSObject, WKNavigationDelegate {
         let recording: Bool
+        /// While set, navigations are kept here and recorded by ``flush(in:)``.
+        @MainActor var deferred: [WKNavigationAction]?
         init(recording: Bool) { self.recording = recording }
 
         func webView(
@@ -140,8 +181,18 @@ struct OpaquePage {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
         ) {
-            if recording { BrowserReplDocumentProvenance.note(navigationAction, in: webView) }
+            if deferred != nil {
+                deferred?.append(navigationAction)
+            } else if recording {
+                BrowserReplDocumentProvenance.note(navigationAction, in: webView)
+            }
             decisionHandler(.allow)
+        }
+
+        /// Records the kept navigations and stops keeping them.
+        @MainActor func flush(in webView: WKWebView) {
+            for action in deferred ?? [] { BrowserReplDocumentProvenance.note(action, in: webView) }
+            deferred = nil
         }
     }
 
