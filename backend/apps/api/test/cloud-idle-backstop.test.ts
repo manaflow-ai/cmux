@@ -103,6 +103,9 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     await fireAlarm(stub)
     const got = (await post("/v1/read", a.session, { op: "cloud.machine.get", params: { machine } })).body.value
     expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
+    // It can never bind now (its bind token expired): a start is refused with not_bound, so it cannot run for nothing (review P3).
+    const st = await op(a.session, "cloud.machine.start", { machine }, crypto.randomUUID())
+    expect(st.body.error?.code, JSON.stringify(st.body)).toBe("cloud.machine.not_bound")
   })
 
   it("the real-state check changes nothing on an unknown or missing state field, and reads the provider at most once per 30 s (review P2)", async () => {
