@@ -232,6 +232,7 @@ struct RightSidebarPanelView: View {
                             isSelected: item.isSelected(
                                 mode: fileExplorerState.mode
                             ),
+                            isDragged: modeBarDrag.isLifted(item.mode),
                             badgeCount: item.mode == .feed ? feedPendingCount : 0,
                             shortcutHint: shortcut,
                             showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
