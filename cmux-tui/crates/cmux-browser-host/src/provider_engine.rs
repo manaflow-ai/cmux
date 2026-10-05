@@ -624,6 +624,29 @@ mod tests {
         .unwrap()
     }
 
+    /// Waits (bounded, no sleep) until the last lease frame the app recorded
+    /// for `target` matches: frames the host's reader thread writes can
+    /// reach the app after the reply to a barrier call.
+    pub(super) fn wait_for_lease(
+        app: &FakeApp,
+        target: &str,
+        what: &str,
+        matches: impl Fn(&Option<crate::provider::Lease>) -> bool,
+    ) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let seen = leases(app, target);
+            if seen.last().is_some_and(&matches) {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the app never recorded the lease {what} for {target} within 5 s: {seen:?}"
+            );
+            std::thread::yield_now();
+        }
+    }
+
     pub(super) fn leases(app: &FakeApp, target: &str) -> Vec<Option<crate::provider::Lease>> {
         app.frames
             .lock()
@@ -653,7 +676,11 @@ mod tests {
         assert_eq!(held.error_name.as_deref(), Some("lease_held"), "{held}");
         app.send(Frame::UserInput { target_id: "W".into() });
         provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        assert_eq!(leases(&app, "W").last().unwrap().as_ref().unwrap().state, LeaseState::Paused);
+        // The host's reader writes this lease frame; the app may record it
+        // after the barrier call's reply, so wait for it.
+        wait_for_lease(&app, "W", "Paused", |lease| {
+            lease.as_ref().is_some_and(|lease| lease.state == LeaseState::Paused)
+        });
         let paused = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();
         assert_eq!(paused.error_name.as_deref(), Some("paused_by_user"), "{paused}");
         app.send(Frame::LeaseUser {
@@ -668,7 +695,7 @@ mod tests {
         first.call("input.key", &json!({"targetId": "W"})).unwrap();
         drop(first);
         second.call("tab.info", &json!({"targetId": "W"})).unwrap();
-        assert_eq!(leases(&app, "W").last().unwrap(), &None, "session end clears the badge");
+        wait_for_lease(&app, "W", "cleared at session end", Option::is_none);
     }
 
     #[test]
