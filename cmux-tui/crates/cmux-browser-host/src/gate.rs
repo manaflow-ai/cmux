@@ -313,18 +313,25 @@ impl VmHost for Gate {
         if matches!(method, "input.insertText" | "input.key") {
             self.resolve_secret(&mut params, "text")?;
         }
-        // Every check passed: the app's agent cursor learns of the input
-        // right before it is dispatched (a refused input emits nothing).
-        if let Some(inputs) = &self.inputs
-            && let Some(planned) = inputs.plan(method, &params)
-        {
-            inputs.publish(planned, &|event| self.driver.send_session_event(event));
-        }
+        // The gate's checks passed; the driver runs `announce` once its own
+        // checks (a provider session's lease) passed too, right before the
+        // dispatch, so the app's agent cursor learns only of inputs that are
+        // dispatched (a refused input emits nothing and takes no seq).
+        let mut announce = || {
+            if let Some(inputs) = &self.inputs
+                && let Some(planned) = inputs.plan(method, &params)
+            {
+                inputs.publish(planned, &|event| self.driver.send_session_event(event));
+            }
+        };
         let target = params.get("targetId").and_then(Value::as_str).map(str::to_owned);
         let target = target.as_deref();
         let result = match method {
             "tab.screenshot" | "tab.pdf" => self.capture(method, &params),
-            _ => self.driver.call(method, &params).map(|value| self.filter_cookies(method, value)),
+            _ => self
+                .driver
+                .call_announced(method, &params, &mut announce)
+                .map(|value| self.filter_cookies(method, value)),
         };
         if method == "tabs.close"
             && result.is_ok()

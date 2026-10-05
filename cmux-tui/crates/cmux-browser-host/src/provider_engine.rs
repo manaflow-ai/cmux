@@ -280,8 +280,15 @@ fn rename_target(value: &mut Value, from: &str, to: &str) {
     }
 }
 
-impl Driver for ProviderEngine {
-    fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
+impl ProviderEngine {
+    /// `Driver::call` with `announce` run after every check, right before
+    /// the dispatch (never for a refused call).
+    fn call_with(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Value, DriverError> {
         // A closed session's engine can outlive the close (a timed-out cell
         // still runs); it must not take a lease nobody will end.
         if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
@@ -303,6 +310,7 @@ impl Driver for ProviderEngine {
                     }
                 }
                 open.insert("engine".into(), Value::String(self.engine.clone()));
+                announce();
                 return self.provider.call(method, &Value::Object(open));
             }
             _ => {}
@@ -353,6 +361,12 @@ impl Driver for ProviderEngine {
                 return Err(DriverError::closed("the session was closed"));
             }
         }
+        // Every check passed (an ended session was refused above, also after
+        // the lease): the caller's announcement goes out, then the dispatch.
+        if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(DriverError::closed("the session was closed"));
+        }
+        announce();
         let result = if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
             self.drive_tab(target_id);
             self.call_cef(method, target_id, params)
@@ -370,6 +384,21 @@ impl Driver for ProviderEngine {
         }
         result
     }
+}
+
+impl Driver for ProviderEngine {
+    fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
+        self.call_with(method, params, &mut || {})
+    }
+
+    fn call_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Value, DriverError> {
+        self.call_with(method, params, announce)
+    }
 
     fn end_session(&self) {
         self.release_session();
@@ -377,8 +406,12 @@ impl Driver for ProviderEngine {
 
     /// The gate's events for this session go through the session's sink
     /// only (never `publish`, which reaches every subscribed session).
+    /// An ended session's events are dropped here (true: the gate must not
+    /// deliver them elsewhere either).
     fn send_session_event(&self, event: DriverEvent) -> bool {
-        (self.events)(event);
+        if !self.ended.load(std::sync::atomic::Ordering::SeqCst) {
+            (self.events)(event);
+        }
         true
     }
 

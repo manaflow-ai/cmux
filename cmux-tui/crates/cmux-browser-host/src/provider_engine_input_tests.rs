@@ -1,6 +1,8 @@
-//! automation.input v1 on provider sessions: a lease-refused act emits
-//! nothing and takes no seq (refused input emits nothing; the lease is the
-//! provider engine's last check, so the gate publishes after it).
+//! automation.input v1 on provider sessions, end to end through
+//! `tee_inputs` (worker 5c's consumer) to the app: one dispatched input is
+//! one `input` frame; a lease-refused act or an ended session emits nothing
+//! and takes no seq (the lease is the engine's last check, so the gate
+//! publishes after it).
 
 use super::tests::{FakeApp, session, tab};
 use super::*;
@@ -9,7 +11,8 @@ use crate::provider::Frame;
 use crate::vm::VmHost;
 use std::sync::Mutex;
 
-/// A gate on a provider session whose own sink records automation.input.
+/// A gate on a provider session as HostEngines::provider builds it: the
+/// engine's sink is `tee_inputs` over a sink that records automation.input.
 fn input_gate(provider: &Arc<ProviderDriver>, name: &str) -> (Gate, Arc<Mutex<Vec<Value>>>) {
     let seen: Arc<Mutex<Vec<Value>>> = Arc::default();
     let record = seen.clone();
@@ -26,6 +29,7 @@ fn input_gate(provider: &Arc<ProviderDriver>, name: &str) -> (Gate, Arc<Mutex<Ve
         label: "task".into(),
         ..LeaseCaller::default()
     };
+    let events = crate::provider_link::tee_inputs(events, provider, name);
     let engine =
         ProviderEngine::new(provider.clone(), "webkit", Arc::from("/* agent */"), events, lease)
             .unwrap();
@@ -75,15 +79,54 @@ fn a_lease_refused_input_emits_nothing_and_takes_no_seq() {
     let summary: Vec<(u64, &str, &str)> = seen
         .iter()
         .map(|e| {
-            (e["seq"].as_u64().unwrap(), e["target_id"].as_str().unwrap(), e["kind"].as_str().unwrap())
+            (
+                e["seq"].as_u64().unwrap(),
+                e["target_id"].as_str().unwrap(),
+                e["kind"].as_str().unwrap(),
+            )
         })
         .collect();
     assert_eq!(summary, vec![(0, "W", "key"), (1, "Y", "key")], "gap-free over published inputs");
+    barrier();
+    assert_eq!(app_inputs(&app), *seen, "the app got exactly these, verbatim");
+}
+
+/// The `input` frames the app got.
+fn app_inputs(app: &FakeApp) -> Vec<Value> {
+    app.frames
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|f| match f {
+            Frame::Input { event } => Some(event.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn one_input_call_gives_the_app_exactly_one_input_frame() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let (gate, seen) = input_gate(&provider, "lease-s");
+    gate.driver_call(
+        "input.mouse",
+        json!({"targetId": "W", "type": "move", "x": 3, "y": 4, "url": "https://leak.test/"}),
+    )
+    .unwrap();
+    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    let inputs = app_inputs(&app);
+    assert_eq!(inputs.len(), 1, "exactly one input frame: {inputs:?}");
+    let event = &inputs[0];
+    assert_eq!(event["session_id"], "lease-s");
+    assert_eq!(event["target_id"], "W");
+    assert_eq!((event["seq"].as_u64(), event["kind"].as_str()), (Some(0), Some("move")));
+    assert!(!event.to_string().contains("leak.test"), "{event}");
+    assert_eq!(*seen.lock().unwrap(), inputs, "the session sink gets it once too");
 }
 
 #[test]
 fn an_ended_session_emits_no_input() {
-    let (_app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
     let (gate, seen) = input_gate(&provider, "s2");
     gate.end_session();
     let error = gate
@@ -91,4 +134,5 @@ fn an_ended_session_emits_no_input() {
         .unwrap_err();
     assert_eq!(error.code, crate::protocol::ErrorCode::Closed, "{error}");
     assert!(seen.lock().unwrap().is_empty(), "an ended session emits nothing");
+    assert!(app_inputs(&app).is_empty(), "and no input frame");
 }
