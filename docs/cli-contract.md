@@ -1093,7 +1093,7 @@ the expected text without connecting to a cmux socket.
 - `cmux capture-pane --help` -> `Usage: cmux capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]`
 - `cmux resize-pane --help` -> `Usage: cmux resize-pane [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [-L|-R|-U|-D] [--amount <n>]`
 - `cmux pipe-pane --help` -> `Usage: cmux pipe-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <shell-command> | <shell-command>]`
-- `cmux wait-for --help` -> `Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]`
+- `cmux wait-for --help` -> `Usage: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]`
 - `cmux swap-pane --help` -> `Usage: cmux swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]`
 - `cmux break-pane --help` -> `Usage: cmux break-pane [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
 - `cmux join-pane --help` -> `Usage: cmux join-pane --target-pane <id|ref|index> [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
