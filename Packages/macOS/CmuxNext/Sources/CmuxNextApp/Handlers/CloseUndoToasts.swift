@@ -60,6 +60,11 @@ final class CloseUndoToasts {
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
     }
 
+    /// The user is closing several tabs of `pane` in one gesture (close
+    /// others, to the right or left, a tab group): one toast offers the whole
+    /// group back.
+    func expectGroup(_ ids: [StripTabID], in pane: PaneController) {}
+
     /// The app's tracker recorded a closed tab.
     func trackerRecorded(_ record: ClosedTabHistory.Record) {
         guard let position = expected.firstIndex(where: { $0.trackerTabID == record.tabID }) else { return }

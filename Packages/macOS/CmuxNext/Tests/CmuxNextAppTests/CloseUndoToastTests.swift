@@ -90,4 +90,27 @@ import Testing
         for _ in 0..<20 { await Task.yield() }
         #expect(toasts.toasts(in: window).isEmpty)
     }
+
+    /// One gesture that closes several tabs offers one toast, "Closed N
+    /// tabs", whose Undo reopens every tab of that group at its own place.
+    @Test func closingOtherTabsOffersOneToastForTheGroup() async throws {
+        let (harness, toasts, spawns) = try await Self.harness()
+        defer { harness.stop() }
+        let window = try #require(harness.window.window)
+        let pane = try #require(harness.pane)
+        try await ViewChangePermissionTests.run(harness, "newSurface", origin: "cli")
+        try await Self.waitUntil { pane.orderedIDs.count == 3 }
+        let ids = pane.orderedIDs
+        try #require(ids.count == 3)
+        pane.handle(.closeOthers(keeping: ids[0]))
+        try await Self.waitUntil { !toasts.toasts(in: window).isEmpty }
+        let toast = try #require(toasts.toasts(in: window).first)
+        #expect(toast.message == "Closed 2 tabs")
+        #expect(toast.action?.isUndo == true)
+        #expect(toasts.toasts(in: window).count == 1, "one toast for the gesture")
+        #expect(toasts.runUndo(in: window))
+        try await Self.waitUntil { spawns.spawns.count == 2 }
+        #expect(spawns.spawns.map(\.index).sorted() == [1, 2], "both tabs come back at their places")
+        #expect(Set(spawns.spawns.map(\.pane)) == [pane.pane.handle])
+    }
 }
