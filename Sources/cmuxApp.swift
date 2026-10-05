@@ -1750,6 +1750,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.sidebarFooterIconBalanceDebug",
     "cmux.cloudPaneCreationFailure.card",
     "cmux.cloudCreateTeam",
+    "cmux.cloud.welcome",
     "cmux.sudo.approval",
 ]
 
