@@ -75,7 +75,7 @@ extension BrowserPanel {
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil,
-                             activate: Bool = true, automaticRetry: Bool = true) {
+                             activate: Bool = true, automaticRetriesRemaining: Int = 2) {
         pendingCloudRestoreURL = preferredURL
         let catalog = SurfaceCatalog.shared
         let isGlobalDock = DockSplitStore.liveStore(containingPanel: id)?.scope == .global
@@ -93,7 +93,7 @@ extension BrowserPanel {
             showCloudRestoreUnavailable(
                 resource,
                 message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
-                automaticRetry: automaticRetry
+                automaticRetriesRemaining: automaticRetriesRemaining
             )
             return
         }
@@ -105,7 +105,7 @@ extension BrowserPanel {
                 resource,
                 provider: provider,
                 message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
-                automaticRetry: automaticRetry
+                automaticRetriesRemaining: automaticRetriesRemaining
             )
             return
         }
@@ -132,7 +132,7 @@ extension BrowserPanel {
         _ resource: SurfaceResourceID,
         provider: CmuxTuiSurfaceProvider? = nil,
         message: String,
-        automaticRetry: Bool
+        automaticRetriesRemaining: Int
     ) {
         let preferredURL = pendingCloudRestoreURL
         cloudAccess.showUnavailable(message) { [weak self] request in
@@ -145,9 +145,13 @@ extension BrowserPanel {
                 _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
             }
             guard self.cloudAccess.isCurrentUnavailableRetry(request) else { return }
-            self.restoreCloudResource(resource, preferredURL: preferredURL, automaticRetry: false)
+            self.restoreCloudResource(
+                resource,
+                preferredURL: preferredURL,
+                automaticRetriesRemaining: max(automaticRetriesRemaining - 1, 0)
+            )
         }
-        if automaticRetry { cloudAccess.retryUnavailable() }
+        if automaticRetriesRemaining > 0 { cloudAccess.retryUnavailable() }
     }
 
     private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {
