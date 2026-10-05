@@ -17,8 +17,20 @@ public protocol BrowserCertificateWarningRevoking: AnyObject {
     /// The page on screen is from a site whose certificate warning the user
     /// turned off by proceeding past it.
     var certificateWarningsTurnedOff: Bool { get }
+    /// What turning the warnings on covers: WebKit forgets the page's host
+    /// only; Chromium can clear only every Proceed choice of the profile.
+    var certificateWarningScope: BrowserCertificateWarningScope { get }
     /// Turns the warnings on again for the page's site in this tab's
     /// profile, then reloads, so the warning shows again. False when there
     /// was nothing to turn on or the engine could not do it.
     func turnOnCertificateWarnings() async -> Bool
+}
+
+/// What "Turn on warnings" turns on again.
+public nonisolated enum BrowserCertificateWarningScope: Hashable, Sendable {
+    /// The page's site in the tab's profile (WebKit).
+    case site
+    /// Every site of the tab's profile (Chromium:
+    /// `CefRequestContext::ClearCertificateExceptions`).
+    case profile
 }
