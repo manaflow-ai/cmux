@@ -476,9 +476,51 @@ def outsider_triggered_workflows() -> list[Path]:
     ]
 
 
+def job_conditions(text: str) -> dict[str, str]:
+    """Job id -> its job-level `if` (folded to one line; "" when absent)."""
+    lines = text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if re.match(r"^jobs:\s*$", line))
+    except StopIteration:
+        return {}
+    conditions: dict[str, str] = {}
+    job = None
+    collecting = False
+    for line in lines[start + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if match:
+            job, collecting = match.group(1), False
+            conditions[job] = ""
+            continue
+        if job is None or (line and not line.startswith(" ")):
+            break
+        key = re.match(r"^    ([A-Za-z0-9_-]+):\s?(.*)$", line)
+        if key:
+            collecting = key.group(1) == "if"
+            if collecting:
+                conditions[job] = key.group(2).strip()
+            continue
+        if collecting and line.startswith("      "):
+            conditions[job] += " " + line.strip()
+    return {job: " ".join(value.split()) for job, value in conditions.items()}
+
+
+def every_job_gated(text: str, gate: str) -> bool:
+    conditions = job_conditions(text)
+    return bool(conditions) and all(gate in condition for condition in conditions.values())
+
+
 def outsider_runner_errors(name: str, text: str) -> list[str]:
-    """Every runner must be a hosted literal; no runner selector may appear."""
+    """Every runner must be a hosted literal; no runner selector may appear.
+
+    Unless every job holds SAME_REPOSITORY_GATE: then no fork-started run can
+    start any job, and owned runners are fine.
+    """
     errors: list[str] = []
+    if every_job_gated(text, SAME_REPOSITORY_GATE):
+        return errors
     for number, line in enumerate(text.splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
@@ -487,6 +529,26 @@ def outsider_runner_errors(name: str, text: str) -> list[str]:
         elif re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
+
+
+def workflow_run_gate_errors(name: str, text: str) -> list[str]:
+    """A workflow_run follower of an outsider-triggered workflow gates on the head repository."""
+    if not re.search(r"(?<![\w-])workflow_run(?![\w-])", triggers_block(text)):
+        return []
+    sources = re.search(r"(?m)^\s+SOURCE_WORKFLOW_PATHS:\s*(.+?)\s*$", text)
+    paths = re.split(r"[\s,]+", sources.group(1)) if sources else []
+    outsider = [
+        path for path in paths
+        if path and (ROOT / path).is_file()
+        and OUTSIDER_TRIGGER.search(triggers_block((ROOT / path).read_text(encoding="utf-8")))
+    ]
+    if not outsider:
+        return []
+    return [
+        f"{name}: job {job} follows {', '.join(outsider)} (pull_request_target) without `{WORKFLOW_RUN_GATE}`"
+        for job, condition in job_conditions(text).items()
+        if WORKFLOW_RUN_GATE not in condition
+    ]
 
 
 def fork_exercised_workflows(roots: list[Path] | None = None) -> list[Path]:
@@ -910,8 +972,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         roots = outsider_triggered_workflows()
         self.assertIn(WORKFLOWS / "cla.yml", roots)
         self.assertIn(WORKFLOWS / "claude.yml", roots)
+        # A reusable workflow called only from fully gated roots never runs
+        # for a fork head either.
+        ungated = [path for path in roots if not every_job_gated(path.read_text(encoding="utf-8"), SAME_REPOSITORY_GATE)]
         errors: list[str] = []
-        for path in fork_exercised_workflows(roots):
+        for path in fork_exercised_workflows(ungated):
             errors.extend(outsider_runner_errors(path.name, path.read_text(encoding="utf-8")))
         self.assertEqual(errors, [], "\n" + "\n".join(errors))
 
