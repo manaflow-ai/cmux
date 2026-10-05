@@ -427,6 +427,37 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertFalse(created["canCreate"])
         service.shutdown.set()
 
+    def test_failed_standby_is_retired_not_handed_over(self):
+        service, _ = self.standby_service()
+        with mock.patch.object(display, "ready", return_value=True):
+            service.handle({"action": "list"})
+            service.states[2] = "unavailable"
+            created = service.handle({"action": "create", "request": str(uuid.uuid4())})
+        self.assertNotEqual(created["created"], "display:2")
+        self.assertNotIn(2, service.catalog.numbers())
+        self.assertNotIn(service.standby, (None, 2))
+        service.shutdown.set()
+
+    def test_launching_standby_number_is_never_recorded_for_another_request(self):
+        catalog = self.catalog()
+        self.assertEqual(catalog.allocate(str(uuid.uuid4()), reserved={2}), 3)
+        self.assertEqual(catalog.free_number(reserved={4}), 2)
+
+    def test_concurrent_creates_keep_one_standby_outside_the_catalog(self):
+        service, _ = self.standby_service()
+        with mock.patch.object(display, "ready", return_value=True):
+            service.handle({"action": "list"})
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+                created = list(pool.map(
+                    lambda _: service.handle({"action": "create", "request": str(uuid.uuid4())})["created"],
+                    range(6)))
+        numbers = service.catalog.numbers()
+        self.assertEqual(len(set(created)), 6)
+        self.assertEqual(len(numbers), 6)
+        self.assertIsNotNone(service.standby)
+        self.assertNotIn(service.standby, numbers)
+        service.shutdown.set()
+
     def test_restarted_service_adopts_the_running_standby(self):
         service, started = self.standby_service()
         service.catalog.allocate(str(uuid.uuid4()))
