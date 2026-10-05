@@ -93,7 +93,8 @@ test("in a narrow pane the session overlay takes focus and closes on Escape, the
         ],
       }),
     );
-    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    // The main cmux sidebar already shows agent chats, so the pane's duplicate list starts closed.
+    expect(shell().getAttribute("data-sidebar")).toBe("closed");
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
 
     await act(async () => toggle().click());
@@ -103,12 +104,12 @@ test("in a narrow pane the session overlay takes focus and closes on Escape, the
     await act(async () => {
       dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(shell().getAttribute("data-sidebar")).toBe("closed");
     expect(dom.window.document.activeElement).toBe(toggle());
 
     await act(async () => toggle().click());
     await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-sidebar-scrim")!.click());
-    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(shell().getAttribute("data-sidebar")).toBe("closed");
     expect(container.querySelector(".acpmux-sidebar-scrim")).toBeNull();
     expect(dom.window.document.activeElement).toBe(toggle());
 
@@ -118,7 +119,7 @@ test("in a narrow pane the session overlay takes focus and closes on Escape, the
         .find((row) => row.textContent === "First")!
         .click(),
     );
-    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(shell().getAttribute("data-sidebar")).toBe("closed");
     expect(selected).toEqual(["a"]);
   } finally {
     await act(async () => root.unmount());
@@ -138,19 +139,20 @@ test("a resize across the threshold resets the list and keeps the toggle in step
   try {
     media.matches = true;
     await act(async () => root.render(createElement(AcpmuxApp)));
-    expect(toggle().getAttribute("aria-expanded")).toBe("true");
-    // Closed and reopened beside the transcript: "open" must not become an overlay once the pane narrows.
-    await act(async () => toggle().click());
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(shell().getAttribute("data-sidebar")).toBe("closed");
+    // The optional list can still be opened beside the transcript, then closes when the pane narrows.
     await act(async () => toggle().click());
     expect(shell().getAttribute("data-sidebar")).toBe("open");
     await act(async () => resize(false));
-    expect(shell().getAttribute("data-sidebar")).toBe("auto");
+    expect(shell().getAttribute("data-sidebar")).toBe("closed");
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
     // One click opens the overlay in the narrow pane.
     await act(async () => toggle().click());
     expect(shell().getAttribute("data-sidebar")).toBe("open");
     await act(async () => resize(true));
-    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+    expect(shell().getAttribute("data-sidebar")).toBe("closed");
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
   } finally {
     await act(async () => root.unmount());
     delete host.cmuxAcpmuxActions;
