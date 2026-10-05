@@ -277,14 +277,16 @@ export async function POST(request: Request): Promise<Response> {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
       // Start the provider probe only after authentication. It is shared by
-      // concurrent creates, so authenticated traffic can warm the connection
-      // without allowing unauthenticated traffic to consume provider capacity.
-      // Warm the shared client opportunistically, but do not put this probe on
-      // the create critical path. The provider create request performs its own
-      // connection setup and can make progress while this best-effort HEAD is
-      // slow or unavailable. Waiting here turned a transient warm-up delay
-      // into user-visible latency for every new machine.
-      void preconnectFreestyle();
+      // concurrent creates, so the first authenticated request pays the cold
+      // connection once and unauthenticated traffic cannot consume provider
+      // capacity. Freestyle creation waits for this bounded probe below so its
+      // first SDK request reuses the warmed connection instead of racing its
+      // own DNS/TLS setup.
+      const warmupStartedAt = performance.now();
+      const freestyleWarmup = preconnectFreestyle();
+      const connectionInitDuration = freestyleWarmup.then(
+        () => ({ durationMs: performance.now() - warmupStartedAt, endedAtMs: Date.now() }),
+      );
       let admissionRecorded = false;
       let admissionStartedAt = performance.now();
       /** Records request validation even when it exits before provisioning. */
@@ -351,11 +353,16 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
 
+      // Only Freestyle creation needs this probe. Other providers must not
+      // wait behind an unrelated connection check, while the Freestyle path
+      // still overlaps the probe with authentication and request parsing.
+      if (provider === "freestyle") {
+        const connectionInit = await connectionInitDuration;
+        timing.record("connection_init", connectionInit.durationMs, { endedAtMs: connectionInit.endedAtMs });
+      }
       // Admission starts after provider-specific connection readiness. Its
       // budget describes only request validation; the durable begin_create
-      // phase is recorded inside the workflow and remains authoritative. The
-      // provider request owns connection readiness, so admission never waits
-      // on the opportunistic warm-up above.
+      // phase is recorded inside the workflow and remains authoritative.
       admissionStartedAt = performance.now();
       recordAdmission();
 
