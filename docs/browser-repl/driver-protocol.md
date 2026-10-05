@@ -387,7 +387,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   is judged by the dialog's document. Events go out only as
   `BrowserReplDriverEvent` cases through the delivery the table names
   (`BrowserReplEventSpec`: every attached session for a tab's lifecycle,
-  the network recipients, the sessions whose authority allows the sending
+  the network recipients whose authority allows the document that sent the
+  request (WebKit's document id on the request, matched to a frame tree
+  read; an event whose document cannot be told, or that WebKit names no
+  document for, reaches no session whose authority is active in the tab,
+  and a document load is also judged by the URL it loads), the sessions whose authority allows the sending
   document for console messages and page errors, the one routed session
   for dialogs and file choosers judged by the opening frame's document,
   the download's session judged by its source); the driver drops any other
@@ -1016,7 +1020,16 @@ when present.
 - `frameId` is WebKit's frame handle id (`-[WKFrameInfo _handle].frameID`);
   frames come from `-[WKWebView _frames:]`.
 - Network events come from `-[WKWebView _setResourceLoadDelegate:]`; without
-  that SPI no `request`/`response` events are sent.
+  that SPI no `request`/`response` events are sent. Each request is bound to
+  its document by `_WKResourceLoadInfo.documentID`, matched against
+  `-[WKFrameInfo _documentIdentifier]` from a frame tree read; WebKit gives
+  no initiating frame beyond that. A document the tree no longer shows by
+  the read (a frame that navigated away first, a short-lived `about:blank`
+  or `srcdoc` child) cannot be judged, so under an active policy or file
+  root its requests are dropped for that session rather than sent
+  unjudged. A document the gate read once is remembered (up to 1,024 per
+  tab), so a request's later events stay deliverable after the frame
+  navigates.
 
 ## Proposed changes (runtime)
 

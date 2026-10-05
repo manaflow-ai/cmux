@@ -870,11 +870,13 @@ final class BrowserReplTabAttachment {
     }
 
     /// Sends a network event only to the sessions it belongs to
-    /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``).
+    /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``)
+    /// whose authority allows the document that sent the request
+    /// (``BrowserReplNetworkGate``, the table's ``BrowserReplEventSpec/Delivery/network``).
     /// Its URL and headers are the page's (``BrowserReplPageURL``,
     /// ``BrowserReplPageHeaders``): only the tab's live creator reads their
     /// credentials.
-    private func emitNetwork(_ name: String, _ payload: [String: Any]) {
+    private func emitNetwork(_ name: String, _ payload: [String: Any], from sender: BrowserReplNetworkSender) {
         guard let event = BrowserReplDriverEvent(rawValue: name), event.isDelivered(as: .network) else { return }
         let requestID = payload["requestId"] as? String ?? ""
         var body = payload
@@ -883,10 +885,31 @@ final class BrowserReplTabAttachment {
         if let headers = payload["headers"] as? [String: String] {
             body["headers"] = BrowserReplPageHeaders(headers, creator: liveCreator)
         }
-        for recipient in ownership.networkRecipients(event: name, requestID: requestID) {
-            sinks[recipient.sessionID]?(name, body)
-        }
+        let recipients = ownership.networkRecipients(event: name, requestID: requestID).map(\.sessionID)
+        networkGate.send(NetworkEvent(name: name, body: body), from: sender, to: recipients)
     }
+
+    /// A network event on its way through ``networkGate``.
+    private struct NetworkEvent {
+        let name: String
+        let body: [String: Any]
+    }
+
+    /// Judges each network event by the document that sent it, in order,
+    /// reading the tab's frame tree for a document it does not know yet.
+    private lazy var networkGate = BrowserReplNetworkGate<NetworkEvent>(
+        tab: { [weak self] in self?.authorityFacts },
+        authority: { Self.authority(for: $0) },
+        readDocuments: { [weak self] in
+            guard let webView = self?.panel?.webView else { return [:] }
+            let frames = await BrowserReplFrameTree.frames(of: webView)
+            return BrowserReplFrameDocument.byDocumentID(frames, in: webView)
+        },
+        deliver: { [weak self] event, sessionIDs in
+            guard let self else { return }
+            for sessionID in sessionIDs { self.sinks[sessionID]?(event.name, event.body) }
+        }
+    )
 
     /// The session that created the tab while it stays attached; `nil` for
     /// a user's tab.
@@ -929,7 +952,7 @@ final class BrowserReplTabAttachment {
         hasInstrumentedWebView = true
         instrumentedWebView = webView
         if isReplacement { emit(.tabReplaced, [:]) }
-        let observer = BrowserReplResourceLoadObserver { [weak self] event, payload in
+        let observer = BrowserReplResourceLoadObserver { [weak self] event, payload, sender in
             guard let self else { return }
             if event == "request" { self.requestGeneration += 1 }
             if event == "response", payload["resourceType"] as? String == "document",
@@ -937,7 +960,7 @@ final class BrowserReplTabAttachment {
                let status = payload["status"] as? Int {
                 self.mainDocumentStatus = status
             }
-            self.emitNetwork(event, payload)
+            self.emitNetwork(event, payload, from: sender)
         }
         observer.onInflightChange = { [weak self] count in
             guard let self, count == 0 else { return }

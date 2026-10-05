@@ -242,7 +242,10 @@ public struct BrowserReplEventSpec: Sendable, Equatable {
         /// opened for). The reason.
         case oneSession(String)
         /// The sessions the network event belongs to
-        /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``),
+        /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``)
+        /// whose authority allows the document that sent the request
+        /// (``BrowserReplNetworkGate``: an event whose document cannot be
+        /// told reaches no session whose authority is active in the tab),
         /// credentials only for the tab's creator.
         case network
         /// The sessions whose authority allows the frame document that sent
