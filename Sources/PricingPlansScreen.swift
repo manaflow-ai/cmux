@@ -49,6 +49,23 @@ enum ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
+        if let auth = AppDelegate.shared?.auth,
+           auth.coordinator.isAuthenticated {
+            Task { @MainActor in
+                let outcome = await auth.browserAppSession.request(destinationURL: url)
+                if case let .navigation(navigation) = outcome,
+                   presentBrowserSplit(navigation: navigation) {
+                    return
+                }
+                presentAppPricingWebWithoutSession(url: url)
+            }
+            return
+        }
+        presentAppPricingWebWithoutSession(url: url)
+    }
+
+    @MainActor
+    private static func presentAppPricingWebWithoutSession(url: URL) {
         if presentDedicatedPricingWorkspace(url: url) {
             return
         }
@@ -134,6 +151,25 @@ enum ProUpgradePresenter {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    @MainActor
+    private static func presentBrowserSplit(navigation: BrowserAppSessionNavigation) -> Bool {
+        guard let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            return false
+        }
+        return workspace.newBrowserSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            initialRequest: navigation.request,
+            focus: true,
+            chromeVisibility: .hidden,
+            transparentBackground: true,
+            allowsExternalBrowserFallback: false,
+            websiteDataStore: navigation.websiteDataStore,
+            initialDividerPosition: 0.58
+        ) != nil
     }
 
     @MainActor
