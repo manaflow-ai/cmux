@@ -40,7 +40,8 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
 }
 
 /// Ed25519 signatures of published content (release notes, announcements).
-nonisolated public enum ContentSignature {
+nonisolated public struct ContentSignature {
+    public init() {}
     /// The `content-signing` public key (raw, base64), compiled in.
     public static let publicKey = "AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4="
 
@@ -53,7 +54,8 @@ nonisolated public enum ContentSignature {
 }
 
 /// When the what's-new card shows (pure).
-nonisolated public enum WhatsNew {
+nonisolated public struct WhatsNew {
+    public init() {}
     /// Once per build, after an update to it (`lastSeenBuild` older), and
     /// only when the build has human-written highlights.
     public static func shows(currentBuild: String, lastSeenBuild: String?, notes: ReleaseNotes?) -> Bool {
