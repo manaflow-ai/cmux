@@ -14,19 +14,13 @@ import Testing
         var seen: ActionInvocation?
         registry.bind("splitRight", invoke: { seen = $0 })
         let bridge = RegistryControlBridge(registry: registry)
-        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil, configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
         var all = params
         all["action"] = .string("splitRight")
         let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: all))
         return (result, seen)
     }
-
-    /// The person-only tests run under the full package suite, where other
-    /// main-actor tests can hold the work queue past the production 2 s
-    /// deadline. A long deadline keeps load out of the result; the
-    /// production deadline is unchanged.
-    static let loadTolerantConfiguration = ControlRouter.Configuration(requestDeadline: .seconds(30))
 
     /// Expects exactly the person-only refusal. A timeout is a harness
     /// failure (the handler never ran), never a refusal.
@@ -75,7 +69,7 @@ import Testing
     /// `action.list` and `action.describe` say which actions focus by purpose.
     @Test func describeReportsWhetherTheActionFocuses() async throws {
         let registry = ActionRegistry.standard()
-        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil)
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil, configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
         let focus = try await router.handle(ControlRequest(id: "1", method: "action.describe", params: ["action": "app show-tab"])).get()
         #expect(focus["action"]?["focuses"] == true)
@@ -94,7 +88,7 @@ import Testing
         registry.bind("password.importCSV", invoke: { _ in ran = true })
         let bridge = RegistryControlBridge(registry: registry)
         let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil,
-                                   configuration: Self.loadTolerantConfiguration)
+                                   configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
         for origin: JSONValue in ["user", "cli", "mcp", .null] {
             let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: [
@@ -115,7 +109,7 @@ import Testing
         for id in ids { registry.bind(id, invoke: { _ in ran.append(id) }) }
         let bridge = RegistryControlBridge(registry: registry)
         let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil,
-                                   configuration: Self.loadTolerantConfiguration)
+                                   configuration: .loadTolerant)
         router.updateCatalog(RegistryControlBridge.catalog(from: registry))
 
         for id in ids {
