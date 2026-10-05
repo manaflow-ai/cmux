@@ -14,10 +14,16 @@ fn the_host_routes_by_service_and_refuses_an_unknown_one() {
     let desktop_only = [SERVICE_DESKTOP];
     let got = negotiate(SERVICE_DESKTOP, &[], &desktop_only, &[]).expect("desktop");
     assert_eq!(got, Negotiated { service: SERVICE_DESKTOP.into(), caps: vec![] });
-    assert_eq!(negotiate(SERVICE_REMOTE_BROWSER, &[], &desktop_only, &[]), Err(ServiceRefusal::Service));
+    assert_eq!(
+        negotiate(SERVICE_REMOTE_BROWSER, &[], &desktop_only, &[]),
+        Err(ServiceRefusal::Service)
+    );
     assert_eq!(negotiate("", &[], &desktop_only, &[]), Err(ServiceRefusal::Service));
     let both = [SERVICE_DESKTOP, SERVICE_REMOTE_BROWSER];
-    assert_eq!(negotiate(SERVICE_REMOTE_BROWSER, &[], &both, &[]).map(|n| n.service), Ok("rb/1".into()));
+    assert_eq!(
+        negotiate(SERVICE_REMOTE_BROWSER, &[], &both, &[]).map(|n| n.service),
+        Ok("rb/1".into())
+    );
 }
 
 #[test]
@@ -31,9 +37,15 @@ fn accepted_caps_are_the_intersection_in_host_order_without_duplicates() {
 #[test]
 fn oversized_cap_lists_are_refused() {
     let many: Vec<String> = (0..=MAX_CAPS).map(|i| format!("c{i}")).collect();
-    assert_eq!(negotiate(SERVICE_DESKTOP, &many, &[SERVICE_DESKTOP], &[]), Err(ServiceRefusal::Malformed));
+    assert_eq!(
+        negotiate(SERVICE_DESKTOP, &many, &[SERVICE_DESKTOP], &[]),
+        Err(ServiceRefusal::Malformed)
+    );
     let long = vec!["x".repeat(MAX_CAP_LEN + 1)];
-    assert_eq!(negotiate(SERVICE_DESKTOP, &long, &[SERVICE_DESKTOP], &[]), Err(ServiceRefusal::Malformed));
+    assert_eq!(
+        negotiate(SERVICE_DESKTOP, &long, &[SERVICE_DESKTOP], &[]),
+        Err(ServiceRefusal::Malformed)
+    );
 }
 
 #[test]
