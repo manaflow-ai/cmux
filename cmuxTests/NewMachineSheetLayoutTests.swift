@@ -22,7 +22,7 @@ struct NewMachineSheetLayoutTests {
     @Test("long base machine names keep every control inside the sheet", arguments: NewMachineSheetLayout.allCases)
     func longBaseMachineNamesStayInsideSheet(layout: NewMachineSheetLayout) {
         for forked in [false, true] {
-            let machines = (0..<3).map { index in
+            let machines = (0..<8).map { index in
                 VMSummary(
                     id: "machine-\(index)",
                     provider: "freestyle",
