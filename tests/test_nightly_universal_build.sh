@@ -276,6 +276,10 @@ if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
+if ! grep -Fq -- '--count 1' "$WORKFLOW_FILE" || ! grep -Fq 'SPARKLE_MAXIMUM_DELTAS: "1"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly appcast generation must keep one newest delta per architecture"
+  exit 1
+fi
 
 if ! awk '
   /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
