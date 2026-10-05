@@ -256,7 +256,7 @@ fn service_events_have_tag_0x80_and_refuse_unknown_flag_bits() {
     // u32 first_seq, u8 n, then tag, flags, u16 len, payload.
     assert_eq!(bytes, vec![5, 0, 0, 0, 1, 0x80, 0x01, 2, 0, 9, 8]);
     assert_eq!(InputPacket::decode(&bytes).expect("decode"), packet);
-    let mut unknown = bytes.clone();
+    let mut unknown = bytes;
     unknown[6] = 0x03;
     assert!(InputPacket::decode(&unknown).is_err());
     let mut too_long = vec![5, 0, 0, 0, 1, 0x80, 0x00];

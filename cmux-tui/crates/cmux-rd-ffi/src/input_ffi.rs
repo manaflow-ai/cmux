@@ -119,10 +119,16 @@ unsafe fn event_from_c(event: &CmuxRdInputEvent) -> Option<InputEvent> {
             InputEvent::Text(std::str::from_utf8(bytes).ok()?.to_owned())
         }
         CMUX_RD_INPUT_SERVICE => {
+            if event.service_flags & !CMUX_RD_INPUT_MUST_DELIVER != 0
+                || event.text_len == 0
+                || event.text_len > CMUX_RD_INPUT_MAX_SERVICE
+            {
+                return None;
+            }
             // SAFETY: guaranteed by the caller (text is readable for text_len bytes).
             let bytes = unsafe { bytes_in(event.text, event.text_len) }?;
             InputEvent::Service {
-                must_deliver: event.service_flags & CMUX_RD_INPUT_MUST_DELIVER != 0,
+                must_deliver: event.service_flags == CMUX_RD_INPUT_MUST_DELIVER,
                 bytes: bytes.to_vec(),
             }
         }

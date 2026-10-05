@@ -135,6 +135,9 @@ impl InputEvent {
             }
             TAG_SERVICE => {
                 let flags = r.u8()?;
+                if flags & !service_flags::MUST_DELIVER != 0 {
+                    return Err(DecodeError::Invalid("service event flags"));
+                }
                 let len = r.u16()? as usize;
                 if len > MAX_SERVICE_BYTES {
                     return Err(DecodeError::Invalid("service event length"));
