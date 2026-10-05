@@ -20,6 +20,13 @@ public struct SidebarRowAnchor {
         return list.convert(rect, to: sidebar)
     }
 
+    /// The row of the sidebar item that stands for `ref` (the Home item for
+    /// the home workspace, which the workspace list leaves out while that
+    /// item shows), in `sidebar`'s coordinates. Nil when no shown item has it.
+    public static func layoutItem(_ ref: LayoutItemRef, in sidebar: SidebarView) -> CGRect? {
+        nil
+    }
+
     private static func collapsedGroup(of id: WorkspaceID, in list: SidebarListView) -> GroupID? {
         list.groups.values.first { group in group.isCollapsed && group.workspaces.contains { $0.id == id } }?.id
     }
