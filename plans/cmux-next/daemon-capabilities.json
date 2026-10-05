@@ -36,6 +36,7 @@
     "tab-metadata-v1",
     "tab-split-respawn-v1",
     "tab-workspace-name-v1",
+    "terminal-clipboard-read-v1",
     "terminal-color-overrides-v1",
     "terminal-command-journal-v1",
     "terminal-env-v1",

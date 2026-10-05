@@ -46,7 +46,7 @@ import Testing
         }
 
         /// Connects and subscribes `terminals`.
-        func connect(_ terminals: [String] = [termA, termB]) async {
+        func connect(_ terminals: [String] = [TerminalClipboardBrokerTests.termA, TerminalClipboardBrokerTests.termB]) async {
             broker.setConnection(1)
             broker.setTerminals(terminals)
             await settle()
@@ -57,11 +57,15 @@ import Testing
             await broker.lastReply?.value
         }
 
-        func read(_ id: String, terminal: String = termA, location: TerminalClipboardRead.Location = .standard,
+        func read(_ id: String, terminal: String = TerminalClipboardBrokerTests.termA, location: TerminalClipboardRead.Location = .standard,
                   host: ClipboardReadHost = ClipboardReadHost(kind: .local)) async {
             broker.handle(.terminalClipboardRead(TerminalClipboardRead(requestID: id, terminalID: terminal, location: location, host: host)))
             await settle()
         }
+    }
+
+    @MainActor final class SettingBox {
+        var value = ClipboardReadSetting.allow
     }
 
     // MARK: Policy
@@ -120,9 +124,9 @@ import Testing
         defer { server.stop() }
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
         try await connection.start()
-        var setting = ClipboardReadSetting.allow
+        let setting = SettingBox()
         let broker = TerminalClipboardBroker(host: ClipboardReadHost(kind: .local), environment: .init(
-            setting: { setting },
+            setting: { setting.value },
             pasteboardText: { _ in "pasted" },
             ask: { _, _ in {} },
             subscribe: { ids in
@@ -135,7 +139,7 @@ import Testing
         await broker.subscribing?.value
         broker.handle(.terminalClipboardRead(TerminalClipboardRead(requestID: "r1", terminalID: Self.termA, location: .standard,
                                                                    host: ClipboardReadHost(kind: .local))))
-        setting = .deny
+        setting.value = .deny
         broker.handle(.terminalClipboardRead(TerminalClipboardRead(requestID: "r2", terminalID: Self.termB, location: .standard,
                                                                    host: ClipboardReadHost(kind: .local))))
         await broker.lastReply?.value

@@ -151,6 +151,13 @@ only); logs never contain clipboard content. Needs the full window, after agent-
    handler checks the full envelope; `Frame` Debug omits payload bytes; the Surface grant API is test-only.
 4. Mac: Ghostty `clipboard-read` allow applies to local terminals only; remote and Cloud terminals ask unless an
    explicit setting (default off) allows; the sheet names the terminal and its host.
+   Done (2026-10-05, branch nx-r92-clipboard-mac): `TerminalClipboardBroker` (CmuxNextDaemon) keeps
+   `terminal-clipboard-subscribe` equal to the local store's terminal tabs (store observation, resent after each
+   reconnect) and answers from `ClipboardReadPolicy` (`allow` only for local hosts; `ask` is Ghostty's default);
+   `TerminalClipboardReadService` (App) runs it on the local daemon connection only (S3) and asks with a cmux
+   dialog in the terminal's tab naming the tab title and "this Mac". Allow has no Return key; `debug.dialog`
+   cannot press, type into or set fields of that dialog. No explicit remote allow setting exists yet (nothing
+   remote can subscribe). Primary and selection reads use the general pasteboard.
 
 ### Remote frontends (coordinator decision S3, 2026-10-05)
 
