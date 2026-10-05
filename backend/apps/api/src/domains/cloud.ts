@@ -279,6 +279,13 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   // the delete (ordered after it) waits, so it never finishes as deleted while a VM could appear.
   for (const [key, entry] of Object.entries(state.pending)) {
     const l = entry.machine === stored.row.id ? ledgerRow(ctx.rows, key) : undefined
+    // A pause or start still retrying is settled now (review P3): the delete never waits behind it; a call
+    // already running finishes, its late result changes nothing, and the delete then removes the VM by name.
+    if (l && (l.row.op === "pause" || l.row.op === "start")) {
+      writes.push(upsertLedger({ ...l.row, state: "cancelled", updated_at: ctx.now }, l.n))
+      pending = Object.fromEntries(Object.entries(pending).filter(([k]) => k !== key))
+      continue
+    }
     if (l?.row.op !== "create" || l.row.cancel) continue
     writes.push(upsertLedger({ ...l.row, cancel: true, attempts: 0, updated_at: ctx.now }, l.n))
     pending = { ...pending, [key]: { machine: entry.machine, due_at: ctx.now } }

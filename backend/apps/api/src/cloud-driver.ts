@@ -157,7 +157,8 @@ export class GuardedCloudDriver {
     if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
     // Settle from the VM's real state (review P2): a VM already there (or on its way) is success, before
     // the call (a retry after a lost answer) and after a failed one (Freestyle answers 409 when already there).
-    const reached = (st: string | null) => (action === "pause" ? st === "paused" || st === "pausing" : st === "running" || st === "starting")
+    // A pause counts only when paused (a failed "pausing" would free the slot of a running VM); a start may count when starting (the slot is taken either way).
+    const reached = (st: string | null) => (action === "pause" ? st === "paused" : st === "running" || st === "starting")
     if (reached(await this.raw.state(found.id))) return
     try {
       await (action === "pause" ? this.raw.pause(found.id) : this.raw.start(found.id))

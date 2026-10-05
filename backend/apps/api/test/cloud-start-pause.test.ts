@@ -80,7 +80,8 @@ describe("pause and start", { timeout: 60_000 }, () => {
     const x = person()
     await ensureUser(x)
     const { machine } = await createdAndBound(x)
-    await x.stub.fakeControl({ fail_next: 2 } as never)
+    // The pause call fails once and waits for its retry (backed off); the delete must not wait for it.
+    await x.stub.fakeControl({ fail_next: 1 } as never)
     expect(reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.pause", { machine })))).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
     const del = reply(await x.stub.submit(x.team, x.p, frame("cloud.machine.delete", { machine })))
     expect(del, JSON.stringify(del)).toMatchObject({ t: "result", value: { deleted: true } })
