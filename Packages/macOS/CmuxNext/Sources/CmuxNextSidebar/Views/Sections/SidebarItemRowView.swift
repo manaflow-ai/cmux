@@ -250,7 +250,9 @@ final class SidebarItemRowView: NSView {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: SidebarStyle.railGlyphSize, weight: .medium))
         let side = SidebarStyle.railIconBox
         icon.frame = NSRect(x: wellFrame.midX - side / 2, y: wellFrame.midY - side / 2, width: side, height: side)
-        title.frame = NSRect(x: Metrics.space1, y: wellFrame.maxY + Metrics.space1, width: max(0, b.width - Metrics.space2), height: th)
+        // The caption takes the tile's full width: a tile is narrow, and the
+        // tiles' gap already separates neighboring captions.
+        title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
         let dot = SidebarStyle.dotSize
         badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
         accessoryView.frame = .zero
