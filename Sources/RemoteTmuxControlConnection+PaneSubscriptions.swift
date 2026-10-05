@@ -43,8 +43,13 @@ extension RemoteTmuxControlConnection {
     /// giving the multiplexer an event-driven reconcile source instead of polling.
     static let sessionDigestSubscriptionName = "cmux_sessions"
 
+    ///
+    /// The target is empty, which subscribes on the attached session. A pane target only reports
+    /// while that pane exists, and pane ids are never reused: measured on tmux 3.7b, a `%0`
+    /// subscription on a server whose first pane is gone reports nothing for a session created
+    /// or renamed, while the empty target reports both.
     static var sessionDigestSubscriptionCommand: String {
-        "refresh-client -B '\(sessionDigestSubscriptionName):%0:#{S:#{session_id}=#{session_name},}'"
+        "refresh-client -B '\(sessionDigestSubscriptionName)::#{S:#{session_id}=#{session_name},}'"
     }
 
     func subscribeSessionDigest() {
