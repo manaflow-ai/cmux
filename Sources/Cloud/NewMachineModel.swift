@@ -333,6 +333,7 @@ final class NewMachineModel {
             defaults: defaults,
             submit: submit
         )
+        guard planRefreshWouldChange(to: updated, storedMemoryMb: storedMemoryMb) else { return }
         plan = updated.plan
         availableMemoryOptionsMb = updated.availableMemoryOptionsMb
         lockedMemoryOptionsMb = updated.lockedMemoryOptionsMb
@@ -350,7 +351,6 @@ final class NewMachineModel {
         planIsLoading = false
         planLoadError = message
     }
-
     /// Starts another authoritative plan read while keeping the sheet visible.
     func setPlanLoading() {
         planIsLoading = true
