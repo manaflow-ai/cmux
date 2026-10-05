@@ -10,8 +10,6 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     static let seenDefaultsKey = "cmux.cloud.welcome.seen"
 
     private var window: NSWindow?
-    private var lastSliderShowsFeatureList = false
-    private var lastSliderListUsesDots = false
     /// Launch presentation is considered once, at the first main window. A
     /// window opened later (Cmd+N an hour in) must not pop the welcome up just
     /// because remote flags arrived since; an unseen welcome waits for next launch.
@@ -43,8 +41,6 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// The slider layout is a debug choice while it is designed; launch uses the default.
     func present(over parent: NSWindow?, sliderShowsFeatureList: Bool = false, sliderListUsesDots: Bool = false) {
         window?.close()
-        lastSliderShowsFeatureList = sliderShowsFeatureList
-        lastSliderListUsesDots = sliderListUsesDots
         let window = makeWindow(sliderShowsFeatureList: sliderShowsFeatureList, sliderListUsesDots: sliderListUsesDots)
         self.window = window
         position(window, over: parent)
