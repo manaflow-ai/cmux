@@ -256,6 +256,23 @@ struct BrowserReplFrameGateTests {
         #expect(noMain != nil, "files were given to a main-frame chooser without a frame tree")
     }
 
+    /// A chooser is answered only into the document that opened it: when its
+    /// frame shows another document by the answer (here one the policy
+    /// allows too), no files are given, with a policy or without one.
+    @Test(arguments: [true, false])
+    func aFileChooserWhoseFrameNavigatedSinceIsStale(underPolicy: Bool) async throws {
+        let page = try await FramePage.load()
+        let gate = underPolicy ? Self.gate() : BrowserReplFrameGate(world: Self.world)
+        let recorded = try #require(page.frame(path: "/child")?.info)
+        #expect(await Self.error { try await gate.checkFileChooser(frame: recorded, in: page.webView, frames: page.frames) } == nil)
+        _ = try await page.run("document.getElementById('a').src = 'cmux-test://allowed.test/next'; return true", in: page.main)
+        let frames = try await FramePage.settle(page.webView) { frames in
+            frames.contains { $0.url == "cmux-test://allowed.test/next" }
+        }
+        let error = await Self.error { try await gate.checkFileChooser(frame: recorded, in: page.webView, frames: frames) }
+        #expect(error?.code == "stale", "files were given to a chooser whose frame shows another document: \(String(describing: error))")
+    }
+
     /// `window.frames` leaves out frames in shadow trees, so a child's index
     /// in WebKit's frame tree is not its index there. A blocked frame in a
     /// shadow tree must still refuse a point over it.
