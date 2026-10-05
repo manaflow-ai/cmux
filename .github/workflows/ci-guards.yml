@@ -1277,10 +1277,24 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
-          # Manual dispatches have no synthetic parent, so retain full history
-          # and origin/main for the policy's fallback merge-base comparison.
-          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && '0' || '2' }}
+          # fetch-depth 0 would also fetch every branch of the repository
+          # (about ten thousand). That took 3-10 minutes and sometimes the
+          # whole 15 minute job (run 37374680247).
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Fetch main history for a manual dispatch
+        # A manual dispatch has no synthetic parent, so the policy falls back
+        # to merge-base(origin/main, HEAD). Fetch only those two histories,
+        # without file contents; the policy reads the few it needs on demand.
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          CHECKED_OUT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --filter=blob:none --unshallow origin \
+            +refs/heads/main:refs/remotes/origin/main "$CHECKED_OUT_SHA"
+          git merge-base origin/main HEAD
 
       - name: Bind package policy to synthetic merge base
         if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
