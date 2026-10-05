@@ -26,10 +26,10 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId?, ownerSession? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods except one with `ownerSession`: another running session created it, and it lists without `dataStore`. The `url` of a tab the session did not create (another session's or the user's) has its userinfo and credential-named query and fragment parameters reading `redacted`, as in network events. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
+| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId?, ownerSession? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). A tab of the session's own workspace is a valid `targetId` for the other methods except one with `ownerSession`: another running session created it, and it lists without `dataStore`. A tab of another workspace is listed but refused (`denied`): reaching it needs an attach a person grants, which cmux does not offer yet (see Guards, Authority). The `url` of a tab the session did not create (another session's or the user's) has its userinfo and credential-named query and fragment parameters reading `redacted`, as in network events. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
 | `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no tab this session may drive uses fails with `invalid` |
-| `tabs.close` | `{ targetId, runBeforeUnload? }` | |
+| `tabs.close` | `{ targetId, runBeforeUnload? }` | Only a tab the session created, or a user's tab of its workspace it is attached to (it drove it, for example after `tabs.use`); another fails with `denied` |
 | `tabs.activate` | `{ targetId }` | |
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
@@ -331,6 +331,51 @@ Every event carries `targetId`.
 
 Agent code runs in the REPL's JavaScriptCore context, so the guards are
 native (`BrowserReplBoundary` in the session, and the driver):
+
+- Authority: one function, `BrowserReplDocumentAuthority.verdict(_:)`,
+  decides whether a session may read from or act on a document, frame, URL
+  or tab now. Its one input, `BrowserReplAccess`, names the subject (a URL
+  to load, a tab's recorded page, or a frame's document as WebKit recorded
+  it or as read in the frame, with its makers when it is opaque), the tab
+  (its creator, main-frame URL, attached sessions and workspace) and the
+  tab capability (`use` or `close`). The verdict joins the domain policy,
+  the session's file roots (local files and documents of a local file's
+  origin), the makers of opaque documents and the tab's ownership, and the
+  rules below are its parts. The frame gate, the driver's page, frame and
+  tab checks, held-input release, landed pages, cookie URLs, dialog and file
+  chooser routes and answers, console and page-error recipients,
+  permission grants, the page clipboard's refusal and capture masks all ask
+  it. Tab capability: a session uses only tabs of its own workspace that no
+  other running session created (`denied` otherwise); a tab of another
+  workspace needs an attach a person grants, and cmux has no such grant
+  yet, so it is refused, as is a restored placeholder tab there before it
+  is created. It closes only tabs it created and user tabs it is attached
+  to. Navigation-time decisions in tabs a session created (the navigation
+  delegate, popups and downloads) still apply the creating session's
+  policy and file roots through their own checks (`BrowserReplNavigationGuard`,
+  `BrowserReplPopupRoute`, `BrowserReplDownloadSource`).
+- Method and event table: the driver runs only the methods
+  `BrowserReplDriverMethod` names; any other name fails with `unsupported`
+  before anything runs (default deny). Each method's `BrowserReplMethodSpec`
+  says which authority checks apply: its tab capability (or none, with the
+  reason), its page check (the tab's page, the URL it loads, or none with
+  the reason) and its frame check (the frame under the pointer, along a
+  drag, the focused frame, the chooser's frame, every frame for a PDF,
+  during the capture for a screenshot, the dialog's document, where its
+  script runs, or none with the reason), and whether it is trusted input
+  that holds blocked frames inert. `tab.info`, `frames.list` and
+  `frame.ownerBox` are judged where their script runs (the frame gate) and
+  answer the URL and title `tabs.list` shows; `download.path` reads the
+  session's own downloads, each judged when it started; `dialog.respond`
+  is judged by the dialog's document. Events go out only as
+  `BrowserReplDriverEvent` cases through the delivery the table names
+  (`BrowserReplEventSpec`: every attached session for a tab's lifecycle,
+  the network recipients, the sessions whose authority allows the sending
+  document for console messages and page errors, the one routed session
+  for dialogs and file choosers judged by the opening frame's document,
+  the download's session judged by its source); the driver drops any other
+  name, and a path that does not match an event's delivery drops it.
+  `BrowserReplDocumentAuthorityTests` enumerates every method and event.
 
 - Domain patterns (the policy's `allowed` and `prohibited`, a secret's
   domains, `tools.register` domains): `example.com`, `*.example.com`,
