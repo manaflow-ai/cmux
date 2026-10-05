@@ -26,6 +26,22 @@ struct DiffPageTabTests {
         #expect(!KeyRouter.keyContext(for: terminal, appContext: [.diffViewerFocused], facts: .init()).bits.contains(.diffViewerFocused))
     }
 
+    /// React UIs lead review (required): an agent or the CLI without focus never opens the cmux
+    /// picker over the person's window; it gets needsFocus. A user run still shows the picker.
+    @Test func thePickersOpenOnlyWhenTheRunMayChangeTheView() async throws {
+        let (services, _, pane) = try await world()
+        let target = ActionTargetRef(kind: .pane, id: pane.paneKey)
+        for id in ["palette.openDirectoryDiffViewer", "openMarkdownFile", "file.open"] {
+            #expect(ActionBindingCoverageTests.run(services, id, target: target) == .refused(MiscHandlerStrings.pickerNeedsFocus), "\(id)")
+            #expect(!services.palette.isVisible, "\(id) opened no picker")
+        }
+        var invocation = ActionInvocation()
+        invocation.target = target
+        invocation.origin = .user
+        #expect(services.registry.perform("palette.openDirectoryDiffViewer", invocation: invocation))
+        #expect(services.palette.isVisible, "a user run shows the picker")
+    }
+
     /// The bare-key rule (60ea7ec8a8d): j, k and / reach the binding table only in a page that owns
     /// them; the diff page owns diffViewerFocused, and with the app's own bindings its actions run
     /// (they are bound for the diff page, not left unavailable). With no diff page they do not.
