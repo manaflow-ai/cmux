@@ -192,12 +192,23 @@ fn a_page_cannot_pick_the_cwd_of_a_new_terminal() {
         let with_cwd = json!({"machine": "current", "session": "current", "cwd": "/etc"});
         assert_page_refused(&send(&mux, &relay, &v2(operation, with_cwd.clone(), None)), operation);
         assert_not_forbidden(&send(&mux, &plain, &v2(operation, with_cwd, None)), operation);
-        // Without cwd the class rule does not apply (the op is outside it).
+        // Without cwd it is still refused: no catalog operation is allow-listed.
         let without = json!({"machine": "current", "session": "current"});
-        assert_not_forbidden(&send(&mux, &relay, &v2(operation, without.clone(), None)), operation);
+        assert_page_refused(&send(&mux, &relay, &v2(operation, without, None)), operation);
         let null_cwd = json!({"machine": "current", "session": "current", "cwd": null});
-        assert_not_forbidden(&send(&mux, &relay, &v2(operation, null_cwd, None)), operation);
+        assert_page_refused(&send(&mux, &relay, &v2(operation, null_cwd, None)), operation);
     }
+}
+
+/// The allow list is empty, so origin page is refused every catalog
+/// operation, reads included (coordinator decision 2026-10-05). These reads
+/// show a terminal's cwd or the session's events.
+const READS: &[&str] =
+    &["terminal.list", "terminal.get", "session.events", "screen.layout.export", "session.ping"];
+
+#[test]
+fn a_page_cannot_list_terminals_or_read_session_events() {
+    assert_class_denied_to_pages("reads", READS);
 }
 
 /// The result of a denied operation would reach page JS, so a native

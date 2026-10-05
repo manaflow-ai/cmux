@@ -84,14 +84,19 @@ One handshake for origin and P8 (coordinator decision 2026-10-04):
   operation. Clients use them only when it is advertised; otherwise the relay behaves as today
   and logs that page calls are not narrowed.
 
-## Page access (coordinator decision 2026-10-04, page default deny)
+## Page access (coordinator decisions 2026-10-04 and 2026-10-05, page default deny)
 
 Origin `page` is refused (`origin.forbidden`, details `{required: "agent", derived: "page"}`) for
-every operation below, on every request of a page_relay connection (a confirmed-user claim
-included: the result still reaches page JS) and on any connection that narrows itself to `page`.
-The rule lives in `cmux-tui-core/src/request_origin/page_access.rs`. Its match names every catalog
-operation, so a new operation does not compile until it is classified. The legacy path is already
-closed: a page_relay connection refuses every non-v2 line, and legacy lines carry no origin claim.
+EVERY `cmux.protocol/2` catalog operation that is not on the allow list, on every request of a
+page_relay connection (a confirmed-user claim included: the result still reaches page JS) and on
+any connection that narrows itself to `page`. The rule lives in
+`cmux-tui-core/src/request_origin/page_access.rs`. Its match names every catalog operation with no
+wildcard, so a new operation does not compile until it is classified, and an allow entry is a
+deliberate edit with its own test. The legacy path is already closed: a page_relay connection
+refuses every non-v2 line, and legacy lines carry no origin claim. The refusal message names the
+class: the five classes below, and "a page may call only allow-listed operations" for every other
+operation (reads such as `terminal.list`, `terminal.get`, `screen.layout.export`, `session.events`
+and `session.journal.*` included).
 
 - Terminal input: `terminal.input.write`, `terminal.input.keys`, `terminal.input.mouse`,
   `terminal.input.focus`, `pane.run`, `workspace.run`, `sidebar_view.input`, `browser.input.text`,
@@ -110,9 +115,13 @@ Allow list: EMPTY. The page relay (`DaemonPageRelay`) carries only the History p
 `cmux.history.*` and the App Store page's `cmux.apps.*`; `PageDescriptor.admits` keeps every page
 inside its own namespaces, and no page namespace maps to a denied operation. The diff, markdown,
 agent, settings, coderouter, cloud, passwords, keybindings, changelog and icon picker pages use
-Swift providers, not the daemon relay. A future entry needs a shipped page, a rule that scopes it
-to that page's own object (no rule exists today for "the terminal this page was opened for": a
-page relay connection is one per app, not one per page), and its own allowed and refused tests.
+Swift providers, not the daemon relay. None of them is a catalog operation.
+
+Precondition for ANY allow entry: a per-page identity on the relay. Today one page_relay
+connection carries every page of the app, so the daemon cannot tell which page sent a request,
+and no rule exists for "the terminal this page was opened for". An entry also needs a shipped page
+that calls it, a rule that scopes it to that page's own object (never "any terminal by id"), and
+its own allowed and refused tests.
 
 ## Red tests (first commit)
 

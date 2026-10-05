@@ -1,17 +1,19 @@
-//! What origin `page` may not call (plans/cmux-next/request-origin.md,
-//! "Page access"; coordinator decision 2026-10-04).
+//! What origin `page` may call (plans/cmux-next/request-origin.md, "Page
+//! access"; coordinator decisions 2026-10-04 and 2026-10-05).
 //!
 //! A page's JS reaches the daemon only through a page relay, and what an
-//! operation returns reaches that JS. So every terminal input, screen or
-//! history read, attach/detach, renderer and file system operation is
-//! refused for a page, by default. The match below names every catalog
-//! operation, so a new operation does not compile until someone decides
-//! whether a page may call it.
+//! operation returns reaches that JS. Origin page is refused EVERY catalog
+//! operation unless an allow entry names it. The match below names every
+//! catalog operation with no wildcard, so a new operation does not compile
+//! until someone classifies it, and an allow entry is a deliberate edit.
 //!
-//! The allow list is empty: no shipped cmux-next page calls one of these
-//! operations (the page relay carries only `history.*` and `apps.*`). An
-//! entry may be added only for a shipped page, with a rule that limits it
-//! to that page's own object (never "any terminal by id") and its own test.
+//! The allow list is empty: no shipped cmux-next page calls a catalog
+//! operation (the page relay carries only `history.*` and `apps.*`, which
+//! are not catalog operations). Precondition for any allow entry: a
+//! per-page identity on the relay (today one relay connection carries every
+//! page, so the daemon cannot tell which page sent a request), a rule that
+//! limits the entry to that page's own object (never "any terminal by id"),
+//! and its own test.
 
 use serde_json::{Value, json};
 
@@ -32,6 +34,8 @@ enum Denied {
     Renderer,
     /// Files and repositories on the machine, and hook commands.
     FileSystem,
+    /// Every other catalog operation: not on the allow list.
+    NotAllowed,
 }
 
 impl Denied {
@@ -42,17 +46,16 @@ impl Denied {
             Self::Attach => "a page cannot attach or detach a view or a client",
             Self::Renderer => "a page cannot get a renderer grant",
             Self::FileSystem => "a page cannot reach the file system",
+            Self::NotAllowed => "a page may call only allow-listed operations",
         }
     }
 }
 
 enum Access {
     Denied(Denied),
-    /// A terminal spawn: denied (file system) when the page sends `cwd`,
-    /// as R5 does on legacy `new-screen`.
+    /// A terminal spawn: refused as file system access when the page sends
+    /// `cwd` (as R5 does on legacy `new-screen`), else as not allowed.
     DeniedWithCwd,
-    /// Outside the decision's classes.
-    Outside,
 }
 
 const fn access(operation: Op) -> Access {
@@ -247,7 +250,7 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceProgressSet
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
-        | Op::WorkspaceStatusSet => Access::Outside,
+        | Op::WorkspaceStatusSet => Access::Denied(Denied::NotAllowed),
     }
 }
 
@@ -261,7 +264,7 @@ pub(super) fn refusal(operation: &str, params: &Value) -> Option<ResourceError> 
         Access::DeniedWithCwd if params.get("cwd").is_some_and(|cwd| !cwd.is_null()) => {
             Denied::FileSystem
         }
-        Access::DeniedWithCwd | Access::Outside => return None,
+        Access::DeniedWithCwd => Denied::NotAllowed,
     };
     let details = json!({
         "required": RequestOrigin::Agent.wire_name(),
