@@ -54,4 +54,44 @@ import Testing
         #expect(downloads.finish("d4", policy: try Self.blocking("blocked.test"), fileRoots: Self.roots) == .session("agent"))
         #expect(downloads.finish("d4", policy: { _ in nil }, fileRoots: Self.roots) == .notSessions, "a download finished twice")
     }
+
+    /// A session that did not create the tab (one whose own input started a
+    /// download in a user's tab) gets its downloads' URLs with their
+    /// credential values replaced, so a refusal must not name a place the
+    /// download went as written: a signed redirect's signature, a token in
+    /// its query, a password in its userinfo.
+    @Test func aRefusalReachesASessionThatDidNotCreateTheTabWithoutTheURLsCredentials() throws {
+        let secrets = ["pw-secret", "sig-secret", "tok-secret"]
+        let signed = "https://user:pw-secret@blocked.test/file.zip?X-Amz-Signature=sig-secret&access_token=tok-secret"
+        let agent = BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)
+        var downloads = BrowserReplSessionDownloads()
+
+        downloads.add("d5", to: agent, source: Self.allowed)
+        let redirectedRefusal = downloads.redirect("d5", to: signed, policy: try Self.blocking("blocked.test"), fileRoots: Self.roots)
+        let redirected = try #require(redirectedRefusal)
+        #expect(redirected.reason.contains("blocked.test"), "the refusal no longer names the refused host")
+        for secret in secrets {
+            #expect(!redirected.reason.contains(secret), "a redirect's refusal gave a non-creator \(secret)")
+        }
+
+        downloads.add("d6", to: agent, source: Self.allowed)
+        let localRefusal = downloads.redirect("d6", to: "file:///etc/hosts?token=tok-secret", policy: { _ in nil }, fileRoots: Self.roots)
+        let local = try #require(localRefusal)
+        #expect(!local.reason.contains("tok-secret"), "a local file's refusal gave a non-creator the URL as written")
+
+        downloads.add("d7", to: agent, source: BrowserReplDownloadSource(hops: [signed.replacingOccurrences(of: "blocked.test", with: "allowed.test")]))
+        guard case .refused(_, let reason) = downloads.finish("d7", policy: try Self.blocking("allowed.test"), fileRoots: Self.roots) else {
+            Issue.record("a download from a place the session's policy blocks by its end delivered its path")
+            return
+        }
+        for secret in secrets {
+            #expect(!reason.contains(secret), "the end's refusal gave a non-creator \(secret)")
+        }
+
+        // The tab's creator reads its own downloads' URLs as written.
+        downloads.add("d8", to: BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true), source: Self.allowed)
+        let ownRefusal = downloads.redirect("d8", to: signed, policy: try Self.blocking("blocked.test"), fileRoots: Self.roots)
+        let own = try #require(ownRefusal)
+        #expect(own.reason.contains("sig-secret"))
+    }
 }

@@ -36,6 +36,11 @@ public struct BrowserReplSessionDownloads: Sendable {
         entries[id] = Entry(sessionID: sessionID, source: source)
     }
 
+    /// Records that download `id`, from `source`, went to `recipient`.
+    public mutating func add(_ id: String, to recipient: BrowserReplNetworkRecipient, source: BrowserReplDownloadSource) {
+        add(id, sessionID: recipient.sessionID, source: source)
+    }
+
     /// The session download `id` went to, if it still is that session's.
     public func sessionID(of id: String) -> String? {
         entries[id]?.sessionID
