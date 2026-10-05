@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_imports)] // red commit: the host is not started yet
+#![cfg_attr(not(unix), allow(dead_code))]
 //! The daemon's browser host (plans/cmux-next/browser-host.md, step c2).
 //!
 //! When the host binary exists, the daemon starts one `cmux-browser-host` for
@@ -63,8 +63,9 @@ pub fn socket_path_for(daemon_socket: &Path) -> PathBuf {
 /// of its own (it waits for the daemon's). Without a host binary there is no
 /// entry, and clients use their default socket as before.
 pub fn terminal_env(daemon_socket: &Path, has_host: bool) -> Option<(String, String)> {
-    let _ = (daemon_socket, has_host);
-    None
+    has_host.then(|| {
+        (BROWSER_HOST_SOCKET_ENV.into(), socket_path_for(daemon_socket).display().to_string())
+    })
 }
 
 impl crate::mux::Mux {
@@ -167,7 +168,23 @@ impl BrowserHostSupervisor {
 
     /// Starts the host on a background thread when one is configured and
     /// none runs; a failure is logged and the next caller retries.
-    pub(crate) fn start_in_background(&self) {}
+    pub(crate) fn start_in_background(&self) {
+        let has_binary = lock(&self.inner.config).as_ref().is_some_and(|c| c.binary.is_some());
+        if !has_binary {
+            return;
+        }
+        let inner = Arc::downgrade(&self.inner);
+        let spawned =
+            std::thread::Builder::new().name("browser-host-start".into()).spawn(move || {
+                let Some(inner) = inner.upgrade() else { return };
+                if let Err(error) = Inner::credentials(&inner) {
+                    eprintln!("cmux-tui: browser host start failed: {error}");
+                }
+            });
+        if let Err(error) = spawned {
+            eprintln!("cmux-tui: cannot start the browser host thread: {error}");
+        }
+    }
 
     /// The running host's pid, if any (tests).
     #[cfg(test)]
@@ -240,6 +257,104 @@ fn mint_secret() -> Result<String, String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+#[cfg(not(unix))]
 fn start(_: &Arc<Inner>, _: &Path, _: &Path) -> Result<Running, String> {
-    Err("the browser host is not started yet".into())
+    Err("the browser host runs on macOS and Linux only".into())
+}
+
+/// Starts the host on `socket`, gives it a new secret on fd 3, and waits for
+/// its `ready` line. A watcher thread reaps it and calls
+/// [`Inner::host_stopped`].
+#[cfg(unix)]
+fn start(inner: &Arc<Inner>, binary: &Path, socket: &Path) -> Result<Running, String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let dir = socket.parent().ok_or("the browser host socket has no directory")?;
+    std::fs::create_dir_all(dir)
+        .and_then(|()| std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)))
+        .map_err(|error| format!("cannot prepare {}: {error}", dir.display()))?;
+    let secret = mint_secret()?;
+    let (secret_read, mut secret_write) =
+        std::io::pipe().map_err(|error| format!("cannot open the secret pipe: {error}"))?;
+    let fd = secret_read.as_raw_fd();
+    let mut command = Command::new(binary);
+    command
+        .args(["serve", "--provider-secret-fd", "3", "--supervised", "--socket"])
+        .arg(socket)
+        // The host then leaves the directory's mode to the daemon.
+        .env(BROWSER_HOST_SOCKET_ENV, socket)
+        .env_remove("CMUX_BROWSER_HOST_BIN")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        // Its own process group: a signal to the daemon's group does not
+        // reach it; it stops when its stdin ends.
+        .process_group(0);
+    // SAFETY: sysconf before the fork.
+    let max_fd = match unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } {
+        n if n > 0 => n.min(65_536) as libc::c_int,
+        _ => 4096,
+    };
+    // SAFETY: only async-signal-safe calls between fork and exec.
+    unsafe { command.pre_exec(move || secret_fd_only(fd, max_fd)) };
+    let mut child =
+        command.spawn().map_err(|error| format!("cannot start the browser host: {error}"))?;
+    drop(secret_read);
+    let pid = child.id();
+    let stdin = child.stdin.take().ok_or("the browser host has no stdin")?;
+    let stdout = child.stdout.take().ok_or("the browser host has no stdout")?;
+    let written = secret_write.write_all(secret.as_bytes());
+    drop(secret_write);
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    let reader = std::thread::Builder::new().name("browser-host-ready".into()).spawn(move || {
+        let mut line = String::new();
+        let ok = BufReader::new(stdout).read_line(&mut line).is_ok() && line == "ready\n";
+        let _ = ready_tx.send(ok);
+    });
+    let ready = written.is_ok()
+        && reader.is_ok()
+        && matches!(ready_rx.recv_timeout(READY_TIMEOUT), Ok(true));
+    if !ready {
+        let _ = child.kill();
+        let status = child.wait();
+        return Err(format!("the browser host did not start ({status:?})"));
+    }
+    let started = Instant::now();
+    let watcher = Arc::downgrade(inner);
+    std::thread::Builder::new()
+        .name("browser-host-watch".into())
+        .spawn(move || {
+            let _ = child.wait();
+            Inner::host_stopped(&watcher, pid, started.elapsed());
+        })
+        .map_err(|error| format!("cannot watch the browser host: {error}"))?;
+    let provider = socket.with_file_name(PROVIDER_SOCKET_FILE);
+    Ok(Running {
+        credentials: ProviderCredentials { socket: provider, secret, host_pid: pid },
+        _stdin: stdin,
+    })
+}
+
+/// In the forked child: the secret pipe becomes fd 3; every other
+/// descriptor above stderr is closed.
+#[cfg(unix)]
+fn secret_fd_only(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
+    // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
+    unsafe {
+        if fd == 3 {
+            if libc::fcntl(3, libc::F_SETFD, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        } else if libc::dup2(fd, 3) != 3 {
+            return Err(std::io::Error::last_os_error());
+        }
+        for other in 4..max_fd {
+            libc::close(other);
+        }
+    }
+    Ok(())
 }

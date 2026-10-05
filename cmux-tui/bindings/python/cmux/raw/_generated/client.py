@@ -42,6 +42,9 @@ class GeneratedClientMixin:
     def browser_frame_presented(self, surface: Id, frame_seq: int) -> EmptyResult:
         return self._invoke_command('browser-frame-presented', BrowserFramePresentedRequest(surface=surface, frame_seq=frame_seq))
 
+    def browser_host_provider(self) -> BrowserHostProviderResult:
+        return self._invoke_command('browser-host-provider', BrowserHostProviderRequest())
+
     def browser_insert_text(self, surface: Id, text: str) -> EmptyResult:
         return self._invoke_command('browser-insert-text', BrowserInsertTextRequest(surface=surface, text=text))
 
@@ -671,6 +674,7 @@ GeneratedClientMixin.browser_activate.__cmux_command__ = COMMANDS['browser-activ
 GeneratedClientMixin.browser_back.__cmux_command__ = COMMANDS['browser-back']
 GeneratedClientMixin.browser_forward.__cmux_command__ = COMMANDS['browser-forward']
 GeneratedClientMixin.browser_frame_presented.__cmux_command__ = COMMANDS['browser-frame-presented']
+GeneratedClientMixin.browser_host_provider.__cmux_command__ = COMMANDS['browser-host-provider']
 GeneratedClientMixin.browser_insert_text.__cmux_command__ = COMMANDS['browser-insert-text']
 GeneratedClientMixin.browser_key.__cmux_command__ = COMMANDS['browser-key']
 GeneratedClientMixin.browser_key_press.__cmux_command__ = COMMANDS['browser-key-press']

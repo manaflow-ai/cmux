@@ -14,8 +14,11 @@
 
 use serde_json::{Value, json};
 
-use super::Mux;
+use super::{ClientTransport, Mux};
+use crate::request_origin::{HelloRole, RequestOrigin};
 
+/// The refusal code, the same as the `cmux.protocol/2` origin gate's.
+const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
 /// The code when the caller may have the credentials but no host runs.
 const ENGINE_UNAVAILABLE: &str = "engine_unavailable";
 
@@ -41,7 +44,9 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
 }
 
 pub(super) fn run(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    let _ = client;
+    if let Some(refused) = refusal(mux, client) {
+        return Err(refused.into());
+    }
     let credentials = mux
         .control_clients
         .browser_host
@@ -52,6 +57,29 @@ pub(super) fn run(mux: &Mux, client: u64) -> anyhow::Result<Value> {
         "secret": credentials.secret,
         "host_pid": credentials.host_pid,
     }))
+}
+
+/// `None` only for a verified app connection on the daemon's Unix socket;
+/// otherwise why not. A client with no registry record is refused (fail
+/// closed).
+fn refusal(mux: &Mux, client: u64) -> Option<ProviderRefused> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(record) = state.clients.get(&client) else {
+        return Some(forbidden("needs a registered local connection", RequestOrigin::Agent));
+    };
+    let derived = record.origin.derive();
+    if !matches!(record.transport, ClientTransport::Unix) {
+        return Some(forbidden("needs a local Unix socket connection", derived));
+    }
+    let verified = record.origin.role == HelloRole::Main && record.origin.verified_app;
+    (!verified).then(|| forbidden("needs a verified cmux app connection", derived))
+}
+
+fn forbidden(reason: &str, derived: RequestOrigin) -> ProviderRefused {
+    ProviderRefused {
+        code: ORIGIN_FORBIDDEN,
+        message: format!("browser-host-provider {reason} (derived origin {})", derived.wire_name()),
+    }
 }
 
 #[cfg(all(test, unix))]
