@@ -11,6 +11,33 @@ import Testing
 @MainActor
 @Suite("New machine sheet plan readiness")
 struct NewMachineSheetPresenterTests {
+    @Test("initial plan state shows complete cache data without loading")
+    func initialPlanStateUsesWarmAndColdCacheStates() {
+        let limits = VMPlanLimits(
+            maxActiveVms: 10,
+            planId: "pro",
+            freeAccessWindowDays: 0,
+            memoryOptionsMb: [4096, 8192]
+        )
+        let warm = NewMachineSheetData(
+            hasPlan: true,
+            limits: limits,
+            activeCount: 2,
+            catalog: nil,
+            catalogFailed: false
+        )
+
+        let warmState = NewMachineSheetPresenter.initialPlanState(from: warm)
+        #expect(warmState.plan?.planId == "pro")
+        #expect(warmState.limits?.memoryOptionsMb == [4096, 8192])
+        #expect(!warmState.isLoading)
+
+        let coldState = NewMachineSheetPresenter.initialPlanState(from: nil)
+        #expect(coldState.plan == nil)
+        #expect(coldState.limits == nil)
+        #expect(coldState.isLoading)
+    }
+
     @Test("cached plan takes precedence over a stale caller plan")
     func cachedPlanTakesPrecedence() {
         let cached = MachineSnapshotBuilder.planSnapshot(
