@@ -104,6 +104,8 @@ public final class SidebarRailColumnView: NSView {
 
     /// The button view for `id` (tests).
     public func itemView(_ id: LayoutItemID) -> NSView? { rail.itemView(id) }
+    /// The rail's immediate tooltip text for `id` (tests).
+    public func instantTooltip(_ id: LayoutItemID) -> String? { rail.itemView(id)?.instantTooltip }
     /// The current layout (tests).
     public var layoutResult: SidebarRailLayout { rail.layoutResult }
 }
