@@ -67,7 +67,7 @@ public struct QuitConfirmationStore: Sendable {
         isDevBuild: Bool,
         quitReason: QuitRequestReason = .user
     ) -> Bool {
-        guard quitReason != .sessionEnd else { return false }
+        guard quitReason == .user else { return false }
         guard !isQuitWarningConfirmed else { return false }
         guard !isDevBuild else { return false }
 
