@@ -1531,8 +1531,8 @@ PY
   plutil -replace keychain-access-groups \
     -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
     "$MERGED_ENTITLEMENTS"
-  if [[ "$LANE" == "appstore" ]]; then
-    # The production profile also carries the newer hotspot-provider value,
+  if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
+    # The distribution profile also carries the newer hotspot-provider value,
     # which Apple rejects for this app's current iOS package. Remove only that
     # value; packet-tunnel-provider and Personal VPN allow-vpn remain available
     # for the upcoming VPN feature.
@@ -1649,16 +1649,16 @@ if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVEL
 fi
 echo "signed IPA bundle identity verified: $PRODUCT_BUNDLE_IDENTIFIER"
 
-if [[ "$LANE" == "appstore" ]]; then
+if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
   if ! verify_app_store_ipa_has_no_external_purchase_links "$IPA_PATH"; then
     exit 1
   fi
   echo "App Store IPA verified to omit external purchase/enrollment links: $IPA_PATH"
   if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
-    echo "error: App Store IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
+    echo "error: distribution IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
     exit 1
   fi
-  echo "App Store IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
+  echo "Distribution IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
 fi
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then
