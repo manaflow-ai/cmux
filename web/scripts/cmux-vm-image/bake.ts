@@ -331,7 +331,7 @@ async function configureRoles(ctx: Ctx): Promise<void> {
     `python3 -c 'import json,sys; json.load(open(sys.argv[1]))' ${ROLES_MANIFEST_PATH}`,
     "! pgrep -x Xvfb >/dev/null",
     `for p in ${[...new Set(firstUse)].sort().join(" ")}; do if dpkg-query -W -f='\${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then echo "first-use package $p is installed"; exit 1; fi; done`,
-    "fc-list :lang=ja family | grep -q 'Noto Sans CJK'",
+    "dpkg-query -W -f='${Status}' fonts-noto-cjk | grep -q 'ok installed' && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
     "echo roles-ok",
   ].join(" && "));
 }
