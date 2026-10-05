@@ -126,3 +126,21 @@ applies to local terminals only, remote and Cloud terminals always ask unless a 
 setting allows them (default off); agents and the socket can never answer a read (frontend user path
 only); logs never contain clipboard content. Needs the full window, after agent-tabs-store.
 
+### Broker implementation state (branch nx-r92-clipboard-broker)
+
+1. Done: ghostty-vt deferred reads (`Callbacks::on_clipboard_read`, `Terminal::set_clipboard_reads_deferred`,
+   `Terminal::complete_clipboard_read`, 1 MiB cap), red then green on a Testbox.
+2. Terminal host: an old host rejects unknown ClientHello rights bits (spec/terminal-host.md "Unknown bits ...
+   are invalid"), so the daemon cannot simply request a new bit. Plan: the host advertises
+   `supports_clipboard_read:true` in its discovery record (the existing additive `supports_*` pattern; older
+   records omit it), and the daemon requests the new right bit (0x20, owner/admin role only) only for a
+   host whose record lists it. With the right granted the host enables deferral, sends
+   `ClipboardReadRequest{token, location}` to that connection and takes `ClipboardReadReply{token, text|refusal}`;
+   pending reads are refused on a one-shot 60 s timer, owner disconnect and terminal end; one open read per terminal,
+   further reads refused at once.
+3. Daemon broker: `terminal-clipboard-subscribe`, event `terminal-clipboard-read`, `terminal-clipboard-reply`,
+   capability `terminal-clipboard-read-v1`; single subscribed frontend or refuse; origin must be the frontend user
+   path (agents and the socket cannot answer); logs carry no clipboard text.
+4. Mac: Ghostty `clipboard-read` allow applies to local terminals only; remote and Cloud terminals ask unless an
+   explicit setting (default off) allows; the sheet names the terminal and its host.
+
