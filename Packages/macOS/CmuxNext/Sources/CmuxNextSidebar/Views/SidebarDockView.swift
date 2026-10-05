@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextDesign
+public import AppKit
+public import CmuxNextDesign
 import Observation
 
 /// The optional bottom destination dock shared by every window surface.
