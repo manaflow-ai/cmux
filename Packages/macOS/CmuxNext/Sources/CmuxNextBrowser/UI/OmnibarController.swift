@@ -82,6 +82,7 @@ import Foundation
                     guard !Task.isCancelled else { return }
                     switch delivery {
                     case .local(let rows): self?.send(.suggestions(generation: generation, rows: rows))
+                    case .more(let rows, let capacity): self?.send(.moreSuggestions(generation: generation, rows: rows, capacity: capacity))
                     }
                 }
             }

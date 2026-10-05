@@ -23,6 +23,15 @@ nonisolated extension OmnibarStep {
         return nil
     }
 
+    /// Phase B rows of the current query join the card by the merge rule:
+    /// the keyboard selection, the hover and every row at or above them stay.
+    mutating func moreSuggestionsArrived(_ rows: [BrowserSuggestion], generation: UInt64, capacity: Int) {
+        guard generation == state.generation, state.phase == .editing, state.keyword == nil,
+              !state.popup.rows.isEmpty, !state.popup.stale else { return }
+        let highlight = max(state.popup.highlighted ?? 0, state.popup.selected ?? 0)
+        state.popup.rows = OmniboxMerge.merge(visible: state.popup.rows, highlight: highlight, incoming: rows, capacity: capacity)
+    }
+
     /// Enter or a click on a Switch to Tab row reveals that tab and leaves
     /// this omnibar as it was; Shift (the new-window chord) loads the page
     /// here instead, and the other new-tab chords open it as any row does.

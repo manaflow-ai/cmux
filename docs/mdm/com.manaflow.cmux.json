@@ -387,6 +387,18 @@
       "title" : "Theme",
       "type" : "string"
     },
+    "browser.customSearchEngine.search" : {
+      "default" : "",
+      "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
+      "title" : "Custom Search Address",
+      "type" : "string"
+    },
+    "browser.customSearchEngine.suggest" : {
+      "default" : "",
+      "description" : "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text.",
+      "title" : "Custom Suggestions Address",
+      "type" : "string"
+    },
     "browser.defaultEngine" : {
       "default" : "chromium",
       "description" : "New browser tabs open in this engine.",
@@ -496,11 +508,45 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
+    "browser.omnibar.inlineAutocomplete" : {
+      "default" : true,
+      "description" : "Completes a site you typed before or visit often.",
+      "title" : "Complete Addresses Inline",
+      "type" : "boolean"
+    },
+    "browser.omnibar.maxRows" : {
+      "default" : 8,
+      "description" : "browser.omnibar.maxRows",
+      "maximum" : 15,
+      "minimum" : 3,
+      "title" : "Suggestions Shown",
+      "type" : "number"
+    },
+    "browser.omnibar.remoteSuggestions" : {
+      "default" : true,
+      "description" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.",
+      "title" : "Search Suggestions",
+      "type" : "boolean"
+    },
     "browser.remoteLocalhost" : {
       "default" : true,
       "description" : "browser.remoteLocalhost",
       "title" : "Open localhost on the Workspace's Machine",
       "type" : "boolean"
+    },
+    "browser.searchEngine" : {
+      "default" : "google",
+      "description" : "The address bar searches here and asks it for suggestions.",
+      "enum" : [
+        "google",
+        "duckduckgo",
+        "bing",
+        "brave",
+        "kagi",
+        "custom"
+      ],
+      "title" : "Search Engine",
+      "type" : "string"
     },
     "browser.showBookmarksBar" : {
       "default" : false,

@@ -8112,6 +8112,340 @@
     },
     {
       "accepts" : [
+        "google",
+        "duckduckgo",
+        "bing",
+        "brave",
+        "kagi",
+        "custom"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Google"
+          },
+          "value" : "google"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "DuckDuckGo"
+          },
+          "value" : "duckduckgo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Bing"
+          },
+          "value" : "bing"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Brave"
+          },
+          "value" : "brave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kagi"
+          },
+          "value" : "kagi"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.searchEngine.custom",
+            "text" : "Custom"
+          },
+          "value" : "custom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "google",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.searchEngine.help",
+        "text" : "The address bar searches here and asks it for suggestions."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.searchEngine",
+      "keywords" : [
+        "search",
+        "engine",
+        "omnibox",
+        "address bar"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "browser",
+        "searchEngine"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.searchEngine",
+        "text" : "Search Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "",
+        "https://cmux.com",
+        "example.com/path",
+        "about:blank",
+        "file:///tmp/a.html"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.customSearch.help",
+        "text" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.customSearchEngine.search",
+      "keywords" : [
+        "search",
+        "engine",
+        "custom",
+        "template"
+      ],
+      "kind" : "url",
+      "path" : [
+        "browser",
+        "customSearchEngine",
+        "search"
+      ],
+      "refuses" : [
+        "not a url",
+        "ftp://example.com",
+        "localhost",
+        1
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.customSearch",
+        "text" : "Custom Search Address"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "",
+        "https://cmux.com",
+        "example.com/path",
+        "about:blank",
+        "file:///tmp/a.html"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.customSuggest.help",
+        "text" : "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.customSearchEngine.suggest",
+      "keywords" : [
+        "search",
+        "suggest",
+        "custom",
+        "opensearch"
+      ],
+      "kind" : "url",
+      "path" : [
+        "browser",
+        "customSearchEngine",
+        "suggest"
+      ],
+      "refuses" : [
+        "not a url",
+        "ftp://example.com",
+        "localhost",
+        1
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.customSuggest",
+        "text" : "Custom Suggestions Address"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.remoteSuggestions.help",
+        "text" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.remoteSuggestions",
+      "keywords" : [
+        "suggest",
+        "search",
+        "omnibox",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "omnibar",
+        "remoteSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.remoteSuggestions",
+        "text" : "Search Suggestions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.inlineAutocomplete.help",
+        "text" : "Completes a site you typed before or visit often."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.inlineAutocomplete",
+      "keywords" : [
+        "autocomplete",
+        "omnibox",
+        "address bar"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "omnibar",
+        "inlineAutocomplete"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.inlineAutocomplete",
+        "text" : "Complete Addresses Inline"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        3,
+        15,
+        9
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 8,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.maxRows",
+      "keywords" : [
+        "suggestions",
+        "rows",
+        "omnibox"
+      ],
+      "kind" : "number",
+      "path" : [
+        "browser",
+        "omnibar",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 15,
+        "min" : 3,
+        "placeholder" : 3,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -9,
+        27,
+        "1"
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.maxRows",
+        "text" : "Suggestions Shown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -10694,7 +11028,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "01431d7f70cb8a33b8cd0bc46711a0442ebe4ce6e8753e7600bb67571ccd0d08",
+  "schema_hash" : "0995eaabc8821590129293a5d1395acdebc7541a8147c3e4f40f04b2e38aab7b",
   "sections" : [
     {
       "id" : "general",

@@ -71,6 +71,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
+    /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
+    public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
@@ -253,6 +255,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders

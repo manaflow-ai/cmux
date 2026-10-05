@@ -23,6 +23,7 @@ extension SettingsSchema {
     /// Keys an agent may set and reset: the table below plus every
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
+        .union(OmnibarSettingsSchema.agentSettableKeys)
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
@@ -135,7 +136,10 @@ extension SettingsSchema {
     ]
 
     /// Keys an agent may not set or reset, with the reason.
-    public static let agentRefusedKeys: [String: AgentRefusal] = [
+    public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
+        .merging(refusedTable) { first, _ in first }
+
+    private static let refusedTable: [String: AgentRefusal] = [
         "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,

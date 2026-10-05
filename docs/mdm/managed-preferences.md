@@ -141,6 +141,12 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.hibernationExclusions` | array | `[]` |  | Never Hibernate. Hosts such as mail.google.com or *.example.com. |
 | `browser.hibernatePinnedTabs` | boolean | `false` |  | Hibernate Pinned Tabs |
 | `browser.remoteLocalhost` | boolean | `true` |  | Open localhost on the Workspace's Machine |
+| `browser.searchEngine` | string | `"google"` | `google`, `duckduckgo`, `bing`, `brave`, `kagi`, `custom` | Search Engine. The address bar searches here and asks it for suggestions. |
+| `browser.customSearchEngine.search` | string | `""` |  | Custom Search Address. Used when Search Engine is Custom. Put {searchTerms} where the typed text goes. |
+| `browser.customSearchEngine.suggest` | string | `""` |  | Custom Suggestions Address. Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text. |
+| `browser.omnibar.remoteSuggestions` | boolean | `true` |  | Search Suggestions. Sends what you type to the search engine for suggestions. Never addresses, files or local hosts. |
+| `browser.omnibar.inlineAutocomplete` | boolean | `true` |  | Complete Addresses Inline. Completes a site you typed before or visit often. |
+| `browser.omnibar.maxRows` | real | `8` | 3 to 15 | Suggestions Shown |
 | `browser.links.cmdClick` | string | `"backgroundTab"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Command-Click. In Chromium tabs, Download keeps Chrome's default. |
 | `browser.links.cmdShiftClick` | string | `"foregroundTab"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Command-Click. Shift-middle-click does the same. |
 | `browser.links.shiftClick` | string | `"newWindow"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Click. In Chromium tabs, Download keeps Chrome's default. |

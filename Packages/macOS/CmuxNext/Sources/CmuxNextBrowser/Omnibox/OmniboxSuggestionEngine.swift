@@ -21,6 +21,8 @@ public nonisolated struct OmniboxRequest: Sendable {
 public nonisolated enum OmniboxDelivery: Equatable, Sendable {
     /// Phase A: what-you-typed and the local rows. Replaces the rows.
     case local([BrowserSuggestion])
+    /// Phase B: remote rows, merged by `OmniboxMerge` into a card of at most `capacity` rows.
+    case more([BrowserSuggestion], capacity: Int)
 
     /// A stream that ends with no rows.
     public static var finished: AsyncStream<OmniboxDelivery> {
@@ -47,6 +49,8 @@ public final class OmniboxSuggestionEngine {
     public var openTabs: () -> [OmniboxTabRow] = { [] }
     /// Reveals the tab of a chosen Switch to Tab row (the App's tab search path).
     public var revealTab: (String) -> Void = { _ in }
+    /// Phase B: remote search suggestions (off until the App gives a fetcher).
+    public var remote = OmniboxRemoteConfiguration()
     public let local: OmniboxLocalIndex
     public private(set) var history: (any OmniboxHistorySource)?
     var now: () -> Date = Date.init
@@ -104,6 +108,9 @@ public final class OmniboxSuggestionEngine {
             tabs: sources.contains(.tabs) ? openTabs().filter { $0.key != request.tabKey } : [], now: now()
         )
         let local = self.local, providers = self.providers, maxRows = maxResults
+        let remote = sources.contains(.search) && self.remote.enabled && OmniboxRemoteSuggestions.allows(text, resolver: resolver)
+            ? self.remote : nil
+        let engine = resolver.searchEngine
         let task = Task {
             guard var rows = await local.run(query) else { return continuation.finish() }
             if !providers.isEmpty, !text.isEmpty {
@@ -114,7 +121,12 @@ public final class OmniboxSuggestionEngine {
                 }
                 rows = OmniboxPhaseA.merging(rows, extra, maxRows: maxRows)
             }
-            if !Task.isCancelled, request.gate.isCurrent(request.generation) { continuation.yield(.local(rows)) }
+            guard !Task.isCancelled, request.gate.isCurrent(request.generation) else { return continuation.finish() }
+            continuation.yield(.local(rows))
+            if let remote, let more = await Self.remoteRows(text, engine: engine, remote: remote),
+               !Task.isCancelled, request.gate.isCurrent(request.generation) {
+                continuation.yield(.more(more, capacity: maxRows))
+            }
             continuation.finish()
         }
         continuation.onTermination = { _ in task.cancel() }
@@ -129,6 +141,7 @@ public final class OmniboxSuggestionEngine {
         for await delivery in deliveries(for: OmniboxRequest(text: text, generation: 1, gate: gate)) {
             switch delivery {
             case .local(let local): rows = local
+            case .more(let more, let capacity): rows = OmniboxMerge.merge(visible: rows, highlight: 0, incoming: more, capacity: capacity)
             }
         }
         return rows
@@ -141,6 +154,14 @@ public final class OmniboxSuggestionEngine {
         for case let provider as any BrowserSuggestionDeleting in providers {
             provider.deleteSuggestion(url)
         }
+    }
+
+    /// The App's settings for this engine.
+    public func apply(_ configuration: OmniboxConfiguration) {
+        resolver.searchEngine = configuration.searchEngine
+        remote.enabled = configuration.remoteSuggestions
+        inlineAutocomplete = configuration.inlineAutocomplete
+        maxResults = configuration.maxRows
     }
 
     /// Enter loaded typed text as `url`.

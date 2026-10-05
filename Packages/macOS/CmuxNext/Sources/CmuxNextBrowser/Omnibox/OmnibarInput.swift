@@ -80,6 +80,9 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
 
     /// Results of the query with `generation`.
     case suggestions(generation: UInt64, rows: [BrowserSuggestion])
+    /// Late (phase B) rows of the query with `generation`, merged into the
+    /// card without moving what is on screen (`OmniboxMerge`).
+    case moreSuggestions(generation: UInt64, rows: [BrowserSuggestion], capacity: Int)
 
     case pageURLChanged(URL?)
     case searchEngineChanged
