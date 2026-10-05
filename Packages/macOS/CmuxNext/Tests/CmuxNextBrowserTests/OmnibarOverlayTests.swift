@@ -48,8 +48,14 @@ import Testing
         #expect(card.width == barRect.width + 2 * OmnibarStyle.cardSideOutset)
         #expect(bar.suggestionPanel.rowViews.count == bar.state.popup.rows.count)
 
+        // What debug.omnibar reports for the live proof agrees.
+        let reported = try #require(bar.debugCard)
+        #expect(reported.paneLayer && reported.isFlushUnderBar)
+        #expect(reported.rowKinds.first == "history")
+
         bar.dismissRows()
         #expect(!host.presentedHandles.contains { $0 === handle })
         #expect(handle.isDismissed)
+        #expect(bar.debugCard == nil)
     }
 }
