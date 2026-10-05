@@ -11,7 +11,9 @@ permissions: {}
 
 concurrency:
   group: cla-policy-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  # Body/title edits must not cancel full policy validation. Base-branch edits
+  # remain replaceable, and all source changes still cancel superseded runs.
+  cancel-in-progress: ${{ github.event.action != 'edited' || github.event.changes.base }}
 
 jobs:
   validate:

@@ -17,6 +17,7 @@ REQUIRED_CHECK = "CLA policy guard"
 METADATA = "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) }}"
 VALIDATE = "${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}"
 GROUP = "cla-policy-${{ github.event.pull_request.number }}"
+CANCEL = "${{ github.event.action != 'edited' || github.event.changes.base }}"
 
 
 def load() -> dict:
@@ -30,7 +31,7 @@ def validate_metadata_routing(workflow: dict) -> None:
         "branches": ["main"],
         "types": ["opened", "edited", "reopened", "synchronize", "ready_for_review"],
     }}, "CLA guard trigger contract changed"
-    assert workflow["concurrency"] == {"group": GROUP, "cancel-in-progress": True}
+    assert workflow["concurrency"] == {"group": GROUP, "cancel-in-progress": CANCEL}
     jobs = workflow["jobs"]
     assert set(jobs) == {"validate", "metadata"}
     assert jobs["validate"]["name"] == REQUIRED_CHECK
@@ -60,7 +61,7 @@ class CLAMetadataRoutingTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     validate_metadata_routing(workflow)
         workflow = candidate()
-        workflow["concurrency"]["cancel-in-progress"] = False
+        workflow["concurrency"]["cancel-in-progress"] = True
         with self.assertRaises(AssertionError):
             validate_metadata_routing(workflow)
 
