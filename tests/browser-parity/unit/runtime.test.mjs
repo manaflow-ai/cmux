@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { loadRuntime, runDevRepl, createFsOp } from "../lib/dev-driver.mjs";
+import { loadRuntime, runDevRepl, createFsOp, createDevBrowser, createDevRepl, createNodeHost } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
@@ -651,6 +651,104 @@ test("pointer: a page that moves another frame over the target when the click's 
     const r = JSON.parse(line.slice(2));
     assert.deepEqual(r.clicked, [], `the press landed on ${JSON.stringify(r.clicked)}`);
     assert.match(r.error || "", /intercepts pointer events|frame/, r.error);
+  } finally {
+    await server.close();
+  }
+});
+
+// Runs `code` in a dev session whose driver calls the page's
+// `onPressWindow()` right before it handles each input.mouse down, after
+// the runtime's last check: what a page can do in the driver round trip
+// between that check and the press.
+async function runWithPressWindow(code) {
+  const browser = await createDevBrowser();
+  const dir = fs.realpathSync(makeTestDir("cmux-repl-"));
+  const lines = [];
+  let host = null;
+  try {
+    const raw = browser.driver({ sessionId: "press-window" });
+    const driver = Object.create(raw);
+    driver.call = async (method, params = {}) => {
+      if (method === "input.mouse" && params.type === "down") {
+        await raw.call("frame.evaluate", {
+          targetId: params.targetId,
+          world: "page",
+          source: "() => { if (typeof window.onPressWindow === 'function') window.onPressWindow(); }",
+          args: [],
+          handles: [],
+          awaitPromise: true,
+        });
+      }
+      return raw.call(method, params);
+    };
+    host = createNodeHost({ workDir: dir, sessionId: "press-window", print: (level, text) => lines.push(text) });
+    const repl = createDevRepl({ host, driver });
+    const r = await repl.evaluate(code);
+    repl.dispose();
+    await raw.detach();
+    return r.ok ? lines.join("\n") : `${lines.join("\n")}\nUncaught ${r.error}`;
+  } finally {
+    await browser.close();
+    removeTestDir(dir);
+    if (host) removeTestDirIfEmpty(host.tmpdir);
+  }
+}
+
+test("pointer: the driver refuses a click's press when the page changes the point in the round trip after the runtime's last check", async () => {
+  // The runtime checks the target and each parent frame's <iframe> right
+  // before the press, but the press is another driver call: the page runs
+  // between the two. The driver checks again where it sends the press, so
+  // a frame moved over the target, or a frame moved away from under the
+  // pointer, gets no press.
+  const server = await startFixtureServers();
+  try {
+    const out = await runWithPressWindow(`
+      const click = async (locator) => {
+        try {
+          await locator.click({ timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e).split("\\n")[0];
+        }
+      };
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.style.margin = "0";
+        document.body.innerHTML = '<button id="t" style="position:absolute;left:100px;top:100px;width:120px;height:40px">Target</button>' +
+          '<iframe id="f" style="position:absolute;left:-1000px;top:0;width:400px;height:300px;border:0;z-index:5" srcdoc="<body style=margin:0;height:300px onmousedown=parent.clicked.push(&quot;frame-down&quot;) onclick=parent.clicked.push(&quot;frame-click&quot;)></body>"></iframe>';
+        document.getElementById("t").onclick = () => window.clicked.push("target");
+        window.onPressWindow = () => { document.getElementById("f").style.left = "0px"; };
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("f").contentDocument; return !!(d && d.body); });
+      const covered = { error: await click(page.locator("#t")), clicked: await page.evaluate(() => window.clicked) };
+
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.innerHTML = '<button data-decoy style="position:absolute;left:300px;top:300px;width:400px;height:400px;z-index:0" onclick="clicked.push(&quot;decoy&quot;)">Decoy</button>' +
+          '<iframe id="g" style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;z-index:1" srcdoc="<body style=margin:0><button style=position:absolute;left:400px;top:400px;width:100px;height:40px onclick=parent.clicked.push(&quot;target&quot;)>Target</button></body>"></iframe>';
+        window.onPressWindow = () => { document.getElementById("g").style.left = "700px"; };
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("g").contentDocument; return !!(d && d.querySelector("button")); });
+      const moved = { error: await click(page.frameLocator("#g").getByRole("button", { name: "Target" })), clicked: await page.evaluate(() => window.clicked) };
+
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.getElementById("g").style.left = "0px";
+        window.onPressWindow = null;
+      });
+      const still = { error: await click(page.frameLocator("#g").getByRole("button", { name: "Target" })), clicked: await page.evaluate(() => window.clicked) };
+      console.log("@@" + JSON.stringify({ covered, moved, still }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.deepEqual(r.covered.clicked, [], `covered: the press landed on ${JSON.stringify(r.covered.clicked)}`);
+    assert.match(r.covered.error || "", /no press was sent: .*intercepts pointer events/, r.covered.error);
+    assert.deepEqual(r.moved.clicked, [], `moved: the press landed on ${JSON.stringify(r.moved.clicked)}`);
+    assert.match(r.moved.error || "", /no press was sent: .*(moved|intercepts pointer events)/, r.moved.error);
+    // A page that leaves the point alone still gets the click.
+    assert.deepEqual(r.still, { error: null, clicked: ["target"] });
   } finally {
     await server.close();
   }
