@@ -35,11 +35,12 @@ int WindowRequestTrampoline(void*, const void* raw) {
   }
   return h.window_request(h.ctx, request->kind, request->disposition, request->source_browser_id,
                           request->has_bounds, request->x, request->y, request->width, request->height,
-                          request->url ? request->url : "", request->profile_path ? request->profile_path : "");
+                          request->user_gesture ? 1 : 0, request->url ? request->url : "", request->profile_path ? request->profile_path : "");
 }
 
 struct PendingPopup {
   int disposition;
+  bool user_gesture;
   std::string features;
 };
 
@@ -50,7 +51,7 @@ std::map<int, std::deque<PendingPopup>>& pending_popups() {
 
 }  // namespace
 
-void RememberPopup(int opener, int disposition, const CefPopupFeatures& features) {
+void RememberPopup(int opener, int disposition, bool user_gesture, const CefPopupFeatures& features) {
   std::string bounds;
   if (features.widthSet || features.heightSet) {
     bounds = std::to_string(features.xSet ? features.x : 0) + "," + std::to_string(features.ySet ? features.y : 0) +
@@ -58,7 +59,7 @@ void RememberPopup(int opener, int disposition, const CefPopupFeatures& features
              std::to_string(features.heightSet ? features.height : 0);
   }
   auto& queue = pending_popups()[opener];
-  queue.push_back(PendingPopup{disposition, bounds});
+  queue.push_back(PendingPopup{disposition, user_gesture, bounds});
   // A popup Chromium refused after OnBeforePopup (blocked, aborted) never
   // reaches OnAfterCreated; keep the queue short.
   while (queue.size() > 8) {
@@ -74,7 +75,7 @@ int64_t TakePopup(CefRefPtr<CefBrowser> browser, std::string* features) {
   int disposition = 0;
   auto it = pending_popups().find(opener);
   if (it != pending_popups().end() && !it->second.empty()) {
-    disposition = it->second.front().disposition;
+    disposition = (it->second.front().disposition & 0xffff) | (it->second.front().user_gesture ? 1 << 16 : 0);
     *features = it->second.front().features;
     it->second.pop_front();
     if (it->second.empty()) {

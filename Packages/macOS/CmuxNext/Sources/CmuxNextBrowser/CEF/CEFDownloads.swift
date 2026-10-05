@@ -76,12 +76,35 @@ final class CEFDownloads {
     /// file the person chose.
     func save(_ url: URL, to destination: URL, browser: Int32) -> Bool {
         let address = url.absoluteString
-        return shim()?.start(browser, address) ?? false
+        guard let shim = shim() else { return false }
+        chosen.append((browser, address, destination))
+        if chosen.count > 16 { chosen.removeFirst(chosen.count - 16) }
+        guard shim.start(browser, address) else {
+            chosen.removeAll { $0.browser == browser && $0.url == address && $0.destination == destination }
+            return false
+        }
+        return true
     }
 
     func handle(_ event: CEFDownloadEvent) {
-        // red: the shim's download events are not handled yet.
-        _ = event
+        switch event {
+        case let .started(id, browser, url, suggestedName, total):
+            started(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total)
+        case let .progress(id, received, total, speed, paused):
+            items[id]?.update(received: received, total: total, bytesPerSecond: speed, paused: paused)
+        case let .done(id, end, reason, path):
+            guard let item = items.removeValue(forKey: id) else { return }
+            if end == .complete, let destination = item.destination, !path.isEmpty,
+               URL(filePath: path).standardizedFileURL != destination.standardizedFileURL {
+                logger.error("download \(id) ended at another path than cmux chose")
+            }
+            switch end {
+            case .complete: item.complete(.finished)
+            case .cancelled: item.complete(.cancelled)
+            case .interrupted: item.complete(.failed("interrupted (\(reason))"))
+            }
+            logger.notice("download \(id) ended: \(String(describing: end), privacy: .public)")
+        }
     }
 
     private func started(id: Int32, browser: Int32, url: String, suggestedName: String, total: Int64?) {
@@ -113,10 +136,13 @@ extension CEFDownloads {
 
     /// The runtime's downloads: the loaded shim, delivered through the tab.
     static func forRuntime(_ runtime: CEFRuntime) -> CEFDownloads {
-        // red: the shim has no download functions yet.
         let downloads = CEFDownloads { [weak runtime] () -> CEFDownloadShim? in
-            _ = runtime
-            return nil
+            guard let shim = runtime?.shim else { return nil }
+            return CEFDownloadShim(
+                start: { browser, url in url.withCString { shim.downloadURL(browser, $0) } == 1 },
+                answer: { id, path in _ = path.withCString { shim.downloadContinue(id, $0) } },
+                control: { id, command in _ = shim.downloadControl(id, command) }
+            )
         }
         let logger = downloads.logger
         downloads.deliver = { [weak runtime] (browser: Int32, item: BrowserDownload) in

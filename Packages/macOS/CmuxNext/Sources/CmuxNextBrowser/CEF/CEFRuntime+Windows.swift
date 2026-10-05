@@ -5,7 +5,7 @@ import Foundation
 /// Chromium navigation). Returns the anchor browser of the pane window that
 /// gets the new tab, or 0 when Chromium must open nothing.
 let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, disposition, source, hasBounds,
-    x, y, width, height, url, profile in
+    x, y, width, height, userGesture, url, profile in
     guard let context, Thread.isMainThread else { return 0 }
     let request = CEFWindowRequest(
         kind: CEFWindowRequest.Kind(rawValue: kind) ?? .window,
@@ -13,7 +13,7 @@ let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, 
         sourceBrowser: source,
         bounds: hasBounds != 0 ? CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height)) : nil,
         url: url.map { String(cString: $0) } ?? "",
-        userGesture: true, // red: the shim does not report it yet
+        userGesture: userGesture != 0,
         profilePath: CEFRuntime.normalizedPath(profile.map { String(cString: $0) } ?? "")
     )
     let address = UInt(bitPattern: context)

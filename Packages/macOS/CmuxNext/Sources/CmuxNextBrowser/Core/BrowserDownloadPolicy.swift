@@ -29,7 +29,7 @@ public nonisolated enum BrowserDownloadPolicy {
     /// The steps for a finished download: quarantine only. Opening the
     /// file is never a step.
     public static func completionSteps(destination: URL?, source: URL?) -> [CompletionStep] {
-        [] // red: no steps yet
+        destination.map { [.quarantine(file: $0, source: source)] } ?? []
     }
 
     /// The quarantine properties of a file downloaded from `source`

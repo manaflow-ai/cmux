@@ -36,6 +36,8 @@ nonisolated enum CEFLinkClicks {
     /// gets Chrome's default for its disposition.
     static func placement(for disposition: CEFDisposition, userGesture: Bool, click: CEFLinkClickRecord?,
                           now: TimeInterval, mapping: BrowserLinkClickMapping) -> CEFLinkPlacement {
+        let mapping = userGesture ? mapping : .chrome
+        let click = userGesture ? click : nil
         let recent: BrowserLinkGesture? = click.flatMap { record in
             now >= record.timestamp && now - record.timestamp <= clickLifetime ? record.gesture : nil
         }
@@ -62,14 +64,10 @@ nonisolated enum CEFLinkClicks {
         case .currentTab:
             return .opener
         case .download:
-            return gesture == .option ? .chromium : placement(chromeDefault: gesture)
+            return .download
         case let action:
             return action.newTabDisposition.map(CEFLinkPlacement.tab) ?? .tab(.foregroundTab)
         }
-    }
-
-    private static func placement(chromeDefault gesture: BrowserLinkGesture) -> CEFLinkPlacement {
-        BrowserLinkClickMapping.chrome.action(for: gesture).newTabDisposition.map(CEFLinkPlacement.tab) ?? .tab(.foregroundTab)
     }
 
     /// Pure: the page a mouse-up landed on. Only a click in a page window
