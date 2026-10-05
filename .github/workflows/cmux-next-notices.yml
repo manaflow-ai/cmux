@@ -83,5 +83,8 @@ jobs:
       - name: vt-link-graph.json is for the libghostty-vt gitlink
         run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json
 
+      - name: npm and PyPI notice texts match vt-link-graph.json
+        run: python3 cmux-tui/dist/scripts/package_notices.py check-data
+
       - name: THIRD_PARTY_LICENSES.md and REVIEW.md are current
         run: ./scripts/cmux-next/generate-third-party-notices.sh --check
