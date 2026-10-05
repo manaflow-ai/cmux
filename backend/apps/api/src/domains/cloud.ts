@@ -263,7 +263,7 @@ const update = (state: CloudState, op: string, params: unknown, ctx: ReduceConte
   const rev = state.rev + 1
   const row: MachineRow = rename
     ? { ...stored.row, name: d.value.name!, revision: String(rev) }
-    : // Recorded only: applying the idle policy to the provider comes with start/pause (state-placement.md 7.4).
+    : // Ours only (coordinator, 2026-10-05): Freestyle's timer is off; cloud.idlePause applies the policy from the VM's reports.
       { ...stored.row, idle_policy: { idle_seconds: d.value.idle_seconds! }, revision: String(rev) }
   return { ok: true, state: next(state, {}, { machine: row.id, removed: false }), value: { machine: publicMachine(row) }, writes: [upsertMachine(row, stored.n)] }
 }

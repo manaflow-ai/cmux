@@ -9,7 +9,7 @@ import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
-import { idleFromReport, type ReportedActivity } from "./cloud-idle.ts"
+import { BACKSTOP_IDLE_SECONDS, idleFromReport, type ReportedActivity } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
@@ -66,8 +66,13 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   protected async considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void> {
     const engine = this.boundEngine
     const row = engine?.rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
-    if (!engine || !idleFromReport(row, (report as { activity?: ReportedActivity } | null)?.activity, now)) return
-    if (!(await this.teamCloudPolicy(entity).catch(() => ({ idle_pause: false }))).idle_pause) return
+    const activity = (report as { activity?: ReportedActivity } | null)?.activity
+    // The 24 h backstop applies to every team; it is also the longest threshold, so a report not idle by it needs no policy read.
+    if (!engine || !row || !idleFromReport(row, activity, now, Math.min(BACKSTOP_IDLE_SECONDS, row.idle_policy.idle_seconds > 0 ? row.idle_policy.idle_seconds : BACKSTOP_IDLE_SECONDS))) return
+    if (!idleFromReport(row, activity, now, BACKSTOP_IDLE_SECONDS)) {
+      // Shorter than the backstop: only with the team's cloud.idlePause on (fail closed: a failed read means off).
+      if (!(await this.teamCloudPolicy(entity).catch(() => ({ idle_pause: false }))).idle_pause) return
+    }
     const limit = this.env.CLOUD_MUTATION_LIMIT
     // Per machine (review P3): a VM whose pauses keep failing cannot use up the team's create/delete budget.
     if (limit && !(await limit.limit({ key: `cloud-idle:${machine}` })).success) return
@@ -305,8 +310,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             const found = await driver.findOwned(row.provider_name, tag)
             result = found ? { key: row.key, ok: true, provider_id: found.id } : { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "the cancelled create has not appeared (yet)" }, final: false }
           } else if (row.op === "create") {
-            const idle = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row.idle_policy.idle_seconds ?? 0
-            const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: idle })).id
+            // Freestyle's own timers are off (createBody): idle belongs to our policy and backstop.
+            const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: 0 })).id
             // 5.8 item 1: a fresh one-time bind token into the VM; only its sha256 is committed.
             const token = newBindToken()
             // a9's contract: one image for every environment, so the file names the https API origin and the env tag (checked above).

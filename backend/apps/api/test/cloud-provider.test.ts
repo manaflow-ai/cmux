@@ -104,10 +104,10 @@ describe("P1-2: hourly orphan report (never a delete)", { timeout: 60_000 }, () 
 })
 
 describe("P2-6: provider settings", { timeout: 60_000 }, () => {
-  it("sends the machine's idle policy (0 = never pause, -1 at Freestyle) at create", async () => {
+  it("never sends the idle policy to Freestyle: its timer is -1 at create whatever the policy (coordinator, 2026-10-05)", async () => {
     const { team, p, stub } = person()
     expect((await create(stub, team, p)).t).toBe("result")
-    expect((await stub.fakeControl({})).vms[0]!.idle).toBe(1800)
+    expect((await stub.fakeControl({})).vms[0]!.idle).toBe(-1)
     const b = person()
     await b.stub.fakeControl({ fail_next: 1 })
     await create(b.stub, b.team, b.p, "idle-key")
@@ -125,7 +125,7 @@ describe("P2-6: provider settings", { timeout: 60_000 }, () => {
     expect(await stub.fakeControl({})).toMatchObject({ creates: 0 })
   })
 
-  it("the Freestyle create asks for a persistent machine with public egress and the idle policy", async () => {
+  it("the Freestyle create asks for a persistent machine with public egress and every Freestyle timer off", async () => {
     const sent: Array<{ method: string; url: string; body: any }> = []
     const fetchFn = (async (url: string, init: RequestInit) => {
       sent.push({ method: init.method ?? "GET", url, body: init.body ? JSON.parse(init.body as string) : undefined })
@@ -145,7 +145,7 @@ describe("P2-6: provider settings", { timeout: 60_000 }, () => {
       metadata: { cmux_next_team: tag.team, cmux_next_machine: tag.machine },
       firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
     })
-    expect(b!.body.idleTimeoutSeconds).toBe(3600)
+    expect(b!.body).toMatchObject({ idleTimeoutSeconds: -1, ttlSeconds: -1, maxRunSeconds: -1, maxRunTotalSeconds: -1, automaticRestart: true })
     // The list used by the orphan report filters by this team's tag.
     await driver.list("cmux_next_team:team_00000000000000000001", 0)
     expect(sent.at(-1)!.url).toBe("https://fs.test/v5/vms?metadata=cmux_next_team%3Ateam_00000000000000000001&limit=100&offset=0")

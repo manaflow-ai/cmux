@@ -12,9 +12,12 @@ export interface ReportedActivity {
   readonly last_agent_action_at?: number
 }
 
-export const idleFromReport = (row: MachineRow | undefined, activity: ReportedActivity | undefined, now: number): boolean => {
+/** Our cost backstop (coordinator, 2026-10-05): every team, 24 h without activity by the VM's own reports. */
+export const BACKSTOP_IDLE_SECONDS = 24 * 3600
+
+/** `idleSeconds`: the threshold in force (the machine's idle policy with cloud.idlePause on, else the backstop). */
+export const idleFromReport = (row: MachineRow | undefined, activity: ReportedActivity | undefined, now: number, idleSeconds: number): boolean => {
   if (!row || row.status !== "running" || !activity) return false
-  const idleSeconds = row.idle_policy.idle_seconds
   if (!(idleSeconds > 0) || activity.active_sessions !== 0) return false
   const times = [activity.last_user_input_at, activity.last_agent_action_at].filter((t): t is number => typeof t === "number")
   if (times.length === 0) return false
