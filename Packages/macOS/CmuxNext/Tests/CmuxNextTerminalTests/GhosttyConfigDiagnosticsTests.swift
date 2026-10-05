@@ -43,4 +43,36 @@ import Testing
         let invalid = report.filter { $0.kind == .invalid }
         #expect(invalid.contains { $0.name.contains("bogus-key-for-a-test") }, "\(invalid.map(\.name))")
     }
+
+    /// A keybind whose action cmux does not run (GhosttyActionSupport) is
+    /// reported with its line, also from an include, split from its trigger
+    /// the way Ghostty's binding parser does (an `=` key, flags, sequences);
+    /// supported actions, comments and `keybind = clear` are not.
+    @Test func unsupportedKeybindActionsAreReportedWithTheirLine() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "ghostty-keybind-diagnostics-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let config = directory.appending(path: "config")
+        try Data("""
+        keybind = cmd+i=inspector
+        keybind = ctrl+==increase_font_size
+        keybind = global:cmd+grave_accent=toggle_quick_terminal
+          keybind = "super+shift+d=toggle_window_decorations"
+        # keybind = cmd+r=redo
+        keybind = clear
+        keybind = cmd+t=new_tab
+        config-file = keys
+
+        """.utf8).write(to: config)
+        try Data("keybind = ctrl+a>r=redo\n".utf8).write(to: directory.appending(path: "keys"))
+
+        let actions = GhosttyRuntime.configDiagnostics(configFile: config.path).filter { $0.kind == .keybindAction }
+        #expect(actions.map(\.name) == ["inspector", "toggle_quick_terminal", "toggle_window_decorations", "redo"])
+        #expect(actions.map(\.line) == [1, 3, 4, 1])
+        #expect(actions[0].support?.reason == .notApplicable)
+        #expect(actions[1].support?.reason == .later)
+        #expect(actions[2].support == GhosttyUnsupported(.superseded, replacement: "window.titlebar"))
+        #expect(actions[3].file.map { ($0 as NSString).lastPathComponent } == "keys")
+    }
 }
