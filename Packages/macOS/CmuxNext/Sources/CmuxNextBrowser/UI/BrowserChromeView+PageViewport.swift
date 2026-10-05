@@ -24,6 +24,6 @@ extension WebKitPageContainer: BrowserPageViewportProviding {
 extension CEFTabContentView: BrowserPageViewportProviding {
     var pageViewportFrame: CGRect {
         let page = tab?.devToolsController.frames(in: bounds).page ?? bounds
-        return tab?.sidePanelState?.contentsFrame(inPage: page) ?? page
+        return tab?.sidePanel.state?.contentsFrame(inPage: page) ?? page
     }
 }
