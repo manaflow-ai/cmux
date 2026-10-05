@@ -412,6 +412,12 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
+    /// `webAskingModes`: per harness family, more mode ids that ask before
+    /// they act, for a harness the reviewed built-in table
+    /// (`server/remote_guard.rs` `ASKING_MODES`) does not know. Written in
+    /// config.json by the local user, never over a WebSocket.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub web_asking_modes: BTreeMap<String, Vec<String>>,
     /// `webRoots`: folders a remote (Web) connection may use as a session's
     /// cwd or extra directory, besides the known projects (the cwds of local
     /// sessions). Written in config.json, never over a WebSocket.

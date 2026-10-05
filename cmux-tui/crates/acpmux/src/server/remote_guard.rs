@@ -418,3 +418,12 @@ async fn canonical_dir(path: &str) -> Option<String> {
         .is_dir()
         .then(|| canonical.to_string_lossy().into_owned())
 }
+
+/// RED stub: no per-harness mode settling yet.
+pub(super) async fn settle_web_session_mode(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    s: &std::sync::Arc<crate::hub::Session>,
+) -> Result<(), RpcError> {
+    let _ = (hub, s);
+    Ok(())
+}

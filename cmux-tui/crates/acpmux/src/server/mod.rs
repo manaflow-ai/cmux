@@ -731,7 +731,7 @@ fn str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params.get(key).and_then(Value::as_str)
 }
 
-fn session_key(params: &Value) -> Result<&str, RpcError> {
+pub(super) fn session_key(params: &Value) -> Result<&str, RpcError> {
     str_param(params, "sessionId")
         .or_else(|| str_param(params, "session"))
         .or_else(|| str_param(params, "name"))

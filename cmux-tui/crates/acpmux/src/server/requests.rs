@@ -226,6 +226,10 @@ async fn dispatch_request(
                 remote: conn.origin == Origin::Web,
             };
             let s = hub.new_session(req).await?;
+            // A Web session starts in a mode that asks (`remote_guard.rs`).
+            if conn.origin == Origin::Web {
+                super::remote_guard::settle_web_session_mode(hub, &s).await?;
+            }
             attach(hub, conn, &s.id);
             let meta = s.meta();
             Ok(json!({
