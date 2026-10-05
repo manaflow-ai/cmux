@@ -324,8 +324,10 @@ extension CMUXCLI {
             )
         }
 
+        var loadedData: Data?
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: target.path))
+            loadedData = data
             guard !data.isEmpty else {
                 return ConfigDoctorFinding(
                     label: target.label,
@@ -393,7 +395,7 @@ extension CMUXCLI {
                 status: "error",
                 message: Self.configDoctorErrorMessage(
                     error,
-                    data: data,
+                    data: loadedData,
                     displayPath: target.displayPath
                 ),
                 keys: [],
