@@ -4087,6 +4087,11 @@ class TerminalController {
         if let rejection = error as? SurfaceTransferRejection {
             return rejection.message
         }
+        // Remote tmux requests come through this wrapper too. Their errors are about an ssh
+        // host, and `RemoteTmuxError.message` already flattens and caps any remote text.
+        if let remoteTmuxError = error as? RemoteTmuxError {
+            return remoteTmuxError.message
+        }
         guard case let VMClientError.httpStatus(status, body) = error else {
             guard let vmError = error as? VMClientError else { return fallback }
             let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(describing: vmError))

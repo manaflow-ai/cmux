@@ -8,7 +8,15 @@ import {
   TEAM_PLAN_ID,
   isPaidPlanId,
 } from "../billing/pro";
-import { PAID_MAX_ACTIVE_VMS_DEFAULT, PLAN_MACHINE_MEMORY_MB } from "./machineSpec";
+import {
+  MAX_PLAN_RESOURCE_POOL,
+  PAID_MAX_ACTIVE_VMS_DEFAULT,
+  PLAN_MACHINE_MEMORY_MB,
+  PLAN_RESOURCE_POOL,
+  type VmComputeResources,
+  type VmResourcePoolPolicy,
+} from "./machineSpec";
+import { pickVmImageSizeForMemory } from "./images/sizes";
 
 export {
   PAID_MAX_ACTIVE_VMS_DEFAULT,
@@ -17,6 +25,8 @@ export {
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
   VM_MEMORY_MB_PER_VCPU,
+  PLAN_RESOURCE_POOL,
+  MAX_PLAN_RESOURCE_POOL,
   DEFAULT_VM_RESOURCE_RESERVATION,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
   VM_RESOURCE_FORK_PENDING_METADATA_KEY,
@@ -29,6 +39,7 @@ export {
   vcpusForMemoryMb,
   vmDiskMb,
 } from "./machineSpec";
+export type { VmComputeResources, VmResourcePoolPolicy } from "./machineSpec";
 
 export type VmEntitlements = {
   readonly planId: string;
@@ -36,6 +47,8 @@ export type VmEntitlements = {
   readonly billingTeamId: string;
   /** Active-machine ceiling for the plan; null when the plan has no cap. */
   readonly maxActiveVms: number | null;
+  /** vCPUs and memory the active machines share; null when the plan has no pool. */
+  readonly resourcePool: VmComputeResources | null;
 };
 
 export type VmEntitlementOptions = {
@@ -69,11 +82,13 @@ export function resolveVmEntitlements(
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
   if (!user.isAnonymous && isDevelopmentProAccessEnabled(env) && user.userBillingPlanId !== MAX_PLAN_ID) {
+    const maxActiveVms = maxActiveVmsForPlan(PRO_PLAN_ID, env, { seats: billing.billingSeats });
     return {
       planId: PRO_PLAN_ID,
       billingCustomerType: billing.billingCustomerType,
       billingTeamId: billing.billingTeamId,
-      maxActiveVms: maxActiveVmsForPlan(PRO_PLAN_ID, env, { seats: billing.billingSeats }),
+      maxActiveVms,
+      resourcePool: resourcePoolForPlan(PRO_PLAN_ID, maxActiveVms),
     };
   }
   const configuredDefaultPlan = env.CMUX_VM_DEFAULT_PLAN;
@@ -92,11 +107,13 @@ export function resolveVmEntitlements(
   // or replace the team's seat-based machine allowance.
   const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
     ? MAX_PLAN_ID : teamPlanId;
+  const maxActiveVms = maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats });
   return {
     planId,
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
-    maxActiveVms: maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats }),
+    maxActiveVms,
+    resourcePool: resourcePoolForPlan(planId, maxActiveVms),
   };
 }
 
@@ -162,23 +179,24 @@ function resolveBillingContext(
 
 /**
  * Machine sizes a person can pick, as memory in MB. The supported ladder is
- * 4/16, 8/32, 16/64, 24/96, and 32/128 (memory/disk in GB). vCPUs follow
- * the image ladder, one per 2 GB. The server owns this list so clients show
- * valid sizes. BusyBox's 128 MiB image is a bootstrap image, not a coding VM.
- * Every selected size belongs to one machine, independently of other VMs.
+ * 4/16, 8/32, 16/64, 24/96, 32/128, and 64/128 (memory/disk in GB). vCPUs
+ * follow the image ladder, one per 2 GB. The server owns this list so clients
+ * show valid sizes. BusyBox's 128 MiB image is a bootstrap image, not a coding
+ * VM. Every selected size draws from the plan's shared vCPU and memory pool.
  */
-export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768];
+export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 
 /**
- * The largest machine Free, Pro, Team, and Founder's Edition may start
- * (4 vCPU / 8 GB). The 16, 24, and 32 GB rows above it are what Max sells;
- * the plan that unlocks them is MEMORY_UPGRADE_PLAN_ID so every surface names
- * the same upgrade.
+ * The largest machine Pro, Team, and Founder's Edition may start: the xl row,
+ * 16 vCPU / 32 GB. The 64 GB 2xl row above it is what Max sells; the plan that
+ * unlocks it is MEMORY_UPGRADE_PLAN_ID so every surface names the same upgrade.
  */
-export const PLAN_MAX_MEMORY_MB = 8192;
+export const PLAN_MAX_MEMORY_MB = 32768;
+/** Free machines exist only where an operator opens free provisioning; they stay at 8 GB. */
+export const FREE_PLAN_MAX_MEMORY_MB = 8192;
 export const GO_PLAN_MAX_MEMORY_MB = 4096;
 export const GO_PLAN_DEFAULT_MEMORY_MB = 4096;
-/** Max machines stop at 16 vCPU / 32 GB. */
+/** Max machines stop at the validated 2xl row, 32 vCPU / 64 GB. */
 export const MAX_PLAN_MAX_MEMORY_MB = Math.max(...VM_MEMORY_OPTIONS_MB);
 /** The image ladder pairs one vCPU with every 2 GB of memory. */
 export const VM_PLAN_MEMORY_MB_PER_VCPU = 2048;
@@ -204,16 +222,18 @@ export function maxMemoryMbForPlan(
     ? MAX_PLAN_MAX_MEMORY_MB
     : normalized === GO_PLAN_ID
       ? GO_PLAN_MAX_MEMORY_MB
-      : PLAN_MAX_MEMORY_MB;
+      : normalized === "free"
+        ? FREE_PLAN_MAX_MEMORY_MB
+        : PLAN_MAX_MEMORY_MB;
   if (specific?.trim()) return Math.min(ceiling, positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`));
   if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
   if (normalized === GO_PLAN_ID) return GO_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
     // Free accounts get no machine in production (isVmFreeProvisioningAllowed).
     // Where an operator opens free provisioning for a demo or dev stack, the
-    // machine is the same size Pro gets.
+    // machine is at most 8 GB.
     return Math.min(ceiling, positiveInteger(
-      env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(PLAN_MAX_MEMORY_MB),
+      env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(FREE_PLAN_MAX_MEMORY_MB),
       "CMUX_VM_FREE_MAX_MEMORY_MB",
     ));
   }
@@ -325,6 +345,67 @@ export function maxActiveVmsForPlan(
   const seats = options.seats;
   const paidSeats = typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0 ? seats : 1;
   return resolved.limit * paidSeats;
+}
+
+/**
+ * The vCPUs and memory a billing scope's active machines share, or null when
+ * the plan has no pool (Free, Go, or an uncapped allowance). Team multiplies
+ * the per-seat pool by paid seats exactly as it multiplies the machine count,
+ * so the seat count is recovered from the resolved allowance. A Max caller on
+ * a large team keeps whichever pool is larger in each dimension.
+ */
+export function resourcePoolForPlan(
+  planId: string | null | undefined,
+  maxActiveVms: number | null | undefined,
+): VmComputeResources | null {
+  const normalized = normalizedPlanId(planId ?? "");
+  if (!isPaidVmPlan(normalized) || normalized === GO_PLAN_ID) return null;
+  if (maxActiveVms === null) return null;
+  const seats = maxActiveVms !== undefined && maxActiveVms > 0
+    ? Math.max(1, Math.ceil(maxActiveVms / PAID_MAX_ACTIVE_VMS_DEFAULT))
+    : 1;
+  const seatPool = {
+    vcpus: PLAN_RESOURCE_POOL.vcpus * seats,
+    memoryMb: PLAN_RESOURCE_POOL.memoryMb * seats,
+  };
+  if (normalized !== MAX_PLAN_ID) return seatPool;
+  return {
+    vcpus: Math.max(MAX_PLAN_RESOURCE_POOL.vcpus, seatPool.vcpus),
+    memoryMb: Math.max(MAX_PLAN_RESOURCE_POOL.memoryMb, seatPool.memoryMb),
+  };
+}
+
+/** vCPUs on the image ladder row that boots `memoryMb`. */
+export function ladderVcpusForMemoryMb(memoryMb: number): number {
+  return pickVmImageSizeForMemory(memoryMb)?.cpu ??
+    Math.max(1, Math.ceil(memoryMb / VM_PLAN_MEMORY_MB_PER_VCPU));
+}
+
+/**
+ * The pool share of a live machine with no valid reservation marker: the
+ * plan's default machine (8 GB / 4 vCPU on paid plans).
+ */
+export function legacyPoolReservationForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): VmComputeResources {
+  const memoryMb = defaultMemoryMbForPlan(planId, env);
+  return { vcpus: ladderVcpusForMemoryMb(memoryMb), memoryMb };
+}
+
+/** The repository-side pool policy for one request, or null when the plan has no pool. */
+export function resourcePoolPolicyForPlan(
+  planId: string | null | undefined,
+  maxActiveVms: number | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): VmResourcePoolPolicy | null {
+  const capacity = resourcePoolForPlan(planId, maxActiveVms);
+  if (!capacity) return null;
+  return {
+    capacity,
+    legacyReservation: legacyPoolReservationForPlan(planId, env),
+    planId: normalizedPlanId(planId ?? ""),
+  };
 }
 
 /**

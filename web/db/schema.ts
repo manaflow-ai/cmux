@@ -191,6 +191,37 @@ export const cloudVmObservedDestroyCleanups = pgTable(
   ],
 );
 
+/**
+ * Idempotency ledger for `POST /api/vm/:id/snapshot`. One row per (machine,
+ * key): `pending` while the provider snapshot runs, `succeeded` with the
+ * provider's snapshot once it returns. A failed attempt deletes its row, so the
+ * same key may retry. A pending row older than the route's budget may be taken
+ * over by a retry (the first attempt died without finishing).
+ */
+export const cloudVmSnapshotRequests = pgTable(
+  "cloud_vm_snapshot_requests",
+  {
+    vmId: uuid("vm_id").notNull().references(() => cloudVms.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    name: text("name"),
+    status: text("status").$type<"pending" | "succeeded">().notNull(),
+    providerSnapshotId: text("provider_snapshot_id"),
+    snapshotName: text("snapshot_name"),
+    snapshotCreatedAtMs: bigint("snapshot_created_at_ms", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.vmId, table.idempotencyKey] }),
+    check("cloud_vm_snapshot_requests_status", sql`${table.status} in ('pending', 'succeeded')`),
+    check(
+      "cloud_vm_snapshot_requests_succeeded_has_snapshot",
+      sql`${table.status} <> 'succeeded' or (${table.providerSnapshotId} is not null and ${table.snapshotCreatedAtMs} is not null)`,
+    ),
+    check("cloud_vm_snapshot_requests_key_length", sql`length(${table.idempotencyKey}) between 1 and 128`),
+  ],
+);
+
 /** Durable Hive identity. VM status and provider addresses remain owned by cloud_vms. */
 export const cloudRuntimes = pgTable("cloud_runtimes", {
   id: uuid("id").defaultRandom().primaryKey(),

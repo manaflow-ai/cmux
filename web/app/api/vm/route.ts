@@ -35,6 +35,7 @@ import {
 import {
   defaultMemoryMbForPlan,
   lockedMemoryOptionsMbForPlan,
+  legacyPoolReservationForPlan,
   memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
@@ -169,6 +170,10 @@ export async function GET(request: Request): Promise<Response> {
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
       setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
+      // A legacy row without a reservation marker draws from the pool at the
+      // plan's default machine size, exactly as the repository counts it.
+      const legacyPoolShare = legacyPoolReservationForPlan(listEntitlements?.planId ?? null, process.env);
+      const poolShare = (entry: (typeof entries)[number]) => entry.resourceReservation ?? legacyPoolShare;
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
         provider: entry.provider,
@@ -199,11 +204,20 @@ export async function GET(request: Request): Promise<Response> {
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
+        // This machine's share of the shared vCPU/memory pool.
+        resources: poolShare(entry),
       }));
+      const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
-          activeVmCount: entries.filter((vm) => vm.status === "running" || vm.status === "provisioning").length,
+          activeVmCount: activeEntries.length,
+          // The plan's shared pool (null when the plan has none) and what the
+          // active machines draw from it. Paused machines do not count.
+          poolVcpus: listEntitlements.resourcePool?.vcpus ?? null,
+          poolMemoryMb: listEntitlements.resourcePool?.memoryMb ?? null,
+          usedVcpus: activeEntries.reduce((sum, entry) => sum + poolShare(entry).vcpus, 0),
+          usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
           planId: listEntitlements.planId,
           freeAccessWindowDays,
           ...(listEntitlements.planId === "go" ? {
