@@ -13,7 +13,11 @@ import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import (
+    FIXTURE_SOCKET_PASSWORD,
+    accept_fixture_socket_authentication,
+    resolve_cmux_cli,
+)
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
@@ -41,6 +45,17 @@ class FakeCmuxState:
                         "ref": "workspace:1",
                         "index": 1,
                         "title": "demo",
+                    }
+                ]
+            }
+        if method == "window.list":
+            return {
+                "windows": [
+                    {
+                        "id": "22222222-2222-4222-8222-222222222222",
+                        "ref": "window:1",
+                        "workspace_id": WORKSPACE_ID,
+                        "workspace_ref": "workspace:1",
                     }
                 ]
             }
@@ -150,6 +165,8 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             line = self.rfile.readline()
             if not line:
                 return
+            if accept_fixture_socket_authentication(line, self.wfile):
+                continue
 
             request = json.loads(line.decode("utf-8"))
             try:
@@ -182,39 +199,46 @@ def run_cli(
     socket_path: Path,
     fake_home: Path,
     args: list[str],
+    working_directory: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    for key in ("CMUX_SOCKET_PASSWORD", "CMUX_SOCKET_CAPABILITY", "CMUX_TAB_ID"):
+        env.pop(key, None)
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_WORKSPACE_ID"] = "workspace:1"
     env["CMUX_SURFACE_ID"] = "surface:1"
     env["TMUX_PANE"] = f"%{PANE_ID}"
     env["HOME"] = str(fake_home)
     env["CMUX_OMX_CMUX_BIN"] = cli_path
+    if working_directory is not None:
+        env["PWD"] = str(working_directory)
     return subprocess.run(
-        [cli_path, "--socket", str(socket_path), *args],
+        [cli_path, "--socket", str(socket_path), "--password", FIXTURE_SOCKET_PASSWORD, *args],
         capture_output=True,
         text=True,
         check=False,
         env=env,
         timeout=30,
+        cwd=working_directory,
     )
 
 
-def omx_hud_split_args(cwd: Path) -> list[str]:
-    return [
+def omx_hud_split_args(cwd: Path, *, include_cwd: bool = True) -> list[str]:
+    args = [
         "__tmux-compat",
         "split-window",
         "-v",
         "-l",
         "4",
         "-d",
-        "-c",
-        str(cwd),
         "-P",
         "-F",
         "#{pane_id}",
         "node '/opt/oh-my-codex/dist/omx.js' hud --watch",
     ]
+    if include_cwd:
+        args[6:6] = ["-c", str(cwd)]
+    return args
 
 
 def assert_omx_hud_splits_down_with_compact_size(
@@ -224,7 +248,13 @@ def assert_omx_hud_splits_down_with_compact_size(
     cwd: Path,
     state: FakeCmuxState,
 ) -> None:
-    proc = run_cli(cli_path, socket_path, fake_home, omx_hud_split_args(cwd))
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        omx_hud_split_args(cwd, include_cwd=False),
+        working_directory=cwd,
+    )
     if proc.returncode != 0:
         raise AssertionError(
             "HUD split returned non-zero\n"
@@ -528,7 +558,7 @@ def assert_omx_hud_unsupported_feature_probe_fails(
         raise AssertionError(f"unsupported show-options probe should fail, stdout={proc.stdout!r}")
 
 
-def assert_disabled_omx_hud_does_not_split(
+def assert_disabled_omx_hud_without_c_flag_does_not_split(
     cli_path: str,
     socket_path: Path,
     fake_home: Path,
@@ -539,7 +569,13 @@ def assert_disabled_omx_hud_does_not_split(
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "hud-config.json").write_text('{"enabled": false}\n', encoding="utf-8")
 
-    proc = run_cli(cli_path, socket_path, fake_home, omx_hud_split_args(cwd))
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        omx_hud_split_args(cwd, include_cwd=False),
+        working_directory=cwd,
+    )
     if proc.returncode != 0:
         raise AssertionError(
             "disabled HUD split returned non-zero\n"
@@ -633,7 +669,7 @@ def main() -> int:
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
-                assert_disabled_omx_hud_does_not_split(
+                assert_disabled_omx_hud_without_c_flag_does_not_split(
                     cli_path,
                     socket_path,
                     fake_home,
