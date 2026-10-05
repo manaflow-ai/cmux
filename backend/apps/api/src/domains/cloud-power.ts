@@ -28,7 +28,7 @@ import {
  * the outcome. Pause frees an active slot when it lands; start takes one at once (quota at intent).
  * A final failure returns the machine to where it was, with the error.
  */
-export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.machine.pause" | "cloud.machine.start", params: unknown, ctx: ReduceContext, system = false): ReduceResult<CloudState> => {
+export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.machine.pause" | "cloud.machine.start", params: unknown, ctx: ReduceContext, system = false, reason: "idle" | "no_report" | null = null): ReduceResult<CloudState> => {
   const pause = op === "cloud.machine.pause"
   const d = decodeParams<{ machine: string }>(pause ? CloudMachinePause : CloudMachineStart, params)
   if (!d.ok) return d
@@ -39,8 +39,11 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
   if (!system && !mayManage(ctx.principal, m)) return reject("auth.forbidden", "only the machine's creator or a team admin may pause or start it")
   // A call already running for this machine answers the machine as it is (no second ledger row).
   if ((pause && m.status === "pausing") || (!pause && m.status === "starting")) return noChangePower(state, { machine: publicMachine(m) })
-  if (pause && m.status !== "running") return reject("cloud.machine.not_running", "only a running machine can be paused", { machine: m.id, state: m.status })
+  // The cost backstop (system) may also pause a machine that never bound (review P2-1).
+  if (pause && m.status !== "running" && !(system && m.status === "provisioning")) return reject("cloud.machine.not_running", "only a running machine can be paused", { machine: m.id, state: m.status })
   if (!pause && m.status !== "paused") return reject("cloud.machine.not_paused", "only a paused machine can be started", { machine: m.id, state: m.status })
+  // A machine that never bound cannot bind any more (its one-time token expired): starting it would only cost (review P3).
+  if (!pause && !m.host) return reject("cloud.machine.not_bound", "this machine never finished setting up; delete it and create a new one", { machine: m.id })
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   if (!pause) {
     const plan = teamPlan(config, state.team ?? ctx.principal.team)
@@ -50,7 +53,8 @@ export const powerIntent = (config: CloudConfig, state: CloudState, op: "cloud.m
   const rev = state.rev + 1
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { key, op: pause ? "pause" : "start", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
-  const row: MachineRow = { ...m, status: pause ? "pausing" : "starting", error: null, revision: String(rev), ...(pause ? {} : { last_power_at: ctx.now }) }
+  // pause_reason: why cmux paused it by itself (for the app); a person's pause or a start clears it.
+  const row: MachineRow = { ...m, status: pause ? "pausing" : "starting", error: null, revision: String(rev), pause_reason: pause && system ? reason : null, ...(pause ? {} : { last_power_at: ctx.now }) }
   const writes: Array<RowWrite> = [upsertLedger(ledger, rev), upsertMachine(row, stored.n)]
   const active = state.active - countedRow(m) + countedRow(row)
   const s = next(state, { active, pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false })
@@ -114,4 +118,26 @@ export const powerResult = (state: CloudState, stored: StoredRow<LedgerRow>, mac
   writes.push(upsertMachine(row, machine.n))
   const active = state.active - countedRow(machine.row) + countedRow(row)
   return { ok: true, state: next(state, { pending, active }, { machine: row.id, removed: false }), value: { applied: true, final: true }, writes }
+}
+
+/**
+ * `cloud.machine.provider_state` (internal): connect_info or link_token read the VM's real state and it
+ * is not what a running record says. A stopped or paused VM is recorded paused (the person starts it);
+ * a VM that is gone is recorded failed (its VM install is then revoked).
+ */
+export const providerStateResult = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
+  const p = (params ?? {}) as { machine?: unknown; state?: unknown }
+  if (typeof p.machine !== "string") return reject("validation.invalid", "invalid provider state")
+  const stored = machineRow(ctx.rows, p.machine)
+  if (!stored || stored.row.status !== "running") return noChangePower(state, { applied: false })
+  const vm = typeof p.state === "string" ? p.state : null
+  // null means the VM is gone (the caller sends it only then); any value but paused or stopped is no change.
+  if (vm !== null && vm !== "paused" && vm !== "stopped") return noChangePower(state, { applied: false })
+  const rev = state.rev + 1
+  const row: MachineRow =
+    vm === null
+      ? { ...stored.row, status: "failed", error: { code: "cloud.provider.vm_missing", message: "the VM is gone", at: ctx.now }, revision: String(rev) }
+      : { ...stored.row, status: "paused", pause_reason: vm === "stopped" ? "provider_stopped" : "provider_paused", revision: String(rev) }
+  const active = state.active - countedRow(stored.row) + countedRow(row)
+  return { ok: true, state: next(state, { active }, { machine: row.id, removed: false }), value: { applied: true }, writes: [upsertMachine(row, stored.n)] }
 }

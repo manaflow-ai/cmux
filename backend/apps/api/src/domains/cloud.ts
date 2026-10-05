@@ -6,7 +6,7 @@ import { grantClasses } from "../home-admit.ts"
 import { personalTeamIdFor } from "./user.ts"
 import { BIND_TOKEN_TTL_MS, bindMachine, type BindState } from "./cloud-bind.ts"
 import { applyVmStatus } from "./cloud-vm-status.ts"
-import { powerIntent, powerResult, resizeIntent } from "./cloud-power.ts"
+import { powerIntent, powerResult, providerStateResult, resizeIntent } from "./cloud-power.ts"
 import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView, DEFAULT_MEMORY_MB } from "./cloud-plan.ts"
 
 /**
@@ -186,7 +186,9 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
       case "cloud.machine.resize":
         return resizeIntent(config, state, params, ctx)
       case "cloud.machine.idle_pause":
-        return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true) : reject("auth.forbidden", "internal op")
+        return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true, (params as { reason?: "idle" | "no_report" } | null)?.reason ?? "idle") : reject("auth.forbidden", "internal op")
+      case "cloud.machine.provider_state":
+        return ctx.principal.kind === "system" ? providerStateResult(state, params, ctx) : reject("auth.forbidden", "internal op")
       case "cloud.machine.vm_status":
         return applyVmStatus(state, params, ctx, next)
       case "cloud.prune":
@@ -263,7 +265,7 @@ const update = (state: CloudState, op: string, params: unknown, ctx: ReduceConte
   const rev = state.rev + 1
   const row: MachineRow = rename
     ? { ...stored.row, name: d.value.name!, revision: String(rev) }
-    : // Recorded only: applying the idle policy to the provider comes with start/pause (state-placement.md 7.4).
+    : // Ours only (coordinator, 2026-10-05): Freestyle's timer is off; cloud.idlePause applies the policy from the VM's reports.
       { ...stored.row, idle_policy: { idle_seconds: d.value.idle_seconds! }, revision: String(rev) }
   return { ok: true, state: next(state, {}, { machine: row.id, removed: false }), value: { machine: publicMachine(row) }, writes: [upsertMachine(row, stored.n)] }
 }
