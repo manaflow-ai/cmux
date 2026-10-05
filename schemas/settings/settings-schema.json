@@ -1328,6 +1328,96 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.announcements",
+        "text" : "Announcements"
+      },
+      "help" : {
+        "key" : "settings.announcements.enabled.help",
+        "text" : "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "announcements.enabled",
+      "keywords" : [
+        "announcements",
+        "news",
+        "cards",
+        "whats new"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "announcements",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.announcements.enabled",
+        "text" : "Show Announcements"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.announcements",
+        "text" : "Announcements"
+      },
+      "help" : {
+        "key" : "settings.announcements.fetch.help",
+        "text" : "Off: cmux never asks the network for announcements. The request carries no identifiers."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "announcements.fetch",
+      "keywords" : [
+        "announcements",
+        "privacy",
+        "offline",
+        "network"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "announcements",
+        "fetch"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.announcements.fetch",
+        "text" : "Download Announcements"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -10010,7 +10100,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "1a2dd9e00c33ee332e87c868a3490bfcebbfd0654682ecac4258b0c9b0f26366",
+  "schema_hash" : "bfb4cf79865fb9b40e7efbc402dd49d54e1a163fa3fa09c92d0140a35e27f271",
   "sections" : [
     {
       "id" : "general",
