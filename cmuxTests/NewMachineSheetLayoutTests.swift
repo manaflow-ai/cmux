@@ -126,6 +126,62 @@ struct NewMachineSheetLayoutTests {
         #expect(abs(content.width - ceil(ideal.width)) <= 1, "sheet content \(content) does not fit its content \(ideal)")
     }
 
+    /// The grid's pop-ups read as one column: each starts at the column's
+    /// leading edge at its own width, like the Network pop-up. A pop-up that
+    /// fills the column, or hugs its trailing edge, breaks that column.
+    @Test("the Base, Size, and Network pop-ups share a leading edge at their own widths")
+    func popUpsShareLeadingEdgeAtNaturalWidth() throws {
+        let machines = Self.nightlyMachines(renamedAt: 0)
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: MachineSnapshotBuilder.planSnapshot(
+                activeCount: 0,
+                limits: VMPlanLimits(maxActiveVms: 5, planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [8192, 16384])
+            ),
+            memoryOptionsMb: [8192, 16384],
+            sourceMachines: machines,
+            defaults: UserDefaults(suiteName: "NewMachineSheetLayoutTests-\(UUID().uuidString)")!,
+            submit: { _ in true }
+        )
+        model.applyNetworkCatalog(CloudNetworkPresetCatalog(presets: [], requiredDomains: []))
+        let (host, window) = Self.render(NewMachineSheet(model: model, layout: .grid))
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let popUps = Self.descendants(of: host).compactMap { $0 as? NSPopUpButton }.filter { !$0.isHiddenOrHasHiddenAncestor }
+        // `nightlyMachines` renames one machine per tick, so match the family, not a title.
+        let base = try #require(popUps.first { $0.itemTitles.contains { $0.hasPrefix("cmux-devbox-") } }, "no Base pop-up")
+        let size = try #require(popUps.first { $0.itemTitles.contains { $0.contains("GB RAM") } }, "no Size pop-up")
+        let rows = [("Base", base), ("Size", size)]
+        let leading = rows.map { $0.1.convert($0.1.bounds, to: host).minX }
+        #expect(abs(leading[0] - leading[1]) <= 1, "Base starts at \(leading[0]), Size at \(leading[1])")
+        for (name, popUp) in rows {
+            let width = popUp.convert(popUp.bounds, to: host).width
+            #expect(
+                width <= popUp.intrinsicContentSize.width + 1,
+                "\(name) pop-up is \(width)pt wide; its own width is \(popUp.intrinsicContentSize.width)pt"
+            )
+        }
+    }
+
+    private static func render<V: View>(_ view: V) -> (NSHostingView<V>, NSWindow) {
+        _ = NSApplication.shared
+        let host = NSHostingView(rootView: view)
+        let size = host.fittingSize
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.frame = NSRect(origin: .zero, size: size)
+        for _ in 0..<3 {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+        }
+        return (host, window)
+    }
+
     /// Eight machines whose names a refresh may change, like a busy account.
     private static func nightlyMachines(renamedAt tick: Int) -> [VMSummary] {
         (0..<8).map { index in
