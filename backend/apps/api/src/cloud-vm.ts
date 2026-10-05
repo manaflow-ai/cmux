@@ -47,9 +47,7 @@ export class VmStatusQueue {
     if (!this.ready) {
       this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_status (machine TEXT PRIMARY KEY, report TEXT NOT NULL, received_at INTEGER NOT NULL, applied_at INTEGER NOT NULL, activity_at INTEGER NOT NULL DEFAULT 0)`)
       // A table from before activity_at (development only): add the column once.
-      try {
-        this.sql.exec(`ALTER TABLE cloud_vm_status ADD COLUMN activity_at INTEGER NOT NULL DEFAULT 0`)
-      } catch {}
+      if (!this.sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('cloud_vm_status')`).some((c) => c.name === "activity_at")) this.sql.exec(`ALTER TABLE cloud_vm_status ADD COLUMN activity_at INTEGER NOT NULL DEFAULT 0`)
     }
     this.ready = true
   }
