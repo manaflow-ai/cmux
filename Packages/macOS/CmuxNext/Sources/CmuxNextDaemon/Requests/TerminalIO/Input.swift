@@ -47,11 +47,14 @@ public struct AttachSurfaceRequest: DaemonRequest {
     /// The view restores local-history READYs at a resize
     /// (`terminal-snapshot-local-history-v1`).
     public var snapshotLocalHistory: Bool?
+    /// The view applies Kitty image replays (`terminal-snapshot-images-v1`).
+    public var snapshotImages: Bool?
 
     /// - Parameter snapshotVersion: the viewer's GHOSTSNP version, or nil for
     ///   a byte replay.
     public init(surface: SurfaceID?, expectedGeneration: DaemonGeneration? = nil, expectedTerminalID: ResourceID? = nil,
-                size: CellSize?, snapshotVersion: UInt16? = nil, snapshotLocalHistory: Bool = false) {
+                size: CellSize?, snapshotVersion: UInt16? = nil, snapshotLocalHistory: Bool = false,
+                snapshotImages: Bool = false) {
         self.surface = surface
         self.expectedGeneration = expectedGeneration
         self.expectedTerminalID = expectedTerminalID
@@ -61,5 +64,6 @@ public struct AttachSurfaceRequest: DaemonRequest {
         self.snapshot = snapshotVersion == nil ? nil : "ghostsnp"
         self.snapshotVersion = snapshotVersion
         self.snapshotLocalHistory = snapshotVersion != nil && snapshotLocalHistory ? true : nil
+        self.snapshotImages = snapshotVersion != nil && snapshotImages ? true : nil
     }
 }

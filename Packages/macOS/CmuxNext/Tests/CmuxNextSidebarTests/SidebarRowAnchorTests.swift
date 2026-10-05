@@ -34,6 +34,21 @@ import Testing
         #expect(SidebarRowAnchor.workspaceRow(id("not-listed"), in: sidebar()) == nil)
     }
 
+    /// The home workspace has no list row while the Home item shows (the
+    /// default layout): its anchor is the Home item's row.
+    @Test func theHomeItemAnswersItsRow() throws {
+        let view = sidebar()
+        let home = try #require(SidebarRowAnchor.layoutItem(SidebarLayoutDocument.homeRef, in: view))
+        #expect(home.width > 0 && home.height > 0)
+        let item = try #require(view.model.layout.firstItem(with: SidebarLayoutDocument.homeRef))
+        let row = try #require(view.aboveRegion.itemView(item.id))
+        #expect(home == row.convert(row.bounds, to: view))
+    }
+
+    @Test func aRefWithNoShownItemHasNoRow() {
+        #expect(SidebarRowAnchor.layoutItem(.app("example/not-in-layout"), in: sidebar()) == nil)
+    }
+
     @Test func aRowOutsideTheVisibleListIsPinnedToItsEdge() {
         let area = CGRect(x: 0, y: 100, width: 240, height: 300)
         #expect(SidebarRowAnchor.clamped(CGRect(x: 8, y: 900, width: 224, height: 28), into: area) == CGRect(x: 8, y: 372, width: 224, height: 28))

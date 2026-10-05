@@ -35,8 +35,9 @@ extension TabContentCache {
     /// transition and the tab still has this page.
     func capturePagePreview(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) {
         let page = entry.tab
+        let budget = pageCaptureDeadline
         Task { [weak self] in
-            let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + .seconds(2)) { @MainActor in
+            let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget) { @MainActor in
                 try await page.snapshot()
             }
             guard let image else { return }

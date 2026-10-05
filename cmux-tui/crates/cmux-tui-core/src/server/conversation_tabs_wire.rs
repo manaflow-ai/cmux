@@ -33,8 +33,11 @@ use crate::workspace_registry::WorkspaceMutation;
 
 /// `new-conversation-tab`: a tab showing `conversation` of the `local` or
 /// `cloud` conversation owner, or (`agent-session-tabs-v1`) an acpmux
-/// `agent_session`. With `origin` and `mutation_id` a retry returns the tab
-/// the first request created.
+/// `agent_session` (`agent-session-tabs-v1`). With `origin` and
+/// `mutation_id` a retry returns the tab the first request created. With
+/// `transaction` (`conversation-tab-transaction-v1`) the raw `tab-added`
+/// delta of the new tab and the result carry it; a replay echoes it in the
+/// result only.
 #[derive(Deserialize)]
 pub(super) struct NewConversationTabParams {
     #[serde(default)]
@@ -56,7 +59,12 @@ pub(super) struct NewConversationTabParams {
     cols: Option<u16>,
     #[serde(default)]
     rows: Option<u16>,
+    #[serde(default)]
+    transaction: Option<String>,
 }
+
+/// The client transaction echo on `new-conversation-tab`.
+pub(crate) const CONVERSATION_TAB_TRANSACTION_CAPABILITY: &str = "conversation-tab-transaction-v1";
 
 /// The acpmux session an agent tab shows: the install that runs it, the
 /// session (absent for a new chat), the agent kind and the display name of
@@ -102,7 +110,9 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow
         mutation_id,
         cols,
         rows,
+        transaction,
     } = params;
+    super::validate_client_transaction(transaction.as_deref())?;
     let target = match (pane, workspace) {
         (_, None) => ConversationTabTarget::Pane(pane),
         (None, Some(workspace)) => ConversationTabTarget::Workspace(workspace),
@@ -119,13 +129,22 @@ pub(super) fn create(mux: &Arc<Mux>, params: NewConversationTabParams) -> anyhow
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
-    Ok(json!({
+    if let Some(transaction) = transaction.as_deref()
+        && !outcome.replayed
+    {
+        mux.emit_tab_added_for_transaction(outcome.surface.id, Arc::from(transaction));
+    }
+    let mut result = json!({
         "surface": outcome.surface.id,
         "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
         "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
         "conversation": record.wire(),
         "replayed": outcome.replayed,
-    }))
+    });
+    if let Some(transaction) = transaction {
+        result["transaction"] = json!(transaction);
+    }
+    Ok(result)
 }
 
 /// `bind-conversation-tab-session`: set an agent tab's session to `session`
@@ -274,3 +293,7 @@ mod agent_session_wire_tests;
 #[cfg(test)]
 #[path = "agent_session_bind_tests.rs"]
 mod agent_session_bind_tests;
+
+#[cfg(test)]
+#[path = "conversation_tab_transaction_tests.rs"]
+mod conversation_tab_transaction_tests;

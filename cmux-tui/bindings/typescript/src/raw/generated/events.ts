@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47. */
+/* cmux-tui mux protocol 12, IR 5a43dd2e2f4de5ead9ba3ef3571fb4a4e897d93ea951e4795baad62319561b0d. */
 
 
 import type * as T from "./types.js";
@@ -373,6 +373,19 @@ export type TabRenamedEvent = { event: "tab-renamed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadEvent = { event: "terminal-clipboard-read" } & {
+  "host": T.TerminalClipboardHost;
+  "location": T.TerminalClipboardLocation;
+  "request_id": string;
+  "terminal_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadCancelledEvent = { event: "terminal-clipboard-read-cancelled" } & {
+  "request_id": string;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type TerminalReapedEvent = { event: "terminal-reaped" } & {
   "grace_ms": bigint;
@@ -533,6 +546,8 @@ export type KnownCmuxEvent =
   | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalClipboardReadEvent
+  | TerminalClipboardReadCancelledEvent
   | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent

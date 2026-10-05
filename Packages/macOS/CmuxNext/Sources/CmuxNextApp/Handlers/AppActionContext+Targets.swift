@@ -86,6 +86,11 @@ extension AppActionContext {
 
     // MARK: Explicit targets
 
+    /// Whether `invocation` names a tab or pane (target or argument).
+    func namesPane(_ invocation: ActionInvocation) -> Bool {
+        explicitTarget(invocation, kinds: [.tab, .pane]) != nil
+    }
+
     private func explicitTarget(_ invocation: ActionInvocation, kinds: Set<ActionTargetKind>) -> ActionTargetRef? {
         for candidate in [invocation.target, invocation["tab"]?.targetValue, invocation["pane"]?.targetValue] {
             if let candidate, kinds.contains(candidate.kind) { return candidate }

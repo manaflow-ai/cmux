@@ -299,7 +299,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "page",
+      "default" : "agent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -897,6 +897,52 @@
       "title" : {
         "key" : "settings.layout.closeFocus",
         "text" : "Focus After Closing a Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.shortcuts.hintsGroup",
+        "text" : "Shortcut Hints"
+      },
+      "help" : {
+        "key" : "settings.shortcuts.showModifierHoldHints.help",
+        "text" : "Hold Command or Control for 0.30 seconds to show shortcut hints."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "shortcuts.showModifierHoldHints",
+      "keywords" : [
+        "command",
+        "control",
+        "hold",
+        "hints",
+        "keyboard"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "shortcuts",
+        "showModifierHoldHints"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "title" : {
+        "key" : "settings.shortcuts.showModifierHoldHints",
+        "text" : "Show Shortcuts When Holding a Modifier"
       },
       "validation" : "portable"
     },
@@ -6098,6 +6144,224 @@
     },
     {
       "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.markdown.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "markdown"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "markdown",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.markdown.color",
+        "text" : "Markdown Editor Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.markdown.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "markdown"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "markdown",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.markdown.opacity",
+        "text" : "Markdown Editor Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.editor.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "editor"
+      ],
+      "kind" : "color",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "editor",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.editor.color",
+        "text" : "Code Editor Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.editor.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "editor"
+      ],
+      "kind" : "number",
+      "path" : [
+        "appearance",
+        "surfaces",
+        "editor",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.editor.opacity",
+        "text" : "Code Editor Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "arc",
         "native",
         "dot",
@@ -6453,6 +6717,336 @@
       "title" : {
         "key" : "settings.status.inferCommandBusyAfter",
         "text" : "Show After"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "split",
+        "unified"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffSplit",
+            "text" : "Side by Side"
+          },
+          "value" : "split"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffUnified",
+            "text" : "Unified"
+          },
+          "value" : "unified"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "unified",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.layout",
+      "keywords" : [
+        "diff",
+        "split",
+        "unified",
+        "side by side"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "diff",
+        "layout"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.layout",
+        "text" : "Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "bars",
+        "classic",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffBars",
+            "text" : "Bars"
+          },
+          "value" : "bars"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffClassic",
+            "text" : "+ and −"
+          },
+          "value" : "classic"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bars",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.diffIndicators",
+      "keywords" : [
+        "diff",
+        "indicators",
+        "markers",
+        "gutter"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "diff",
+        "diffIndicators"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.diffIndicators",
+        "text" : "Change Markers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.wordWrap",
+      "keywords" : [
+        "diff",
+        "wrap",
+        "lines"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "wordWrap"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.wordWrap",
+        "text" : "Wrap Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.wordDiffs",
+      "keywords" : [
+        "diff",
+        "word",
+        "inline"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "wordDiffs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.wordDiffs",
+        "text" : "Highlight Word Changes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.lineNumbers",
+      "keywords" : [
+        "diff",
+        "line numbers",
+        "gutter"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "lineNumbers"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.lineNumbers",
+        "text" : "Line Numbers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.showBackgrounds",
+      "keywords" : [
+        "diff",
+        "background",
+        "color"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "showBackgrounds"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.showBackgrounds",
+        "text" : "Change Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.expandUnchanged",
+      "keywords" : [
+        "diff",
+        "unchanged",
+        "context",
+        "expand"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "diff",
+        "expandUnchanged"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.expandUnchanged",
+        "text" : "Expand Unchanged Lines"
       },
       "validation" : "portable"
     },
@@ -10100,7 +10694,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bfb4cf79865fb9b40e7efbc402dd49d54e1a163fa3fa09c92d0140a35e27f271",
+  "schema_hash" : "01431d7f70cb8a33b8cd0bc46711a0442ebe4ce6e8753e7600bb67571ccd0d08",
   "sections" : [
     {
       "id" : "general",

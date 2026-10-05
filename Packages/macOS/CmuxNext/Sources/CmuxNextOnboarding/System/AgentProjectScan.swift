@@ -215,3 +215,149 @@ public nonisolated struct AgentProjectScan: Sendable {
         return string
     }
 }
+
+/// The bounded project list used by the new-tab picker and onboarding.
+///
+/// Agent session files are the strongest signal, while a small scan of common
+/// development roots keeps a fresh install useful before the first session.
+/// Callers can pass cwd hints from classic/session history; those paths are
+/// checked without walking their contents. The scan never descends into a
+/// privacy-protected folder, and protected paths supplied as hints are kept
+/// without an existence probe so choosing a project cannot cause a privacy
+/// prompt.
+public struct RecentProjectScan: Sendable {
+    public let projects: AgentProjectScan
+    public let roots: [URL]
+    public let maxProjects: Int
+    public let maxDepth: Int
+    public let maxEntriesPerDirectory: Int
+
+    public nonisolated init(projects: AgentProjectScan, roots: [URL]? = nil, maxProjects: Int = 50,
+                maxDepth: Int = 2, maxEntriesPerDirectory: Int = 80) {
+        self.projects = projects
+        self.roots = roots ?? Self.defaultRoots(home: projects.home)
+        self.maxProjects = max(1, maxProjects)
+        self.maxDepth = max(0, maxDepth)
+        self.maxEntriesPerDirectory = max(1, maxEntriesPerDirectory)
+    }
+
+    public nonisolated init(home: URL, roots: [URL]? = nil, maxProjects: Int = 50,
+                maxDepth: Int = 2, maxEntriesPerDirectory: Int = 80) {
+        self.init(projects: AgentProjectScan(home: home), roots: roots, maxProjects: maxProjects,
+                  maxDepth: maxDepth, maxEntriesPerDirectory: maxEntriesPerDirectory)
+    }
+
+    /// A scan rooted at the current user's home and agent configuration.
+    public nonisolated static func live(environment: [String: String] = ProcessInfo.processInfo.environment) -> RecentProjectScan {
+        let projects = AgentProjectScan.live(environment: environment)
+        return RecentProjectScan(projects: projects)
+    }
+
+    /// Returns recent projects, merging agent sessions, explicit cwd hints and
+    /// bounded git repositories under the common development roots.
+    public nonisolated func run(hints: [String] = [], now: Date = Date()) -> [AgentProject] {
+        var byPath = Dictionary(uniqueKeysWithValues: projects.run(now: now).map { ($0.id, $0) })
+
+        for hint in hints {
+            guard let folder = normalizedFolder(hint), projects.keeps(folder: folder) else { continue }
+            let id = folder.path
+            if byPath[id] == nil {
+                byPath[id] = AgentProject(folder: folder, sessions: 0, lastActive: now, apps: [])
+            }
+        }
+
+        for folder in gitRepositories() where projects.keeps(folder: folder) {
+            let id = folder.path
+            let modified = AgentProjectScan.modified(folder)
+            if var existing = byPath[id] {
+                existing.lastActive = max(existing.lastActive, modified)
+                byPath[id] = existing
+            } else {
+                byPath[id] = AgentProject(folder: folder, sessions: 0, lastActive: modified, apps: [])
+            }
+        }
+
+        return byPath.values.sorted {
+            let lhs = AgentProjectScan.score($0, now: now)
+            let rhs = AgentProjectScan.score($1, now: now)
+            return lhs == rhs ? $0.folder.path < $1.folder.path : lhs > rhs
+        }.prefix(maxProjects).map { $0 }
+    }
+
+    /// Path candidates matching an explicit prefix or substring. The full
+    /// path is returned so the caller can use it directly as a cwd.
+    public nonisolated func complete(query: String, hints: [String] = [], limit: Int = 20) -> [String] {
+        guard limit > 0 else { return [] }
+        let raw = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expanded = normalizedQuery(raw)
+        let foldedRaw = raw.lowercased()
+        let foldedExpanded = expanded.lowercased()
+        return run(hints: hints).compactMap { project in
+            let path = project.folder.path
+            let folded = path.lowercased()
+            guard raw.isEmpty || folded.hasPrefix(foldedExpanded) || folded.contains(foldedRaw) else { return nil }
+            return path
+        }.prefix(limit).map { $0 }
+    }
+
+    public nonisolated func complete(_ query: String, hints: [String] = [], limit: Int = 20) -> [String] {
+        complete(query: query, hints: hints, limit: limit)
+    }
+
+    private nonisolated static func defaultRoots(home: URL) -> [URL] {
+        ["Projects", "Developer", "code", "src", "workspaces"].map {
+            home.appending(path: $0, directoryHint: .isDirectory)
+        }
+    }
+
+    private nonisolated func normalizedFolder(_ path: String) -> URL? {
+        guard !path.isEmpty else { return nil }
+        let expanded = (path as NSString).expandingTildeInPath
+        guard expanded.hasPrefix("/") else { return nil }
+        return URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+    }
+
+    private nonisolated func normalizedQuery(_ query: String) -> String {
+        let expanded = (query as NSString).expandingTildeInPath
+        return expanded.isEmpty ? "" : (expanded.hasPrefix("/") ? URL(fileURLWithPath: expanded).standardizedFileURL.path : expanded)
+    }
+
+    /// Finds repositories at root, one child, or two children deep. Directory
+    /// entries are capped to keep the new-tab request bounded on large homes.
+    private nonisolated func gitRepositories() -> [URL] {
+        var found: [URL] = []
+        let manager = FileManager.default
+        // Never inspect a caller-supplied root inside a protected location.
+        // Hints may name such a folder, but repository discovery does not need
+        // to walk it and must not be the source of a privacy prompt.
+        var queue = roots.prefix(maxEntriesPerDirectory)
+            .map { $0.standardizedFileURL }
+            .filter { projects.privacyFolder(of: $0) == nil }
+            .map { ($0, 0) }
+        while !queue.isEmpty {
+            let (directory, depth) = queue.removeFirst()
+            guard isDirectory(directory, manager: manager) else { continue }
+            if manager.fileExists(atPath: directory.appending(path: ".git").path) {
+                found.append(directory)
+                continue
+            }
+            guard depth < maxDepth else { continue }
+            let entries = (try? manager.contentsOfDirectory(at: directory,
+                                                             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                                                             options: [.skipsHiddenFiles])) ?? []
+            for entry in entries.prefix(maxEntriesPerDirectory) where isDirectory(entry, manager: manager) {
+                // Directory enumeration may canonicalize an ancestor (/var
+                // to /private/var). Keep the caller's root spelling so these
+                // repositories merge with session and history cwd hints.
+                queue.append((directory.appending(path: entry.lastPathComponent, directoryHint: .isDirectory), depth + 1))
+            }
+        }
+        return found
+    }
+
+    private nonisolated func isDirectory(_ url: URL, manager: FileManager) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+              values.isDirectory == true, values.isSymbolicLink != true else { return false }
+        return true
+    }
+}

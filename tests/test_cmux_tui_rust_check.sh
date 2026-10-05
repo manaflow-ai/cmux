@@ -57,7 +57,7 @@ first_cargo="$(grep -n "^cargo " "$work/calls" | head -1 | cut -d: -f1)"
 grep -q "^cargo fmt --all --check$" "$work/calls" || fail "cargo fmt not run with the toolchain's own cargo"
 ! grep -q "^path-cargo" "$work/calls" || fail "a cargo from PATH ran instead of the toolchain's"
 grep -q "1.95.0-aarch64-apple-darwin" <<<"$out" || fail "active toolchain not printed"
-sub_line="$(grep -n "^git -C $work/src submodule update --init --depth 1 ghostty ghostty-next$" "$work/calls" | cut -d: -f1)"
+sub_line="$(grep -n "^git -C $work/src submodule update --init --depth 1 ghostty-next$" "$work/calls" | cut -d: -f1)"
 cargo_line="$(grep -n "^cargo " "$work/calls" | head -1 | cut -d: -f1)"
 [[ -n "$sub_line" && "$sub_line" -lt "$cargo_line" ]] || fail "submodules not initialized before cargo"
 

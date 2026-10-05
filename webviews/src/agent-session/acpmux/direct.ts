@@ -15,12 +15,16 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
+import { translate } from "./i18n";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
-  transport: "acpmux-websocket";
-  endpoint: string;
-  token: string;
+  /// `acpmux-bridge`: the app's host owns the socket and its tokens (bridgeSocket.ts); this page
+  /// gets neither endpoint nor token. `acpmux-websocket`: a real socket, only for the browser dev
+  /// slot (devHost.ts) and mock mode.
+  transport: "acpmux-websocket" | "acpmux-bridge";
+  endpoint?: string;
+  token?: string;
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
@@ -260,8 +264,12 @@ function sessionUpdate(event: EventRecord): any | undefined {
   return event.dir === "in" && event.msg.method === "session/update" ? event.msg.params?.update : undefined;
 }
 
-/// Opens the client's socket; mock mode passes an in-page daemon (mock.ts).
+/// Opens the client's socket; mock mode passes an in-page daemon (mock.ts), the app the host
+/// bridge (bridgeSocket.ts).
 export type OpenSocket = (url: URL) => WebSocket;
+
+/// The placeholder URL of a bridge connection (never dialed).
+export const BRIDGE_URL = "cmux-bridge://acpmux/";
 
 /// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
 export type GitRoute = "native" | "daemon";
@@ -477,10 +485,11 @@ export class AcpmuxDirectClient {
   private async open(): Promise<void> {
     if (this.opening || this.closed) return;
     this.opening = true;
-    const url = new URL(this.host.endpoint);
-    url.searchParams.set("token", this.host.token);
+    // Over the bridge the URL names nothing: the host knows its daemon.
+    const url = new URL(this.host.endpoint ?? BRIDGE_URL);
+    if (this.host.token) url.searchParams.set("token", this.host.token);
     this.wire.lifecycle("connecting", {
-      endpoint: redactEndpoint(this.host.endpoint),
+      endpoint: this.host.endpoint ? redactEndpoint(this.host.endpoint) : BRIDGE_URL,
       sessionId: this.selectedSessionId,
     });
     await new Promise<void>((resolve, reject) => {
@@ -495,7 +504,7 @@ export class AcpmuxDirectClient {
       socket.onerror = () => {
         this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
         this.opening = false;
-        reject(new Error("Unable to connect to acpmux WebSocket"));
+        reject(new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
         if (this.socket !== socket) return;
@@ -507,7 +516,7 @@ export class AcpmuxDirectClient {
         });
         if (!opened) {
           this.opening = false;
-          reject(new Error("acpmux WebSocket closed before connect"));
+          reject(new Error(translate("error.closedBeforeConnect")));
           return;
         }
         this.handoff.disconnect();
@@ -786,9 +795,9 @@ export class AcpmuxDirectClient {
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
     const cwd = path ?? text(summary?.cwd) ?? text(entry?.cwd);
-    if (!cwd) return Promise.reject(new Error("This chat has no working folder to search"));
+    if (!cwd) return Promise.reject(new Error(translate("error.noFolderSearch")));
     if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
-      return Promise.reject(new Error("This chat runs on another machine, so its files can't be searched here yet"));
+      return Promise.reject(new Error(translate("error.remoteSearch")));
     return postNative("file.search", { cwd, query, limit });
   }
 
@@ -817,10 +826,10 @@ export class AcpmuxDirectClient {
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
     const cwd = text(summary?.cwd) ?? text(entry?.cwd);
-    if (!sessionId || !cwd) return Promise.reject(new Error("This chat has no working folder to read changes from"));
+    if (!sessionId || !cwd) return Promise.reject(new Error(translate("error.noFolderChanges")));
     // The native host reads folders on this Mac; a cloud session's folder is on its machine.
     if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
-      return Promise.reject(new Error("This chat runs on another machine, so its changes can't be read here yet"));
+      return Promise.reject(new Error(translate("error.remoteChanges")));
     return this.gitRoute === "daemon"
       ? this.request(method, { sessionId, cwd, ...params })
       : postNative(method, { cwd, ...params });
@@ -829,7 +838,7 @@ export class AcpmuxDirectClient {
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN)
       return Promise.reject(
-        Object.assign(new Error("acpmux WebSocket is not open"), {
+        Object.assign(new Error(translate("error.notOpen")), {
           code: "native.not_connected",
           origin: "native",
         }),
@@ -840,7 +849,7 @@ export class AcpmuxDirectClient {
         ? setTimeout(() => {
             this.pending.delete(id);
             reject(
-              Object.assign(new Error("The agent request timed out. Read its saved state before retrying."), {
+              Object.assign(new Error(translate("error.timedOut")), {
                 code: "native.timed_out",
                 origin: "native",
               }),
@@ -1344,7 +1353,7 @@ export class AcpmuxDirectClient {
           record.state !== "discarded" &&
           !this.handoff.state.receipt))
     )
-      throw new Error("Review the continuation before sending a prompt.");
+      throw new Error(translate("error.reviewContinuation"));
     // A shown session takes the prompt in this task, so its row draws in the frame of the send;
     // while a new chat starts, the prompt waits for it (ensureSession).
     const shown = this.creating ? undefined : this.selectedSessionId;
@@ -1638,7 +1647,7 @@ export class AcpmuxDirectClient {
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
       request.reject(
-        Object.assign(new Error("The agent connection was interrupted. Read its saved state before retrying."), {
+        Object.assign(new Error(translate("error.interrupted")), {
           code: "native.timed_out",
           origin: "native",
         }),

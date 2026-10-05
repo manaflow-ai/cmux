@@ -145,6 +145,7 @@ extension CEFRuntime {
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
+        windowRequests.linkClicks.onGesture = { [weak self] browser in self?.tabsByBrowser[browser]?.automaticDownloads.userGesture() }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)

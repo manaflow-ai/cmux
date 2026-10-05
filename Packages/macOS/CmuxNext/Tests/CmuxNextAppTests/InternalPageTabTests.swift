@@ -176,6 +176,28 @@ struct InternalPageTabTests {
         #expect(pane.stripModel.selectedID?.rawValue == key, "a user run selects the tab")
     }
 
+    /// Lawrence (nxdog41): the Settings page fades its section list's border while the window's
+    /// sidebar is hidden. The page learns the sidebar state from `data-app-sidebar` on its `<html>`,
+    /// set when the page joins a window and updated live when the sidebar hides or shows.
+    @Test func theSettingsPageKnowsWhetherTheWindowSidebarIsHidden() async throws {
+        let (services, window, pane) = try await world()
+        services.registry.perform("openSettings", invocation: ActionInvocation())
+        let key = try #require(services.pages.keys(of: .settings).first)
+        guard case .page(let view)? = pane.content(for: key), let page = view.content as? PageWebView else {
+            Issue.record("a Settings tab shows the React page")
+            return
+        }
+        // Set when the page joins its window.
+        await BrowserTabTests.settle { page.window != nil && page.liveDocumentAttributes["app-sidebar"] != nil }
+        #expect(page.liveDocumentAttributes["app-sidebar"] == "shown")
+        window.sidebar.model.toggle()
+        await BrowserTabTests.settle { page.liveDocumentAttributes["app-sidebar"] == "hidden" }
+        #expect(page.liveDocumentAttributes["app-sidebar"] == "hidden")
+        window.sidebar.model.toggle()
+        await BrowserTabTests.settle { page.liveDocumentAttributes["app-sidebar"] == "shown" }
+        #expect(page.liveDocumentAttributes["app-sidebar"] == "shown")
+    }
+
     /// A deep link to a schema setting opens the React page on that row
     /// (`#/settings/<section>?focus=<key>`).
     @Test func aSettingDeepLinkFocusesTheRowInThePage() async throws {

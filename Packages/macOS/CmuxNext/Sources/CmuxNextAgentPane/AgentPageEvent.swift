@@ -8,7 +8,7 @@ public import Foundation
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `theme`, `shortcuts`, `preview`, `customization`, `registry`, `dictation`, `revealTurn`,
-    /// `command` or `focusLocation`.
+    /// `command`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
 
@@ -35,13 +35,12 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// Whether preview features show.
     public static func preview(_ on: Bool) -> AgentPageEvent { AgentPageEvent(kind: "preview", value: .bool(on)) }
 
-    /// The user's `registry.js` (when it has one), then `{themeCSS, layout}`. A missing theme sends
-    /// `""`, which clears the style a deleted `theme.css` left; a bad layout sends `{}`.
+    /// `{themeCSS, layout}`. A missing theme sends `""`, which clears the style a deleted `theme.css`
+    /// left; a bad layout sends `{}`. The user's `registry.js` is not an event: the view evaluates it
+    /// (``AgentPaneCustomization/registryScript``), since the page's CSP refuses a script the page
+    /// makes itself.
     public static func customization(_ customization: AgentPaneCustomization) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
-        if let registry = customization.registryJS, !registry.isEmpty {
-            events.append(AgentPageEvent(kind: "registry", value: .string(registry)))
-        }
         var layout = JSONValue.object([:])
         if let text = customization.layoutJSON, let parsed = try? JSONValue.parse(Data(text.utf8)), case .object = parsed {
             layout = parsed
@@ -64,6 +63,11 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
 
     /// A dispatcher command (`searchChats`, `continueIn`, `createCheckpoint`, `permissionAllowOnce`, ...).
     public static func command(_ name: String) -> AgentPageEvent { AgentPageEvent(kind: "command", value: .string(name)) }
+
+    /// A batch of the host socket's frames, or its close (``AgentPaneTransport``, bridgeSocket.ts).
+    public static func transport(_ event: AgentPaneTransportEvent) -> AgentPageEvent {
+        AgentPageEvent(kind: "transport", value: JSONValue(foundation: event.object) ?? .null)
+    }
 
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")

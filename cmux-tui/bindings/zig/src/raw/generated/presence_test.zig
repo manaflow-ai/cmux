@@ -19,6 +19,7 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
@@ -40,6 +41,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MoveScreenRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.MoveScreenGroupRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.NewConversationTabResult, "transaction");
     try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
     try expectExplicitNullRejected(protocol.NewPaneRightRequest, "keep");
     try expectExplicitNullRejected(protocol.NewRowRequest, "keep");
@@ -157,6 +159,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SizePolicy, "priority");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");
+    try expectExplicitNullRejected(protocol.TerminalClipboardHost, "name");
     try expectExplicitNullRejected(protocol.TerminalColors, "overrides");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");
     try expectExplicitNullRejected(protocol.TerminalKeyInput, "composing");

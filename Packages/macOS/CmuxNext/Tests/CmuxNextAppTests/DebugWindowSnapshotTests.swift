@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextSettings
 import Testing
+import WebKit
 
 /// `debug.window_snapshot` renders the app's own windows without screen
 /// capture: a main window by kind and by id, a standalone window by kind,
@@ -33,6 +34,30 @@ struct DebugWindowSnapshotTests {
             #expect(image.size.width > 0)
             try? FileManager.default.removeItem(atPath: output)
         }
+    }
+
+    /// The prewarmed new tab page waits in `NewTabSpareParking`, which is
+    /// fully transparent so WebKit keeps rendering it out of sight. It is not
+    /// on screen, so the snapshot must not paint it over the window (it hid
+    /// the sidebar and the tabs); a web view in a visible pane is painted.
+    @Test func aParkedSpareIsNotPaintedOverTheWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = content
+        let parking = NewTabSpareParking(frame: content.bounds)
+        content.addSubview(parking, positioned: .below, relativeTo: nil)
+        let spare = WKWebView(frame: parking.bounds)
+        parking.addSubview(spare)
+        let pane = NSView(frame: NSRect(x: 100, y: 0, width: 300, height: 300))
+        content.addSubview(pane)
+        let page = WKWebView(frame: pane.bounds)
+        pane.addSubview(page)
+        #expect(spare.window === window, "the spare is in the window, as the pool parks it")
+        let painted = DebugWindowSnapshot.visibleWebViews(in: window).map(ObjectIdentifier.init)
+        #expect(painted == [ObjectIdentifier(page)], "painted \(painted.count) web views; the parked spare must not be one")
     }
 
     @Test(.requiresGUISession) func aStandaloneWindowRendersItsTrafficLights() throws {

@@ -1,6 +1,6 @@
 /// A `when` clause as keybindings.json text (the editor's When column,
 /// `keybinding.list`): `WhenClause.parse(clause.text)` gives the clause back.
-extension WhenClause {
+nonisolated extension WhenClause {
     public var text: String {
         switch self {
         case .constant(let value): value ? "true" : "false"

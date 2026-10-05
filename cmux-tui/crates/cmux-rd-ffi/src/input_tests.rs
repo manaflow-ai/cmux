@@ -35,13 +35,13 @@ fn blank(kind: u32) -> CmuxRdInputEvent {
         text: std::ptr::null(),
         text_len: 0,
         button: 0,
-        down: false,
-        precise: false,
+        down: 0,
+        precise: 0,
     }
 }
 
 fn key(usage: u32, down: bool) -> CmuxRdInputEvent {
-    CmuxRdInputEvent { usage, down, ..blank(CMUX_RD_INPUT_KEY) }
+    CmuxRdInputEvent { usage, down: u8::from(down), ..blank(CMUX_RD_INPUT_KEY) }
 }
 
 fn push(h: &Owned, e: &CmuxRdInputEvent) -> (i32, u32) {
@@ -222,8 +222,8 @@ fn long_text_splits_into_datagrams_that_fit() {
 #[test]
 fn stream_carrier_frames_each_packet() {
     let h = input(CMUX_RD_CARRIER_STREAM);
-    push(&h, &CmuxRdInputEvent { dx: -120, dy: 300, precise: true, ..blank(CMUX_RD_INPUT_SCROLL) });
-    push(&h, &CmuxRdInputEvent { button: 3, down: true, ..blank(CMUX_RD_INPUT_BUTTON) });
+    push(&h, &CmuxRdInputEvent { dx: -120, dy: 300, precise: 1, ..blank(CMUX_RD_INPUT_SCROLL) });
+    push(&h, &CmuxRdInputEvent { button: 3, down: 1, ..blank(CMUX_RD_INPUT_BUTTON) });
     let sent = packets(&h, 0);
     assert_eq!(sent.len(), 1);
     let mut d = StreamDeframer::default();
@@ -288,4 +288,64 @@ fn small_buffer_keeps_the_packet() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].len(), len);
     assert_eq!(decode(&sent[0]).events, vec![InputEvent::Key { usage: 4, down: true }]);
+}
+
+#[test]
+fn older_lost_events_repeat_while_new_input_keeps_flowing() {
+    let h = input(CMUX_RD_CARRIER_DATAGRAM);
+    let mut host = InputApplier::new(200_000);
+    for x in 0..40 {
+        push(&h, &CmuxRdInputEvent { x, ..blank(CMUX_RD_INPUT_POINTER) });
+    }
+    // The first burst is lost.
+    assert!(!packets(&h, 0).is_empty());
+    let mut now = 0;
+    let mut applied = Vec::new();
+    // New motion every 8 ms keeps a never-sent event in the queue.
+    while now < 150_000 {
+        now += 8_000;
+        push(&h, &CmuxRdInputEvent { x: 1_000, ..blank(CMUX_RD_INPUT_POINTER) });
+        for d in packets(&h, now) {
+            applied.extend(host.accept(&decode(&d), now));
+            ack(&h, &ack_datagram(host.applied()));
+        }
+    }
+    // The lost events were repeated before the host's gap timeout.
+    assert!(!host.take_skipped_gap());
+    assert_eq!(applied.first(), Some(&InputEvent::Pointer { x: 0, y: 0 }));
+}
+
+#[test]
+fn packet_writes_out_len_on_every_path() {
+    let mut len = 99;
+    let mut buf = [0u8; 8];
+    // SAFETY: NULL handle is refused before any access; buffer and length are writable.
+    let rc = unsafe {
+        cmux_rd_input_packet(std::ptr::null_mut(), 0, buf.as_mut_ptr(), buf.len(), &mut len)
+    };
+    assert_eq!(rc, CMUX_RD_ERR_NULL);
+    assert_eq!(len, 0);
+    // The receiver's feedback call follows the same rule.
+    len = 99;
+    // SAFETY: as above.
+    let rc = unsafe {
+        cmux_rd_receiver_feedback(std::ptr::null_mut(), 0, buf.as_mut_ptr(), buf.len(), &mut len)
+    };
+    assert_eq!(rc, CMUX_RD_ERR_NULL);
+    assert_eq!(len, 0);
+}
+
+#[test]
+fn flag_bytes_other_than_zero_and_one_are_refused() {
+    let h = input(CMUX_RD_CARRIER_DATAGRAM);
+    let key = CmuxRdInputEvent { usage: 4, down: 2, ..blank(CMUX_RD_INPUT_KEY) };
+    assert_eq!(push(&h, &key).0, CMUX_RD_ERR_INVALID);
+    let button = CmuxRdInputEvent { button: 1, down: 0xff, ..blank(CMUX_RD_INPUT_BUTTON) };
+    assert_eq!(push(&h, &button).0, CMUX_RD_ERR_INVALID);
+    let scroll = CmuxRdInputEvent { dy: 1, precise: 7, ..blank(CMUX_RD_INPUT_SCROLL) };
+    assert_eq!(push(&h, &scroll).0, CMUX_RD_ERR_INVALID);
+    assert_eq!(deadline(&h), u64::MAX, "nothing was queued");
+    // Flags of kinds that do not use them are ignored.
+    let pointer = CmuxRdInputEvent { x: 1, down: 9, precise: 9, ..blank(CMUX_RD_INPUT_POINTER) };
+    assert_eq!(push(&h, &pointer).0, CMUX_RD_OK);
 }
