@@ -302,7 +302,8 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     private readonly apiKey: string,
     private readonly baseUrl: string,
     private readonly snapshot: string,
-    private readonly fetchFn: typeof fetch = fetch
+    // A wrapper, never the bare global: workerd refuses fetch called as a method of another object (Illegal invocation).
+    private readonly fetchFn: typeof fetch = (input, init) => fetch(input, init)
   ) {}
 
   private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -316,14 +317,17 @@ export class FreestyleCloudDriver implements RawCloudDriver {
       return { status: res.status, json: (await res.json().catch(() => ({}))) as Record<string, unknown> }
     } catch (e) {
       // Network failure or timeout: the outcome is unknown; the retry finds the VM by name.
-      return { status: 0, json: { code: e instanceof Error && e.name === "TimeoutError" ? "TIMEOUT" : "UNREACHABLE" } }
+      // The reason (a runtime network message, never a header or key) goes into the error so a failure is diagnosable.
+      const reason = e instanceof Error ? `${e.name}: ${e.message}`.replace(/[^\x20-\x7e]/g, "").slice(0, 120) : "unknown"
+      return { status: 0, json: { code: e instanceof Error && e.name === "TimeoutError" ? "TIMEOUT" : "UNREACHABLE", reason } }
     }
   }
 
   private fail(status: number, json: Record<string, unknown>, what: string): never {
     const final = status === 400 || status === 401 || status === 403 || status === 422
     const code = typeof json.code === "string" ? json.code.slice(0, 40) : ""
-    throw new DriverError(final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}`, final)
+    const reason = status === 0 && typeof json.reason === "string" ? ` (${json.reason})` : ""
+    throw new DriverError(final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}${reason}`, final)
   }
 
   private vm(json: Record<string, unknown>) {

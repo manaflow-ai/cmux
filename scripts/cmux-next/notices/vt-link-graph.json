@@ -150,6 +150,36 @@
         "std": 89,
         "ubsan_rt.zig": 1
       }
+    },
+    "x86_64-windows-gnu": {
+      "generated_files": 7,
+      "ghostty_files": 171,
+      "names": {
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": "highway",
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": "wuffs"
+      },
+      "package_files": {
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE": 4,
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI": 1
+      },
+      "packages": [
+        "N-V-__8AAGmZhABbsPJLfbqrh6JTHsXhY6qCaLAQyx25e0XE",
+        "N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI"
+      ],
+      "source_paths": 454,
+      "unattributed": [],
+      "vendored": {
+        "pkg/highway": 5,
+        "pkg/simdutf": 2,
+        "pkg/wuffs": 3
+      },
+      "zig_lib": {
+        "compiler_rt": 199,
+        "compiler_rt.zig": 1,
+        "include": 1,
+        "libcxx": 9,
+        "std": 51
+      }
     }
   },
   "zig": "0.16.0"

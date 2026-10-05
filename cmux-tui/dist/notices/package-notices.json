@@ -1,5 +1,5 @@
 {
-  "comment": "Owned by the license review. Notices that cmux-tui npm packages and PyPI wheels ship beside the Rust crate notices (package_notices.py). libghostty_vt names the ghostty-next commit of vt-link-graph.json; a bump needs new texts here. musl is linked into the Linux musl binaries.",
+  "comment": "Owned by the license review. Notices that cmux-tui npm packages and PyPI wheels ship beside the Rust crate notices (package_notices.py). libghostty_vt names the ghostty-next commit of vt-link-graph.json; a bump needs new texts here. musl is linked into the Linux musl binaries. windows_gnu is the static runtime of the x86_64-pc-windows-gnu binaries for the one reviewed toolchain (gcc_build, gcc_version, mingw_w64_version, crt); package_notices.py check-windows-toolchain and check-windows-binary fail another.",
   "musl": {
     "version": "1.2.5",
     "file": "texts/musl-1.2.5/COPYRIGHT",
@@ -71,6 +71,50 @@
           }
         ]
       }
+    }
+  },
+  "windows_gnu": {
+    "toolchain": "MinGW-Builds x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev1 (https://github.com/niXman/mingw-builds-binaries/releases/download/15.2.0-rt_v13-rev1/x86_64-15.2.0-release-posix-seh-ucrt-rt_v13-rev1.7z, sha256 029bd02b5bce7c10fd9476165b3fe178239fe1838ad62516b5c3e0921bb283cf): GCC 15.2.0, mingw-w64 runtime 13.0.0 (v13.x branch, UCRT, posix threads, SEH). The GitHub windows-2025 image installs it at C:\\mingw64 (toolset mingw 15.*, runtime ucrt); cargo links with its gcc and lld.",
+    "gcc_build": "x86_64-posix-seh-rev1, Built by MinGW-Builds project",
+    "gcc_version": "15.2.0",
+    "mingw_w64_version": "13.0.0",
+    "crt": "ucrt",
+    "files": [
+      {
+        "title": "mingw-w64 13.0.0 COPYING.MinGW-w64-runtime.txt",
+        "file": "texts/mingw-w64-13.0.0/COPYING.MinGW-w64-runtime.txt",
+        "sha256": "e9b2dc02451ea29092a1f25fa0f3c07207ed421f1807dffb0c4e6dce69dee7bd",
+        "source": "COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt in https://downloads.sourceforge.net/project/mingw-w64/mingw-w64/mingw-w64-release/mingw-w64-v13.0.0.tar.bz2 (sha256 5afe822af5c4edbf67daaf45eec61d538f49eef6b19524de64897c6b95828caf); byte-identical at the v13.x branch head c148e4a48d826e4862ba359edcd820ef9b88e6ad that MinGW-Builds rt_v13 builds"
+      },
+      {
+        "title": "mingw-w64 13.0.0 DISCLAIMER.PD",
+        "file": "texts/mingw-w64-13.0.0/DISCLAIMER.PD",
+        "sha256": "87f33608570312a0f2a9745edcb2527275df813b13982e8c3b3f893d88a4141a",
+        "source": "DISCLAIMER.PD in the same mingw-w64-v13.0.0.tar.bz2; byte-identical at v13.x c148e4a48d82. The linked public-domain CRT files refer to it."
+      },
+      {
+        "title": "GCC 15.2.0 COPYING.RUNTIME (GCC Runtime Library Exception 3.1)",
+        "file": "texts/gcc-15.2.0/COPYING.RUNTIME",
+        "sha256": "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74",
+        "source": "COPYING.RUNTIME at tag releases/gcc-15.2.0 (tag object dcd428f94ffb464418f996ffb70dfa398f5caa3f) of https://github.com/gcc-mirror/gcc; the MinGW-Builds archive ships the same text with CRLF line endings"
+      }
+    ],
+    "review": {
+      "date": "2026-10-05",
+      "decision": "APPROVE",
+      "reviewer": "independent license reviewer agent (worker session 5c, cmuxterm-hq-69), not the author of package_notices.py; engineering review, not attorney review",
+      "artifact": "GitHub Actions run 37288140319 (cmux-tui.yml full, e2dd86a88ea8d1eda1289a413702fe267fecdf50), job 111691937148 'build x86_64-pc-windows-gnu' on windows-2025-vs2026 20260925.250.1, artifact cmux-tui-x86_64-pc-windows-gnu (id 11336396482): cmux-tui.exe 9101e3af9de82090cc30e1e42e2645959e3037d33103c8011501b683eaac2d11, cmux-tui-hook.exe 302000279e6f0e55bf8f09447c61062449c3346ffa26ae6c853142c6f9e343fb, chatmux-relay.exe d75b21bccbeac5036ff0cbfd1ca17ddb66761a89bef40202de421e1eba713310, cmux-relay.exe c50bb5be17a0ba6c6ce1241747b8eca0c7da9198e042f0d6d095f3206c7fa454",
+      "evidence": [
+        "PE imports (all four): only Windows system DLLs and the UCRT API sets (api-ms-win-crt-*); no libwinpthread-1.dll, libgcc_s_seh-1.dll, libstdc++-6.dll or msvcrt.dll. All runtime code is static.",
+        "Toolchain: one .comment ident 'GCC: (x86_64-posix-seh-rev1, Built by MinGW-Builds project) 15.2.0'; rustc 1.95.0 (59807616e); Zig 0.16.0; LLD 20.1.8. MinGW-Builds rt_v13 builds the mingw-w64 v13.x branch with patch 9002-v13 (exit wrappers, public domain); its _mingw_mac.h says 13.0.0.",
+        "Symbol-to-object mapping (COFF symbol table against the archive members of that toolchain): mingw-w64 crt2.o (crtexe.c: mainCRTStartup, atexit), libmingw32.a (gccmain, pseudo-reloc, tlssup, tlsthrd, pesect, crt_handler, merr, usermatherr, natstart, CRT_fp10, dllargv, wildcard, x*mode, cinitexe, exit_wrappers), libmingwex.a (delayimp, loadcfg, mingw_matherr), libucrt.a extras (ucrt_fprintf, ucrt_vfprintf, local_stdio_printf_options, __p___initenv, ucrt_amsg_exit) and UCRT import stubs. Every one of these sources is marked public domain (DISCLAIMER.PD) or carries no header; pseudo-reloc.c says 'THIS SOFTWARE IS NOT COPYRIGHTED'. COPYING.MinGW-w64-runtime.txt is the file mingw-w64 provides for binaries statically linked with its runtime.",
+        "GCC 15.2.0 runtime: crtbegin.o (__gcc_register_frame) and libgcc_eh.a unwind-seh.o (_Unwind_*, _GCC_specific_handler; Rust's panic unwinder); possibly libgcc ___chkstk_ms. GPL-3.0-or-later WITH GCC-exception-3.1: the exception allows any terms for the combined Target Code (rustc/LLVM is an eligible compilation process), and the binaries are GPL-3.0-or-later anyway (LICENSE carries the GPL text). COPYING.RUNTIME is included as a courtesy notice.",
+        "Not linked: winpthreads (no pthread_* or winpthread symbol, no DLL import; its COPYING is not needed), libstdc++ (__cxa_pure_virtual and __glibcxx_assert_fail resolve to simdutf's own weak stubs in ghostty-next pkg/simdutf), LLVM compiler-rt and libunwind (this is the GNU target, not gnullvm).",
+        "Zig compiler_rt (in libghostty-vt): memcpy/memset/strlen, __divti3/__udivti3, __chkstk and the math functions ceil/floor/exp/expf/log/logf/log2/fmod/round/roundf/trunc/truncf resolve to compiler_rt.* at the same addresses. Zig's LICENSE covers compiler_rt; its math files say 'Ported from musl' (MIT), so the Windows notice also carries musl's COPYRIGHT.",
+        "libghostty-vt for x86_64-windows-gnu: vt-link-graph.json target x86_64-windows-gnu, regenerated on Testbox tbx_01m45qv05kdd7cpx1g9qk973fn (the four other targets came out byte-identical). Zig emits CodeView for Windows, and its file checksums name only files with line records: highway, wuffs, pkg/highway, pkg/simdutf, pkg/wuffs, Zig std, compiler_rt, libcxx headers; uucode (inlined lookups and comptime tables) is missing, so package_notices.py names every package that any target links for Windows. Zig lib/libcxx header code is Apache-2.0 WITH LLVM-exception, whose exception needs no notice for code embedded in object form.",
+        "Rust crates: the x86_64-pc-windows-gnu closure adds winapi-x86_64-pc-windows-gnu 0.4.0 (MinGW import libraries, MIT/Apache-2.0), which ships no license file; reviewed.json now stores winapi-rs's root LICENSE-MIT and LICENSE-APACHE at its publishing commit 9497609ef44c."
+      ],
+      "limits": "The runner image pins MinGW 15.* by toolset, not one build. check-windows-toolchain (build-windows job, before linking) fails another GCC build, mingw-w64 version or msvcrt, and check-windows-binary (package job) fails a binary that names another GCC build, so a new toolchain needs a new review. The review covers x86_64-pc-windows-gnu only (no aarch64 Windows target is built)."
     }
   }
 }
