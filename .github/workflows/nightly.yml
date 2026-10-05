@@ -1494,10 +1494,14 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
-          # Signing reads only this repository's scripts, tests, license and
-          # entitlements. The ghostty, bonsplit and homebrew submodules cost
-          # ~15s of fetch on every variant and are never read here.
+          # Main and RC signing do not need submodules. nightly-next's notice
+          # check reads ghostty-next/build.zig.zon, so initialize that optional
+          # submodule in the next step only for the cmux-next track.
           submodules: false
+
+      - name: Initialize cmux-next notices submodule
+        if: github.ref_name == 'nightly-next'
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
