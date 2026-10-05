@@ -171,6 +171,23 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(plan("success", False, False), "none")
         self.assertEqual(plan("cancelled", True, False), "none")
 
+    def test_a_repeat_red_run_edits_its_last_report(self):
+        jobs = [{"name": "macos / packages"}]
+        failures = [{"kind": "test", "file": "Foo.swift", "line": 3, "test": "FooTests.testBar"}]
+        signature = MODULE.red_signature(jobs, failures)
+        body = MODULE.failure_body(run(), jobs, "", failures, signature)
+        bot = {"id": 5, "user": {"login": "github-actions[bot]"}, "body": body}
+        self.assertEqual(MODULE.repeat_report([bot], signature), 5)
+        # Different failures, a human reply after it, or a lookalike from someone else post anew.
+        other = MODULE.red_signature(jobs, [{**failures[0], "test": "FooTests.testBaz"}])
+        self.assertNotEqual(other, signature)
+        self.assertIsNone(MODULE.repeat_report([bot], other))
+        self.assertIsNone(MODULE.repeat_report([bot, {"id": 6, "user": {"login": "leo"}, "body": "on it"}], signature))
+        self.assertIsNone(MODULE.repeat_report([{**bot, "user": {"login": "someone"}}], signature))
+        self.assertIsNone(MODULE.repeat_report([], signature))
+        # The signature ignores the run, so the next run of the same failures matches.
+        self.assertEqual(MODULE.red_signature(list(jobs), list(failures)), signature)
+
     def test_failure_body_lists_failing_jobs_and_run(self):
         jobs = MODULE.failing_jobs([
             {"name": "macos / app-host (1)", "conclusion": "failure", "html_url": "https://x/1"},

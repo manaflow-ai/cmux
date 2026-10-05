@@ -869,8 +869,10 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(body.replace(MARKER + "\n", ""))
     # A green run says so only where a failure was reported before; a green run whose macOS jobs
-    # never ran says that even where nothing was reported, since it looks green.
-    if report.get("conclusion") != "success" or current is not None or report.get("macos_skipped"):
+    # never ran says that even where nothing was reported, since it looks green. A machine-only
+    # failure that is being re-run asks nothing of the author, so it posts no new comment either.
+    quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") or rerun
+    if current is not None or not quiet:
         upsert_comment(writer, gh.repo, pr, MARKER, body, existing)
     return {"pr": pr, "rerun": rerun, "line": line}
 

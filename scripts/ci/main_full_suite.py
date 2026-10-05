@@ -148,9 +148,43 @@ def issue_plan(conclusion: str, has_open_issue: bool, already_reported: bool) ->
     return "none"
 
 
+SIGNATURE_PREFIX = "<!-- cmux-main-red-signature: "
+
+
+def red_signature(jobs: Iterable[Mapping[str, object]], failures: Iterable[Mapping[str, object]] | None) -> str:
+    """What failed, independent of the run: the failing job names and concrete failure keys."""
+    import hashlib
+
+    import classify_failures
+
+    keys = sorted({str(job.get("name")) for job in jobs})
+    keys += sorted({classify_failures.failure_key(item) for item in failures or ()})
+    return hashlib.sha256("\n".join(keys).encode()).hexdigest()[:16]
+
+
+def repeat_report(comments: list[Mapping[str, object]], signature: str) -> int | None:
+    """The comment to edit instead of posting again: the issue's last comment, when this workflow wrote it for
+    the same failures. Each new comment notifies everyone on the issue (and a merger it once @-mentioned), so a
+    main that stays red the same way updates its report in place; a changed failure set, or a human reply in
+    between, posts a new one."""
+    import classify_failures
+
+    if not comments:
+        return None
+    last = comments[-1]
+    if (last.get("user") or {}).get("login") != classify_failures.BOT:
+        return None
+    if f"{SIGNATURE_PREFIX}{signature} -->" not in str(last.get("body") or ""):
+        return None
+    try:
+        return int(last["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def failure_body(
     run: Mapping[str, object], jobs: list[Mapping[str, object]], extra: str = "",
-    failures: list[Mapping[str, object]] | None = None,
+    failures: list[Mapping[str, object]] | None = None, signature: str = "",
 ) -> str:
     lines = [
         f"Full-suite CI on `main` failed at {run.get('head_sha')}: {run.get('html_url')}",
@@ -183,6 +217,8 @@ def failure_body(
         "Pull requests run a subset of the suite, so this run is the first place "
         "a regression outside that subset shows up. This issue closes itself on the next green run.",
     ]
+    if signature:
+        lines.append(f"{SIGNATURE_PREFIX}{signature} -->")
     return "\n".join(lines)
 
 
@@ -323,7 +359,8 @@ def command_report(args: argparse.Namespace) -> int:
         except Exception as error:  # noqa: BLE001  (a report-only extra must not stop the issue sync)
             print(f"::warning::could not read the failed jobs' failures: {error}", file=sys.stderr)
             failures = None
-        body = failure_body(run, jobs, read_extra_section(args.extra_section), failures)
+        signature = red_signature(jobs, failures)
+        body = failure_body(run, jobs, read_extra_section(args.extra_section), failures, signature)
         if plan == "open":
             ensure_label(args.repo)
             subprocess.run([
@@ -331,9 +368,20 @@ def command_report(args: argparse.Namespace) -> int:
                 "-f", f"title={ISSUE_TITLE}", "-f", f"body={body}", "-f", f"labels[]={ISSUE_LABEL}",
             ], check=True, capture_output=True, text=True)
         else:
-            subprocess.run([
-                "gh", "api", f"repos/{args.repo}/issues/{issue['number']}/comments", "-f", f"body={body}",
-            ], check=True, capture_output=True, text=True)
+            comments = gh_json_lines([
+                f"repos/{args.repo}/issues/{issue['number']}/comments", "--paginate",
+                "--jq", ".[] | {id, user: {login: .user.login}, body} | tojson",
+            ])
+            repeat = repeat_report(comments, signature)
+            if repeat is not None:
+                print(f"Same failures as comment {repeat}; editing it in place.")
+                subprocess.run([
+                    "gh", "api", "-X", "PATCH", f"repos/{args.repo}/issues/comments/{repeat}", "-f", f"body={body}",
+                ], check=True, capture_output=True, text=True)
+            else:
+                subprocess.run([
+                    "gh", "api", f"repos/{args.repo}/issues/{issue['number']}/comments", "-f", f"body={body}",
+                ], check=True, capture_output=True, text=True)
     elif plan == "close":
         subprocess.run([
             "gh", "api", f"repos/{args.repo}/issues/{issue['number']}/comments",

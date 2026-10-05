@@ -387,15 +387,24 @@ class ActTests(unittest.TestCase):
     def act(self, gh: FakeGitHub, report: dict) -> dict:
         return cf.act(gh, cf.Writer(gh, dry_run=False), self.RUN, report)  # type: ignore[arg-type]
 
-    def test_machine_failures_rerun_and_comment(self) -> None:
+    def test_machine_failures_rerun_quietly(self) -> None:
         gh = FakeGitHub()
         result = self.act(gh, self.report([cf.MACHINE]))
         self.assertTrue(result["rerun"])
         # The bot's re-run may emit no workflow_run event, so it starts the
-        # UI test dispatch for attempt 2 itself (ci-ui-tests.yml).
+        # UI test dispatch for attempt 2 itself (ci-ui-tests.yml). The author has nothing
+        # to do, so no new comment notifies them.
         self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/actions/runs/42/rerun-failed-jobs"),
-                                    ("POST", "repos/manaflow-ai/cmux/actions/workflows/ci-ui-tests.yml/dispatches"),
-                                    ("POST", "repos/manaflow-ai/cmux/issues/7/comments")])
+                                    ("POST", "repos/manaflow-ai/cmux/actions/workflows/ci-ui-tests.yml/dispatches")])
+        # An earlier report on the PR is still brought up to date.
+        gh = FakeGitHub(comments=[bot_comment(cf.MARKER + "\nred")])
+        self.act(gh, self.report([cf.MACHINE]))
+        self.assertEqual(gh.calls[-1], ("PATCH", "repos/manaflow-ai/cmux/issues/comments/99"))
+
+    def test_machine_failures_that_cannot_rerun_still_comment(self) -> None:
+        gh = FakeGitHub(latest={"run_attempt": 3, "status": "completed"})
+        self.assertFalse(self.act(gh, self.report([cf.MACHINE]))["rerun"])
+        self.assertEqual(gh.calls, [("POST", "repos/manaflow-ai/cmux/issues/7/comments")])
 
     def test_the_bots_comment_is_edited_and_a_lookalike_is_ignored(self) -> None:
         body = cf.render_comment(self.report([cf.CODE]), "line")
