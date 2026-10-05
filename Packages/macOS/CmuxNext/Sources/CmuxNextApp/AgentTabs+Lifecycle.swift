@@ -137,6 +137,9 @@ extension AgentTabStore {
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
         if let store = tabStores.removeValue(forKey: key) { tabStores[real] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
+        // The provisional alias is removed once the tree settles. Live callbacks
+        // must then name the store tab directly, including conversion and project reads.
+        if let view = views[real] { wire(view.model, key: real) }
         seenLive.remove(key)
     }
 
