@@ -23,10 +23,9 @@ public struct AgentCursorDemo: Sendable {
         public var y: Double?
 
         public init(action: String?, kind: String?, x: Double?, y: Double?, pointX: Double?, pointY: Double?) {
-            _ = (kind, pointX, pointY)
-            self.action = action ?? "report"
-            self.x = x
-            self.y = y
+            self.action = action ?? kind ?? "report"
+            self.x = x ?? pointX
+            self.y = y ?? pointY
         }
     }
 
