@@ -74,18 +74,20 @@ public struct BrowserReplPageHeaders: Sendable, Equatable {
 /// ``BrowserReplPageHeaders`` becomes the reader's form, and when the
 /// reader gets a URL without its credential values, every other string of
 /// the same payload that repeats the URL as written (a refusal's reason,
-/// say) gets the reader's form too. The session then masks secrets in the
-/// JSON at its own egress gate (``BrowserReplBoundary/egress(_:)``).
+/// say) gets the reader's form too.
+///
+/// Nothing is masked here. The session masks every value it holds, the
+/// values other sessions typed and the TOTP codes in one pass over the
+/// original JSON at its egress gate (``BrowserReplBoundary/egress(_:)``):
+/// masking some of them here first would let a value another session
+/// typed replace the start of one of the session's own secrets before
+/// that pass looks for it, and the rest of the secret would leak.
 public struct BrowserReplDriverOutput: Sendable {
     /// The session that reads.
     public let reader: String
-    private let typedSecrets: BrowserReplSecretStore?
 
-    /// - Parameter typedSecrets: Values other sessions typed, masked here
-    ///   in each result and payload.
-    public init(reader: String, typedSecrets: BrowserReplSecretStore? = nil) {
+    public init(reader: String) {
         self.reader = reader
-        self.typedSecrets = typedSecrets
     }
 
     /// A driver result as JSON text; `nil` when it is not JSON.
@@ -94,22 +96,9 @@ public struct BrowserReplDriverOutput: Sendable {
         return JSONSerialization.browserReplString(resolve(value))
     }
 
-    /// A serialized driver result or error with the values other sessions
-    /// typed masked. Screenshots and PDFs keep their bytes.
-    public func masking(_ result: Result<String, BrowserReplDriverError>, method: String) -> Result<String, BrowserReplDriverError> {
-        guard let typedSecrets else { return result }
-        switch result {
-        case .success(let json):
-            return method == "tab.screenshot" || method == "tab.pdf" ? result : .success(typedSecrets.redactJSON(json))
-        case .failure(let error):
-            return .failure(BrowserReplDriverError(code: error.code, message: typedSecrets.redact(error.message), errorName: error.errorName))
-        }
-    }
-
     /// An event payload as JSON text; `nil` when it is not JSON.
     public func event(_ payload: [String: Any]) -> String? {
-        let resolved = resolve(payload)
-        return JSONSerialization.browserReplString(typedSecrets?.redactValue(resolved) ?? resolved)
+        JSONSerialization.browserReplString(resolve(payload))
     }
 
     /// `value` with every page URL and header set in the reader's form.

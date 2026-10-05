@@ -52,13 +52,15 @@ struct BrowserReplEgressGateTests {
         try typed.setLiteral(key: "typed-1", maskName: "password", value: "Xs3cr3t", domains: [])
         let boundary = BrowserReplBoundary(typedSecrets: { typed })
         try boundary.secrets.set(name: "key", value: Self.protected, domains: ["example.com"], totp: false, title: "t")
-        let output = BrowserReplDriverOutput(reader: "me", typedSecrets: typed)
+        // What the driver hands the session now: its output, unmasked.
+        let output = BrowserReplDriverOutput(reader: "me")
 
-        let driverResult = output.masking(.success(#"{"text":"Xs3cr3t-value-0042"}"#), method: "frame.evaluate")
+        let driverResult: Result<String, BrowserReplDriverError> = .success(output.result(["text": "Xs3cr3t-value-0042"]) ?? "null")
         let result = boundary.egress(.driverResult(method: "frame.evaluate", driverResult)).text
         #expect(!result.contains(Self.suffix), "\(result)")
+        #expect(result.contains("<secret:"), "\(result)")
 
-        let driverError = output.masking(.failure(BrowserReplDriverError(code: "invalid", message: "saw Xs3cr3t-value-0042")), method: "frame.evaluate")
+        let driverError: Result<String, BrowserReplDriverError> = .failure(BrowserReplDriverError(code: "invalid", message: "saw Xs3cr3t-value-0042"))
         let error = boundary.egress(.driverResult(method: "frame.evaluate", driverError)).text
         #expect(!error.contains(Self.suffix), "\(error)")
 

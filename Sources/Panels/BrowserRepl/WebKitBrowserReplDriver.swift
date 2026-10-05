@@ -316,22 +316,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             return .failure(Self.closedError)
         }
-        // The store is cached per change of the typed values; the scan of
-        // the result runs off the main thread.
-        guard let store = BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID) else { return result }
-        return await Self.maskingTypedSecrets(result, method: method, output: BrowserReplDriverOutput(reader: sessionID, typedSecrets: store))
-    }
-
-    /// A result with the secrets other sessions typed into tabs masked
-    /// (``BrowserReplTypedSecrets``): this session does not hold them, so
-    /// its own redaction would not. Screenshots and PDFs get them as
-    /// capture masks instead (``typedSecretMasks(_:)``).
-    private static func maskingTypedSecrets(
-        _ result: Result<String, BrowserReplDriverError>,
-        method: String,
-        output: BrowserReplDriverOutput
-    ) async -> Result<String, BrowserReplDriverError> {
-        output.masking(result, method: method)
+        // The secrets other sessions typed into tabs
+        // (BrowserReplTypedSecrets) are masked by the session's egress gate,
+        // in the same pass as its own (typedSecretRedaction()); screenshots
+        // and PDFs get them as capture masks (typedSecretMasks(_:)).
+        return result
     }
 
     /// The session's capture masks plus the secrets other sessions typed.
@@ -997,13 +986,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 applySessionLabel(to: uuid)
             }
         }
-        // Page URLs become this session's form of them, and events carry no
-        // secret another session typed (BrowserReplTypedSecrets).
-        let output = BrowserReplDriverOutput(
-            reader: sessionID,
-            typedSecrets: BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID)
-        )
-        guard let json = output.event(payload) else { return }
+        // Page URLs become this session's form of them. The session's egress
+        // gate masks secrets, the ones other sessions typed too.
+        guard let json = BrowserReplDriverOutput(reader: sessionID).event(payload) else { return }
         let sink = lock.withLock { self.sink }
         sink?(name, json)
     }
