@@ -81,4 +81,25 @@ struct CloudDesktopReachabilityTests {
         )
         #expect(result == .unreachable)
     }
+
+    @Test("A desktop that resets the opened tunnel is unreachable")
+    func resetAfterTunnelIsUnreachable() async throws {
+        let proxy = try FakeProxy { connection in
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { _, _, _, _ in
+                connection.send(content: Data("HTTP/1.1 200 Connection established\r\n\r\n".utf8),
+                                completion: .contentProcessed { _ in
+                    // The HEAD that follows meets a reset, as from a stopped desktop.
+                    connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { _, _, _, _ in
+                        connection.forceCancel()
+                    }
+                })
+            }
+        }
+        defer { proxy.stop() }
+        let port = try await proxy.start()
+        let result = try await CloudBrowserRouting.desktopReachability(
+            endpoint: endpoint(port), address: "10.0.0.7", port: 6901, timeout: .seconds(2)
+        )
+        #expect(result == .unreachable)
+    }
 }
