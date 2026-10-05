@@ -2,7 +2,37 @@
 
 use crate::protocol::{DriverError, DriverEvent};
 use serde_json::Value;
+use serde_json::value::RawValue;
 use std::sync::Arc;
+
+/// A driver call's result: a parsed value, or JSON text exactly as the
+/// engine sent it. A page script's value is text (a9 raw_value): the page's
+/// object key order and number text stay, which a parsed map (sorted keys)
+/// loses.
+#[derive(Debug)]
+pub enum Reply {
+    Value(Value),
+    Json(Box<RawValue>),
+}
+
+impl Reply {
+    /// The result as JSON text.
+    pub fn json_text(&self) -> String {
+        match self {
+            Reply::Value(value) => value.to_string(),
+            Reply::Json(raw) => raw.get().to_owned(),
+        }
+    }
+
+    /// The result parsed (key order is lost).
+    pub fn into_value(self) -> Result<Value, DriverError> {
+        match self {
+            Reply::Value(value) => Ok(value),
+            Reply::Json(raw) => serde_json::from_str(raw.get())
+                .map_err(|e| DriverError::invalid(format!("the engine sent invalid JSON: {e}"))),
+        }
+    }
+}
 
 /// Receives driver events. Called on the driver's own threads; it must not
 /// block on a driver call.
@@ -86,6 +116,17 @@ pub trait Driver: Send + Sync {
     ) -> Result<Value, DriverError> {
         announce();
         self.call(method, params)
+    }
+
+    /// [`Driver::call_announced`] with the result as the engine sent it
+    /// ([`Reply::Json`] for a script's value). The default parses it.
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Reply, DriverError> {
+        self.call_announced(method, params, announce).map(Reply::Value)
     }
 }
 

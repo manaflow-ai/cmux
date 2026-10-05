@@ -47,6 +47,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
     /// direct `shortcuts.<id>` keys (direct keys win, as in the old loader).
+    /// The classic 0.30 second modifier-hold hint preference.
+    public var showModifierHoldHints = ModifierHoldHintsSetting().fallback
     public var shortcuts: [String: ShortcutBinding]
     /// Key routing tiers by action ID (`shortcuts.tiers.<id>`: `system`,
     /// `navigation` or `content`), plans/cmux-next/focus.md section 5.
@@ -166,6 +168,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
     public var updates = UpdatesSettings()
+    /// `announcements.*`: the cmux announcement cards (R114).
+    public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
     public var feedGitHub = FeedGitHubSettings()
     public var diagnostics: [SettingsDiagnostic]
@@ -196,6 +200,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
         snapshot.diagnostics += tabBar.diagnostics
+        let (hints, hintsDiagnostic) = ModifierHoldHintsSetting().parse(root)
+        snapshot.showModifierHoldHints = hints
+        if let hintsDiagnostic { snapshot.diagnostics.append(hintsDiagnostic) }
         let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)
         snapshot.browserDefaultEngine = engine
         if let engineDiagnostic { snapshot.diagnostics.append(engineDiagnostic) }
@@ -294,6 +301,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }

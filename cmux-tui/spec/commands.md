@@ -2817,7 +2817,7 @@ Params:
 | `surfaces` | `array<Id \| string>` | required | 1 to 4096 live tabs, by surface id or public `tab_` id |
 | `end_terminals` | `bool` | default `false` | End terminals left with no view, unless kept |
 | `transaction` | `string` | optional | Client id echoed in the result; 1-128 printable ASCII |
-| `reason` | `string` | optional | `session_end` only (`close-reason-v1`): not recorded in the closed history |
+| `reason` | `CloseReason` (string enum) | optional | `session_end` only (`close-reason-v1`): not recorded in the closed history; another value fails to decode (`bad request`) |
 | mutation fields | see common envelope | optional | `origin` and `mutation_id` for exactly-once retries; no CAS fields |
 
 Result:

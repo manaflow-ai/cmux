@@ -28,30 +28,97 @@ fn forbidden_header(name: &str) -> bool {
 /// shell fetch counts too). One more waits for a slot.
 pub const MAX_FETCHES: usize = 16;
 
+/// Classic main's text for a fetch its cell's timeout cancelled (no
+/// `cancelled` protocol code yet: the error is Timeout).
+pub const CELL_TIMED_OUT: &str = "fetch: cancelled because the cell that started it timed out";
+
+/// Idle limit of a fetch without `timeoutMs`: classic's URLSession
+/// `timeoutIntervalForRequest` (no bytes for this long fails the fetch;
+/// there is no total limit).
+const IDLE_TIMEOUT_MS: u64 = 60_000;
+
 /// The session's fetch slots.
 #[derive(Debug, Default)]
 pub(super) struct FetchSlots {
     pub(super) running: usize,
     ended: bool,
+    /// Running fetches: engine fetch id -> the VM cell that started it
+    /// (0: none).
+    live: std::collections::HashMap<String, u64>,
+    /// Cells whose timeout cancelled their fetches.
+    cancelled: std::collections::HashSet<u64>,
+    /// Fetches waiting for a slot, per cell.
+    waiting: std::collections::HashMap<u64, usize>,
+    next_id: u64,
+}
+
+impl FetchSlots {
+    /// Cells kept as timed out (a test bound).
+    #[cfg(test)]
+    pub(super) fn cancelled_cells(&self) -> usize {
+        self.cancelled.len()
+    }
+
+    /// Fetches of `cell` that wait for a slot (tests).
+    #[cfg(test)]
+    pub(super) fn waiting(&self, cell: u64) -> usize {
+        self.waiting.get(&cell).copied().unwrap_or(0)
+    }
+
+    /// Why a fetch of `cell` may not run, if it may not.
+    fn refusal(&self, cell: u64) -> Option<DriverError> {
+        if self.ended {
+            return Some(DriverError::closed("fetch: the session ended"));
+        }
+        (cell != 0 && self.cancelled.contains(&cell)).then(|| DriverError::timeout(CELL_TIMED_OUT))
+    }
+
+    /// True while `cell` has a queued or running fetch.
+    fn busy(&self, cell: u64) -> bool {
+        self.waiting.contains_key(&cell) || self.live.values().any(|c| *c == cell)
+    }
+
+    /// A timed-out cell is kept only while it has a queued or running
+    /// fetch (no per-session set that only grows).
+    fn forget_if_idle(&mut self, cell: u64) {
+        if self.cancelled.contains(&cell) && !self.busy(cell) {
+            self.cancelled.remove(&cell);
+        }
+    }
+
+    fn stop_waiting(&mut self, cell: u64) {
+        if let Some(count) = self.waiting.get_mut(&cell) {
+            *count -= 1;
+            if *count == 0 {
+                self.waiting.remove(&cell);
+            }
+        }
+        self.forget_if_idle(cell);
+    }
 }
 
 /// One running fetch: holds a slot and keeps the request filter installed.
-struct Fetching<'a>(&'a Gate);
+struct Fetching<'a> {
+    gate: &'a Gate,
+    id: String,
+    cell: u64,
+}
 
 impl<'a> Fetching<'a> {
     /// Takes a slot, waiting until `deadline` while all are taken.
-    fn start(gate: &'a Gate, deadline: Instant) -> Result<Fetching<'a>, DriverError> {
+    fn start(gate: &'a Gate, deadline: Instant, cell: u64) -> Result<Fetching<'a>, DriverError> {
         let mut slots = gate.fetches.lock().unwrap_or_else(PoisonError::into_inner);
-        loop {
-            if slots.ended {
-                return Err(DriverError::closed("fetch: the session ended"));
+        *slots.waiting.entry(cell).or_default() += 1;
+        let waited = loop {
+            if let Some(refusal) = slots.refusal(cell) {
+                break Err(refusal);
             }
             if slots.running < MAX_FETCHES {
-                break;
+                break Ok(());
             }
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                return Err(DriverError::timeout(format!(
+                break Err(DriverError::timeout(format!(
                     "fetch: {MAX_FETCHES} fetches of this session are running and none ended in time"
                 )));
             }
@@ -60,27 +127,67 @@ impl<'a> Fetching<'a> {
                 .wait_timeout(slots, left)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
-        }
+        };
+        slots.stop_waiting(cell);
+        waited?;
         slots.running += 1;
+        slots.next_id += 1;
+        let id = format!("fetch-{}", slots.next_id);
+        slots.live.insert(id.clone(), cell);
         drop(slots);
         gate.sync_request_filter();
-        Ok(Fetching(gate))
+        Ok(Fetching { gate, id, cell })
     }
 }
 
 impl Drop for Fetching<'_> {
     fn drop(&mut self) {
-        self.0.fetches.lock().unwrap_or_else(PoisonError::into_inner).running -= 1;
-        self.0.fetch_slot_free.notify_all();
-        self.0.sync_request_filter();
+        {
+            let mut slots = self.gate.fetches.lock().unwrap_or_else(PoisonError::into_inner);
+            slots.running -= 1;
+            slots.live.remove(&self.id);
+            slots.forget_if_idle(self.cell);
+        }
+        self.gate.fetch_slot_free.notify_all();
+        self.gate.sync_request_filter();
     }
 }
 
 impl Gate {
-    /// The session ends: no fetch starts any more, also none that waits.
+    /// The session ends: no fetch starts any more, also none that waits,
+    /// and the running ones are cancelled in the engine (classic close()).
     pub(super) fn end_fetches(&self) {
-        self.fetches.lock().unwrap_or_else(PoisonError::into_inner).ended = true;
+        let ids: Vec<String> = {
+            let mut slots = self.fetches.lock().unwrap_or_else(PoisonError::into_inner);
+            slots.ended = true;
+            slots.live.keys().cloned().collect()
+        };
         self.fetch_slot_free.notify_all();
+        self.cancel_in_engine(ids);
+    }
+
+    /// Cell `cell` timed out: its queued fetches fail and its running ones
+    /// are cancelled in the engine, which frees their slots at once
+    /// (classic `cancelFetches(ofEval:)`).
+    pub(crate) fn cancel_cell_fetches(&self, cell: u64) {
+        if cell == 0 {
+            return;
+        }
+        let ids: Vec<String> = {
+            let mut slots = self.fetches.lock().unwrap_or_else(PoisonError::into_inner);
+            if slots.busy(cell) {
+                slots.cancelled.insert(cell);
+            }
+            slots.live.iter().filter(|(_, c)| **c == cell).map(|(id, _)| id.clone()).collect()
+        };
+        self.fetch_slot_free.notify_all();
+        self.cancel_in_engine(ids);
+    }
+
+    fn cancel_in_engine(&self, ids: Vec<String>) {
+        for id in ids {
+            let _ = self.driver.call("net.fetch.cancel", &json!({"fetchId": id}));
+        }
     }
 
     /// DNS rebinding (a9 v1, after the fact; fetch and navigations share
@@ -136,13 +243,41 @@ impl Gate {
             .unwrap_or_else(PoisonError::into_inner)
             .back()
             .map_or(0, |entry| entry.0);
+        // The VM names the cell (agent code cannot); the engine never sees it.
+        let cell = params.get("cell").and_then(Value::as_u64).unwrap_or(0);
         let mut call = params.clone();
+        if let Some(object) = call.as_object_mut() {
+            object.remove("cell");
+        }
         call["maxBytes"] = json!(MAX_BODY_BYTES);
-        let result = {
-            let deadline = Instant::now() + crate::protocol::timeout_of(params);
-            let _fetching = Fetching::start(self, deadline)?;
-            self.driver.call("net.fetch", &call)
+        call["idleTimeoutMs"] = json!(IDLE_TIMEOUT_MS);
+        // Classic has no total limit: only a given `timeoutMs` (0: none) is
+        // one, a single deadline from the call that the wait for a slot
+        // spends too; the engine gets what is left.
+        let limit = params.get("timeoutMs").map(|_| crate::protocol::timeout_of(params));
+        let deadline = Instant::now() + limit.unwrap_or(crate::protocol::NO_TIMEOUT);
+        let (result, cancel) = {
+            let fetching = Fetching::start(self, deadline, cell)?;
+            call["fetchId"] = json!(fetching.id);
+            match limit {
+                Some(_) => {
+                    let left = deadline.saturating_duration_since(Instant::now()).as_millis();
+                    call["timeoutMs"] = json!(left.max(1) as u64);
+                }
+                None => call["timeoutMs"] = json!(0),
+            }
+            let result = self.driver.call("net.fetch", &call);
+            // A cancel wins over the engine's own error (classic's text);
+            // read while the fetch still holds its cell.
+            let cancel = result
+                .is_err()
+                .then(|| self.fetches.lock().unwrap_or_else(PoisonError::into_inner).refusal(cell))
+                .flatten();
+            (result, cancel)
         };
+        if let Some(refusal) = cancel {
+            return Err(refusal);
+        }
         let mut value = match result {
             Ok(value) => value,
             Err(error) => {

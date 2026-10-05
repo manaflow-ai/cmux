@@ -6,8 +6,10 @@
   ghostty_source_archive.py build --ghostty-source DIR --zig-cache DIR
       --license-manifest SOURCE-MANIFEST.json --revision SHA
       --cmux-commit SHA --tag TAG --out ARCHIVE.tar.gz
+      [--next-name NAME --next-source DIR --next-license-manifest M --next-revision SHA]
   ghostty_source_archive.py verify --archive ARCHIVE.tar.gz
       --license-manifest SOURCE-MANIFEST.json --revision SHA
+      [--next-name NAME --next-license-manifest M --next-revision SHA]
   ghostty_source_archive.py offer
       prints the --release-source-offer line for collect-ghostty-licenses.py
 
@@ -17,6 +19,12 @@ Zig package in the license collector's zig_packages index, from
 CORRESPONDING-SOURCE.json (the cmux commit, its public tag, the Ghostty
 revision, each package's dependency name and URL). The MPL-2.0 source offer
 then names this archive and the tag; it does not rely on upstream URLs.
+
+--next-*: a second Ghostty tree, the libghostty-vt source of bin/cmux
+(ghostty-next, resolved from the cmux tree by check_ghostty_vt_notices.py),
+goes in as <root>/<next name>/ with its own collected license manifest; its
+Zig packages join zig-packages/ (directories are content hashes) and
+CORRESPONDING-SOURCE.json records it under "ghostty_next".
 
 Deterministic: entries sorted by path, mtime 0, uid/gid 0, no user or group
 names, modes 0644/0755 (directories 0755), symlinks kept as links, gzip
@@ -108,23 +116,40 @@ def _zig_packages(manifest: Path, revision: str) -> dict[str, dict]:
     return data.get("zig_packages", {})
 
 
-def build(args: argparse.Namespace) -> None:
-    packages = _zig_packages(args.license_manifest, args.revision)
-    head = subprocess.run(["git", "-C", str(args.ghostty_source), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-    if head != args.revision:
-        raise ArchiveError(f"{args.ghostty_source} is at {head}, not {args.revision}")
-    tracked = subprocess.run(["git", "-C", str(args.ghostty_source), "ls-files", "-z"], check=True, capture_output=True).stdout.decode().split("\0")
-    root = prefix(args.cmux_commit)
-    entries = _tree_entries(args.ghostty_source, f"{root}/ghostty", [p for p in tracked if p])
+def _add_tree(entries: dict, root: str, name: str, source: Path, zig_cache: Path, packages: dict, revision: str) -> dict:
+    """Tracked files of one Ghostty tree and its Zig packages; returns its index."""
+    head = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    if head != revision:
+        raise ArchiveError(f"{source} is at {head}, not {revision}")
+    tracked = subprocess.run(["git", "-C", str(source), "ls-files", "-z"], check=True, capture_output=True).stdout.decode().split("\0")
+    entries.update(_tree_entries(source, f"{root}/{name}", [p for p in tracked if p]))
     index = {}
     for directory in sorted(packages):
-        candidates = [args.ghostty_source / "zig-pkg" / directory, args.zig_cache / "p" / directory]
+        candidates = [source / "zig-pkg" / directory, zig_cache / "p" / directory]
         found = next((c for c in candidates if c.is_dir()), None)
         if found is None:
-            raise ArchiveError(f"Zig package {directory} ({packages[directory].get('dependency')}) is not in zig-pkg/ or the cache; fetch it first")
+            raise ArchiveError(f"Zig package {directory} ({packages[directory].get('dependency')}) of {name} is not in zig-pkg/ or the cache; fetch it first")
         files = _package_files(found)
         entries.update(_tree_entries(found, f"{root}/zig-packages/{directory}", files))
         index[directory] = {**packages[directory], "files": len(files)}
+    return index
+
+
+def _next_args(args: argparse.Namespace, build: bool) -> bool:
+    names = ["next_name", "next_license_manifest", "next_revision"] + (["next_source"] if build else [])
+    given = [getattr(args, n) is not None for n in names]
+    if any(given) and not all(given):
+        raise ArchiveError("--next-* options go together: " + ", ".join("--" + n.replace("_", "-") for n in names))
+    if all(given) and args.next_name in ("ghostty", "zig-packages", "CORRESPONDING-SOURCE.json"):
+        raise ArchiveError(f"--next-name {args.next_name} collides with the archive layout")
+    return all(given)
+
+
+def build(args: argparse.Namespace) -> None:
+    packages = _zig_packages(args.license_manifest, args.revision)
+    root = prefix(args.cmux_commit)
+    entries: dict[str, tuple] = {}
+    index = _add_tree(entries, root, "ghostty", args.ghostty_source, args.zig_cache, packages, args.revision)
     meta = {
         "schema": 1,
         "cmux_commit": args.cmux_commit,
@@ -133,6 +158,13 @@ def build(args: argparse.Namespace) -> None:
         "ghostty_revision": args.revision,
         "zig_packages": index,
     }
+    if _next_args(args, build=True):
+        next_packages = _zig_packages(args.next_license_manifest, args.next_revision)
+        meta["ghostty_next"] = {
+            "path": args.next_name,
+            "revision": args.next_revision,
+            "zig_packages": _add_tree(entries, root, args.next_name, args.next_source, args.zig_cache, next_packages, args.next_revision),
+        }
     data = (json.dumps(meta, indent=2, sort_keys=True) + "\n").encode()
     entries[f"{root}/CORRESPONDING-SOURCE.json"] = (tarfile.REGTYPE, 0o644, data, "")
     entries.setdefault(root, (tarfile.DIRTYPE, 0o755, b"", ""))
@@ -145,7 +177,8 @@ def build(args: argparse.Namespace) -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("wb") as handle, gzip.GzipFile(filename="", mode="wb", fileobj=handle, mtime=0, compresslevel=9) as gz:
         gz.write(raw.getvalue())
-    print(f"wrote {args.out}: Ghostty {args.revision[:11]}, {len(index)} Zig packages, {len(entries)} entries")
+    extra = f", {args.next_name} {args.next_revision[:11]} ({len(meta['ghostty_next']['zig_packages'])} Zig packages)" if "ghostty_next" in meta else ""
+    print(f"wrote {args.out}: Ghostty {args.revision[:11]}, {len(index)} Zig packages{extra}, {len(entries)} entries")
 
 
 def verify(args: argparse.Namespace) -> None:
@@ -167,6 +200,16 @@ def verify(args: argparse.Namespace) -> None:
     missing = sorted(set(packages) - present)
     if missing:
         raise ArchiveError("the archive misses Zig packages: " + ", ".join(missing))
+    if _next_args(args, build=False):
+        next_packages = _zig_packages(args.next_license_manifest, args.next_revision)
+        recorded = meta.get("ghostty_next") or {}
+        if recorded.get("path") != args.next_name or recorded.get("revision") != args.next_revision:
+            raise ArchiveError(f"the archive has no {args.next_name} tree at {args.next_revision}")
+        if f"{root}/{args.next_name}/build.zig.zon" not in names:
+            raise ArchiveError(f"the archive has no {args.next_name} source")
+        missing = sorted(set(next_packages) - present)
+        if missing:
+            raise ArchiveError(f"the archive misses {args.next_name} Zig packages: " + ", ".join(missing))
     print(f"verified {args.archive}: Ghostty {args.revision[:11]}, {len(packages)} Zig packages, tag {meta['tag']}")
 
 
@@ -182,6 +225,11 @@ def main(argv: list[str]) -> int:
     v.add_argument("--archive", type=Path, required=True)
     v.add_argument("--license-manifest", type=Path, required=True)
     v.add_argument("--revision", required=True)
+    for p in (b, v):
+        p.add_argument("--next-name")
+        p.add_argument("--next-license-manifest", type=Path)
+        p.add_argument("--next-revision")
+    b.add_argument("--next-source", type=Path)
     sub.add_parser("offer")
     args = parser.parse_args(argv)
     try:

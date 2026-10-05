@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "ab209ce3a39367e2ae15039106f8f9d3c5bdf744cb690c67831ef7ff5b60287b";
+inline constexpr std::string_view kProtocolIrSha256 = "1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -37,6 +37,7 @@ struct CellPixelSurface;
 struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
+enum class CloseReason;
 struct CloseTerminalResult;
 struct ColorHex;
 struct ColumnPin;
@@ -1129,6 +1130,10 @@ struct CloseProviderManagedWorkspaceRequest {
     friend bool operator==(const CloseProviderManagedWorkspaceRequest&, const CloseProviderManagedWorkspaceRequest&) = default;
 };
 
+enum class CloseReason {
+    session_end,
+};
+
 struct CloseScreenGroupRequest {
     std::optional<bool> end_terminals{};
     std::string group{};
@@ -1158,7 +1163,7 @@ struct CloseTabsRequest {
     Field<std::uint64_t> expected_revision{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
-    Field<std::string> reason{};
+    Field<CloseReason> reason{};
     std::vector<TabRef> surfaces{};
     Field<std::string> transaction{};
     friend bool operator==(const CloseTabsRequest&, const CloseTabsRequest&) = default;
@@ -4437,6 +4442,12 @@ template <>
 struct Codec<ClientTransport> {
     static Result<Json> encode(const ClientTransport& value);
     static Result<ClientTransport> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloseReason> {
+    static Result<Json> encode(const CloseReason& value);
+    static Result<CloseReason> decode(const Json& value);
 };
 
 template <>

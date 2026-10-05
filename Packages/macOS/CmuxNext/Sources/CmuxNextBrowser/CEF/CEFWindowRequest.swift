@@ -33,6 +33,9 @@ nonisolated struct CEFWindowRequest: Equatable, Sendable {
     /// Window features or requested bounds (screen DIPs), when given.
     var bounds: CGRect?
     var url: String
+    /// A user gesture (a click, a key) caused the request, not a script. A
+    /// request without one never follows a modified-click setting.
+    var userGesture: Bool
     /// The requesting store: the source tab's store when cmux knows the
     /// tab (its context key, `CEFProfileStorage.contextKey`), else the
     /// Chromium profile directory the fork reported.

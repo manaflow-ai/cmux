@@ -7149,6 +7149,12 @@
     }
    },
    "additional_properties": false
+  },
+  "CloseReason": {
+   "kind": "enum",
+   "values": [
+    "session_end"
+   ]
   }
  },
  "commands": {
@@ -15293,14 +15299,14 @@
      },
      "reason": {
       "type": {
-       "kind": "scalar",
-       "name": "string"
+       "kind": "ref",
+       "name": "CloseReason"
       },
       "presence": "optional",
       "nullable": true,
       "default": null,
       "capability": "close-reason-v1",
-      "description": "session_end only: the close is not recorded in the closed history."
+      "description": "The close is not recorded in the closed history (session_end)."
      },
      "origin": {
       "type": {

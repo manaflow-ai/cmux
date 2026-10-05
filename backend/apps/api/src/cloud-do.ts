@@ -6,7 +6,7 @@ import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
-import { CloudCore } from "./cloud-do-core.ts"
+import { CloudCore, statusApplied } from "./cloud-do-core.ts"
 
 /**
  * CloudDO, one per team (plans/cmux-next/state-placement.md 5): the machine registry, the
@@ -82,7 +82,14 @@ export class CloudDO extends CloudCore {
   async vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<VmReply> {
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
     const now = Date.now() + this.skewMs
-    if (op === "cloud.vm.status.report") return vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`), now)
+    if (op === "cloud.vm.status.report") {
+      let applied: { machine: string; report: unknown } | undefined
+      const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => {
+        if (statusApplied(this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`).frames)) applied = { machine, report }
+      }, now)
+      if (applied) await this.considerIdlePause(entity, applied.machine, applied.report, now)
+      return r
+    }
     return vmEventEmit(entity, principal, params, rows, this.vmEvents, (f) => sendEphemeral(this.ctx.getWebSockets(), f, (ws, a) => this.socketLive(ws, a as never) && a.principal.team === entity && a.principal.install_kind !== "vm"), now)
   }
   private readonly vmEvents = new VmEventBuckets()
@@ -102,8 +109,7 @@ export class CloudDO extends CloudCore {
 
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
   private teamConnectServices(entity: string): Promise<ReadonlyArray<string>> {
-    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { cloudConnectServices(e: string): Promise<ReadonlyArray<string>> }
-    return stub.cloudConnectServices(entity)
+    return this.teamCloudPolicy(entity).then((p) => p.connect_services)
   }
 
   /**
@@ -129,12 +135,15 @@ export class CloudDO extends CloudCore {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
     if (cmd.fail_revokes !== undefined) this.failRevokes = cmd.fail_revokes
+    if (cmd.image_size) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET image_cpu = ?, image_memory = ?, image_storage = ? WHERE id = 1`, cmd.image_size.cpu, cmd.image_size.memory, cmd.image_size.storage)
+    if (cmd.resize_partial !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET resize_partial = ? WHERE id = 1`, cmd.resize_partial)
+    if (cmd.resize_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET resize_refuse = ? WHERE id = 1`, cmd.resize_refuse)
     if (cmd.power_then_fail !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET power_then_fail = ? WHERE id = 1`, cmd.power_then_fail)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.drop_results !== undefined) this.dropResults = cmd.drop_results
@@ -145,9 +154,9 @@ export class CloudDO extends CloudCore {
       const t = { cmux_next_team: cmd.add_vm.team, cmux_next_machine: cmd.add_vm.machine }
       this.sqlStore.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, NULL)`, cmd.add_vm.name, `fs-${cmd.add_vm.name}`, JSON.stringify(t))
     }
-    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number }>(`SELECT creates, deletes, pauses, starts FROM cloud_fake_ctl WHERE id = 1`)[0]!
-    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null }>(`SELECT name, id, idle FROM cloud_fake_vm ORDER BY name`)
+    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number }>(`SELECT creates, deletes, pauses, starts, resizes FROM cloud_fake_ctl WHERE id = 1`)[0]!
+    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number }>(`SELECT name, id, idle, cpu, memory FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
-    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), now: Date.now() + this.skewMs }
+    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), now: Date.now() + this.skewMs }
   }
 }
