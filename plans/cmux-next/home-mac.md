@@ -109,9 +109,9 @@ Accepted for merge; not fixed on feat-cmux-next-home-cloud-source.
   are not called either. Fix direction: hooks report whether they delivered,
   and the store falls back when no hook did.
 - P3-3, edit-echo deadline race. `editDeadlinePassed`
-  (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/CloudHomeSource.swift:1104-1108)
+  (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/CloudHomeSource.swift:1103-1108)
   checks only the generation and `inFlight == 0`. A deadline callback that
-  was already dispatched when `beginEdit` (:1052) cancelled it can run after
+  was already dispatched when `beginEdit` (:1053) cancelled it can run after
   a later edit finished (:1070) and end that edit's subscription before its
   echo or its own `editEchoDeadline`. Fix direction: a per-schedule token in
   `EditHold` that the callback must match.
