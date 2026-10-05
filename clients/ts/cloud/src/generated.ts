@@ -620,6 +620,7 @@ export type Install = {
   readonly revoked_at: number | null
   readonly bound_team?: TeamId
   readonly sso_team?: TeamId
+  readonly bound_machine?: string
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -646,7 +647,7 @@ export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
-export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link"
+export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link" | "vm-self"
 
 /** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
 export type PairingCode = string
@@ -1477,6 +1478,50 @@ export interface CloudOps {
     }
     readonly result: {
       readonly machine: CloudMachine
+    }
+  }
+  /** Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.event.emit": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly kind: "agent.started" | "agent.finished" | "agent.needs_input" | "notification" | "browser.lease.changed" | "cua.session.started" | "cua.session.ended" | "service.port.opened" | "service.port.closed"
+      readonly at: number
+      readonly data: unknown
+    }
+    readonly result: {
+      readonly delivered: boolean
+    }
+  }
+  /** The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.self.get": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.status.report": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly state: "running" | "degraded" | "stopping"
+      readonly daemon: {
+        readonly version: string
+        readonly capabilities: ReadonlyArray<string>
+      }
+      readonly health?: {
+        readonly disk_free_mb?: number
+        readonly load?: number | "Infinity" | "-Infinity" | "NaN"
+      }
+      readonly activity: {
+        readonly last_user_input_at?: number
+        readonly last_agent_action_at?: number
+        readonly active_sessions: number
+      }
+    }
+    readonly result: {
+      readonly applied: boolean
     }
   }
   /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
@@ -2957,6 +3002,9 @@ export const cloudOpMeta = {
   "cloud.snapshot.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

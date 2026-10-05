@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { exportJWK, generateKeyPair } from "jose"
-import { bindFile, cloudStub, DAEMON, post, SIZE, signedInWithInstall, WG_KEY } from "./cloud-bind-support.ts"
+import { bindFile, cloudStub, DAEMON, ensureUser, post, signedInWithInstall, SIZE, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /**
  * CLOUD-LINK-FOLLOWUPS (2026-10-05 rotation rules): when no kid has been published 24 h, the Worker
@@ -20,7 +20,7 @@ describe("no signing kid ready", { timeout: 60_000 }, () => {
     const machine = created.body.value.machine.id as string
     const stub = cloudStub(a.team)
     const { json } = await bindFile(stub, machine)
-    const host = (await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON })).body.value.host as string
+    const host = (await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })).body.value.host as string
     const now = Date.now()
     await stub.fakeControl({ link_keys: JSON.stringify({ active: "n2", keys: { n1: await priv(), n2: await priv() }, published_at: { n1: now, n2: now } }) } as never)
     const r = await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host, services: ["ssh"] }, origin: "cli" })

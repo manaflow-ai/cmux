@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url"
 import { cloudEntryPlan } from "../src/cloud-plans.ts"
 import { overlayAddress } from "../src/overlay.ts"
 import { backendOnlyCases } from "./cloud-vectors-backend-only.ts"
+import { vmCases } from "./cloud-vectors-vm.ts"
 
 /** The plan the refusals and the checkout name, from the plan catalog (never a literal). */
 const PLAN_ID = cloudEntryPlan()
@@ -449,6 +450,7 @@ event("machine.removed.stale", "cloud.machine.removed", { machine: vm(1), revisi
 event("snapshot.upsert", "cloud.snapshot.upsert", { snapshot: { ...S3, status: "ready", revision: "2" } })
 event("snapshot.removed", "cloud.snapshot.removed", { snapshot: snap(1), revision: "4" })
 event("plan.changed", "cloud.plan.changed", { plan: PLAN })
+vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1 })
 
 const doc = {
   $comment:

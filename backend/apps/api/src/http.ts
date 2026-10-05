@@ -44,6 +44,9 @@ type ChallengeResult = { ok: true; nonce: string; expires_at: number } | { ok: f
 
 const env = workerEnv as unknown as Env
 
+/** VM install at bind (review P1): a VM token reaches only the cloud.vm.* ops for its own machine. */
+const vmRefused = (p: Principal, op: string) => p.install_kind === "vm" && !op.startsWith("cloud.vm.")
+
 const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   kind: p.kind,
   identity: p.identity,
@@ -56,7 +59,8 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   ...(p.email !== undefined ? { email: p.email } : {}),
   ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
   ...(p.display_name ? { display_name: p.display_name } : {}),
-  ...(p.sso_team ? { sso_team: p.sso_team } : {})
+  ...(p.sso_team ? { sso_team: p.sso_team } : {}),
+  ...(p.install_kind ? { install_kind: p.install_kind } : {})
 })
 
 const userStub = (user: string) => env.USER_DO.get(env.USER_DO.idFromName(user))
@@ -101,7 +105,7 @@ const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
   op.startsWith("inbox.") ? `inbox:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
-const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token"])
+const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token", "cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"])
 const cloudNotLive = (owner: string, op: string) =>
   owner === "cloud:CloudDO" && !CLOUD_LIVE_OPS.has(op) ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true }) : undefined
 
@@ -205,6 +209,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
       Effect.gen(function* () {
         const shape = yield* CurrentPrincipal
         const principal = toPrincipal(shape)
+        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "mutation") return yield* new BadRequest({ code: "validation.invalid", message: `unknown mutation ${payload.op}` })
         const notLive = cloudNotLive(def.owner, payload.op)
@@ -214,8 +219,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           if (payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} takes no idempotency_key` })
           const p = yield* principalFor(def.owner, principal)
           const request = crypto.randomUUID()
-          const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { mintLinkToken(e: string, q: Principal, params: unknown, request: string): Promise<{ ok: boolean; value?: unknown; code?: string; message?: string; details?: unknown }> }
-          const r = yield* Effect.tryPromise({ try: () => stub.mintLinkToken(p.team!, p, payload.params ?? {}, request), catch: unreachable })
+          type Reply = Promise<{ ok: boolean; value?: unknown; code?: string; message?: string; details?: unknown }>
+          const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { mintLinkToken(e: string, q: Principal, params: unknown, request: string): Reply; vmOp(e: string, q: Principal, op: string, params: unknown): Reply }
+          // The VM daemon's own-machine ops (cloud-vm.ts) share this no-key path with link_token.
+          const call = () => (payload.op.startsWith("cloud.vm.") ? stub.vmOp(p.team!, p, payload.op, payload.params ?? {}) : stub.mintLinkToken(p.team!, p, payload.params ?? {}, request))
+          const r = yield* Effect.tryPromise({ try: call, catch: unreachable })
           const outcome = r.ok ? { value: r.value } : { error: { code: r.code ?? "owner.unreachable", message: r.message ?? "", retryable: r.code === "owner.unreachable", ...(r.details === undefined ? {} : { details: r.details }) } }
           return { ok: r.ok, op: payload.op, ...outcome, transaction: request, idempotency_key: "", replayed: false, stream: "", sequence: 0 }
         }
@@ -365,6 +373,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
     .handle("read", ({ payload }) =>
       Effect.gen(function* () {
         const principal = toPrincipal(yield* CurrentPrincipal)
+        if (vmRefused(principal, payload.op)) return yield* new Forbidden({ code: "auth.forbidden", message: "a VM install may call only the cloud.vm.* ops" })
         const def = cloudOpByName.get(payload.op)
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
         const notLive = cloudNotLive(def.owner, payload.op)
@@ -465,7 +474,8 @@ const AuthorizationLive = Layer.succeed(Authorization)(
           ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
           ...(p.display_name ? { display_name: p.display_name } : {}),
           ...(p.sso_team ? { sso_team: p.sso_team } : {}),
-          ...(p.stack_session ? { stack_session: p.stack_session } : {})
+          ...(p.stack_session ? { stack_session: p.stack_session } : {}),
+          ...(authed.install_kind === "vm" ? { install_kind: "vm" } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)
       })

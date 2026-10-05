@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import type { Domain, Principal, ReduceResult } from "@cmux/ownership"
-import { InstallRegister, InstallRename, InstallRevoke, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
-import { admit, decodeParams, reject } from "./common.ts"
+import { InstallRegister, InstallRename, InstallRevoke, type CloudOpDef, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
+import { admit, decodeParams, InstallRegisterServerParams, reject } from "./common.ts"
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
@@ -78,7 +78,7 @@ export const iosGrantsToMigrate = (state: UserState): Array<string> =>
  */
 export const inboxRefusalFor = (state: UserState, entity: string, principal: Principal, op: string): { code: string; message: string } | undefined => {
   if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
-  if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+  if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
   return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
 }
 
@@ -90,6 +90,9 @@ export const installActive = (state: UserState, p: Principal) => {
   // A chief token (principal.agent): the chief must be this user's and not archived (instant chief revocation).
   return p.agent === undefined || chiefActive(state, p.agent)
 }
+
+/** installActive, and not a VM install: a VM install (kind vm) never reads or changes its creator's account (review P1). */
+export const userPathAllowed = (state: UserState, p: Principal) => installActive(state, p) && (p.install === undefined || state.installs[p.install]?.kind !== "vm")
 
 /** True for an unarchived chief of this user. */
 export const chiefActive = (state: UserState, agent: string): boolean => {
@@ -136,7 +139,8 @@ const withInstallKind = (state: UserState, p: Principal): Principal => {
  * Default grant per install kind: the iPhone app gets read, mutate-own (L14-1) and the narrow
  * cloud-link class (link_token only, CLOUD-LINK-FOLLOWUPS 5); execute and riskier classes need their own grant.
  */
-export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number] | "cloud-link"> => (kind === "ios" ? ["read", "mutate-own", "cloud-link"] : INSTALL_CLASSES)
+export const defaultInstallClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number] | "cloud-link" | "vm-self"> =>
+  kind === "ios" ? ["read", "mutate-own", "cloud-link"] : kind === "vm" ? ["vm-self"] : INSTALL_CLASSES
 const defaultClasses = defaultInstallClasses
 
 export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
@@ -149,7 +153,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
       confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
-    if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+    if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
     return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now()) ?? confirmRefused()
   },
 
@@ -180,13 +184,15 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
       case "install.register":
       case "install.register_server": {
         if (!state.user) return reject("validation.invalid", "call user.ensure first")
-        const d = decodeParams<typeof InstallRegister.params.Type>(InstallRegister, params)
+        const d = op === "install.register_server" ? decodeParams<typeof InstallRegisterServerParams.Type>({ params: InstallRegisterServerParams } as unknown as CloudOpDef, params) : decodeParams<typeof InstallRegister.params.Type>(InstallRegister, params)
         if (!d.ok) return d
-        const v = d.value
+        const v = d.value as typeof InstallRegisterServerParams.Type
         // Server kinds are created only by the server (pairing, Cloud bind), never declared by a client.
         const reserved = SERVER_INSTALL_KINDS.has(v.kind)
         if (op === "install.register" && reserved) return reject("install.kind_reserved", `install kind ${v.kind} is created by the server, not registered by a client`)
         if (op === "install.register_server" && (!reserved || p.kind !== "system")) return reject("validation.invalid", "install.register_server takes only a server kind from the server")
+        // A VM install speaks for exactly one machine; no other install names one.
+        if ((v.kind === "vm") !== (v.bound_machine !== undefined) || (v.kind === "vm" && v.bound_team === undefined)) return reject("validation.invalid", "a vm install names its bound team and machine; no other install does")
         const thumbprint = jwkThumbprint(v.public_jwk)
         if (Object.values(state.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
           return reject("validation.invalid", "this public key is already registered")
@@ -220,7 +226,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           grant,
           created_at: ctx.now,
           revoked_at: null,
-          ...(v.bound_team ? { bound_team: v.bound_team } : {})
+          ...(v.bound_team ? { bound_team: v.bound_team } : {}),
+          ...(v.bound_machine ? { bound_machine: v.bound_machine } : {})
         }
         return {
           ok: true,

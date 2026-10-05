@@ -3666,6 +3666,14 @@
             "kind": "ref",
             "name": "TeamId"
           }
+        },
+        "bound_machine": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^vm_[a-z0-9]{20}$"
+          }
         }
       }
     },
@@ -3779,7 +3787,8 @@
         "send-external",
         "money",
         "destructive",
-        "cloud-link"
+        "cloud-link",
+        "vm-self"
       ]
     },
     "PairingCode": {
@@ -19467,6 +19476,747 @@
         }
       }
     },
+    "cloud.vm.event.emit": {
+      "class": "mutation",
+      "idempotency": "none",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "agent.started",
+                "agent.finished",
+                "agent.needs_input",
+                "notification",
+                "browser.lease.changed",
+                "cua.session.started",
+                "cua.session.ended",
+                "service.port.opened",
+                "service.port.closed"
+              ]
+            }
+          },
+          "at": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "data": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "delivered": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud.machine.not_found",
+        "cloud.rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "execute",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agent.started",
+              "agent.finished",
+              "agent.needs_input",
+              "notification",
+              "browser.lease.changed",
+              "cua.session.started",
+              "cua.session.ended",
+              "service.port.opened",
+              "service.port.closed"
+            ]
+          },
+          "at": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "data": {}
+        },
+        "required": [
+          "machine",
+          "kind",
+          "at",
+          "data"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "delivered": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "delivered"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "cloud.vm.self.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CloudMachine"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud.machine.not_found",
+        "cloud.rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/CloudMachine"
+          }
+        },
+        "required": [
+          "machine"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "CloudMachineSize": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "memory_mb": {
+                "type": "integer",
+                "minimum": 512,
+                "maximum": 262144
+              },
+              "disk_mb": {
+                "type": "integer",
+                "minimum": 1024,
+                "maximum": 1048576
+              }
+            },
+            "additionalProperties": true,
+            "description": "A machine size. The plan decides which sizes are allowed (cloud.size.locked)."
+          },
+          "CloudMachineStatus": {
+            "type": "string",
+            "enum": [
+              "provisioning",
+              "starting",
+              "running",
+              "pausing",
+              "paused",
+              "deleting",
+              "failed"
+            ]
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "Revision": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Decimal per-object revision (the owner's event sequence)."
+          },
+          "CloudMachine": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/MachineId"
+              },
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "creator": {
+                "$ref": "#/$defs/UserId"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "size": {
+                "$ref": "#/$defs/CloudMachineSize"
+              },
+              "status": {
+                "$ref": "#/$defs/CloudMachineStatus"
+              },
+              "image": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "daemon_version": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "daemon_version"
+                ],
+                "additionalProperties": true
+              },
+              "host": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HostId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "classic": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "last_active_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "idle_policy": {
+                "type": "object",
+                "properties": {
+                  "idle_seconds": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "idle_seconds"
+                ],
+                "additionalProperties": true
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message",
+                      "at"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revision": {
+                "$ref": "#/$defs/Revision"
+              }
+            },
+            "required": [
+              "id",
+              "team",
+              "creator",
+              "name",
+              "size",
+              "status",
+              "image",
+              "host",
+              "classic",
+              "created_at",
+              "last_active_at",
+              "idle_policy",
+              "error",
+              "revision"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.vm.status.report": {
+      "class": "mutation",
+      "idempotency": "none",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "state": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "running",
+                "degraded",
+                "stopping"
+              ]
+            }
+          },
+          "daemon": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "version": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1,
+                    "max_length": 64
+                  }
+                },
+                "capabilities": {
+                  "required": true,
+                  "type": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "min_length": 1,
+                      "max_length": 64
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "health": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "disk_free_mb": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "load": {
+                  "required": false,
+                  "type": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "activity": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "last_user_input_at": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "last_agent_action_at": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "active_sessions": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "applied": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud.machine.not_found",
+        "cloud.rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "execute",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "degraded",
+              "stopping"
+            ]
+          },
+          "daemon": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "maxItems": 32
+              }
+            },
+            "required": [
+              "version",
+              "capabilities"
+            ],
+            "additionalProperties": true
+          },
+          "health": {
+            "type": "object",
+            "properties": {
+              "disk_free_mb": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "load": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "activity": {
+            "type": "object",
+            "properties": {
+              "last_user_input_at": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "last_agent_action_at": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "active_sessions": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000
+              }
+            },
+            "required": [
+              "active_sessions"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "machine",
+          "state",
+          "daemon",
+          "activity"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "applied"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "conversation.create": {
       "class": "mutation",
       "idempotency": "required",
@@ -35037,6 +35787,10 @@
               },
               "sso_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "bound_machine": {
+                "type": "string",
+                "pattern": "^vm_[a-z0-9]{20}$"
               }
             },
             "required": [
@@ -35064,7 +35818,8 @@
               "send-external",
               "money",
               "destructive",
-              "cloud-link"
+              "cloud-link",
+              "vm-self"
             ]
           },
           "Grant": {
@@ -35375,7 +36130,8 @@
               "send-external",
               "money",
               "destructive",
-              "cloud-link"
+              "cloud-link",
+              "vm-self"
             ]
           },
           "TeamId": {
@@ -35516,6 +36272,10 @@
               },
               "sso_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "bound_machine": {
+                "type": "string",
+                "pattern": "^vm_[a-z0-9]{20}$"
               }
             },
             "required": [
@@ -35772,6 +36532,10 @@
               },
               "sso_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "bound_machine": {
+                "type": "string",
+                "pattern": "^vm_[a-z0-9]{20}$"
               }
             },
             "required": [
@@ -36012,6 +36776,10 @@
               },
               "sso_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "bound_machine": {
+                "type": "string",
+                "pattern": "^vm_[a-z0-9]{20}$"
               }
             },
             "required": [
@@ -36231,6 +36999,10 @@
               },
               "sso_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "bound_machine": {
+                "type": "string",
+                "pattern": "^vm_[a-z0-9]{20}$"
               }
             },
             "required": [

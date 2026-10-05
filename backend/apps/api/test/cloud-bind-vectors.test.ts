@@ -2,7 +2,7 @@ import { cloudOpByName } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { describe, expect, it } from "vitest"
 import vectors from "../../../catalog/cloud-vectors.json"
-import { bindFile, cloudStub, DAEMON, post, signedInWithInstall, SIZE, WG_KEY } from "./cloud-bind-support.ts"
+import { bindFile, cloudStub, DAEMON, ensureUser, post, signedInWithInstall, SIZE, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /**
  * The bind, connect_info and link_token cases of backend/catalog/cloud-vectors.json answer with the
@@ -39,7 +39,7 @@ describe("bind, connect_info and link_token vector shapes through the Worker", {
     const created = await post("/v1/ops", a.session, { op: "cloud.machine.create", params: { size: SIZE }, idempotency_key: crypto.randomUUID(), origin: "user" })
     const machine = created.body.value.machine.id as string
     const { json } = await bindFile(cloudStub(a.team), machine)
-    const body = { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON }
+    const body = { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk }
     like("machine.bind.invalid", await post("/v1/cloud/bind", undefined, { team: a.team, machine }))
     const bound = await post("/v1/cloud/bind", undefined, body)
     like("machine.bind", bound)
