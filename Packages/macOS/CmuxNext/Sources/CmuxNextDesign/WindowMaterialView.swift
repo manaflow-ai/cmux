@@ -49,6 +49,11 @@ public final class WindowMaterialView: NSView {
         setAccessibilityElement(false)
     }
 
+    override public func layout() {
+        super.layout()
+        updateArtCrop()
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
@@ -76,6 +81,7 @@ public final class WindowMaterialView: NSView {
             loadedArt = backdrop.art
             artImage = backdrop.selection?.image() ?? backdrop.art?.image()
             artView.layer?.contents = artImage
+            updateArtCrop()
         }
         // The solid sheet and Reduce Transparency must never expose art.
         artView.isHidden = backdrop.isOpaque || artImage == nil
@@ -97,6 +103,26 @@ public final class WindowMaterialView: NSView {
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
         tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+    }
+
+    private func updateArtCrop() {
+        guard let layer = artView.layer, let image = artImage else {
+            artView.layer?.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+            return
+        }
+        let metadata: BackdropArtMetadata
+        if let art = loadedSelection.flatMap({ selection in
+            if case .art(let art) = selection { return art }
+            return nil
+        }) {
+            metadata = art.metadata
+        } else if let art = loadedArt {
+            metadata = art.metadata
+        } else {
+            metadata = BackdropArtMetadata(focalAnchor: .center, tone: .light,
+                                           dominantPalette: [], quietZone: .init(x: 0, y: 0, width: 1, height: 1))
+        }
+        layer.contentsRect = metadata.cropRect(forViewSize: bounds.size, imageSize: image.size)
     }
 
     private func tunedTint(_ tint: NSColor, tuning: AppearanceTuning) -> NSColor {
