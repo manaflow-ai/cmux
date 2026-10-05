@@ -37,9 +37,29 @@ extension CloudTreeOutlineView {
 }
 
 extension CloudTreeOutlineView.Coordinator {
+    /// Returns the remote workspace row that projects the window's focused
+    /// local workspace. The Cloud tree selection is native outline state, so
+    /// it must be reconciled from the window selection whenever a newly
+    /// created machine or workspace appears in a catalog refresh.
+    static func selectedCloudWorkspaceNodeID(
+        in nodes: [CloudTreeNode], focusedWorkspaceID: UUID?
+    ) -> String? {
+        guard let focusedWorkspaceID else { return nil }
+        return CloudTreeNodeBuilder.flattened(nodes).first { node in
+            guard case .workspace(_, _, _, _, let openIn) = node.kind else { return false }
+            return openIn == focusedWorkspaceID
+        }?.id
+    }
+
     /// The representable and native tests enter through the same update boundary.
     func update(inputs: CloudTreeBuildInputs, now: Date = .now) {
         guard let nodes = nodeCache.nodes(ifChanged: inputs, now: now) else { return }
+        if let focusedWorkspaceID = inputs.localWorkspaces.first(where: \.isSelected)?.id,
+           let selectedCloudWorkspaceNodeID = Self.selectedCloudWorkspaceNodeID(
+               in: nodes, focusedWorkspaceID: focusedWorkspaceID
+           ) {
+            selectedNodeID = selectedCloudWorkspaceNodeID
+        }
         apply(nodes: CloudTreeCreateActionBuilder.add(to: nodes))
     }
 }
