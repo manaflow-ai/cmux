@@ -57,6 +57,8 @@ pub struct TabState {
     /// Requests in flight, for the Network events after their first.
     pub requests: HashMap<String, super::network::OpenRequest>,
     pub request_order: std::collections::VecDeque<String>,
+    /// The newest responses' (URL, remote IP address), for net.fetch.
+    pub responses: std::collections::VecDeque<(String, String)>,
     /// Out-of-process frames: frame id -> its own CDP session.
     pub frame_sessions: HashMap<String, String>,
     /// Loader of the main frame's current document.
@@ -93,6 +95,7 @@ impl TabState {
             agent_ready: HashSet::new(),
             requests: HashMap::new(),
             request_order: std::collections::VecDeque::new(),
+            responses: std::collections::VecDeque::new(),
             frame_sessions: HashMap::new(),
             loader: None,
             lifecycle: HashSet::new(),

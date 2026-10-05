@@ -243,7 +243,9 @@ impl Host {
             capabilities.push("secret.insert".into());
         }
         let gate = Arc::new(
-            Gate::new(driver, Grants { raw_cdp })
+            // A relay session (origin remote) is not on the browser's
+            // machine: loopback and private ranges are refused to it.
+            Gate::new(driver, Grants { raw_cdp, remote: caller.origin == "remote" })
                 .with_tab_secrets(self.tab_secrets.clone())
                 // The session name is the lease session (LeaseCaller.session).
                 .with_input_events(&name, sink),

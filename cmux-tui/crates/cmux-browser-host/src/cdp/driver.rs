@@ -210,6 +210,7 @@ impl Driver for CdpDriver {
             "input.insertText" => inner.insert_text(params),
             "tab.screenshot" => inner.screenshot(params),
             "tab.pdf" => inner.pdf(params),
+            "net.fetch" => inner.net_fetch(params),
             "dialog.respond" => inner.dialog_respond(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),

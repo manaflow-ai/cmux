@@ -10,6 +10,9 @@ use serde_json::{Map, Value, json};
 /// Requests a tab remembers until they finish or fail (the oldest go first).
 const MAX_OPEN_REQUESTS: usize = 1000;
 
+/// Responses a tab remembers the address of (net.fetch's rebinding check).
+const MAX_RESPONSES: usize = 256;
+
 /// What a request's later events need from its first one.
 #[derive(Debug, Clone)]
 pub struct OpenRequest {
@@ -56,8 +59,17 @@ pub fn event(
             ("request", payload)
         }
         "Network.responseReceived" => {
-            let open = tab.requests.get(&request_id)?;
             let response = &params["response"];
+            if let (Some(url), Some(ip)) = (
+                response.get("url").and_then(Value::as_str),
+                response.get("remoteIPAddress").and_then(Value::as_str),
+            ) {
+                if tab.responses.len() >= MAX_RESPONSES {
+                    tab.responses.pop_front();
+                }
+                tab.responses.push_back((url.to_owned(), ip.to_owned()));
+            }
+            let open = tab.requests.get(&request_id)?;
             let mut payload = payload(&request_id, open);
             payload.insert("status".into(), response.get("status").cloned().unwrap_or(json!(0)));
             payload.insert("headers".into(), response.get("headers").cloned().unwrap_or(json!({})));
