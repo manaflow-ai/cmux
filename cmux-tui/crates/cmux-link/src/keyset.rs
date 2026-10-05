@@ -86,18 +86,62 @@ pub fn read_answer(
     headers: &[(String, String)],
     body: &[u8],
 ) -> Result<Keyset, KeysetRefused> {
-        // RED: not implemented yet.
-        let _ = (status, headers, body);
-        Err(KeysetRefused::Unavailable)
+    if status == 429 {
+        let retry_after = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("retry-after"))
+            .and_then(|(_, value)| value.trim().parse::<u64>().ok())
+            .filter(|seconds| *seconds > 0)
+            .map_or(DEFAULT_RETRY_AFTER, Duration::from_secs);
+        return Err(KeysetRefused::RateLimited { retry_after });
     }
+    if status != 200 {
+        return Err(KeysetRefused::Unavailable);
+    }
+    let body: Value = serde_json::from_slice(body).map_err(|_| KeysetRefused::Malformed)?;
+    if body.get("ok") != Some(&Value::Bool(true)) {
+        return Err(KeysetRefused::Malformed);
+    }
+    read_keyset(body.get("value").ok_or(KeysetRefused::Malformed)?)
+}
 
 /// Read a keyset value (`{version, keys}`): the `value` of a keyset answer,
 /// or the `keyset` of the bind answer.
 pub fn read_keyset(value: &Value) -> Result<Keyset, KeysetRefused> {
-        // RED: not implemented yet.
-        let _ = value;
-        Err(KeysetRefused::Malformed)
+    let version = value.get("version").and_then(Value::as_str).ok_or(KeysetRefused::Malformed)?;
+    if version.len() != 16 || !version.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err(KeysetRefused::Malformed);
     }
+    let entries = value.get("keys").and_then(Value::as_object).ok_or(KeysetRefused::Malformed)?;
+    if entries.is_empty() {
+        return Err(KeysetRefused::Malformed);
+    }
+    if entries.len() > MAX_KIDS {
+        return Err(KeysetRefused::TooManyKids);
+    }
+    let mut keys = BTreeMap::new();
+    for (kid, key) in entries {
+        if !valid_kid(kid) {
+            return Err(KeysetRefused::Malformed);
+        }
+        let key = key.as_object().ok_or(KeysetRefused::Malformed)?;
+        let field = |name: &str| key.get(name).and_then(Value::as_str);
+        if field("kty") != Some("OKP")
+            || field("crv") != Some("Ed25519")
+            || field("alg") != Some("EdDSA")
+            || field("kid") != Some(kid.as_str())
+            || key.contains_key("d")
+        {
+            return Err(KeysetRefused::BadKey);
+        }
+        let x = field("x").filter(|x| x.len() == 43).ok_or(KeysetRefused::BadKey)?;
+        let bytes = URL_SAFE_NO_PAD.decode(x).map_err(|_| KeysetRefused::BadKey)?;
+        let public: [u8; 32] = bytes.try_into().map_err(|_| KeysetRefused::BadKey)?;
+        keys.insert(kid.clone(), public);
+    }
+    Ok(Keyset { version: version.to_string(), keys })
+}
 
 /// A kid of 1 to 64 characters from `A-Z a-z 0-9 . _ -`.
 fn valid_kid(kid: &str) -> bool {
@@ -153,33 +197,52 @@ impl KeysetRefresh {
     /// The one deadline to wait for: the daily deadline, or the end of a
     /// 429 hold when that is later.
     pub fn next_wakeup(&self) -> Instant {
-        // RED: not implemented yet.
-        self.next_daily
+        self.hold_until.map_or(self.next_daily, |hold| hold.max(self.next_daily))
     }
 
     /// The daily deadline fired at `now`: true to fetch. The deadline moves
     /// to the next day (once, past `now`); a 429 hold defers the fetch to
     /// the end of the hold without arming a second timer.
     pub fn on_daily_deadline(&mut self, now: Instant) -> bool {
-        // RED: not implemented yet.
-        let _ = now;
-        false
+        if now < self.next_wakeup() {
+            return false;
+        }
+        while self.next_daily <= now {
+            self.next_daily += REFRESH_PERIOD;
+        }
+        true
     }
 
     /// A token named `kid`, which the held keyset does not have: true to
     /// fetch now (at most once per [`UNKNOWN_KID_INTERVAL`], never during a
     /// 429 hold).
     pub fn on_unknown_kid(&mut self, kid: &str, now: Instant) -> bool {
-        // RED: not implemented yet.
-        let _ = (kid, now, self.last_unknown_kid_fetch, self.hold_until);
+        if self.held.keys.contains_key(kid) || self.hold_until.is_some_and(|hold| now < hold) {
+            return false;
+        }
+        if self
+            .last_unknown_kid_fetch
+            .is_some_and(|last| now.saturating_duration_since(last) < UNKNOWN_KID_INTERVAL)
+        {
+            return false;
+        }
+        self.last_unknown_kid_fetch = Some(now);
         true
     }
 
     /// Apply the answer of a fetch made at `now`. Only an accepted keyset
     /// replaces the held one; a 429 holds every fetch for its `retry-after`.
     pub fn apply(&mut self, read: Result<Keyset, KeysetRefused>, now: Instant) {
-        // RED: not implemented yet.
-        let _ = (read, now);
+        match read {
+            Ok(keyset) => {
+                self.held = keyset;
+                self.hold_until = None;
+            }
+            Err(KeysetRefused::RateLimited { retry_after }) => {
+                self.hold_until = Some(now + retry_after);
+            }
+            Err(_) => {}
+        }
     }
 }
 
