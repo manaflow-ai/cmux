@@ -37,6 +37,10 @@ final class TabContentCache {
     /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
     /// apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    /// How long a leave capture may take before its thumbnail is dropped
+    /// (the capture runs on the main thread). Tests that do not test this
+    /// deadline use the shared 30 s test configuration.
+    var pageCaptureDeadline: Duration = .seconds(2)
     /// Pages revealed since their last hide: the next hide captures their
     /// thumbnail (`TabContentCache+Lifecycle`).
     var shownPages: Set<String> = []
