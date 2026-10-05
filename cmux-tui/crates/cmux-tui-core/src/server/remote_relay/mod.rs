@@ -142,17 +142,28 @@ impl Mux {
     /// lock is poisoned (fail closed); the connection loop then closes the
     /// stream before its first frame.
     ///
-    /// Lock order: revocation, then peers. The revocation lock is held while
-    /// the peer is added, so a concurrent revoke either sees the new stream
-    /// (and closes it) or runs first (and this refuses it).
+    /// Lock order: revocation, then bindings, then peers (each of the last
+    /// two alone). The revocation lock is held while the peer is added, so a
+    /// concurrent revoke either sees the new stream (and closes it) or runs
+    /// first (and this refuses it). The binding goes first: a refused peer
+    /// insert removes it again, so a refusal leaves no record, and nothing
+    /// here panics while the revocation lock is held.
     pub(crate) fn bind_remote_peer(&self, client: u64, peer: &LinkPeer) -> Result<(), BindRefused> {
         let relay = self.remote_relay();
         let revocation = lock_checked(&relay.revocation, RelayLock::Revocation)?;
         if revocation.policy(&peer.install) != StreamPolicy::Serve {
             return Err(BindRefused::Policy);
         }
-        lock_checked(&relay.peers, RelayLock::Peers)?.insert(client, peer.clone());
-        self.bind_conversation_principal(client, remote_participant(&peer.install));
+        self.bind_conversation_principal(client, remote_participant(&peer.install))?;
+        match lock_checked(&relay.peers, RelayLock::Peers) {
+            Ok(mut peers) => {
+                peers.insert(client, peer.clone());
+            }
+            Err(error) => {
+                self.unbind_conversation_principal(client);
+                return Err(error.into());
+            }
+        }
         drop(revocation);
         Ok(())
     }
@@ -185,7 +196,8 @@ impl Mux {
         if !self.control_clients.is_unix(client) {
             return None;
         }
-        Some(match self.bound_conversation_participant(client) {
+        // A poisoned bindings lock gives no principal, never `user_local`.
+        Some(match self.bound_conversation_participant(client).ok()? {
             Some(participant) => Principal::Agent(participant),
             None => Principal::Local,
         })

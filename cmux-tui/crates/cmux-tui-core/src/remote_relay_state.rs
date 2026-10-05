@@ -95,6 +95,15 @@ impl Revocation {
         self.checks.insert(install.to_string(), InstallCheck::Revoked);
     }
 
+    /// The time of `install`'s last good check (tests).
+    #[cfg(test)]
+    pub(crate) fn good_check_time(&self, install: &str) -> Option<Instant> {
+        match self.checks.get(install) {
+            Some(InstallCheck::Good(at)) => Some(*at),
+            _ => None,
+        }
+    }
+
     /// The policy of `install` at the current clock. An install that was
     /// never checked is closed (fail closed).
     pub(crate) fn policy(&self, install: &str) -> StreamPolicy {
@@ -122,6 +131,8 @@ pub enum RelayLock {
     Pairing,
     Revocation,
     Clients,
+    /// The conversation bindings (client to agent participant).
+    Bindings,
 }
 
 /// Why a remote-relay admission or revocation step did not run as asked.
