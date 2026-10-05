@@ -35047,6 +35047,27 @@ export default {
         return false
     }
 
+    private func withCodexConfigMutationLock<T>(
+        at configPath: String,
+        _ operation: () throws -> T
+    ) throws -> T {
+        let lockPath = configPath + ".cmux-lock"
+        let descriptor = Darwin.open(
+            lockPath,
+            O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        guard descriptor >= 0 else {
+            throw CLIError(message: "Failed to open Codex config lock: \(lockPath)")
+        }
+        defer { Darwin.close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            throw CLIError(message: "Failed to lock Codex config: \(configPath)")
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+        return try operation()
+    }
+
     private func installAgentHooks(_ def: AgentHookDef) throws {
         try Self.validateHookInstallDispatch(for: def)
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
@@ -35290,38 +35311,40 @@ export default {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                let existingContent: String
-                if fm.fileExists(atPath: configPath) {
-                    existingContent = try String(contentsOfFile: configPath, encoding: .utf8)
-                } else {
-                    existingContent = ""
-                }
-                let trustInstall = CmuxCodexConfigEditor().installingHooks(
-                    in: existingContent,
-                    trustEntries: codexHookTrustEntries,
-                    removingKeyPrefixes: codexHookTrustKeyPrefixes,
-                    removingTrustedHashes: codexLegacyHookTrustHashes
-                )
-                let newContent = trustInstall.content
-                if newContent != existingContent {
-                    if !skipConfirm {
-                        Self.printInstallPreview(
-                            path: configPath,
-                            oldContent: existingContent,
-                            newContent: newContent,
-                            fallbackContent: newContent
-                        )
-                        print("\nProceed? [y/N] ", terminator: "")
-                        guard readLine()?.lowercased().hasPrefix("y") == true else {
-                            print("Aborted (\(configPath) unchanged).")
-                            return
-                        }
-                    }
-                    try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
-                        print("Enabled hooks and approved cmux hooks in \(configPath)")
+                try withCodexConfigMutationLock(at: configPath) {
+                    let existingContent: String
+                    if fm.fileExists(atPath: configPath) {
+                        existingContent = try String(contentsOfFile: configPath, encoding: .utf8)
                     } else {
-                        print("Enabled hooks in \(configPath)")
+                        existingContent = ""
+                    }
+                    let trustInstall = CmuxCodexConfigEditor().installingHooks(
+                        in: existingContent,
+                        trustEntries: codexHookTrustEntries,
+                        removingKeyPrefixes: codexHookTrustKeyPrefixes,
+                        removingTrustedHashes: codexLegacyHookTrustHashes
+                    )
+                    let newContent = trustInstall.content
+                    if newContent != existingContent {
+                        if !skipConfirm {
+                            Self.printInstallPreview(
+                                path: configPath,
+                                oldContent: existingContent,
+                                newContent: newContent,
+                                fallbackContent: newContent
+                            )
+                            print("\nProceed? [y/N] ", terminator: "")
+                            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                                print("Aborted (\(configPath) unchanged).")
+                                return
+                            }
+                        }
+                        try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
+                        if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
+                            print("Enabled hooks and approved cmux hooks in \(configPath)")
+                        } else {
+                            print("Enabled hooks in \(configPath)")
+                        }
                     }
                 }
             }
@@ -35532,22 +35555,24 @@ export default {
             switch action {
             case .codexConfigToml:
                 let configPath = "\(configDir)/config.toml"
-                guard fm.fileExists(atPath: configPath) else { return }
-                let content: String
-                do {
-                    content = try String(contentsOfFile: configPath, encoding: .utf8)
-                } catch {
-                    throw CLIError(message: "\(configPath) exists but could not be read. Fix permissions or remove it before uninstalling \(def.displayName) hooks. \(String(describing: error))")
-                }
-                let newContent = CmuxCodexConfigEditor().uninstallingHooks(
-                    from: content,
-                    removingHookTrustEntries: codexHookTrustEntriesToRemove,
-                    removingKeyPrefixes: codexHookTrustKeyPrefixesToRemove,
-                    removingTrustedHashes: codexStaleHookTrustHashesToRemove
-                )
-                if newContent != content {
-                    try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    print("Removed Codex hooks feature from \(configPath)")
+                try withCodexConfigMutationLock(at: configPath) {
+                    guard fm.fileExists(atPath: configPath) else { return }
+                    let content: String
+                    do {
+                        content = try String(contentsOfFile: configPath, encoding: .utf8)
+                    } catch {
+                        throw CLIError(message: "\(configPath) exists but could not be read. Fix permissions or remove it before uninstalling \(def.displayName) hooks. \(String(describing: error))")
+                    }
+                    let newContent = CmuxCodexConfigEditor().uninstallingHooks(
+                        from: content,
+                        removingHookTrustEntries: codexHookTrustEntriesToRemove,
+                        removingKeyPrefixes: codexHookTrustKeyPrefixesToRemove,
+                        removingTrustedHashes: codexStaleHookTrustHashesToRemove
+                    )
+                    if newContent != content {
+                        try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
+                        print("Removed Codex hooks feature from \(configPath)")
+                    }
                 }
             }
         }
