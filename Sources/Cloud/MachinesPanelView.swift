@@ -4,6 +4,7 @@ import AppKit
 import CmuxCloudMachines
 import CmuxSettings
 import CmuxSurfaceCatalogModel
+import Combine
 import SwiftUI
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
@@ -24,6 +25,9 @@ struct MachinesPanelView: View {
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
     @State private var bannerDismissals: CloudBannerDismissalStore
+    /// The owning window's selection stream lets the Cloud tree update before
+    /// the next machine/catalog refresh arrives.
+    @State private var selectedWorkspacePublisher: AnyPublisher<UUID?, Never>
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -45,6 +49,10 @@ struct MachinesPanelView: View {
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
         self.activationCoordinator = activationCoordinator
+        _selectedWorkspacePublisher = State(initialValue:
+            tabManager?.selectedTabIdPublisher.eraseToAnyPublisher()
+                ?? Just(nil).eraseToAnyPublisher()
+        )
         _bannerDismissals = State(
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
@@ -122,6 +130,9 @@ struct MachinesPanelView: View {
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
         }
+        .onReceive(selectedWorkspacePublisher) { selectedWorkspaceID in
+            viewModel.refreshLocalWorkspaces(selectedWorkspaceID: selectedWorkspaceID)
+        }
         .onDisappear {
             viewModel.stopPolling()
             viewModel.cancelCloudAgentTask()
@@ -142,7 +153,13 @@ struct MachinesPanelView: View {
                 billingPlanLoaded = false
                 return
             }
-            billingPlanLoaded = false
+            // The panel is rebuilt whenever the sidebar switches modes. Start
+            // from the account's last answer so Enable Cloud / Upgrade stays
+            // on screen while it refreshes, instead of flashing "Checking…".
+            billingPlanLoaded = accountFlow.hasLoadedBillingPlan
+            // The enable action is available while the entitlement is unknown.
+            // The response itself is the synchronization event.
+            billingPlanLoaded = true
             await accountFlow.refreshBillingPlan()
             guard !Task.isCancelled,
                   accountFlow.isAuthenticated,
@@ -221,6 +238,7 @@ struct MachinesPanelView: View {
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
+            treeHint: viewModel.treeHint,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
             onDismissTreeError: { error in
                 bannerDismissals.dismiss(id: "machines.tree-error", signature: error)
@@ -382,6 +400,12 @@ struct MachinesPanelView: View {
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
+            },
+            onRename: { [weak viewModel] machine, label in
+                viewModel?.beginOptimisticRename(id: machine.id, label: label)
+            },
+            onRenameDidComplete: { [weak viewModel] in
+                viewModel?.finishOptimisticRename()
             }
         )
         // The list endpoint is authoritative for the caller's plan-sized
@@ -402,6 +426,7 @@ struct MachinesPanelView: View {
             },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
+            onHint: { [weak viewModel] hint in viewModel?.noteTreeHint(hint) },
             refresh: { refreshMachines() },
             refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
             workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
@@ -445,11 +470,11 @@ struct MachinesPanelView: View {
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
-                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(), isRefreshing: devicesModel.isRefreshing
             ),
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             canCreateCloudMachine: includesCloud,
-            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
+            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil, cloudMachinesRefresh: includesCloud ? .init(isRefreshing: viewModel.isRefreshingOnRequest || viewModel.isRenamingMachine) : nil,
             reveal: devicesModel.revealRequest,
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
@@ -464,7 +489,7 @@ struct MachinesPanelView: View {
                 Image(systemName: "desktopcomputer")
                     .font(.system(size: 30, weight: .light))
                     .foregroundStyle(.secondary)
-                Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
+                Text(String(localized: "devices.empty.title", defaultValue: "No other devices yet"))
                     .font(.callout.weight(.medium))
                 Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
                     .font(.callout)
@@ -501,7 +526,7 @@ struct MachinesPanelView: View {
                     Text(String(localized: "machines.empty.create", defaultValue: "New Machine"))
                         .cmuxFont(size: 12)
                 }
-                .buttonStyle(.borderedProminent)
+                .cloudProminentButtonStyle()
                 .controlSize(.small)
                 .padding(.top, 2)
                 if let plan = viewModel.plan, !plan.isPaidPlan {

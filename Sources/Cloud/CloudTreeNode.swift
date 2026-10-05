@@ -68,8 +68,8 @@ final class CloudTreeNode: NSObject {
         case devicesSection(CloudTreeDevicesSection)
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its
         /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
-        /// header stands alone; `usage` is the plan's machine count, nil until it loads.
-        case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil)
+        /// header stands alone; `usage` is the plan's count (nil until it loads), `refresh` its refresh icon.
+        case cloudMachinesSection(canCreateMachine: Bool, usage: CloudMachinesUsage? = nil, refresh: CloudTreeSectionRefresh? = nil)
         case createAction(CloudTreeCreateAction)
         /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
@@ -238,7 +238,7 @@ final class CloudTreeNode: NSObject {
         case .machineDetailTabs, .machineEndSpacer: return ""
         case .devicesEmpty(let section):
             return section.count == 0
-                ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+                ? String(localized: "devices.empty.title", defaultValue: "No other devices yet")
                 : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }
@@ -874,8 +874,8 @@ enum CloudTreeNodeBuilder {
                 children.append(CloudTreeNode(
                     id: nodeID(displaysPool: machine),
                     kind: .displaysPool(machine: machine, count: displays.count, canCreate: snapshot.displayCreationMachines?.contains(machine) == true),
-                    children: displays.isEmpty
-                        ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
+                    children: (displays.isEmpty
+                        ? (snapshot.pendingDisplayCreations?.contains(machine) == true ? [] : [CloudMachineSurfacePresentation.emptyDisplays(info: info)])
                         : displays.map {
                             CloudTreeNode(
                                 id: nodeID(resource: $0.id),
@@ -885,10 +885,10 @@ enum CloudTreeNodeBuilder {
                                     remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
                                 )
                             )
-                        }
+                        }) + pendingDisplayRows(machine: machine, snapshot: snapshot)
                 ))
             }
-            if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
+            if info.linkState == .connecting || info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
                 children.append(terminalsGroupNode(
                     machine: machine,
                     terminals: terminals,
@@ -904,6 +904,13 @@ enum CloudTreeNodeBuilder {
         // snapshot, so device rows carry no Resources group.
         if let machineSnapshot {
             children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
+        } else if info?.linkState == .connecting {
+            // Keep the stable Resources control while a machine reconnects.
+            // Telemetry is unavailable until the VM snapshot arrives, so the
+            // group is intentionally empty and does not imply stale readings.
+            let placeholder = MachineSnapshot(
+                id: machine.rawValue, provider: "", image: "", isDesktop: false, activity: .pending)
+            children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: placeholder, now: now))
         }
         return children
     }
@@ -920,7 +927,11 @@ enum CloudTreeNodeBuilder {
         for workspace in info.remoteWorkspaces ?? [] {
             byWorkspace[workspace.id] = RemoteWorkspaceRows(workspace: workspace)
         }
-        for resource in snapshot.cloudWorkspaceResources(on: machine) {
+        // One list for both passes: the membership copies of member displays
+        // are what tell the local-pane pass a display is already listed. With
+        // the pool resources alone, a New Display pane showed as two rows.
+        let workspaceResources = snapshot.cloudWorkspaceResources(on: machine)
+        for resource in workspaceResources {
             for placement in remotePlacements(of: resource) {
                 var rows = byWorkspace[placement.workspace.id] ?? RemoteWorkspaceRows(workspace: placement.workspace)
                 switch resource.kind {
@@ -931,7 +942,7 @@ enum CloudTreeNodeBuilder {
                 byWorkspace[placement.workspace.id] = rows
             }
         }
-        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: snapshot.projections) {
+        for member in SurfaceProjection.localWorkspaceMembers(resources: workspaceResources, projections: snapshot.projections) {
             guard var rows = byWorkspace[member.workspaceID] else { continue }
             let placement = RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil)
             if member.resource.kind == .browser { rows.browsers.append(placement) }
@@ -1168,6 +1179,19 @@ enum CloudTreeNodeBuilder {
                 hiddenTabCount: hiddenTabCount
             ))
         )
+    }
+
+    /// The optimistic row for a guest display creation still in flight.
+    private static func pendingDisplayRows(machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
+        guard snapshot.pendingDisplayCreations?.contains(machine) == true else { return [] }
+        return [CloudTreeNode(
+            id: "\(nodeID(displaysPool: machine))/pending-display",
+            kind: .placeholder(machine: machine, CloudTreePlaceholder(
+                text: String(localized: "cloudTree.displays.starting", defaultValue: "Starting display…"),
+                style: .connecting,
+                opensMachine: false
+            ))
+        )]
     }
 
     private static func placeholder(

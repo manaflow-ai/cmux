@@ -4411,6 +4411,10 @@
       "de": "\"Desktop\" is the established German loanword, spelled identically."
     }
   },
+  "browser.repl.sessionTabTitle": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
   "cli.help.agents.messages": {
     "source": "agent messages [on|off|status] [<target>] [--workspace]",
     "identityLocales": {
@@ -4737,6 +4741,20 @@
           "Loading your Cloud machine plan…"
         ]
       }
+    }
+  },
+  "surfaceTabBar.compact.menu.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "surfaceTabBar.compact.menu.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   }
 }

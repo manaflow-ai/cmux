@@ -2375,8 +2375,12 @@ struct BrowserPanelView: View {
         .accessibilityIdentifier("BrowserImportHintDismissButton")
     }
 
+    /// The browser-import hint scans other browsers' data directories, which
+    /// macOS guards as other apps' data. A tab a REPL session drives is never
+    /// a user's new-tab page (it opens blank, then navigates), so it never
+    /// shows the hint or runs that scan.
     private var shouldShowEmptyStateImportOverlay: Bool {
-        panel.isShowingNewTabPage
+        panel.isShowingNewTabPage && BrowserReplTabAttachments.shared.attachment(for: panel.id) == nil
     }
 
     private func presentImportDialogFromHint() {
@@ -7697,6 +7701,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView: webView,
                 reason: "portalHostBind.didMoveToWindow"
             )
+            browserPanel.focusPendingContentAfterAttachment()
             schedulePortalLifecycleVisibilityUpdate(
                 coordinator: coordinator, host: host, generation: generation,
                 visibleInUI: true, reason: "portal.didMoveToWindow.visible"

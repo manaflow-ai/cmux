@@ -81,8 +81,8 @@ test("Pro cannot bypass the memory gate with unknown snapshot or fork dimensions
   for (const program of [
     forkVm({ ...caller, providerVmId: "vm" }).pipe(Effect.asVoid),
     restoreVm({ ...caller, provider: "freestyle", snapshotId: "snapshot" }).pipe(Effect.asVoid),
-    createVm({ ...caller, provider: "freestyle", image: "snapshot", memoryMb: 16384,
-      imageSize: { name: "xl", cpu: 8, memoryMb: 32768, storageMb: 131072 } }).pipe(Effect.asVoid),
+    createVm({ ...caller, provider: "freestyle", image: "snapshot", memoryMb: 65536,
+      imageSize: { name: "2xl", cpu: 32, memoryMb: 65536, storageMb: 131072 } }).pipe(Effect.asVoid),
   ]) {
     try {
       await Effect.runPromise(program.pipe(Effect.provide(layer)));
@@ -107,14 +107,14 @@ test("access verbs refuse a machine larger than the caller's current plan", asyn
       .pipe(Effect.provide(layer)))
       .then(() => null, (error) => vmWorkflowErrorCause(error)?._tag ?? "unknown");
   };
-  // A 24 GB machine made under the old Pro ceiling is locked on Pro.
-  expect(await run("pro", { memoryMb: 24576, vcpus: 6, diskMb: 98304 })).toBe("VmMemoryPlanError");
+  // A 64 GB Max machine is locked on Pro.
+  expect(await run("pro", { memoryMb: 65536, vcpus: 32, diskMb: 131072 })).toBe("VmMemoryPlanError");
   // CPU above the plan also locks an 8 GB machine.
-  expect(await run("pro", { memoryMb: 8192, vcpus: 6, diskMb: 32768 })).toBe("VmMemoryPlanError");
-  expect(await run("team", { memoryMb: 16384, vcpus: 4, diskMb: 65536 })).toBe("VmMemoryPlanError");
-  // A 64 GB machine is above every plan, Max included.
-  expect(await run("max", { memoryMb: 65536, vcpus: 16, diskMb: 131072 })).toBe("VmMemoryPlanError");
+  expect(await run("pro", { memoryMb: 8192, vcpus: 20, diskMb: 32768 })).toBe("VmMemoryPlanError");
+  expect(await run("team", { memoryMb: 65536, vcpus: 16, diskMb: 131072 })).toBe("VmMemoryPlanError");
+  // CPU above Max's 2xl row is above every plan.
+  expect(await run("max", { memoryMb: 65536, vcpus: 40, diskMb: 131072 })).toBe("VmMemoryPlanError");
   // Machines inside the plan pass.
-  expect(await run("pro", { memoryMb: 8192, vcpus: 4, diskMb: 32768 })).toBeNull();
-  expect(await run("max", { memoryMb: 32768, vcpus: 16, diskMb: 131072 })).toBeNull();
+  expect(await run("pro", { memoryMb: 32768, vcpus: 16, diskMb: 131072 })).toBeNull();
+  expect(await run("max", { memoryMb: 65536, vcpus: 32, diskMb: 131072 })).toBeNull();
 });

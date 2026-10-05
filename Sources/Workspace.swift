@@ -422,6 +422,7 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        trackRestoredAgentNotifications(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
         // Record the identity remap for the agent journal: events journaled
         // against the previous run's runtime workspace/panel UUIDs re-attach
         // to the restored panels during replay through these aliases.
@@ -2838,6 +2839,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
+    /// True when `cmux.json` does not configure surface tab bar buttons, so
+    /// the pane tab bars show ``CompactSurfaceTabBarCluster`` instead.
+    private(set) var surfaceTabBarUsesCompactCluster = false
     private var featureFlagsObserver: NSObjectProtocol?
     private var browserAvailabilityObserver: NSObjectProtocol?
 
@@ -3033,6 +3037,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
+    /// Transient labels an automation session puts in front of a panel's
+    /// title (`<label> · <title>`); never persisted, and a custom title wins.
+    var panelAutomationLabels: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     var pinMutationTokensByPanelId: [UUID: UUID] = [:]
     let panelUnread = WorkspacePanelUnreadModel()
@@ -3317,6 +3324,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Restored notifications of panes whose agent died with the previous app
+    /// process; pruned by `pruneOrphanedRestoredAgentNotifications(store:)`.
+    var restoredAgentNotificationIdsByPanelId: [UUID: Set<UUID>] = [:]
     /// Journals agent sessions ended by closing their terminal. Tests point it
     /// at a private journal.
     var agentSessionCloseJournal = AgentSessionCloseJournal()
@@ -4559,7 +4569,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         globalConfigPath: String,
         settingPresets: [String: CmuxSettingValue] = [:],
         terminalCommandSourcePaths: [String: String],
-        workspaceCommands: [String: CmuxResolvedCommand]
+        workspaceCommands: [String: CmuxResolvedCommand],
+        usesCompactCluster: Bool = false
     ) {
         surfaceTabBarButtonConfiguration = SurfaceTabBarButtonConfiguration(
             buttons: buttons,
@@ -4567,8 +4578,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             globalConfigPath: globalConfigPath,
             settingPresets: settingPresets,
             terminalCommandSourcePaths: terminalCommandSourcePaths,
-            workspaceCommands: workspaceCommands
+            workspaceCommands: workspaceCommands,
+            usesCompactCluster: usesCompactCluster
         )
+        surfaceTabBarUsesCompactCluster = usesCompactCluster
         let buttons = buttons.filter { button in
             guard case .builtIn(let builtInAction) = button.action else { return true }
             return Self.surfaceTabBarBuiltInActionIsAvailable(builtInAction)
@@ -4627,7 +4640,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         surfaceTabBarButtonSourcePath = sourcePath
         surfaceTabBarButtonGlobalConfigPath = globalConfigPath
 
-        let bonsplitButtons = buttons.map { button in
+        let configuredBonsplitButtons: [BonsplitConfiguration.SplitActionButton] = buttons.map { button in
             let executable = executableButtons[button.id]
             let allowProjectLocalIcon = executable.map {
                 CmuxConfigExecutor.isTrustedSurfaceButton(
@@ -4644,10 +4657,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 allowProjectLocalIcon: allowProjectLocalIcon
             )
         }
+        // Without a user list, the compact cluster replaces the four default
+        // buttons. Built-in actions stay reachable through their shortcuts and
+        // the command palette either way.
+        let bonsplitButtons = usesCompactCluster
+            ? CompactSurfaceTabBarCluster.bonsplitButtons(
+                for: .standard,
+                availability: compactSurfaceTabBarAvailability()
+            )
+            : configuredBonsplitButtons
         var configuration = bonsplitController.configuration
-        guard configuration.appearance.splitButtons != bonsplitButtons else { return }
-        configuration.appearance.splitButtons = bonsplitButtons
-        bonsplitController.configuration = configuration
+        if configuration.appearance.splitButtons != bonsplitButtons {
+            configuration.appearance.splitButtons = bonsplitButtons
+            bonsplitController.configuration = configuration
+        }
+        refreshCompactSurfaceTabBarButtons()
     }
 
     private func reapplySurfaceTabBarButtonsForFeatureFlags() {
@@ -4658,7 +4682,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             globalConfigPath: configuration.globalConfigPath,
             settingPresets: configuration.settingPresets,
             terminalCommandSourcePaths: configuration.terminalCommandSourcePaths,
-            workspaceCommands: configuration.workspaceCommands
+            workspaceCommands: configuration.workspaceCommands,
+            usesCompactCluster: configuration.usesCompactCluster
         )
     }
 
@@ -5181,6 +5206,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   let browserPanel = browserPanel,
                   let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
+            if self.surfaceTabBarUsesCompactCluster,
+               let paneId = self.bonsplitController.paneId(containing: tabId) {
+                self.refreshCompactSurfaceTabBarButtons(inPane: paneId)
+            }
             guard let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
             if self.panelTitles[browserPanel.id] != nextTitle {
@@ -5518,7 +5547,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            !custom.isEmpty {
             return custom
         }
+        if let label = panelAutomationLabels[panelId] {
+            let format = String(localized: "browser.repl.sessionTabTitle", defaultValue: "%1$@ · %2$@")
+            return String(format: format, label, fallbackTitle)
+        }
         return fallbackTitle
+    }
+
+    /// Sets or clears (`nil`/empty) the automation label shown before a
+    /// panel's title, and refreshes its tab.
+    func setPanelAutomationLabel(panelId: UUID, label: String?) {
+        guard let panel = panels[panelId] else { return }
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let next: String? = trimmed.isEmpty ? nil : trimmed
+        guard panelAutomationLabels[panelId] != next else { return }
+        panelAutomationLabels[panelId] = next
+        _ = applyFocusedPanelTitle(panelId: panelId)
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        bonsplitController.updateTab(tabId, title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle))
     }
 
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
@@ -6725,6 +6772,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             refreshTrackedAgentPorts()
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredAgentNotificationIdsByPanelId = restoredAgentNotificationIdsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         surfaceResumeRestoreClaimsByPanelId = surfaceResumeRestoreClaimsByPanelId.filter {
@@ -11455,6 +11505,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             panelCustomTitleSources.removeValue(forKey: detached.panelId)
+            panelAutomationLabels.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
@@ -13701,6 +13752,9 @@ extension Workspace: BonsplitDelegate {
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        if surfaceTabBarUsesCompactCluster {
+            refreshCompactSurfaceTabBarButtons()
+        }
         tmuxOverlaySelectionRevision &+= 1
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         pendingTabSelection = PendingTabSelectionRequest(
@@ -14156,6 +14210,17 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
+            // Closing an unselected tab must not move selection to its
+            // neighbor: keep the tab the user was already using so an
+            // automation caller cleaning up another agent cannot steal
+            // keyboard input. Bonsplit itself keeps the selection here.
+            if let selectedTabId = controller.selectedTab(inPane: pane)?.id,
+               selectedTabId != tab.id,
+               tabs.contains(where: { $0.id == selectedTabId }) {
+                postCloseSelectTabId[tab.id] = selectedTabId
+                return
+            }
+
             let target: TabID? = {
                 if idx + 1 < tabs.count { return tabs[idx + 1].id }
                 if idx > 0 { return tabs[idx - 1].id }
@@ -14383,6 +14448,9 @@ extension Workspace: BonsplitDelegate {
         // without a didClosePane call; release projections of a split that
         // just left the model (#13387).
         releaseProvisionalSplitPaneGeometryForRemovedSplits()
+        if surfaceTabBarUsesCompactCluster {
+            refreshCompactSurfaceTabBarButtons()
+        }
         forceCloseTabIds.remove(tabId)
         tabStripCloseButtonByTabId.removeValue(forKey: tabId)
         let remoteTmuxWorkspaceCloseButton = remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
@@ -14560,6 +14628,7 @@ extension Workspace: BonsplitDelegate {
            bonsplitController.allPaneIds.contains(pane),
            bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
            bonsplitController.focusedPaneId == pane {
+            // selectTab also focuses the pane, so only call it for the focused pane.
             bonsplitController.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
         } else if let focusedPane = bonsplitController.focusedPaneId,
@@ -14791,6 +14860,11 @@ extension Workspace: BonsplitDelegate {
         // Same transaction as the tree update: no commit may show the split
         // pane's terminal over the new pane (#13387).
         applyProvisionalSplitPaneGeometry(originalPane: originalPane, newPane: newPane)
+        // A drag split moves a tab without a selection event; both panes may change kind.
+        if surfaceTabBarUsesCompactCluster {
+            refreshCompactSurfaceTabBarButtons(inPane: originalPane)
+            refreshCompactSurfaceTabBarButtons(inPane: newPane)
+        }
 #if DEBUG
         let originalSelectedKind = controller.selectedTab(inPane: originalPane).map { debugSplitPanelKind(forTabId: $0.id) } ?? "none"
         let newSelectedKind = controller.selectedTab(inPane: newPane).map { debugSplitPanelKind(forTabId: $0.id) } ?? "none"
@@ -15119,7 +15193,14 @@ extension Workspace: BonsplitDelegate {
             "pane=\(pane.id.uuidString.prefix(5)) identifier=\(identifier)"
         )
 #endif
+        if handleCompactSurfaceTabBarCustomAction(identifier, inPane: pane) {
+            return
+        }
         executeSurfaceTabBarCommandButton(identifier: identifier, inPane: pane)
+    }
+
+    func splitTabBar(_ controller: BonsplitController, menuForSplitActionButton buttonId: String, inPane pane: PaneID) -> NSMenu? {
+        compactSurfaceTabBarMenu(forButton: buttonId, inPane: pane)
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {

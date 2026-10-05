@@ -154,7 +154,7 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
         try Self.choose(Self.title("machines.menu.delete", "Delete\u{2026}"), in: menu)
-        #expect(recorder.deletions == [Self.machineID])
+        #expect(recorder.deletions.first.map { $0.id == Self.machineID && $0.name == "Big Machine" } == true)
         #expect(recorder.pinChanges.count == 1)
         #expect(recorder.pinChanges.first?.0 == Self.machineID)
         #expect(recorder.pinChanges.first?.1 == true)
@@ -622,9 +622,10 @@ struct CloudTreeMachineMenuTests {
 
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         try Self.choose(Self.title("cloudTree.menu.rename", "Rename\u{2026}"), in: menu)
-        #expect(recorder.renamedRemoteViews.count == 1)
-        #expect(recorder.renamedRemoteViews.first?.0 == desktop.id)
-        #expect(recorder.renamedRemoteViews.first?.1 == "tab-9")
+        // A display's name belongs to the display, shared by every row and pane
+        // that shows it, so Rename names the display rather than one view's tab.
+        #expect(recorder.renamedDisplays == [desktop.id])
+        #expect(recorder.renamedRemoteViews.isEmpty)
     }
 
     /// Another Mac's browser rows carry a tab, so "does this row have a tab"
@@ -884,8 +885,8 @@ struct CloudTreeMachineMenuTests {
             openShell: { _ in },
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
-            confirmDelete: { recorder.deletions.append($0) },
-            promptRename: { id, label in recorder.renamedMachines.append((id, label ?? "")) },
+            confirmDelete: { recorder.deletions.append((id: $0.id, name: $0.displayName)) },
+            promptRename: { machine in recorder.renamedMachines.append((machine.id, machine.displayName)) },
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
@@ -926,6 +927,9 @@ struct CloudTreeMachineMenuTests {
         actions.openWorkspace = { machine, workspace, group in
             recorder.openWorkspaces.append((machine: machine, workspace: workspace, group: group))
         }
+        actions.renameDisplay = { resource in
+            recorder.renamedDisplays.append(resource.id)
+        }
         return actions
     }
 }
@@ -936,7 +940,7 @@ struct CloudTreeMachineMenuTests {
 private final class CloudTreeMenuVerbRecorder {
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
-    var deletions: [String] = []
+    var deletions: [(id: String, name: String)] = []
     var projectRemoteViewCount = 0
     var ownerNavigations: [(machine: SurfaceMachineID, group: SurfaceResourceGroup, resource: SurfaceResourceID, view: SurfaceRemoteView?, openIn: UUID?)] = []
     var openWorkspaces: [(machine: SurfaceMachineID, workspace: SurfaceRemoteWorkspace, group: SurfaceResourceGroup)] = []
@@ -949,4 +953,5 @@ private final class CloudTreeMenuVerbRecorder {
     var networkEdits: [(String, String?)] = []
     var agentUpdateChanges: [(String, Bool)] = []
     var renamedRemoteViews: [(SurfaceResourceID, String)] = []
+    var renamedDisplays: [SurfaceResourceID] = []
 }

@@ -48,6 +48,11 @@ struct CloudBrowserAccessView<Content: View>: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("CloudDisplayRestoring")
+            } else if let message = state.starting {
+                ProgressView(message)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("CloudDisplayStarting")
             } else if let message = state.unavailable {
                 CloudBrowserConnectionCard(address: "", message: message, onRetry: state.unavailableRetryAction)
                     .ghosttyDialogTheme()
@@ -83,6 +88,7 @@ struct CloudBrowserAccessView<Content: View>: View {
         let state = panel.cloudAccess
         return state.unavailable != nil
             || state.isRestoring
+            || state.starting != nil
             || state.failureMessage != nil
             || (state.isDesktop && !state.showsPage)
     }

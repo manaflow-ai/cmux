@@ -32,9 +32,16 @@ extension CmuxTuiSurfaceProvider {
         try Task.checkCancellation()
         try catalog.validateOwnership(of: [resource.id], at: destination)
         guard isRegisteredInCatalog() else { throw CancellationError() }
-        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
+        let pane = try existingPane
+            ?? CloudDisplayPaneReservation.current?.pane(for: resource)
+            ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
+        }
+        if resource.kind == .display, let workspace = Workspace.liveWorkspace(id: pane.workspaceID) {
+            // The tab shows the display's name, not the noVNC page title.
+            workspace.setPanelCustomTitle(panelId: pane.panelID, title: resource.title,
+                                          source: .remote, propagateToCloud: false, catalog: catalog)
         }
         switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
         case .privateDirect(let raw):
@@ -217,8 +224,12 @@ extension CmuxTuiSurfaceProvider {
 #if DEBUG
                     cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
 #endif
+                    // Repair only a desktop the probe saw answer with an error. A probe
+                    // that timed out (a busy carrier) used to start this repair, a guest
+                    // exec of about 12s, on a healthy desktop: display 1 then showed
+                    // "Loading Cloud page" for 20s or more.
                     if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
-                       try await !CloudBrowserRouting.desktopIsReachable(endpoint: endpoint, address: address, port: port) {
+                       try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
                         try Task.checkCancellation()
                         guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }

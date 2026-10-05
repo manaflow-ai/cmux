@@ -25,6 +25,9 @@ final class CloudBrowserAccessState {
     var showsPorts = true
     private(set) var unavailable: String?
     private(set) var isRestoring = false
+    /// Set while the pane waits for its resource to exist (a guest display
+    /// still starting). Any route or failure replaces it.
+    private(set) var starting: String?
     private var unavailableRetry: (@MainActor (UInt64) async -> Void)?
     private var unavailableRetryTask: Task<Void, Never>?
     private var unavailableRetryGeneration: UInt64 = 0
@@ -41,10 +44,25 @@ final class CloudBrowserAccessState {
     private var activeNavigationID: ObjectIdentifier?
     @ObservationIgnored private let logID = UUID().uuidString
     @ObservationIgnored private var attempt = 0
+    /// Quiet retries for a route's first desktop connection. noVNC gives up
+    /// after an initial connect failure (its own reconnect only follows a
+    /// session that once connected), and a restored or new display can lose
+    /// that race while its proxy or guest listener is still starting.
+    @ObservationIgnored private let desktopRetry: MainActorDeferredActionScheduler
+    @ObservationIgnored private var desktopRetries = 0
+    @ObservationIgnored private var hasConnectedOnRoute = false
+    static let desktopRetryDelays: [Duration] = [.milliseconds(500), .seconds(1), .seconds(2)]
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         connectionDeadline = MainActorDeferredActionScheduler(clock: clock)
         restoreDeadline = MainActorDeferredActionScheduler(clock: clock)
+        desktopRetry = MainActorDeferredActionScheduler(clock: clock)
+    }
+
+    private func resetDesktopRetries() {
+        desktopRetry.cancel()
+        desktopRetries = 0
+        hasConnectedOnRoute = false
     }
 
     /// Route readiness belongs to the browser, including while its SwiftUI host
@@ -65,6 +83,7 @@ final class CloudBrowserAccessState {
         restoreFailureMessage = nil
         self.resourceID = resourceID
         self.model = model
+        starting = nil
         remoteURL = url
         // WebKit has already committed this URL. Retain that identity so the
         // delegate's finish/desktop callbacks are accepted without issuing a
@@ -78,6 +97,7 @@ final class CloudBrowserAccessState {
         dismissedFailure = nil
         desktopConnected = false
         connectionDeadline.cancel()
+        resetDesktopRetries()
         startDeadline()
         trace("route_adopted")
         observeRoute()
@@ -118,6 +138,11 @@ final class CloudBrowserAccessState {
             self.desktopFailure = String(localized: "cloud.display.connectionTimedOut", defaultValue: "The Cloud display did not connect within 45 seconds. Retry to reconnect.")
             self.trace("deadline")
         }
+    }
+
+    func showStarting(_ message: String) {
+        leave()
+        starting = message
     }
 
     func showUnavailable(_ message: String, retry: (@MainActor (UInt64) async -> Void)? = nil) {
@@ -239,10 +264,24 @@ final class CloudBrowserAccessState {
               let navigationURL, url == navigationURL else { return }
         if isConnected {
             connectionDeadline.cancel()
+            desktopRetry.cancel()
+            hasConnectedOnRoute = true
             loaded = true
             error = nil
             desktopFailure = nil
             dismissedFailure = nil
+        } else if !hasConnectedOnRoute, desktopRetries < Self.desktopRetryDelays.count, navigate != nil {
+            let delay = Self.desktopRetryDelays[desktopRetries]
+            desktopRetries += 1
+            desktopConnected = false
+            trace("rfb_retry")
+            desktopRetry.schedule(after: delay) { [weak self] in
+                guard let self, self.isDesktop, !self.desktopConnected, self.failureMessage == nil else { return }
+                // Reissue the same route: nextURL() skips an unchanged URL.
+                self.navigationURL = nil
+                if let url = self.nextURL() { self.navigate?(url) }
+            }
+            return
         } else {
             connectionDeadline.cancel()
             desktopFailure = String(localized: "cloud.portAccess.desktopDisconnected", defaultValue: "The Cloud desktop connection failed. Retry to reconnect to the machine.")
@@ -293,6 +332,7 @@ final class CloudBrowserAccessState {
             self.resourceID = resourceID
         }
         self.model = model
+        starting = nil
         remoteURL = url
         navigationURL = nil
         preservingCommittedRoute = false
@@ -304,6 +344,7 @@ final class CloudBrowserAccessState {
         desktopConnected = false
         activeNavigationID = nil
         connectionDeadline.cancel()
+        resetDesktopRetries()
         startDeadline()
         attempt += 1
         trace("configured")
@@ -399,6 +440,8 @@ final class CloudBrowserAccessState {
     func retry() {
         attempt += 1
         trace("retry")
+        // An explicit retry is a new first connection with its own quiet retries.
+        resetDesktopRetries()
         navigationURL = nil
         preservingCommittedRoute = false
         hasCommittedNavigation = false
@@ -446,6 +489,7 @@ final class CloudBrowserAccessState {
 
     func leave() {
         cancelUnavailableRetry()
+        resetDesktopRetries()
         observationGeneration &+= 1
         navigate = nil
         connectionDeadline.cancel()
@@ -456,6 +500,7 @@ final class CloudBrowserAccessState {
         unavailable = nil
         isRestoring = false
         restoreFailureMessage = nil
+        starting = nil
         model = nil
         remoteURL = nil
         navigationURL = nil
