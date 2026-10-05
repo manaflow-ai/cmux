@@ -185,6 +185,15 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugShowcase.seed(call.params, services: services))
             },
+            .mainActor("debug.scene.list") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(CaptureSceneRegistry(services: services).list())
+            },
+            .async("debug.scene.render") { [weak services] call in
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                let registry = await MainActor.run { CaptureSceneRegistry(services: services) }
+                return await registry.render(call.params)
+            }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.webkit_inspector") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugWebInspector.handle(call.params, services: services))

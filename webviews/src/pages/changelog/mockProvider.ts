@@ -28,14 +28,22 @@ export const sampleNotes: ReleaseNotes[] = [
 
 export class MockChangelogProvider implements PageClient {
   readonly ran: string[] = [];
-  constructor(private readonly notes: ReleaseNotes[] = sampleNotes, private readonly current = notes[0]?.build ?? "") {}
+  constructor(
+    private readonly notes: ReleaseNotes[] = sampleNotes,
+    private readonly current = notes[0]?.build ?? "",
+  ) {}
 
   async call<R>(op: string, params: unknown): Promise<R> {
     const p = (params ?? {}) as Record<string, unknown>;
     if (op === ChangelogOps.list) {
       const result: ListResult = {
         current: this.current,
-        builds: this.notes.map((n) => ({ build: n.build, shortVersion: n.shortVersion, date: n.date, highlights: n.highlights.length })),
+        builds: this.notes.map((n) => ({
+          build: n.build,
+          shortVersion: n.shortVersion,
+          date: n.date,
+          highlights: n.highlights.length,
+        })),
       };
       return result as R;
     }

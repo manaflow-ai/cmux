@@ -153,20 +153,20 @@ fn save_leaves_discovered_profiles_out() {
 fn launcher_check_rejects_old_subrouter() {
     let dir = std::env::temp_dir().join(format!("acpmux-launcher-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    // Written out of process: executing a script this process just wrote
+    // flaked with ETXTBSY under parallel tests (`write_executable` below).
     let old = dir.join("sr-old");
-    std::fs::write(
+    write_executable(
         &old,
         "#!/bin/sh\necho 'subrouter: unknown command: sr claude proxy' >&2\nexit 1\n",
-    )
-    .unwrap();
+    );
     let broken = dir.join("sr-broken");
-    std::fs::write(&broken, "#!/bin/sh\necho 'subrouter: prepare shared Claude proxy history: file exists' >&2\nexit 0\n").unwrap();
+    write_executable(
+        &broken,
+        "#!/bin/sh\necho 'subrouter: prepare shared Claude proxy history: file exists' >&2\nexit 0\n",
+    );
     let good = dir.join("sr-good");
-    std::fs::write(&good, "#!/bin/sh\necho '2.1.275 (Claude Code)'\n").unwrap();
-    for p in [&old, &broken, &good] {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    write_executable(&good, "#!/bin/sh\necho '2.1.275 (Claude Code)'\n");
     let argv = |p: &std::path::Path| {
         vec![p.to_string_lossy().into_owned(), "claude".into(), "proxy".into()]
     };
@@ -246,15 +246,10 @@ fn an_sr_without_claude_proxy_routes_claude_sr_through_the_subrouter_server() {
     let dir = std::env::temp_dir().join(format!("acpmux-route-old-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let old = dir.join("sr-old");
-    std::fs::write(
+    write_executable(
         &old,
         "#!/bin/sh\necho 'subrouter: unknown command: sr claude proxy' >&2\nexit 1\n",
-    )
-    .unwrap();
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    );
     let mut cfg = Config::default();
     cfg.harnesses.insert(
         "claude-sr".into(),
@@ -305,4 +300,28 @@ fn websocket_allow_lists_read_in_either_spelling() {
     assert_eq!(camel, snake);
     assert_eq!(snake.allowed_origins, vec!["http://127.0.0.1:5173".to_owned()]);
     assert_eq!(snake.allowed_hosts, vec!["box.local".to_owned()]);
+}
+
+/// Creates an executable (0755) script without this process ever holding a
+/// write descriptor for it.
+///
+/// Tests run on many threads. A sibling test that forks while this process
+/// holds such a descriptor hands a copy to its child until that child execs,
+/// and executing the script in that window fails with ETXTBSY ("Text file
+/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
+/// rename does not either (the child holds the same inode). A short-lived
+/// `sh` opens, writes, and closes the file in its own process, so no fork of
+/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
+fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let path = path.as_ref();
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
+    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
 }
