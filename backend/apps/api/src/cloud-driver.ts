@@ -29,10 +29,20 @@ export interface RawCloudDriver {
   start(id: string): Promise<void>
   /** The VM's provider state (Freestyle VmState: starting, running, pausing, paused, stopped), or null when it is gone. */
   state(id: string): Promise<string | null>
+  /** Grow a VM (Freestyle `POST /v5/vms/{id}/resize`: grow only; memory in MiB, storage in MiB). */
+  resize(id: string, size: VmResources): Promise<void>
+  /** The VM's resources (Freestyle `resources {cpu, memory, storage}`), or null when it is gone. */
+  resources(id: string): Promise<VmResources | null>
   /** Writes one small file into the VM (atomic, verified by sha256; Freestyle `PUT /v5/vms/{id}/fs/write`). */
   writeFile(id: string, path: string, content: string, mode: number): Promise<void>
   /** One page (100) of VMs whose metadata has `filter` (`key:value`). Used only to report, never to delete. */
   list(filter: string, offset: number): Promise<{ readonly vms: ReadonlyArray<ListedVm>; readonly total: number }>
+}
+
+export interface VmResources {
+  readonly cpu: number
+  readonly memory: number
+  readonly storage: number
 }
 
 export interface CreateOptions {
@@ -164,6 +174,22 @@ export class GuardedCloudDriver {
       await (action === "pause" ? this.raw.pause(found.id) : this.raw.start(found.id))
     } catch (e) {
       if (reached(await this.raw.state(found.id).catch(() => null))) return
+      throw e
+    }
+  }
+
+  /** Grows our VM under `name` to `size`; settles from its real resources before and after the call (a lost answer). */
+  async resize(name: string, tag: VmTag, size: VmResources): Promise<void> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) throw new DriverError("cloud.provider.vm_missing", "resize VM: no VM under the recorded name", true)
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    const reached = (r: VmResources | null) => !!r && r.cpu >= size.cpu && r.memory >= size.memory && r.storage >= size.storage
+    if (reached(await this.raw.resources(found.id))) return
+    try {
+      await this.raw.resize(found.id, size)
+    } catch (e) {
+      if (reached(await this.raw.resources(found.id).catch(() => null))) return
       throw e
     }
   }
@@ -313,6 +339,20 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     if (r.status !== 200) this.fail(r.status, r.json, "read VM state")
     return typeof r.json.state === "string" ? r.json.state : null
   }
+
+  async resize(id: string, size: VmResources) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/resize`, { cpu: size.cpu, memory: size.memory, storage: size.storage })
+    if (r.status >= 200 && r.status < 300) return
+    this.fail(r.status, r.json, "resize VM")
+  }
+
+  async resources(id: string) {
+    const r = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
+    if (r.status === 404) return null
+    if (r.status !== 200) this.fail(r.status, r.json, "read VM resources")
+    const res = (r.json.resources ?? {}) as Record<string, unknown>
+    return typeof res.cpu === "number" && typeof res.memory === "number" && typeof res.storage === "number" ? { cpu: res.cpu, memory: res.memory, storage: res.storage } : null
+  }
 }
 
 /**
@@ -321,8 +361,8 @@ export class FreestyleCloudDriver implements RawCloudDriver {
  */
 export class FakeCloudDriver implements RawCloudDriver {
   constructor(private readonly sql: SqlStore) {
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running')`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running', cpu INTEGER NOT NULL DEFAULT 2, memory INTEGER NOT NULL DEFAULT 4096, storage INTEGER NOT NULL DEFAULT 16384)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0, pauses INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, power_then_fail INTEGER NOT NULL DEFAULT 0, resizes INTEGER NOT NULL DEFAULT 0, resize_refuse INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
   }
@@ -394,6 +434,27 @@ export class FakeCloudDriver implements RawCloudDriver {
 
   async state(id: string) {
     return this.sql.exec<{ state: string }>(`SELECT state FROM cloud_fake_vm WHERE id = ?`, id)[0]?.state ?? null
+  }
+
+  /** Like Freestyle: grow only (400), the disk only on a running VM (409); `resize_refuse` refuses the next call (400, final). */
+  async resize(id: string, size: VmResources) {
+    this.maybeFail()
+    const vm = this.sql.exec<{ state: string; cpu: number; memory: number; storage: number }>(`SELECT state, cpu, memory, storage FROM cloud_fake_vm WHERE id = ?`, id)[0]
+    if (!vm) throw new DriverError("cloud.provider.vm_missing", "fake provider: 404", true)
+    const refuse = Number(this.sql.exec<{ n: number }>(`SELECT resize_refuse AS n FROM cloud_fake_ctl WHERE id = 1`)[0]!.n)
+    if (refuse > 0) {
+      this.sql.exec(`UPDATE cloud_fake_ctl SET resize_refuse = resize_refuse - 1 WHERE id = 1`)
+      throw new DriverError("cloud.provider.refused", "fake provider: 400 resize refused", true)
+    }
+    if (size.cpu < vm.cpu || size.memory < vm.memory || size.storage < vm.storage) throw new DriverError("cloud.provider.refused", "fake provider: 400 grow only", true)
+    if (size.storage > vm.storage && vm.state !== "running") throw new DriverError("cloud.provider.conflict", "fake provider: 409 disk grows only on a running VM", true)
+    this.sql.exec(`UPDATE cloud_fake_vm SET cpu = ?, memory = ?, storage = ? WHERE id = ?`, size.cpu, size.memory, size.storage, id)
+    this.sql.exec(`UPDATE cloud_fake_ctl SET resizes = resizes + 1 WHERE id = 1`)
+  }
+
+  async resources(id: string) {
+    const vm = this.sql.exec<{ cpu: number; memory: number; storage: number }>(`SELECT cpu, memory, storage FROM cloud_fake_vm WHERE id = ?`, id)[0]
+    return vm ? { cpu: Number(vm.cpu), memory: Number(vm.memory), storage: Number(vm.storage) } : null
   }
 }
 
