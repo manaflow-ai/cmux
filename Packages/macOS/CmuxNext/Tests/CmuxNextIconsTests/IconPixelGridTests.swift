@@ -75,47 +75,38 @@ struct IconPixelGridTests {
         #expect(stem.values.allSatisfy { $0 == 255 }, "\(stem)")
     }
 
-    /// The account icon's ring snaps as a whole: its ink is as wide as it is
-    /// tall and symmetric across the diagonal of its own box.
-    @Test func circlesStayRound() throws {
+    /// The account icon's ring fits as a whole, checked on its geometry
+    /// (CoreGraphics antialiasing is not symmetric under transposition): a
+    /// square box, a whole-pixel diameter, and a 1x stroke centered on pixel
+    /// centers or a 2x stroke on pixel edges.
+    @Test(arguments: [1, 2] as [CGFloat])
+    func circlesStayRound(scale: CGFloat) throws {
         let ring = try #require(IconPack.bundled.drawing(for: .account)?.line.first)
-        for side in [16, 32] {
-            let bitmap = try Bitmap(side: side)
-            bitmap.context.drawIcon([ring], in: CGRect(x: 0, y: 0, width: side, height: side), ink: Self.ink)
-            var xs: [Int] = [], ys: [Int] = []
-            for y in 0..<side {
-                for x in 0..<side {
-                    guard try bitmap.alpha(x: x, y: y) > 0 else { continue }
-                    xs.append(x)
-                    ys.append(y)
-                }
-            }
-            let minX = try #require(xs.min()), maxX = try #require(xs.max())
-            let minY = try #require(ys.min()), maxY = try #require(ys.max())
-            #expect(maxX - minX == maxY - minY, "side \(side)")
-            for dy in 0...(maxY - minY) {
-                for dx in 0...(maxX - minX) {
-                    let a = try bitmap.alpha(x: minX + dx, y: minY + dy)
-                    let transposed = try bitmap.alpha(x: minX + dy, y: minY + dx)
-                    #expect(abs(Int(a) - Int(transposed)) <= 2, "side \(side) at \(dx),\(dy)")
-                }
-            }
+        let toDevice = CGAffineTransform(scaleX: 16 * scale / 24, y: -16 * scale / 24)
+            .concatenating(CGAffineTransform(translationX: 1.25, y: 16 * scale))
+        let fitted = try #require(IconPixelGrid.fit([ring], toDevice: toDevice).first)
+        let box = fitted.path.boundingBoxOfPath.applying(toDevice)
+        let stroke = fitted.width * 16 * scale / 24
+        #expect(abs(stroke - scale) < 1e-6)
+        #expect(abs(box.width - box.height) < 1e-6)
+        #expect(abs(box.width - box.width.rounded()) < 1e-6)
+        let phase: CGFloat = scale == 1 ? 0.5 : 0
+        for edge in [box.minX, box.maxX, box.minY, box.maxY] {
+            #expect(abs((edge - phase) - (edge - phase).rounded()) < 1e-6, "\(edge)")
         }
     }
 
-    /// Where the ring's top crosses its center column, the stroke is one
-    /// solid pixel at 1x; the curve leaves at most a trace beside it.
-    @Test func aRingEdgeIsSolidAt1x() throws {
-        let ring = try #require(IconPack.bundled.drawing(for: .account)?.line.first)
-        let bitmap = try Bitmap(side: 16)
-        bitmap.context.drawIcon([ring], in: CGRect(x: 0, y: 0, width: 16, height: 16), ink: Self.ink)
-        var column: [Int: UInt8] = [:]
-        for y in 0..<8 {
-            let a = try bitmap.alpha(x: 8, y: y)
-            if a > 0 { column[y] = a }
-        }
-        let solid = column.filter { $0.value >= 250 }
-        #expect(solid.count == 1, "\(column)")
-        #expect(column.filter { $0.value < 250 }.values.allSatisfy { $0 <= 16 }, "\(column)")
+    /// A ring and the cross inside it share one center after fitting.
+    @Test func aRingAndItsCrossStayConcentric() throws {
+        let layers = [
+            IconLayer(d: "M20.5 12C20.5 16.694 16.694 20.5 12 20.5C7.306 20.5 3.5 16.694 3.5 12C3.5 7.306 7.306 3.5 12 3.5C16.694 3.5 20.5 7.306 20.5 12Z", op: .stroke),
+            IconLayer(d: "M12 8L12 16M8 12L16 12", op: .stroke),
+        ]
+        let toDevice = CGAffineTransform(scaleX: 16 / 24, y: 16 / 24)
+        let fitted = IconPixelGrid.fit(layers, toDevice: toDevice)
+        let ring = fitted[0].path.boundingBoxOfPath.applying(toDevice)
+        let cross = fitted[1].path.boundingBoxOfPath.applying(toDevice)
+        #expect(abs(ring.midX - cross.midX) < 1e-6)
+        #expect(abs(ring.midY - cross.midY) < 1e-6)
     }
 }
