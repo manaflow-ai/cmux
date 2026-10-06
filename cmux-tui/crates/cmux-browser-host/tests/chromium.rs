@@ -131,6 +131,39 @@ fn serve() -> u16 {
     port
 }
 
+/// A `cmux-browser-host serve` the test started itself, so `eval` connects
+/// to it instead of starting a detached host that outlives the test. Drop
+/// kills and reaps this exact child, also when the test panics.
+struct HostGuard(std::process::Child);
+
+impl HostGuard {
+    fn start(socket: &std::path::Path, chromium: impl AsRef<std::ffi::OsStr>) -> HostGuard {
+        let child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["serve", "--socket"])
+            .arg(socket)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", chromium)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("start cmux-browser-host serve");
+        let guard = HostGuard(child);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while std::os::unix::net::UnixStream::connect(socket).is_err() {
+            assert!(Instant::now() < deadline, "the test host never listened on {}", socket.display());
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        guard
+    }
+}
+
+impl Drop for HostGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 fn wait_event(events: &Mutex<Vec<DriverEvent>>, name: &str) -> DriverEvent {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -423,6 +456,8 @@ fn host_sessions_reach_the_page_agent_after_goto() {
     let dir = std::env::temp_dir().join(format!("cmux-host-agent-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
     let eval = |code: &str| -> String {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
             .args(["eval", "--engine", "headless", "--socket"])
@@ -498,6 +533,8 @@ fn eval_without_a_session_is_one_shot() {
     let dir = std::env::temp_dir().join(format!("cmux-host-oneshot-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
     let eval = |args: &[&str], code: &str| -> String {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
             .arg("eval")
@@ -790,6 +827,8 @@ fn closed_shadow_roots_are_read_redacted_and_masked() {
     let dir = std::env::temp_dir().join(format!("cmux-host-closed-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
     let code = format!(
         r##"secrets.set("k", "sk-closed-4242", {{ domains: ["127.0.0.1"] }});
 await page.goto("http://127.0.0.1:{port}/closed");
@@ -853,6 +892,8 @@ fn a_kept_tab_outlives_its_one_shot_run() {
     let dir = std::env::temp_dir().join(format!("cmux-host-kept-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
     let eval = |code: &str| -> String {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
             .args(["eval", "--engine", "headless", "--socket"])
@@ -934,6 +975,8 @@ fn shared_browser_events_reach_one_session() {
     let dir = std::env::temp_dir().join(format!("cmux-host-route-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
     let eval = |session: &str, code: &str| -> String {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
             .args(["eval", "--engine", "headless", "--session", session, "--socket"])
@@ -1002,6 +1045,8 @@ fn an_unrouted_dialog_goes_to_the_creators_policy_log() {
     let dir = std::env::temp_dir().join(format!("cmux-host-unrouted-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
     let eval = |session: &str, code: &str| -> String {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
             .args(["eval", "--engine", "headless", "--session", session, "--socket"])
