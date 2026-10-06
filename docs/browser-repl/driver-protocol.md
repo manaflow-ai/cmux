@@ -215,7 +215,11 @@ ended is restored like a hibernated one. Errors, where `<tab>` is `tab <id> ("<t
 already installed the page agent (`Resources/browser-repl/page-agent.js`) and
 Playwright's injected script. Cross-origin frames are reachable. `source` is a
 function expression called with `args`; text that is not one expression on
-its own fails with `invalid` before anything runs (see "Guards"). The agent world survives until the
+its own fails with `invalid` before anything runs (see "Guards"). An omitted
+`world` is `"page"`; any other value than `"page"` or `"agent"` fails with
+`invalid` before anything runs. The driver decides the world once, and the
+same decision picks where `source` runs (page script runs with a user
+gesture) and opens the page-world input window below. The agent world survives until the
 frame navigates; after navigation the driver reinstalls it before the next call.
 
 Input to an element in a child frame goes to the tab at the element's point

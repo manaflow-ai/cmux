@@ -117,7 +117,9 @@ struct BrowserReplSessionWorldTests {
         let loaded = try await FramePage.load(html: "<p>page</p>", loaded: { !$0.isEmpty })
         _ = try await Self.call("globalThis.guardMark = 1; return true;", in: guardWorld, of: loaded.webView)
         for name in ["agent", "page", "cmux-driver", "cmux-capture-mask", "cmux-repl-copy-probe", "cmux-session-world-tests-guard", session.name, ""] as [String?] + [nil] {
-            let world = session.evaluationWorld(name)
+            // A name that is not "page" or "agent" names no world at all.
+            guard let decided = try? BrowserReplEvaluationWorld(parameter: name) else { continue }
+            let world = session.evaluationWorld(decided)
             #expect(world === session.agent || world === WKContentWorld.page, "\(name ?? "nil") names another world")
             let seen = try await Self.call("return typeof globalThis.guardMark;", in: world, of: loaded.webView) as? String
             #expect(seen == "undefined", "\(name ?? "nil") reached the guard world")

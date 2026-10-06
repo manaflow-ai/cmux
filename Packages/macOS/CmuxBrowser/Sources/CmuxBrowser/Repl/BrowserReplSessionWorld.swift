@@ -33,12 +33,48 @@ public final class BrowserReplSessionWorld {
         agent = .browserReplWorld(seeingClosedShadowRoots: name)
     }
 
-    /// The world `frame.evaluate` runs `source` in for its `world`
-    /// parameter: the session's agent world for `"agent"`, else the page's.
-    /// No value names a guard world or another session's world.
-    public func evaluationWorld(_ world: String?) -> WKContentWorld {
-        world == "agent" ? agent : .page
+    /// The world `frame.evaluate` runs `source` in for its decided
+    /// ``BrowserReplEvaluationWorld``: the session's agent world or the
+    /// page's. No value names a guard world or another session's world.
+    public func evaluationWorld(_ world: BrowserReplEvaluationWorld) -> WKContentWorld {
+        switch world {
+        case .agent: agent
+        case .page: .page
+        }
     }
+}
+
+/// The world a `frame.evaluate` names in its `world` parameter, decided
+/// once at the driver boundary. The same value picks the content world the
+/// source runs in (``BrowserReplSessionWorld/evaluationWorld(_:)``), so
+/// whether it runs with a user gesture, and whether what the page opens
+/// meanwhile goes to the session (``holdsSessionInput``): no value can run
+/// page script with a gesture outside the session's input window.
+public enum BrowserReplEvaluationWorld: String, Sendable, Equatable {
+    /// The page's own world, with a user gesture (the agent's `el.click()`).
+    case page
+    /// The session's isolated agent world, with no gesture.
+    case agent
+
+    /// The world `parameter` names: an omitted one is the page's, as
+    /// Playwright's evaluate; `"page"` and `"agent"` are theirs. Anything
+    /// else (another name, `null`, not a string) fails with `invalid`
+    /// before anything runs.
+    public init(parameter: Any?) throws {
+        guard let parameter else {
+            self = .page
+            return
+        }
+        guard let name = parameter as? String, let world = Self(rawValue: name) else {
+            throw BrowserReplDriverError(code: "invalid", message: "frame.evaluate: world must be \"page\" or \"agent\"; nothing ran")
+        }
+        self = world
+    }
+
+    /// Whether what the page opens while the source runs (popups, dialogs,
+    /// external links) goes to the session for the first second of the
+    /// call: the page world's script runs with a user gesture.
+    public var holdsSessionInput: Bool { self == .page }
 }
 
 /// How many sessions may drive one tab at once.

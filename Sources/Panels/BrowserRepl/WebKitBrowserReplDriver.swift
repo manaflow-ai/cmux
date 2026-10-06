@@ -479,7 +479,23 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             return .failure(BrowserReplMethodSpec.unknownMethodError(name))
         }
         let spec = method.spec
-        let params = JSONSerialization.browserReplObject(paramsJSON)
+        var decoded = JSONSerialization.browserReplObject(paramsJSON)
+        // frame.evaluate's world is decided once, before anything runs: the
+        // same value routes the input window below and picks the world (and
+        // so the user gesture) in `evaluate`. An unknown one is `invalid`.
+        let evaluationWorld: BrowserReplEvaluationWorld?
+        if method == .frameEvaluate {
+            do {
+                let world = try BrowserReplEvaluationWorld(parameter: decoded["world"])
+                decoded["world"] = world.rawValue
+                evaluationWorld = world
+            } catch {
+                return .failure(error as? BrowserReplDriverError ?? Self.error("invalid", error.localizedDescription))
+            }
+        } else {
+            evaluationWorld = nil
+        }
+        let params = decoded
         // Every call on a tab first wakes a hibernated tab and waits until
         // the tab renders like a focused foreground page; input must not race
         // WebKit's focus update. Closing or keeping a tab leaves it as it is.
@@ -559,7 +575,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     return try await attachment(panel).withInput(sessionID: sessionID) {
                         try await handle(method: method, params: params)
                     }
-                } else if method == .frameEvaluate, params["world"] as? String == "page", let panel = tabToPrepare {
+                } else if evaluationWorld?.holdsSessionInput == true, let panel = tabToPrepare {
                     // The agent's own page script (el.click(), form.submit()):
                     // what it opens goes to the session, for at most a second,
                     // so a long script leaves the user's dialogs and popups alone.
@@ -1888,7 +1904,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func evaluate(_ params: [String: Any]) async throws -> Any? {
         let panel = try panel(params)
         let frame = try await frame(panel, params)
-        let world = params["world"] as? String ?? "page"
+        // Decided in dispatchAttached, which wrote the decision back.
+        let world = try BrowserReplEvaluationWorld(parameter: params["world"])
         let source = params["source"] as? String ?? "() => undefined"
         let args = params["args"] as? [Any] ?? []
         let handles = params["handles"] as? [String] ?? []
