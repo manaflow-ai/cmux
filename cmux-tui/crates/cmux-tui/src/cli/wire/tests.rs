@@ -118,7 +118,7 @@ fn sec_audit_human_output_shows_controls_instead_of_sending_them() {
         human_text(&json!(hostile)),
         human_text(&json!([{"name": hostile}])),
         human_text(&json!({"name": hostile})),
-        human_error_text(&json!({"message": hostile, "details": {"candidates": [hostile]}})),
+        human_error_lines(&json!({"message": hostile, "details": {"candidates": [hostile]}})),
     ];
     for output in outputs {
         assert!(!output.chars().any(|c| c.is_control() && c != '\n' && c != '\t'), "{output:?}");
@@ -308,4 +308,141 @@ fn stopped_owner_reload_error_is_localized_for_human_output() {
             .unwrap();
         assert!(status.success(), "{locale} localization probe failed");
     }
+}
+
+#[test]
+fn human_cells_disarm_escape_sequences_in_remote_titles() {
+    // A remote-supplied title (browser page, terminal program) must not
+    // reach the invoking terminal as a live escape sequence. Here the
+    // payload is an OSC title change.
+    let output = human_text(&json!([
+        {"id":"b_1","title":"page\u{1b}]0;owned\u{7}title"}
+    ]));
+    assert!(!output.contains('\u{1b}'), "raw ESC in {output:?}");
+    assert!(!output.contains('\u{7}'), "raw BEL in {output:?}");
+    assert_eq!(output, "ID   TITLE\nb_1  page\u{fffd}]0;owned\u{fffd}title\n");
+}
+
+#[test]
+fn human_cells_disarm_osc52_clipboard_payloads() {
+    // OSC 52 writes the clipboard on supporting terminals; the sequence
+    // must render as inert text.
+    let output = human_text(&json!([
+        {"id":"b_1","title":"\u{1b}]52;c;aGVsbG8=\u{7}"}
+    ]));
+    assert!(!output.contains("\u{1b}]52"), "live OSC 52 in {output:?}");
+    assert_eq!(output, "ID   TITLE\nb_1  \u{fffd}]52;c;aGVsbG8=\u{fffd}\n");
+}
+
+#[test]
+fn human_rows_replace_c1_and_del_controls_with_placeholders() {
+    // C1 controls (CSI, DCS, OSC) and DEL are control bytes even without
+    // a leading ESC on terminals that accept 8-bit controls.
+    let output = human_text(&json!({"title":"a\u{9b}31mb\u{90}c\u{9d}d\u{7f}e"}));
+    assert_eq!(output, "title  a\u{fffd}31mb\u{fffd}c\u{fffd}d\u{fffd}e\n");
+}
+
+#[test]
+fn human_cells_replace_unicode_line_separators() {
+    let output = human_text(&json!([{"id":"w","name":"x\u{2028}y\u{2029}z"}]));
+    assert_eq!(output, "ID  NAME\nw   x\u{fffd}y\u{fffd}z\n");
+}
+
+#[test]
+fn human_cells_keep_the_visible_newline_escape_for_cr_and_lf() {
+    let output = human_text(&json!([{"id":"s_1","title":"line1\r\nline2"}]));
+    assert_eq!(output, "ID   TITLE\ns_1  line1\\n\\nline2\n");
+}
+
+#[test]
+fn human_cells_replace_tabs_so_column_math_stays_aligned() {
+    let output = human_text(&json!([{"id":"x","title":"a\tb"}]));
+    assert_eq!(output, "ID  TITLE\nx   a\u{fffd}b\n");
+}
+
+#[test]
+fn human_headers_and_keys_cannot_carry_control_sequences() {
+    let table = human_text(&json!([{"id":"x","bad\u{1b}key":"v"}]));
+    assert_eq!(table, "ID  BAD\u{fffd}KEY\nx   v\n");
+    let object = human_text(&json!({"k\u{1b}ey":"v"}));
+    assert_eq!(object, "k\u{fffd}ey  v\n");
+}
+
+#[test]
+fn human_nested_values_disarm_c1_controls_after_json_serialization() {
+    // serde_json escapes C0 controls but writes C1 controls raw, so the
+    // serialized fallback cell needs the same sanitizing as plain strings.
+    let output = human_text(&json!([{"id":"x","tags":["a\u{85}b"]}]));
+    assert!(!output.contains('\u{85}'), "raw C1 NEL in {output:?}");
+    assert_eq!(output, "ID  TAGS\nx   [\"a\u{fffd}b\"]\n");
+}
+
+#[test]
+fn human_top_level_strings_keep_newlines_but_disarm_controls() {
+    assert_eq!(human_text(&json!("line1\nline2\u{1b}[2Jline3")), "line1\nline2\u{fffd}[2Jline3\n");
+    assert_eq!(human_text(&json!("crlf\r\nkept")), "crlf\nkept\n");
+    assert_eq!(human_text(&json!("overwrite\rspoof")), "overwrite\u{fffd}spoof\n");
+    assert_eq!(human_text(&json!("tab\tkept")), "tab\tkept\n");
+}
+
+#[test]
+fn human_string_lists_disarm_controls_per_line() {
+    let output = human_text(&json!(["a\u{1b}b", "plain"]));
+    assert_eq!(output, "a\u{fffd}b\nplain\n");
+}
+
+#[test]
+fn human_output_keeps_plain_unicode_text_unchanged() {
+    let output = human_text(&json!({"title":"日本語 🚀 ｶﾞ title"}));
+    assert_eq!(output, "title  日本語 🚀 ｶﾞ title\n");
+}
+
+#[test]
+fn human_error_text_disarms_control_sequences() {
+    let error = json!({
+        "code": "operation.failed",
+        "message": "no workspace named b\u{1b}]0;owned\u{7}ad",
+        "details": {"candidates": ["work\u{9b}space", "plain"]},
+        "retryable": false
+    });
+    let text = human_error_lines(&error);
+    assert!(!text.contains('\u{1b}'), "raw ESC in {text:?}");
+    assert!(!text.contains('\u{9b}'), "raw C1 CSI in {text:?}");
+    assert_eq!(
+        text,
+        "no workspace named b\u{fffd}]0;owned\u{fffd}ad\n  work\u{fffd}space\n  plain\n"
+    );
+}
+
+#[test]
+fn sanitizers_cover_every_control_range() {
+    let controls = ('\u{0}'..='\u{1f}').chain('\u{7f}'..='\u{9f}').chain(['\u{2028}', '\u{2029}']);
+    for ch in controls {
+        let cell = sanitize_human_cell(&format!("a{ch}b"));
+        assert!(!cell.contains(ch), "cell kept {ch:?}: {cell:?}");
+        let block = sanitize_human_block(&format!("a{ch}b"));
+        if matches!(ch, '\n' | '\t') {
+            assert_eq!(block, format!("a{ch}b"));
+        } else {
+            assert!(!block.contains(ch), "block kept {ch:?}: {block:?}");
+        }
+    }
+    assert_eq!(sanitize_human_cell("plain ascii"), "plain ascii");
+    assert_eq!(sanitize_human_block("plain ascii"), "plain ascii");
+}
+
+#[test]
+fn json_output_keeps_remote_title_bytes_intact() {
+    // JSON modes rely on JSON escaping, not visible sanitizing: C0
+    // controls are escaped, C1 controls and separator characters stay in
+    // the encoded text, and the exact title survives a round-trip for
+    // machine consumers.
+    let title = "a\u{1b}]52;c;aGk=\u{7}b\u{9b}c\u{2028}d";
+    let encoded = serde_json::to_string(&json!({"title": title})).expect("titles encode");
+    assert!(!encoded.contains('\u{1b}'));
+    assert!(!encoded.contains('\u{7}'));
+    assert!(encoded.contains('\u{9b}'));
+    assert!(encoded.contains('\u{2028}'));
+    let decoded: Value = serde_json::from_str(&encoded).expect("titles decode");
+    assert_eq!(decoded["title"].as_str(), Some(title));
 }

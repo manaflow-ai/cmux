@@ -37,7 +37,7 @@ pub(super) fn test_host_shared_with(
         cwd: None,
         size: Mutex::new((80, 24)),
         cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-        viewer_sizes: Mutex::new(HashMap::new()),
+        viewer_sizes: Mutex::new(ViewerSizes::default()),
         taps: Mutex::new(HashMap::new()),
         broadcast_lock: Mutex::new(()),
         sequence: AtomicU64::new(0),

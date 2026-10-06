@@ -79,3 +79,5 @@ tmux-*.log
 # Local-only prototype and deploy state
 /Prototypes/codex-atlas-clone/
 /.cloudflare/
+# Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
+Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/

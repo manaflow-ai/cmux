@@ -46,6 +46,10 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["fish"]
 
 [[test]]
+path = "tests/test_fake_socket_env.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_issue_2448_shell_claude_wrapper_dispatch.py"
 lane = "macos-cli-no-socket"
 
@@ -425,6 +429,10 @@ path = "tests/test_localize_changes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_localization_defaults.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
 lane = "linux-guard"
 
@@ -534,6 +542,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_are_bounded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_checks_have_no_path_filters.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 
 [[test]]
@@ -773,6 +789,10 @@ path = "tests/test_ci_canonical_build_root.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_take_canonical_root.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_release_product_reuse.py"
 lane = "linux-guard"
 
@@ -809,10 +829,6 @@ path = "tests/test_backend_migration_flow.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ios_simulator_build_once.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_web_complexity_scope.py"
 lane = "linux-guard"
 
@@ -826,10 +842,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_seed_decide.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_video_recording.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1010,4 +1022,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_package_input_key.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_frame_pacing_summary.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_notes.py"
 lane = "linux-guard"

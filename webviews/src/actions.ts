@@ -53,10 +53,9 @@ export async function copyGitApplyCommand(
     throw new Error(`${label("loadingDiff")} (${response.status})`);
   }
   const patchText = await response.text();
-  const newline = String.fromCharCode(10);
-  const patch = patchText.endsWith(newline) ? patchText : `${patchText}${newline}`;
-  const delimiter = safeGitApplyDelimiter(patch);
-  const command = `git apply <<'${delimiter}'${newline}${patch}${delimiter}`;
+  // Validate and build before touching either clipboard path so an unsafe
+  // patch never reaches the system clipboard in any form.
+  const command = buildGitApplyCommand(patchText);
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(command);
@@ -96,13 +95,57 @@ export async function copyText(text: string, fallbackTextarea: HTMLTextAreaEleme
   }
 }
 
-function safeGitApplyDelimiter(patch: string): string {
-  const lines = new Set(patch.split(/\r?\n/));
-  let delimiter = "CMUX_DIFF_PATCH";
-  let index = 0;
-  while (lines.has(delimiter)) {
-    index += 1;
-    delimiter = `CMUX_DIFF_PATCH_${index}`;
+// C0 controls other than tab, LF, and CR, plus DEL and the C1 range. Pasted
+// into an interactive shell these can act as line editor commands or terminal
+// escape sequences (for example ending bracketed paste), so a patch carrying
+// any of them is never turned into a shell command.
+// oxlint-disable-next-line no-control-regex -- matching control characters is the point.
+const UNSAFE_SHELL_PASTE_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/;
+
+// Every sequence an interactive shell or terminal treats as a line boundary.
+// A bare CR submits a line just like LF, so it must split lines here too.
+const SHELL_LINE_BOUNDARY = /\r\n|\r|\n/;
+
+const GIT_APPLY_DELIMITER_PREFIX = "CMUX_DIFF_PATCH_";
+
+/**
+ * Builds a `git apply` command that feeds `patchText` through a quoted heredoc.
+ *
+ * Throws when the patch contains control characters that are unsafe to paste
+ * into a shell. The heredoc delimiter is random and is guaranteed not to occur
+ * anywhere in the patch, so no patch line (split on CRLF, CR, or LF) can end the
+ * heredoc early.
+ */
+export function buildGitApplyCommand(
+  patchText: string,
+  randomToken: () => string = randomDelimiterToken,
+): string {
+  if (UNSAFE_SHELL_PASTE_CONTROL.test(patchText)) {
+    throw new Error("Patch contains control characters");
   }
-  return delimiter;
+  const newline = "\n";
+  const patch = patchText.endsWith(newline) ? patchText : `${patchText}${newline}`;
+  const delimiter = gitApplyDelimiter(patch, randomToken);
+  return `git apply <<'${delimiter}'${newline}${patch}${delimiter}`;
+}
+
+function gitApplyDelimiter(patch: string, randomToken: () => string): string {
+  const lines = new Set(patch.split(SHELL_LINE_BOUNDARY));
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const token = randomToken();
+    if (!/^[A-Za-z0-9]+$/.test(token)) {
+      continue;
+    }
+    const delimiter = `${GIT_APPLY_DELIMITER_PREFIX}${token}`;
+    if (!patch.includes(delimiter) && !lines.has(delimiter)) {
+      return delimiter;
+    }
+  }
+  throw new Error("Could not choose a unique heredoc delimiter");
+}
+
+function randomDelimiterToken(): string {
+  const bytes = new Uint8Array(12);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

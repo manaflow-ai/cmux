@@ -1,4 +1,7 @@
 name: cmux-tui Rust Testbox setup
+# The run title names the box, so an approver can bind a waiting run to its
+# Testbox before a runner takes the job (scripts/blacksmith-testbox-approve.sh).
+run-name: cmux-tui Rust Testbox setup ${{ inputs.testbox_id }}
 
 # Main-controlled broker. This workflow runs only from refs/heads/main and
 # hydrates only main, so no candidate branch can edit the guards that run

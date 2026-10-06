@@ -3932,6 +3932,11 @@ Result<Json> Codec<MintTerminalRendererResult>::encode(const MintTerminalRendere
     auto encoded_rights = encode_value(value.rights);
     if (!encoded_rights) return std::move(encoded_rights).error();
     object.emplace("rights", std::move(encoded_rights).value());
+    if (value.supports_viewer_size_priority) {
+        auto encoded = encode_value(*value.supports_viewer_size_priority);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("supports_viewer_size_priority", std::move(encoded).value());
+    }
     auto encoded_terminal_id = encode_value(value.terminal_id);
     if (!encoded_terminal_id) return std::move(encoded_terminal_id).error();
     object.emplace("terminal_id", std::move(encoded_terminal_id).value());
@@ -3983,6 +3988,12 @@ Result<MintTerminalRendererResult> Codec<MintTerminalRendererResult>::decode(con
         auto decoded = decode_value<std::uint32_t>(*field_rights);
         if (!decoded) return std::move(decoded).error();
         result.rights = std::move(decoded).value();
+    }
+    const Json* field_supports_viewer_size_priority = value.find("supports_viewer_size_priority");
+    if (field_supports_viewer_size_priority) {
+        auto decoded = decode_value<bool>(*field_supports_viewer_size_priority);
+        if (!decoded) return std::move(decoded).error();
+        result.supports_viewer_size_priority = std::move(decoded).value();
     }
     const Json* field_terminal_id = value.find("terminal_id");
     if (!field_terminal_id) {

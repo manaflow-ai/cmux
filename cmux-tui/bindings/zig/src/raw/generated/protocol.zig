@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326";
+pub const ir_sha256 = "ad7fd59bf66aed778659ffea168171c41efda35944b67f77f3a9f40de3905f09";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -976,9 +976,14 @@ pub const MintTerminalRendererResult = struct {
     incarnation: []const u8,
     protocol_version: u16,
     rights: u32,
+    supports_viewer_size_priority: ?bool = null,
     terminal_id: []const u8,
     token: []const u8,
     ttl_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "supports_viewer_size_priority",
+    };
 };
 
 pub const MoveTerminalResult = struct {

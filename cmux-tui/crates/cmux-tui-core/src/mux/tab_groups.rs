@@ -629,7 +629,7 @@ impl Mux {
                                 root: Node::Leaf(ids.pane),
                                 active_pane: ids.pane,
                                 zoomed_pane: None,
-                                zellij_auto_layout: Some(vec![ids.pane]),
+                                creation_order_auto_layout: Some(vec![ids.pane]),
                                 viewport_splits: Default::default(),
                                 viewport_base_width: None,
                                 layout_columns: Vec::new(),

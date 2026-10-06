@@ -565,7 +565,7 @@ pub(crate) fn apply_tab_drag(
                     let column = screen
                         .layout_column_for_pane_mut(target_pane)
                         .context("target pane has no viewport column")?;
-                    column.zellij_auto_layout = None;
+                    column.creation_order_auto_layout = None;
                     &mut column.root
                 } else {
                     &mut screen.root
@@ -590,7 +590,7 @@ pub(crate) fn apply_tab_drag(
                 if in_column {
                     screen.sync_layout_column_projection();
                 } else {
-                    screen.zellij_auto_layout = None;
+                    screen.creation_order_auto_layout = None;
                 }
             }
             TabDragDestination::Column { after_column, width, .. } => {

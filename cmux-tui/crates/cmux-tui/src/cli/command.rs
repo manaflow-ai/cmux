@@ -1251,8 +1251,11 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// session or `--workspace` asks for a session-level row; a machine cannot
 /// address anything outside its own session. `--reply` is refused: the reply
 /// channel would type into a terminal, and that channel does not cross the
-/// machine boundary. `--window` and `--id-format` are accepted for
-/// signature parity and have no meaning on a machine.
+/// machine boundary. `--window`, `--id-format`, and `--desktop` are accepted
+/// for signature parity and have no meaning on a machine: the Mac decides how
+/// a machine's row is delivered. `--desktop` is still validated so a bad value
+/// fails the same way it does locally, and like the local flag it is not
+/// validated with `--clear`.
 fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     if !words.is_empty() {
         return usage("notify takes flags only");
@@ -1265,6 +1268,7 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     }
     let _ = flags.take("window");
     let _ = flags.take("id-format");
+    let desktop = flags.take("desktop");
     let workspace = flags.take("workspace");
     if let Some(workspace) = &workspace
         && workspace != "current"
@@ -1309,6 +1313,11 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             params.insert("terminal_id".into(), Value::String(surface));
         }
         return request(ResourceOperation::NotificationClear, &selectors, flags, params);
+    }
+    // Like the local flag, `--desktop` has no effect with `--clear` and is validated only here.
+    if let Some(desktop) = desktop {
+        parse_bool("--desktop", &desktop)
+            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
     }
     let title = flags.take("title").unwrap_or_else(|| "Notification".into());
     if title.is_empty() {
@@ -3495,6 +3504,7 @@ mod tests {
         }
     }
 
+    /// The machine `notify` accepts the macOS flag set, ignores the Mac-only ones, and validates `--desktop`.
     #[test]
     fn notify_matches_the_local_cmux_notify_signature() {
         const TERMINAL: &str = "term_00000000000000000000000000000041";
@@ -3530,12 +3540,36 @@ mod tests {
         assert_eq!(clear.params["terminal_id"], TERMINAL);
         let clear_all = protocol(&["notify", "--clear", "--workspace", "current"]);
         assert!(clear_all.params.get("terminal_id").is_none());
+        let clear_ignores_desktop =
+            protocol(&["notify", "--clear", "--surface", TERMINAL, "--desktop", "maybe"]);
+        assert_eq!(clear_ignores_desktop.operation.name().unwrap(), "notification.clear");
 
         assert!(
             parse(&strings(&["notify", "--reply", "--title", "x"]), super::super::Surface::CmuxTui)
                 .is_err(),
             "no reply channel across the link"
         );
+        // The Mac owns delivery for a machine's rows, so the local banner
+        // switch parses for parity and adds nothing to the request.
+        for parity in [
+            &["notify", "--workspace", "current", "--desktop", "false"][..],
+            &["notify", "--workspace", "current", "--desktop=true"][..],
+        ] {
+            let plan = protocol(parity);
+            assert_eq!(plan.operation.name().unwrap(), "notification.create");
+            assert!(plan.params.get("effects").is_none(), "{parity:?}");
+        }
+        match parse(
+            &strings(&["notify", "--workspace", "current", "--desktop", "maybe"]),
+            super::super::Surface::CmuxTui,
+        ) {
+            Err(error) => assert_eq!(
+                error.to_string(),
+                "--desktop must be true|false",
+                "--desktop is validated like the local flag, with the local error text"
+            ),
+            Ok(_) => panic!("--desktop maybe was accepted"),
+        }
         if std::env::var_os("CMUX_TUI_TERMINAL_ID").is_none() {
             assert!(
                 parse(&strings(&["notify", "--clear"]), super::super::Surface::CmuxTui).is_err(),
