@@ -858,3 +858,34 @@ fn a_kept_tab_outlives_its_one_shot_run() {
     assert!(second.contains(&format!("after:[\"{origin}/second?kept\"]")), "{second}");
     assert!(second.contains("attached:true"), "{second}");
 }
+
+/// One `tabs.list` shape for every source: the headless source through the
+/// session engine (the provider source is checked in provider_engine_tests).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn headless_tabs_list_has_the_protocol_shape() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSession, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let lease = cmux_browser_host::lease::LeaseCaller {
+        session: "s".into(),
+        actor: "t".into(),
+        on_behalf_of: None,
+        origin: "cli".into(),
+        label: String::new(),
+        implicit_session: false,
+        engine: "headless".into(),
+    };
+    let session =
+        HeadlessSession::new(source, &browsers, Arc::from(AGENT), Arc::new(|_| {}), lease).unwrap();
+    session.call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/")})).unwrap();
+    let tabs = session.call("tabs.list", &json!({})).unwrap();
+    cmux_browser_host::tab_source::check_tabs_list_shape(&tabs).unwrap();
+    assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+}

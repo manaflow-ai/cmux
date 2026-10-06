@@ -117,6 +117,7 @@ mod browser_profiles;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_conversations;
+mod conversation_attachments;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -1933,6 +1934,10 @@ enum Command {
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
+    /// Local conversation attachments (`local-attachments-v1`,
+    /// server/conversation_attachments.rs).
+    ConversationAttachmentUpload(conversation_attachments::UploadParams),
+    ConversationAttachmentRead(conversation_attachments::ReadParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -14257,6 +14262,8 @@ fn handle_command_with_cancellation(
         Command::CloudConversationUnsubscribe(params) => {
             cloud_conversations::unsubscribe(mux, client, Some(params))
         }
+        Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
+        Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::CreateProfile {
             name,
             profile,

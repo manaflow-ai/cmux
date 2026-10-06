@@ -15,8 +15,8 @@ use crate::cdp::pipe::HeadlessChromium;
 use crate::driver::{Driver, EventSink, Reply, RequestFilter, RequestInfo};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp, LeaseTable};
 use crate::protocol::{DriverError, DriverEvent};
-use crate::provider::{LeaseState, TabAnnounce};
-use crate::tab_source::{TabCall, TabSource};
+use crate::provider::LeaseState;
+use crate::tab_source::{TabCall, TabRow, TabSource};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -177,28 +177,25 @@ impl TabSource for SharedHeadless {
         self.0.subscribers.lock().unwrap_or_else(PoisonError::into_inner).retain(|(s, _)| *s != id);
     }
 
-    fn tab_list(&self, _engine: &str) -> Vec<TabAnnounce> {
+    /// The browser's tabs; every tab of the profile shares its data store.
+    fn tab_rows(&self, _engine: &str) -> Vec<TabRow> {
         let Ok(Value::Array(tabs)) = self.0.driver.call("tabs.list", &json!({})) else {
             return Vec::new();
         };
         tabs.iter()
             .filter_map(|tab| {
-                Some(TabAnnounce {
+                Some(TabRow {
                     target_id: tab["targetId"].as_str()?.to_owned(),
-                    engine: "headless".to_owned(),
-                    workspace: String::new(),
-                    profile: self.0.profile.clone(),
-                    url: tab["url"].as_str().unwrap_or("").to_owned(),
                     title: tab["title"].as_str().unwrap_or("").to_owned(),
-                    visible: false,
+                    url: tab["url"].as_str().unwrap_or("").to_owned(),
+                    active: tab["active"].as_bool().unwrap_or(false),
+                    window_id: tab.get("windowId").cloned().unwrap_or(json!(1)),
+                    state: "live".to_owned(),
+                    data_store: self.0.profile.clone(),
+                    opener: tab["openerTargetId"].as_str().map(str::to_owned),
                 })
             })
             .collect()
-    }
-
-    /// The driver's own rows (the runtime's `tabs.list` shape).
-    fn list_tabs(&self, _engine: &str) -> Value {
-        self.0.driver.call("tabs.list", &json!({})).unwrap_or_else(|_| json!([]))
     }
 
     fn tab_engine(&self, target_id: &str) -> Option<String> {
