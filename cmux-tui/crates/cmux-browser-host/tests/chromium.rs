@@ -78,6 +78,7 @@ fn serve() -> u16 {
                     "/cross-closed" => "<!doctype html><div id=h></div><script>document.getElementById('h')\
                          .attachShadow({mode: 'closed'}).innerHTML = '<button>Cross closed button</button>';</script>"
                         .to_owned(),
+                    "/confirm" => "<!doctype html><title>Confirm</title><button id=c onclick=\"document.getElementById('r').textContent = String(confirm('go?'))\">Ask</button><p id=r>none</p>".to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
@@ -888,4 +889,72 @@ fn headless_tabs_list_has_the_protocol_shape() {
     let tabs = session.call("tabs.list", &json!({})).unwrap();
     cmux_browser_host::tab_source::check_tabs_list_shape(&tabs).unwrap();
     assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+}
+
+/// Events of a shared headless browser go to one session (item 4c, classic
+/// routing): the session with a handler for the event in the tab, else the
+/// tab's creator, else the session whose call the page is handling; a
+/// dialog no session gets is dismissed (D2), so the page is never stuck.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn shared_browser_events_reach_one_session() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-route-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |session: &str, code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--session", session, "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let origin = format!("http://127.0.0.1:{port}");
+    // Session a creates and drives the tab (it holds the lease); session b
+    // attaches it and only listens for dialogs (a registration, not an act).
+    let a = eval("a", &format!("await page.goto('{origin}/confirm'); console.log('a-ready');"));
+    assert!(a.contains("a-ready"), "{a}");
+    let b = eval(
+        "b",
+        &format!(
+            "const row = (await tabs.list()).find((t) => t.url === '{origin}/confirm'); \
+             globalThis.t = await tabs.use(row.id); t.once('dialog', (d) => d.accept()); \
+             await t.waitForTimeout(50); console.log('b-listening');"
+        ),
+    );
+    assert!(b.contains("b-listening"), "{b}");
+    let a_click = eval(
+        "a",
+        "await page.locator('#c').click(); \
+         await page.waitForFunction(() => document.getElementById('r').textContent !== 'none', null, { timeout: 5000 }); \
+         console.log('a-result:' + await page.locator('#r').textContent() + ' held:' + !!page._pendingDialog());",
+    );
+    // a keeps the tab (no creator now) and the page asks on its own, outside
+    // any call, with no handler anywhere: the host dismisses it (D2).
+    let a_late = eval(
+        "a",
+        "await page.keep(); \
+         await page.evaluate(() => { document.getElementById('r').textContent = 'wait'; \
+           setTimeout(() => { document.getElementById('r').textContent = String(confirm('late?')); }, 50); }); \
+         await page.waitForFunction(() => document.getElementById('r').textContent !== 'wait', null, { timeout: 5000 }); \
+         console.log('late-result:' + await page.locator('#r').textContent() + ' held:' + !!page._pendingDialog());",
+    );
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(a_click.contains("a-result:true held:false"), "b's handler answered, not a: {a_click}");
+    assert!(a_late.contains("late-result:false held:false"), "dismissed, not held: {a_late}");
 }
