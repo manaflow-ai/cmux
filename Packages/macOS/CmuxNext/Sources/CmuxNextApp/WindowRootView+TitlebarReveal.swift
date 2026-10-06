@@ -19,8 +19,7 @@ extension WindowRootView {
         applyTitlebarButtonsMode()
     }
 
-    /// `window.titlebarButtons`: hover hides the buttons at rest; always
-    /// shows them.
+    /// `window.titlebarButtons` no longer changes chrome mounting or opacity.
     func applyTitlebarButtonsMode() {
         titlebarReveal.isEnabled = false
     }

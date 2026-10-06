@@ -251,7 +251,7 @@ public final class SidebarView: NSView {
         // The list starts right under the titlebar row: no search field.
         let y = titlebarHeight
 
-        // Titlebar row: buttons trail the traffic lights, shown on hover.
+        // Titlebar row: buttons trail the traffic lights at a stable frame.
         let button = SidebarStyle.toolbarButtonSize
         let rowY = max(Metrics.space2, (titlebarHeight - button) / 2)
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
@@ -267,8 +267,6 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        // Footer chrome keeps its row and controls at a stable size while
-        // profile data arrives. Empty state changes enabled content only.
         let showsProfiles = true
         profileBar.isHidden = false
         // R109: the dots under the titlebar row, or in the footer.
