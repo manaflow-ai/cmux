@@ -1,5 +1,5 @@
-public import CmuxNextDesign
-public import CoreGraphics
+import CmuxNextDesign
+import CoreGraphics
 import Foundation
 
 /// Drag to group (Leo, 2026-10-06): the pointer's place in the row under
@@ -7,8 +7,8 @@ import Foundation
 /// groups, but only once the pointer has rested there for `dwell`, and it
 /// holds until the pointer leaves the wider `holdZone`, so reorder and
 /// group never flicker between each other.
-public nonisolated struct SidebarGroupDwell: Sendable {
-    public enum Phase: Hashable, Sendable {
+nonisolated struct SidebarGroupDwell: Sendable {
+    enum Phase: Hashable, Sendable {
         case none
         /// Over a middle, waiting out the dwell: rows hold still.
         case pending(DropTarget)
@@ -18,27 +18,27 @@ public nonisolated struct SidebarGroupDwell: Sendable {
 
     /// The row under the pointer that a drop could group with, and the
     /// pointer's place in it (0 top, 1 bottom).
-    public struct Hit: Hashable, Sendable {
-        public var target: DropTarget
-        public var fraction: CGFloat
+    struct Hit: Hashable, Sendable {
+        var target: DropTarget
+        var fraction: CGFloat
 
-        public init(target: DropTarget, fraction: CGFloat) {
+        init(target: DropTarget, fraction: CGFloat) {
             self.target = target
             self.fraction = fraction
         }
     }
 
-    public static let zone: ClosedRange<CGFloat> = 0.25...0.75
-    public static let holdZone: ClosedRange<CGFloat> = 0.15...0.85
-    public static let dwell: TimeInterval = 0.275
+    static let zone: ClosedRange<CGFloat> = 0.25...0.75
+    static let holdZone: ClosedRange<CGFloat> = 0.15...0.85
+    static let dwell: TimeInterval = 0.275
 
-    public private(set) var phase = Phase.none
+    private(set) var phase = Phase.none
     private var since: TimeInterval = 0
 
-    public init() {}
+    init() {}
 
     @discardableResult
-    public mutating func update(_ hit: Hit?, now: TimeInterval) -> Phase {
+    mutating func update(_ hit: Hit?, now: TimeInterval) -> Phase {
         let current: DropTarget? = switch phase {
         case .none: nil
         case let .pending(target), let .armed(target): target
@@ -61,7 +61,7 @@ public nonisolated struct SidebarGroupDwell: Sendable {
     /// What a drop of `dragged` could group with at display `y`: a loose
     /// row of the same machine (a new group), or a group header or grouped
     /// row (join that group). Pinned rows, headers and other machines can't.
-    public static func hit(y: CGFloat, rows: [SidebarRow], hidden: Set<SidebarRowKey>, dragged: [WorkspaceID],
+    static func hit(y: CGFloat, rows: [SidebarRow], hidden: Set<SidebarRowKey>, dragged: [WorkspaceID],
                            sections: [SidebarSection]) -> Hit? {
         guard let row = rows.first(where: { y >= $0.y && y < $0.maxY && !hidden.contains($0.key) }), row.height > 0,
               case let .machine(machine) = row.section,
@@ -91,7 +91,7 @@ public nonisolated struct SidebarGroupDwell: Sendable {
 
     /// The first color no group in `sections` uses yet, so a new group
     /// stands apart; blue once every color is taken.
-    public static func newGroupColor(in sections: [SidebarSection]) -> GroupColor {
+    static func newGroupColor(in sections: [SidebarSection]) -> GroupColor {
         let used = Set(sections.flatMap(\.nodes).compactMap { node -> GroupColor? in
             if case let .group(group) = node { return group.color }
             return nil
