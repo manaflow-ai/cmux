@@ -64,7 +64,12 @@ if [[ "$mode" == optchat-chief ]]; then
   # Its own workspace and lockfile, so its own target dir.
   export CARGO_TARGET_DIR="$root/.build/optchat-chief-target"
   cd "$root/Native/OptChat/optchat-chief"
-  cargo test ${filter:+"$filter"}
+  # Its tests bind Unix sockets under the temp dir; the step's own TMPDIR is
+  # longer than SUN_LEN (step b1563a89: "path must be shorter than SUN_LEN").
+  short_tmp="$(mktemp -d /tmp/occ.XXXXXX)"
+  trap 'rm -rf "$short_tmp"' EXIT
+  export TMPDIR="$short_tmp"
+  cargo test --no-fail-fast ${filter:+"$filter"}
   cargo clippy --all-targets -- -D warnings
   cargo fmt --check
   exit 0
