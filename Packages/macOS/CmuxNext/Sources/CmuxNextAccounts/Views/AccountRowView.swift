@@ -14,7 +14,7 @@ struct AccountRowView: View {
     /// The provider's brand mark (design/agent-icons), or its symbol when it has none.
     @ViewBuilder private var providerIcon: some View {
         if AgentBrandCatalog.brand(for: row.provider.rawValue) != nil {
-            AgentBrandMark(agent: row.provider.rawValue, size: Metrics.iconSize)
+            AgentBrandMark(agent: row.provider.rawValue, size: Metrics.iconSize, style: .brand)
         } else {
             Image(systemName: row.provider.symbol)
         }
