@@ -30,6 +30,20 @@ struct CoderouterCLIAccountReaderTests {
         #expect(accounts.map(\.remainingPercent) == [93, nil])
     }
 
+    @Test("The account snapshot retains the organization ID for team-scoped creates")
+    func snapshotRetainsOrganizationID() async throws {
+        let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
+
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(
+            for: Self.cmuxTeamID,
+            name: "Austin Wang's Team",
+            run: { try await cli.run($0) }
+        )
+
+        #expect(snapshot.organizationID == Self.austinOrganizationID)
+        #expect(snapshot.accounts.map(\.label) == ["austin+10@manaflow.com", "austin+3@manaflow.com"])
+    }
+
     @Test("Refresh leaves the terminal's CodeRouter organization alone when it already matches")
     func matchingOrganizationIsNotSwitched() async throws {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
@@ -218,6 +232,8 @@ struct CoderouterSidebarSectionTests {
 
         #expect(added.providers == [.claude])
         #expect(CoderouterProvider.claude.addCommand == "cmux cr add claude")
+        #expect(CoderouterProvider.codex.addCommand(for: "17a2ba34-5a88-412e-8380-0ea4118139c3") == "cmux cr add codex --team '17a2ba34-5a88-412e-8380-0ea4118139c3'")
+        #expect(CoderouterProvider.claude.addCommand(for: "team's-id") == "cmux cr add claude --team 'team'\\''s-id'")
         // The server names OpenCode Go accounts `opencode-go`; the CLI verb is `opencode`.
         #expect(CoderouterProvider(id: "opencode-go") == .opencodeGo)
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")

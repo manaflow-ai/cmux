@@ -27,6 +27,10 @@ struct MachinesPanelView: View {
     @State private var devBackend = DevBackendStartup()
     @State var billingPlanLoaded = false
     @State private var coderouter = CloudTreeCoderouterSection()
+    /// The CodeRouter organization matched to the selected cmux team. Keep it
+    /// beside the account snapshot so create actions can target that exact
+    /// organization instead of the CLI's mutable global scope.
+    @State private var coderouterOrganizationID: String?
     /// Bumped by the section's refresh icon; restarting the refresh loop keeps one owner of the CLI reads.
     @State private var coderouterRefreshRequest = 0
     @State private var bannerDismissals: CloudBannerDismissalStore
@@ -130,6 +134,7 @@ struct MachinesPanelView: View {
         // Pins are scoped per account and team; a switch re-reads the scope and
         // the fleet so the tree never shows another scope's pins.
         .onChange(of: accountFlow?.confirmedTeamID) { _, _ in
+            coderouterOrganizationID = nil
             viewModel.refreshAccountScope()
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
@@ -506,15 +511,17 @@ struct MachinesPanelView: View {
         guard let teamID = accountFlow?.confirmedTeamID,
               !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             coderouter.accounts = []
+            coderouterOrganizationID = nil
             return
         }
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
             Self.coderouterLogger.info("Refreshing CodeRouter accounts for cmux team ID \(teamID, privacy: .public), name \(teamName ?? "<nil>", privacy: .public)")
-            let accounts = try await CoderouterCLIAccountReader.accounts(for: teamID, name: teamName)
+            let snapshot = try await CoderouterCLIAccountReader.snapshot(for: teamID, name: teamName)
             // A team switch or manual refresh cancelled this read; its result is stale.
             guard !Task.isCancelled else { return }
-            coderouter.accounts = accounts
+            coderouterOrganizationID = snapshot.organizationID
+            coderouter.accounts = snapshot.accounts
         } catch {
             Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
             // Keep the last successful snapshot during a transient refresh failure.
@@ -567,9 +574,16 @@ struct MachinesPanelView: View {
             viewModel.noteTreeHint("Select a team before adding a coding agent account.")
             return
         }
-        // Every type adds through the CodeRouter CLI's active organization, the
-        // one the sidebar refresh keeps on the selected team and reads back.
-        let command = provider.addCommand
+        guard let organizationID = coderouterOrganizationID,
+              !organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            viewModel.noteTreeHint("CodeRouter is still loading this team's account settings. Try again in a moment.")
+            requestCoderouterRefresh()
+            return
+        }
+        // Pass the matched organization explicitly. The CodeRouter CLI config
+        // is shared with terminals, so relying on its active organization can
+        // send a new account to another team's pool during a concurrent switch.
+        let command = provider.addCommand(for: organizationID)
 
         if let panel = tabManager?.selectedWorkspace?.focusedTerminalInputTarget()?.panel {
             panel.sendInput(command + "\r")

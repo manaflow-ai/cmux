@@ -7,6 +7,11 @@ import OSLog
 enum CoderouterCLIAccountReader {
     typealias Run = @Sendable (_ arguments: [String]) async throws -> Data
 
+    struct Snapshot {
+        let organizationID: String
+        let accounts: [CloudTreeNode.CoderouterAccount]
+    }
+
     private static let logger = Logger(subsystem: "com.cmuxterm.app", category: "coderouter-accounts")
 
     static func accounts(
@@ -14,6 +19,18 @@ enum CoderouterCLIAccountReader {
         name cmuxTeamName: String?,
         run: Run = runCLI
     ) async throws -> [CloudTreeNode.CoderouterAccount] {
+        let snapshot = try await snapshot(for: cmuxTeamID, name: cmuxTeamName, run: run)
+        return snapshot.accounts
+    }
+
+    /// Reads the selected team's CodeRouter organization and account rows in
+    /// one operation. The organization ID is retained by the sidebar so an
+    /// account created from a team row can carry an explicit destination.
+    static func snapshot(
+        for cmuxTeamID: String?,
+        name cmuxTeamName: String?,
+        run: Run = runCLI
+    ) async throws -> Snapshot {
         guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cmuxTeamName.isEmpty,
               let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run) else {
@@ -34,7 +51,7 @@ enum CoderouterCLIAccountReader {
             throw accountError("coderouter organization did not switch to the selected team.")
         }
         logger.info("Loaded \(payload.accounts.count, privacy: .public) CodeRouter accounts for org ID \(organizationID, privacy: .public)")
-        return payload.accounts
+        return Snapshot(organizationID: organizationID, accounts: payload.accounts)
     }
 
     /// Removes one account from the CodeRouter organization of the selected cmux

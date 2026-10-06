@@ -33,13 +33,26 @@ struct CoderouterProvider: Hashable {
         String(format: String(localized: "coderouter.newAccount", defaultValue: "New %@ Account"), title)
     }
 
-    /// The command a New Account row submits in a terminal; the CLI adds the
-    /// account to its active organization, which the sidebar reads.
+    /// The command a New Account row submits in a terminal. An explicit
+    /// organization keeps the account attached to the team whose row was
+    /// clicked even if another terminal changes CodeRouter's active scope.
     var addCommand: String {
         switch id {
         case "opencode-go": return "cmux cr add opencode"
         default: return "cmux cr add \(id)"
         }
+    }
+
+    func addCommand(for organizationID: String?) -> String {
+        guard let organizationID = organizationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !organizationID.isEmpty else {
+            return addCommand
+        }
+        return "\(addCommand) --team \(Self.shellQuote(organizationID))"
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
