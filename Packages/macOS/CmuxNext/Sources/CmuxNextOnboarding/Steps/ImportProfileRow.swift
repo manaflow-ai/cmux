@@ -31,9 +31,10 @@ final class ImportProfileRow: NSView {
     private var editable = true
     private(set) lazy var hover = ChromeHover(self, tracking: .activeInKeyWindow)
 
-    init(profile: BrowserSourceProfile, appURL: URL?, onAccess: (() -> Void)? = nil, toggle: @escaping () -> Void) {
+    init(profile: BrowserSourceProfile, appURL: URL?, needsFullDiskAccess: Bool = false,
+         onAccess: (() -> Void)? = nil, toggle: @escaping () -> Void) {
         self.toggle = toggle
-        requiresFullDiskAccess = profile.needsFullDiskAccess
+        requiresFullDiskAccess = needsFullDiskAccess || profile.needsFullDiskAccess
         self.onAccess = onAccess
         accessButton = OnboardingControl.plainButton(OnboardingStrings.openSystemSettings, target: nil, action: #selector(accessPressed))
         super.init(frame: .zero)

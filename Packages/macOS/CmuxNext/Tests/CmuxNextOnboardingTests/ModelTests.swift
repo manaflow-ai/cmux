@@ -103,7 +103,7 @@ import Testing
         let services = MockOnboardingServices()
         let safari = BrowserSourceProfile(browser: .safari, directoryName: "Safari", displayName: "Safari",
                                           path: URL(fileURLWithPath: "/tmp/Safari"),
-                                          availability: [.bookmarks: .needsFullDiskAccess])
+                                          availability: [:])
         services.sources = [BrowserSource(browser: .safari, appURL: nil, profiles: [safari], needsFullDiskAccess: true)]
         let model = OnboardingModel(services: services, start: .importData)
         model.stepDidAppear()

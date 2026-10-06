@@ -34,6 +34,10 @@ final class OnboardingAccentButton: NSButton {
         applyAppearance()
     }
 
+    func refreshAppearance() {
+        applyAppearance()
+    }
+
     private func applyAppearance() {
         performWithTheme {
             layer?.backgroundColor = Palette.accent.cgColor

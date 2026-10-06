@@ -75,8 +75,11 @@ public final class ImportStepModel {
 
     /// Profiles with something to bring, in detection order.
     public var profiles: [BrowserSourceProfile] {
-        sources.flatMap(\.profiles).filter { profile in
-            profile.needsFullDiskAccess || Self.offeredKinds.contains { profile.availability(of: $0).isImportable }
+        sources.flatMap { source in
+            source.profiles.filter { profile in
+                source.needsFullDiskAccess || profile.needsFullDiskAccess
+                    || Self.offeredKinds.contains { profile.availability(of: $0).isImportable }
+            }
         }
     }
 
