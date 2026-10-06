@@ -22,7 +22,14 @@ public struct HomeContact: Hashable, Sendable, Identifiable {
     /// The people of the user's DMs (accepted, not invited), for New
     /// Message's list: each DM peer once, newest DM first.
     public static func connections(in rows: [InboxRow], me: ParticipantID) -> [HomeContact] {
-        []
+        var seen: Set<ParticipantID> = []
+        var result: [HomeContact] = []
+        for row in rows where row.kind == .direct {
+            guard let peer = row.summary.participants.first(where: { $0.id != me }), peer.kind == .human,
+                  peer.membership == .active, !peer.displayName.isEmpty, seen.insert(peer.id).inserted else { continue }
+            result.append(HomeContact(id: peer.id, name: peer.displayName, source: .connection))
+        }
+        return result
     }
 
     /// Team members first (by name), then connections not in the team.

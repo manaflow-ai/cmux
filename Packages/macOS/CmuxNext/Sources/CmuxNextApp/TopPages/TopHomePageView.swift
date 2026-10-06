@@ -99,7 +99,7 @@ final class TopHomePageView: NSView {
     /// The rows the list shows: an archived Chief's conversation is hidden
     /// (its history stays with the owner, read-only).
     static func visible(_ rows: [InboxRow], archivedChiefs: Set<String>, me: ParticipantID?) -> [InboxRow] {
-        return rows
+        guard !archivedChiefs.isEmpty else { return rows }
         return rows.filter { row in
             guard row.kind == .chief else { return true }
             return !row.summary.participants.contains { $0.id != me && archivedChiefs.contains($0.id.rawValue) }

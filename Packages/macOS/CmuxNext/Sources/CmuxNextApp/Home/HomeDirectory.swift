@@ -93,10 +93,6 @@ final class HomeDirectory {
     }
 
     static func members(from value: Any?, excluding me: String?) -> [HomeContact] {
-        []
-    }
-
-    static func membersGreen(from value: Any?, excluding me: String?) -> [HomeContact] {
         let list = (value as? [String: Any])?["members"] as? [[String: Any]] ?? []
         return list.compactMap { member -> HomeContact? in
             guard let user = member["user"] as? String, !user.isEmpty else { return nil }
@@ -118,10 +114,6 @@ final class HomeDirectory {
     }
 
     static func chief(_ value: Any?) -> HomeChiefRecord? {
-        nil
-    }
-
-    static func chiefGreen(_ value: Any?) -> HomeChiefRecord? {
         guard let object = value as? [String: Any], let id = object["id"] as? String,
               (object["archived_at"] as? String) == nil else { return nil }
         return HomeChiefRecord(id: id, name: object["display_name"] as? String ?? "", isDefault: object["is_default"] as? Bool ?? false,

@@ -152,7 +152,9 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// Names the people the user can reach (the Home directory), so a new
     /// group created with them carries their names, not their ids.
     func remember(_ people: [Participant]) {
-
+        state.withLock { state in
+            for person in people { state.directory[person.id] = person }
+        }
     }
 
     func handle(_ event: CloudConversationsEvent) {

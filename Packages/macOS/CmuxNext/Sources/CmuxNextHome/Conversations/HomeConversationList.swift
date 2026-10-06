@@ -32,7 +32,12 @@ public enum HomeConversationList {
     /// `rows` arrive in inbox order (pinned by rank, then newest first);
     /// each section keeps that order.
     public static func sections(_ rows: [InboxRow]) -> [Section] {
-        rows.isEmpty ? [] : [Section(kind: .messages, rows: rows)]
+        var buckets: [SectionKind: [InboxRow]] = [:]
+        for row in rows { buckets[kind(of: row), default: []].append(row) }
+        return SectionKind.allCases.compactMap { kind in
+            guard let rows = buckets[kind], !rows.isEmpty else { return nil }
+            return Section(kind: kind, rows: rows)
+        }
     }
 
     public static func lines(_ rows: [InboxRow]) -> [Line] {

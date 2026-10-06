@@ -13,10 +13,6 @@ struct HomeComposer {
     var perform: @MainActor (HomeOp) async throws -> HomeOpResult
 
     func start(_ recipients: [HomeRecipient], title: String) async -> HomeComposeOutcome {
-        .refused("")
-    }
-
-    func startGreen(_ recipients: [HomeRecipient], title: String) async -> HomeComposeOutcome {
         var people: [HomeContact] = []
         var addresses: [ContactAddress] = []
         for recipient in recipients {
@@ -48,10 +44,6 @@ struct HomeComposer {
     /// Invite to cmux-next: a DM invite to the address (the owner sends the
     /// email; on staging only to its allow list).
     func invite(_ address: ContactAddress) async -> HomeComposeOutcome {
-        .refused("")
-    }
-
-    func inviteGreen(_ address: ContactAddress) async -> HomeComposeOutcome {
         guard address.isEmail else { return .invalidAddress(address.description) }
         do {
             let result = try await perform(.invite(contact: address))
