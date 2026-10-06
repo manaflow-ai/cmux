@@ -95,6 +95,29 @@ import Testing
         }
     }
 
+    /// cmux-browser mutes a workspace through settings.set as `script` (a separate process is
+    /// never `user`), so `notifications.mutedWorkspaces` is a schema key an agent may set, with no
+    /// sheet, and a list that is not workspace-id strings is refused before the file changes.
+    @Test func aScriptMutesAWorkspaceThroughSettingsSet() async throws {
+        let (router, settings, directory) = try make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var asked: [String] = []
+        settings.userOnlyConfirmation = { key, _ in asked.append(key); return false }
+        let path: JSONValue = "notifications.mutedWorkspaces"
+        let set = await call(router, "settings.set", ["path": path, "value": ["ws-1", "ws-2"], "origin": "script"])
+        #expect((try? set.get()) != nil, "\(set)")
+        #expect(try await settings.file.value(at: ["notifications", "mutedWorkspaces"]) == ["ws-1", "ws-2"])
+        #expect(asked.isEmpty, "an agent-settable key needs no sheet")
+        for bad: JSONValue in ["ws-1", [1], [""]] {
+            guard case .failure(let refused) = await call(router, "settings.set", ["path": path, "value": bad, "origin": "script"]) else {
+                Issue.record("mutedWorkspaces accepted \(bad)")
+                continue
+            }
+            #expect(refused.code == "invalid_params", "\(bad)")
+        }
+        #expect(try await settings.file.value(at: ["notifications", "mutedWorkspaces"]) == ["ws-1", "ws-2"])
+    }
+
     /// settings.reset and settings.unset wait for the person like settings.set (their own deadline
     /// is the confirmation's, not the 2 s control plane): an approval after the control-plane
     /// deadline still answers the request it writes for.
