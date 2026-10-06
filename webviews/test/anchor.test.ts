@@ -201,8 +201,11 @@ describe("anchored overlay placement", () => {
       expect(Math.abs(Number.parseFloat(overlay.style.left) - expectedLeft)).toBeLessThanOrEqual(2);
       expect(Math.abs(Number.parseFloat(overlay.style.top) - expectedTop)).toBeLessThanOrEqual(2);
       if (entry.name === "composer-plus") {
-        expect(geometry.overlay.width).toBeGreaterThan(64);
-        expect(geometry.overlay.height).toBeLessThanOrEqual(360);
+        const trigger = dom.window.document.querySelector<HTMLButtonElement>(
+          `[data-menu-trigger="${entry.name}"]`,
+        )!;
+        expect(overlay.getBoundingClientRect().width).toBeGreaterThan(trigger.getBoundingClientRect().width);
+        expect(overlay.getBoundingClientRect().height).toBeLessThanOrEqual(360);
       }
     }
   });
