@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e";
+inline constexpr std::string_view kProtocolIrSha256 = "8996d69ea5347b7a526a25fe865465e5de6d3d519dc9418c95a7c8794b64ffdb";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -78,6 +78,8 @@ struct GuestUrlAcknowledgeResult;
 struct GuestUrlClaimResult;
 struct GuestUrlOpenResult;
 struct GuestUrlSubscribeResult;
+struct HistorySearchHit;
+struct HistorySearchRange;
 struct Id;
 struct IdMapping;
 struct IdentifyResult;
@@ -302,6 +304,8 @@ struct GetCellPixelsRequest;
 struct GetFrontendBrowserHistoryRequest;
 struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
+struct HistorySearchRequest;
+struct HistorySearchResult;
 struct IdentifyRequest;
 struct IdsRequest;
 struct ImportBookmarksRequest;
@@ -2380,6 +2384,37 @@ struct GuestUrlOpenResult {
 struct GuestUrlSubscribeResult {
     bool url_open_ready{};
     friend bool operator==(const GuestUrlSubscribeResult&, const GuestUrlSubscribeResult&) = default;
+};
+
+struct HistorySearchRange {
+    std::uint32_t end{};
+    std::uint32_t start{};
+    friend bool operator==(const HistorySearchRange&, const HistorySearchRange&) = default;
+};
+
+struct HistorySearchHit {
+    std::int64_t at_ms{};
+    std::vector<HistorySearchRange> highlights{};
+    std::string key{};
+    std::string kind{};
+    std::optional<std::int64_t> position{};
+    std::string snippet{};
+    std::string target{};
+    std::string title{};
+    friend bool operator==(const HistorySearchHit&, const HistorySearchHit&) = default;
+};
+
+struct HistorySearchRequest {
+    std::optional<std::vector<std::string>> kinds{};
+    Field<std::uint32_t> limit{};
+    std::string query{};
+    friend bool operator==(const HistorySearchRequest&, const HistorySearchRequest&) = default;
+};
+
+struct HistorySearchResult {
+    std::vector<HistorySearchHit> hits{};
+    std::uint64_t took_us{};
+    friend bool operator==(const HistorySearchResult&, const HistorySearchResult&) = default;
 };
 
 enum class IdMappingKind {
@@ -5221,6 +5256,18 @@ struct Codec<GuestUrlSubscribeResult> {
 };
 
 template <>
+struct Codec<HistorySearchHit> {
+    static Result<Json> encode(const HistorySearchHit& value);
+    static Result<HistorySearchHit> decode(const Json& value);
+};
+
+template <>
+struct Codec<HistorySearchRange> {
+    static Result<Json> encode(const HistorySearchRange& value);
+    static Result<HistorySearchRange> decode(const Json& value);
+};
+
+template <>
 struct Codec<Id> {
     static Result<Json> encode(const Id& value);
     static Result<Id> decode(const Json& value);
@@ -6562,6 +6609,18 @@ template <>
 struct Codec<GetSizeStateRequest> {
     static Result<Json> encode(const GetSizeStateRequest& value);
     static Result<GetSizeStateRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<HistorySearchRequest> {
+    static Result<Json> encode(const HistorySearchRequest& value);
+    static Result<HistorySearchRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<HistorySearchResult> {
+    static Result<Json> encode(const HistorySearchResult& value);
+    static Result<HistorySearchResult> decode(const Json& value);
 };
 
 template <>

@@ -1222,6 +1222,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-conversation",
+ "cmux-history",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",

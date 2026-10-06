@@ -24,6 +24,7 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+pub mod history_search;
 #[cfg(unix)]
 mod image_paste;
 #[cfg(unix)]

@@ -12,6 +12,7 @@ mod cloud_conversations;
 mod conversations;
 mod dock_columns;
 mod exit_settle;
+mod history_search;
 mod host_close;
 #[cfg(all(test, unix))]
 mod host_death_tests;
@@ -2553,6 +2554,9 @@ pub struct Mux {
     /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
     /// a binary that has a cloud transport; absent otherwise.
     cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
+    /// The history search index (`history-search-v1`), installed by the
+    /// binary with its feeds; absent otherwise.
+    history_search: OnceLock<crate::history_search::HistorySearch>,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -3031,6 +3035,7 @@ impl Mux {
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
             cloud_conversations: OnceLock::new(),
+            history_search: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]

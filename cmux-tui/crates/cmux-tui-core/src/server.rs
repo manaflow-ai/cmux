@@ -121,6 +121,7 @@ mod conversation_attachments;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
+mod history_search;
 mod home;
 mod launch_snapshot;
 mod new_screen;
@@ -1923,6 +1924,8 @@ enum Command {
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
     ConversationSearch(conversations::SearchParams),
+    /// The history search index (`history-search-v1`, server/history_search.rs).
+    HistorySearch(history_search::HistorySearchParams),
     ConversationOp(conversations::OpParams),
     ConversationTyping(conversations::TypingParams),
     ConversationBind(conversations::BindParams),
@@ -14246,6 +14249,7 @@ fn handle_command_with_cancellation(
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
+        Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),

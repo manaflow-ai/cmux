@@ -129,6 +129,7 @@ cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
+cmux-history = { path = "crates/cmux-history" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-link = { path = "crates/cmux-link" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
