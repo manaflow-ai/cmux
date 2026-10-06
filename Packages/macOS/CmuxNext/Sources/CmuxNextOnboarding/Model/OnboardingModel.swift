@@ -72,9 +72,11 @@ public final class OnboardingModel {
     public var isFirst: Bool { step == steps.first }
     public var isLast: Bool { step == steps.last }
 
-    /// The primary button: Import while the import step has a checked
-    /// choice it has not run, else Continue (Done on the last step).
+    /// The primary button: Find Browsers on the import step before a person
+    /// asked for them, Import while it has a checked choice it has not run,
+    /// else Continue (Done on the last step).
     public var primaryTitle: String {
+        if step == .importData, importer.phase == .idle { return OnboardingStrings.findBrowsers }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
         return isLast ? OnboardingStrings.done : OnboardingStrings.continueButton
     }
@@ -86,6 +88,9 @@ public final class OnboardingModel {
     public func next() {
         switch step {
         case .importData where importer.justStarted:
+            return
+        case .importData where importer.phase == .idle:
+            importer.detect()
             return
         case .importData where importer.canStart:
             importer.start()
@@ -128,7 +133,8 @@ public final class OnboardingModel {
             if steps.contains(.chats) { chats.scan() }
             if steps.contains(.classicSessions) { classicSessions.scan() }
         case .defaultBrowser: defaults.refresh()
-        case .importData: importer.detect()
+        // Browser detection reads other apps' data: only Find Browsers starts it.
+        case .importData: break
         case .theme: theme.load()
         case .firstTask: firstTask.refreshOutputs()
         case .computerUse: computerUse.start()
