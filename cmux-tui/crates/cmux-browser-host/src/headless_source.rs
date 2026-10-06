@@ -45,6 +45,9 @@ pub struct HeadlessSource {
     /// `tab.closed`, per session until its end). When the last one leaves,
     /// the input it left pressed is released.
     driven: Mutex<HashMap<String, HashSet<u64>>>,
+    /// Which tabs run at full rate (chief, 2026-10-06): those a session
+    /// drove in the last 30 s.
+    activity: Mutex<crate::headless_activity::Activity>,
     /// Each session's `session.configure` options (item 4d).
     pub(crate) configs: Mutex<crate::headless_configure::Configs>,
     // Last: the browser stops after the driver let go of it.
@@ -79,9 +82,15 @@ impl HeadlessSource {
             }),
         )?;
         driver.save_downloads_in(browser.downloads_dir())?;
+        // Headless: no person can see an Open panel, every tab intercepts.
+        driver.intercept_all_choosers(options.headless);
         // Chromium opens a start tab; it is no session's tab, so sessions
-        // start with none (headless Chromium keeps running without tabs).
-        if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {
+        // start with none (headless Chromium keeps running without tabs). A
+        // headful browser keeps it: its window is the person's, and new tabs
+        // need a window to open in ("Failed to open a new tab" without one).
+        let start_tabs =
+            if options.headless { driver.call("tabs.list", &json!({})).ok() } else { None };
+        if let Some(Value::Array(tabs)) = start_tabs {
             for tab in tabs {
                 if let Some(target) = tab["targetId"].as_str() {
                     let _ = driver.call("tabs.close", &json!({"targetId": target}));
@@ -98,6 +107,7 @@ impl HeadlessSource {
             routes: Mutex::default(),
             policy_logs: Mutex::default(),
             driven: Mutex::default(),
+            activity: Mutex::default(),
             configs: Mutex::default(),
             _browser: browser,
         });
@@ -161,6 +171,11 @@ impl HeadlessSource {
             .entry(target.to_owned())
             .or_default()
             .insert(session);
+        self.active(target);
+        // Headful: a tab a session drives intercepts its file choosers. On
+        // every call: the first (tabs.open) can come before the driver
+        // knows the tab; the driver does nothing once it is on.
+        self.driver.set_tab_choosers(target, true);
         let changed = self
             .filters
             .lock()
@@ -195,6 +210,20 @@ impl HeadlessSource {
         self.routes.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// A session drove `target` now (or the tab just opened): it runs at full
+    /// rate, and tabs quiet for 30 s are throttled (lazily, no timer).
+    fn active(&self, target: &str) {
+        let changes = self
+            .activity
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            // The clock is injected at Activity's API (its tests pass times).
+            .drove(target, std::time::Instant::now());
+        for (tab, throttled) in changes {
+            self.driver.set_tab_throttled(&tab, throttled);
+        }
+    }
+
     /// Delivers a driver event (on the driver's event thread, which may call
     /// the driver): to one session, to every session, or, when no session
     /// takes a dialog or download, the host answers it and logs it (D2).
@@ -207,6 +236,7 @@ impl HeadlessSource {
             && let Some(target) = event.payload.get("targetId").and_then(Value::as_str)
         {
             self.driven.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
+            self.activity.lock().unwrap_or_else(PoisonError::into_inner).closed(target);
             // A closed tab takes its automation lease with it (as the app's
             // tab.gone does): the table stays bounded.
             let gone = LeaseOp::TargetGone { target: target.to_owned() };
@@ -215,6 +245,12 @@ impl HeadlessSource {
                 &LeaseCaller::default(),
                 0,
             );
+        }
+        // A new tab (a popup too) starts at full rate and cools down.
+        if event.name == "tab.created"
+            && let Some(target) = event.payload.get("targetId").and_then(Value::as_str)
+        {
+            self.active(target);
         }
         let route = self.routes().route(&event, &attached);
         match route {
@@ -530,6 +566,8 @@ impl TabSource for SharedHeadless {
         };
         for target in left {
             let _ = self.0.driver.release_held_input(&target);
+            // Headful: the person's Open panel again.
+            self.0.driver.set_tab_choosers(&target, false);
         }
         let removed = self
             .0

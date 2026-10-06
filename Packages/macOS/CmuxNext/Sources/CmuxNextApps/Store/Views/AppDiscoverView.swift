@@ -54,7 +54,7 @@ struct AppDiscoverView: View {
     }
 
     private var chips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: Metrics.space2) {
                 chip(AppsStrings.allCategories, selected: model.category == nil) { model.category = nil }
                 ForEach(model.allCategories, id: \.self) { id in

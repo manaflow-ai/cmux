@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextSidebar
 import Observation
 
@@ -144,10 +145,10 @@ extension SidebarBridge {
     static func appInfo(_ id: String, registry: AppRegistry) -> SidebarItemInfo {
         guard let app = registry.app(id) else { return SidebarItemInfo.fallback(for: .app(id)) }
         let symbol = if case .symbol(let name)? = app.manifest.icon { name } else { "app" }
-        // A first-party app keeps its former built-in's short tile caption.
-        let caption = SidebarLayoutDocument.firstPartyApps.first { $0.value == id }?.key.caption
-        return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, isMissing: !app.isInstalled,
-                               isHidden: AppPresence([app]).suppressed.contains(id), caption: caption)
+        // A first-party app keeps its former built-in's icon and tile caption; no symbol draws the generic app.
+        let firstParty = SidebarBuiltIn.firstParty(appID: id), icon = firstParty?.icon ?? (symbol == "app" ? IconName.appGeneric : nil)
+        return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, icon: icon, isMissing: !app.isInstalled,
+                               isHidden: AppPresence([app]).suppressed.contains(id), caption: firstParty?.caption)
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to

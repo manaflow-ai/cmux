@@ -679,6 +679,10 @@ enum RowBuilder {
             }
             prev = m
         }
+        // cmux: the host's notice, centered like the date row, under the newest message.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
+            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
+        }
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }

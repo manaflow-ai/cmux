@@ -39,8 +39,6 @@ extension PaneController {
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
-        case .trailingButton(let id):
-            services.tabBarButtons.perform(id, paneKey: paneKey)
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):

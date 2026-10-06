@@ -286,3 +286,231 @@ fn only_the_choosers_session_answers_it_and_its_end_cancels_it() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+/// An Xvfb display for a headful browser, stopped (exact PID) on drop.
+pub(crate) struct Display(std::process::Child, pub(crate) String);
+
+impl Display {
+    /// Xvfb picks a free display and writes its number when it is ready
+    /// (`-displayfd`).
+    pub(crate) fn start() -> Display {
+        let mut child = std::process::Command::new("Xvfb")
+            .args(["-displayfd", "1", "-screen", "0", "1280x800x24", "-nolisten", "tcp"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("the headful test needs Xvfb");
+        let mut line = String::new();
+        let read = BufReader::new(child.stdout.take().unwrap()).read_line(&mut line);
+        let number = line.trim().to_owned();
+        let display = Display(child, format!(":{number}"));
+        assert!(read.is_ok() && !number.is_empty(), "Xvfb reported no display");
+        display
+    }
+}
+
+impl Drop for Display {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// What a chooser does in each mode: in a tab the session created it is
+/// the session's (`filechooser.opened`); in a tab no session drives any
+/// more (kept, its session gone) it is cancelled and logged on headless
+/// (D2: no person can see it), and left to the browser's own Open panel on
+/// a headful browser (a person may use that display). Returns the event's
+/// arrival, the page's text and the host's unrouted chooser entries.
+fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSession, HeadlessSource};
+    let port = serve();
+    let display = (!headless).then(Display::start);
+    let mut options = HeadlessOptions::new(chrome().into());
+    options.headless = headless;
+    if let Some(display) = &display {
+        options.extra_args =
+            vec![format!("--display={}", display.1), "--ozone-platform=x11".into()];
+    }
+    let source = HeadlessSource::launch(&options, Arc::from(AGENT), "agent").expect("launch");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let open = |name: &str, origin: &str, events: Arc<Mutex<Vec<DriverEvent>>>| {
+        let lease = cmux_browser_host::lease::LeaseCaller {
+            session: name.into(),
+            actor: "t".into(),
+            on_behalf_of: None,
+            origin: origin.into(),
+            label: String::new(),
+            implicit_session: false,
+            engine: "headless".into(),
+        };
+        let sink: cmux_browser_host::driver::EventSink =
+            Arc::new(move |event| events.lock().unwrap().push(event));
+        HeadlessSession::new(source.clone(), &browsers, Arc::from(AGENT), sink, lease).unwrap()
+    };
+    let click = |session: &HeadlessSession, target: &str, x: i64| {
+        session
+            .call("input.mouse", &json!({"targetId": target, "type": "move", "x": x, "y": 50}))
+            .unwrap();
+        for kind in ["down", "up"] {
+            session
+                .call(
+                    "input.mouse",
+                    &json!({"targetId": target, "type": kind, "x": x, "y": 50,
+                        "button": "left", "clickCount": 1}),
+                )
+                .unwrap();
+        }
+    };
+    let a_events: Arc<Mutex<Vec<DriverEvent>>> = Arc::default();
+    let a = open("a", "cli", Arc::clone(&a_events));
+    let target = a
+        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/files")}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while a
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "page", "source": "() => window.ready === true"}),
+        )
+        .ok()
+        != Some(json!(true))
+    {
+        assert!(Instant::now() < deadline, "the page never loaded");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The session's own tab: the chooser is the session's.
+    click(&a, &target, 50);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let chooser = loop {
+        let found =
+            a_events.lock().unwrap().iter().find(|e| e.name == "filechooser.opened").cloned();
+        if found.is_some() || Instant::now() > deadline {
+            break found;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    if let Some(chooser) = &chooser {
+        a.call(
+            "filechooser.respond",
+            &json!({"targetId": target, "chooserId": chooser.payload["chooserId"], "cancel": true}),
+        )
+        .unwrap();
+    }
+    // A chooser 1.5 s after a click, when the session that kept the tab
+    // has left: no session drives the tab then.
+    a.call(
+        "frame.evaluate",
+        &json!({"targetId": target, "world": "page",
+        "source": "() => { document.getElementById('files').textContent = 'none'; }"}),
+    )
+    .unwrap();
+    a.call("tab.keep", &json!({"targetId": target})).unwrap();
+    click(&a, &target, 400);
+    a.end_session();
+    drop(a);
+    std::thread::sleep(Duration::from_millis(3500));
+    let b = open("b", "cli", Arc::default());
+    let text = b
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "page",
+            "source": "() => document.getElementById('files').textContent"}),
+        )
+        .unwrap()
+        .as_str()
+        .unwrap_or("")
+        .to_owned();
+    let person = open("person", "user", Arc::default());
+    let info = person.call("tab.info", &json!({"targetId": target})).unwrap();
+    let unrouted = info["unroutedEvents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|e| e["event"] == "filechooser.opened")
+        .count();
+    (chooser.is_some(), text, unrouted)
+}
+
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn headless_cancels_and_logs_a_chooser_no_session_takes() {
+    assert_eq!(choosers_in_mode(true), (true, "hidden: cancel".to_owned(), 1));
+}
+
+/// The person's chooser is not intercepted (no D2 entry); what the
+/// browser's own panel then does depends on the display (bare Xvfb has no
+/// file dialog, so it may cancel), so the page's text is not checked.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME and Xvfb; run explicitly with --ignored"]
+fn headful_leaves_a_persons_chooser_to_the_browser() {
+    let (session_got_its_chooser, _page, unrouted) = choosers_in_mode(false);
+    assert!(session_got_its_chooser, "the session's own tab intercepts");
+    assert_eq!(unrouted, 0, "the person's chooser was intercepted and D2-cancelled");
+}
+
+/// `/clicks`: one button over the page that logs its pointer and mouse
+/// events (`#log`).
+pub fn clicks_page() -> String {
+    "<!doctype html><title>Clicks</title><button id=b style=\"position:fixed;left:0;top:0;width:400px;height:300px\">Click</button>\
+     <p id=log style=\"position:fixed;left:0;top:320px\"></p><script>\
+     for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) addEventListener(t, (e) => {\
+       document.getElementById('log').textContent += t + ';'; }, true); window.ready = true;</script>"
+        .to_owned()
+}
+
+/// A headful tab gets the click of its first agent click: one move, press
+/// and release in each of several fresh tabs, each must fire `click`.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME and Xvfb; run explicitly with --ignored"]
+fn a_headful_tab_gets_its_first_click() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource};
+    let port = serve();
+    let display = Display::start();
+    let mut options = HeadlessOptions::new(chrome().into());
+    options.headless = false;
+    options.extra_args = vec![format!("--display={}", display.1), "--ozone-platform=x11".into()];
+    let source = HeadlessSource::launch(&options, Arc::from(AGENT), "agent").expect("launch");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let a = sessions::headless_session(&source, &browsers, "a");
+    let mut logs = Vec::new();
+    for _ in 0..5 {
+        let target = a
+            .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/clicks")}))
+            .unwrap()["targetId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while a
+            .call("frame.evaluate", &json!({"targetId": target, "world": "page", "source": "() => window.ready === true"}))
+            .ok()
+            != Some(json!(true))
+        {
+            assert!(Instant::now() < deadline, "the page never loaded");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        a.call("input.mouse", &json!({"targetId": target, "type": "move", "x": 100, "y": 100}))
+            .unwrap();
+        for kind in ["down", "up"] {
+            a.call(
+                "input.mouse",
+                &json!({"targetId": target, "type": kind, "x": 100, "y": 100, "button": "left", "clickCount": 1}),
+            )
+            .unwrap();
+        }
+        let log = a
+            .call(
+                "frame.evaluate",
+                &json!({"targetId": target, "world": "page",
+                "source": "() => document.getElementById('log').textContent"}),
+            )
+            .unwrap();
+        logs.push(log.as_str().unwrap_or("").to_owned());
+        a.call("tabs.close", &json!({"targetId": target})).unwrap();
+    }
+    assert!(logs.iter().all(|log| log.ends_with("click;")), "{logs:?}");
+}

@@ -151,7 +151,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                                           forURLScheme: PageDescriptor.scheme)
         configuration.userContentController.addUserScript(
             WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        if let script = Self.attributesScript(documentAttributes) {
+        // The scroller style is set before the page's code runs too (the theme refreshes it), so a
+        // page with its own scrollers starts in the right mode.
+        var startAttributes = documentAttributes
+        if startAttributes["scrollers"] == nil { startAttributes["scrollers"] = SystemScrollers.pageValue }
+        if let script = Self.attributesScript(startAttributes) {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         }
@@ -160,6 +164,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         inputReadiness.attach(webView)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
+        SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         wantsLayer = true
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false

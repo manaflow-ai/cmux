@@ -49,6 +49,9 @@ nonisolated enum SettingsSchemaSamples {
         case .stringMap:
             return ([.object([:]), .object(["*": .string("★"), "Work": .string("")])],
                     [.string("★"), .array([]), .object(["Work": .number(1)])])
+        case .stringList:
+            return ([.array([]), .array([.string("ws-1"), .string("2B7F0C3A-workspace")])],
+                    [.string("ws-1"), .array([.number(1)]), .array([.string("")]), .object([:])])
         }
     }
 

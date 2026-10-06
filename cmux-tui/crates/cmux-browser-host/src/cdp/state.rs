@@ -86,11 +86,20 @@ pub struct TabState {
     pub viewport: (f64, f64),
     pub device_scale_factor: f64,
     pub crashed: bool,
+    /// A screenshot or PDF of the tab is in flight (`capture.rs`): the next
+    /// one waits for it.
+    pub capturing: bool,
+    /// The drag the page started during an `input.drag`
+    /// (`Input.dragIntercepted` data, `drag.rs`).
+    pub drag_data: Option<Value>,
     pub open_dialogs: usize,
     /// File choosers opened whose `filechooser.opened` is not sent yet (the
     /// driver resolves the input's agent handle first): input calls wait
     /// for zero, so the event comes before their reply.
     pub pending_choosers: usize,
+    /// A session drives the tab on a headful browser: its file choosers
+    /// are intercepted (`choosers.rs`).
+    pub choosers_on: bool,
     /// The tab's virtual clipboard: `[{ type, base64 }]` (`clipboard.rs`).
     pub clipboard: Vec<Value>,
     /// The Copy, Cut or Paste running now: a dialog then is dismissed.
@@ -155,8 +164,11 @@ impl TabState {
             viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
             crashed: false,
+            capturing: false,
+            drag_data: None,
             open_dialogs: 0,
             pending_choosers: 0,
+            choosers_on: false,
             clipboard: Vec::new(),
             clipboard_command: None,
             download_seq: 0,
@@ -522,6 +534,9 @@ impl State {
                     }
                 }
                 applied.events.push(navigated(target_id, &frame_id, &url, false));
+            }
+            "Input.dragIntercepted" => {
+                tab.drag_data = params.get("data").cloned();
             }
             "Page.navigatedWithinDocument" => {
                 let frame_id =

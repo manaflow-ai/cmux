@@ -4,7 +4,7 @@ import CmuxNextTabs
 /// Draws the outline of a tab drag's current preview in the winner
 /// window's layout overlay (above Chromium pages, R84): the layout's own
 /// pane zones, or a strip's insert slot. The sidebar lights its own slot.
-/// A stay or a refusal labels the outline (tab-dnd).
+/// A stay labels the outline (tab-dnd); a refused zone draws none.
 @MainActor
 enum TabDragOutline {
     /// `layout` returns the window's cached layout drop adapter.
@@ -12,7 +12,14 @@ enum TabDragOutline {
         var outlined: LayoutTabDropTarget?
         if let winner = drag.winner, let window = winner.window {
             let adapter = layout(window)
-            if winner.provider === adapter {
+            if !drag.resolution.preview.highlights {
+                // The layout drew the zone in its hit test: take it down,
+                // and keep the layout (its held zone) for the next one.
+                if winner.provider === adapter {
+                    adapter.hideOutline()
+                    outlined = adapter
+                }
+            } else if winner.provider === adapter {
                 outlined = adapter
             } else if winner.provider is TabStripView {
                 adapter.outline(screenRect: winner.proposal.highlightFrame)
@@ -22,9 +29,8 @@ enum TabDragOutline {
         if let previous = drag.outlinedLayout, previous !== outlined { previous.dropExited() }
         drag.outlinedLayout = outlined
         switch drag.resolution.preview {
-        case .refused(_, let refusal): outlined?.note(TabDropStrings.reason(refusal), refused: true)
         case .stay: outlined?.note(TabDropStrings.stay, refused: false)
-        case .target, .newWindow, .none: break
+        case .target, .refused, .newWindow, .none: break
         }
     }
 }

@@ -4,8 +4,8 @@ import Testing
 @testable import CmuxNextHome
 
 /// An empty Chief conversation offers things to do now instead of a pitch
-/// (Leo's first-launch capture, op-next-look): one plain line, rows to open
-/// a terminal, start an agent or ask the Chief, and a keyboard hint. The
+/// (Leo's first-launch capture, op-next-look): rows to open a terminal,
+/// start an agent or ask the Chief, and a keyboard hint. The
 /// ask row fills the field; it never sends. The first message hides the
 /// panel. The transcript is MessagesLab's (`MessagesLabHome`); this view
 /// only adds the panel.
@@ -43,7 +43,6 @@ import Testing
         defer { view.stop(); store.stop(); window.close() }
         let panel = view.firstRun
         #expect(!panel.isHidden)
-        #expect(!panel.lead.stringValue.isEmpty)
         #expect(!panel.suggestion.title.isEmpty)
         let field = try #require(view.primaryInput as? NSTextView)
         #expect(field.string.isEmpty)
@@ -80,19 +79,39 @@ import Testing
         #expect(row.label.frame.maxX <= row.shortcutLabel.frame.minX, "label \(row.label.frame) runs into the shortcut")
     }
 
+    /// Leo, 2026-10-06: labels and actions only. "Chief runs your agents on
+    /// this Mac", "Ask Chief below" and "This Chief remembers on this device
+    /// only" explained the app; the panel shows its rows and the shortcut
+    /// hint, no other text.
+    @Test func thePanelHasNoProseBesideItsRows() async {
+        let (window, view, store) = await Self.view()
+        defer { view.stop(); store.stop(); window.close() }
+        view.setFirstRunShortcuts(terminal: "⌘T", agent: nil, tabs: "⌃1…9")
+        view.layoutSubtreeIfNeeded()
+        let panel = view.firstRun
+        func labels(in view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { sub -> [NSTextField] in
+                if sub is HomeFirstRunRow { return [] }
+                return ((sub as? NSTextField).map { [$0] } ?? []) + labels(in: sub)
+            }
+        }
+        let shown = labels(in: panel).filter { !$0.isHidden && !$0.stringValue.isEmpty }.map(\.stringValue)
+        #expect(shown == [panel.hint.stringValue], "text outside the rows: \(shown)")
+    }
+
     @Test func firstRunChromeFollowsTheLiveInterfaceScale() async {
         let (window, view, store) = await Self.view()
         defer { view.stop(); store.stop(); window.close() }
         view.layoutSubtreeIfNeeded()
         let panel = view.firstRun
         let baseHeight = panel.terminal.bounds.height
-        let baseFontSize = panel.lead.font?.pointSize ?? 0
+        let baseFontSize = panel.hint.font?.pointSize ?? 0
 
         view.applyTextScale(1.25)
         view.layoutSubtreeIfNeeded()
 
         #expect(panel.terminal.bounds.height > baseHeight)
-        #expect(panel.lead.font?.pointSize ?? 0 > baseFontSize)
+        #expect(panel.hint.font?.pointSize ?? 0 > baseFontSize)
     }
 
     /// Stability rule: a Chief conversation whose history is still loading

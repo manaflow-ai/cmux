@@ -26,8 +26,7 @@ final class AppServices {
     /// Agent panes' git reads on the local daemon (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLink(daemon: daemon)
     let machines: MachineRegistry
-    /// The machine of the action being run, while its handler runs
-    /// (`ActionRouting`); `activeDaemon` prefers it.
+    /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
@@ -120,8 +119,8 @@ final class AppServices {
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
-    /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
-    private(set) var tabBarButtons: TabBarButtonsController!
+    /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
+    private(set) var configActions: ConfigActionsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService(registry: registry)
     let terminalDelegate = TerminalHostDelegate()
@@ -160,14 +159,15 @@ final class AppServices {
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
+    /// The sidebar's Recents (nil without acpmux), watched once for every window.
+    private(set) lazy var agentRecents: AgentRecentsFeed? = QuitAgents.environment(self).map { AgentRecentsFeed(socketPath: $0.socketPath) }
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
     let pages = InternalPageTabStore()
-    /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
-    /// them in the import store only.
+    /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore()
@@ -293,7 +293,7 @@ final class AppServices {
         daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
-        tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
+        configActions = ConfigActionsController(context: AppActionContext(services: self))
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
         updater.attach(sheet: updateSheet, services: self)

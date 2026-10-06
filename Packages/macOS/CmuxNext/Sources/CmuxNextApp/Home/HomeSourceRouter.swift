@@ -15,6 +15,10 @@ nonisolated final class HomeSourceRouter: HomeSource {
     private struct State {
         var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
         var lastConnection: HomeEvent?
+        /// Each owner's own connection: the local Chief owner's, and the
+        /// cloud proxy's on the build's daemon (nil until a cloud link).
+        var localConnection: HomeConnection = .connecting
+        var cloudConnection: HomeConnection?
         var lastInbox: HomeEvent?
         /// The owner of every conversation either source reported. An owner
         /// is a property of the id: it stays when the conversation leaves
@@ -122,6 +126,22 @@ nonisolated final class HomeSourceRouter: HomeSource {
         if state.withLock({ $0.owners[conversation] }) == .cloud { cloud.close(conversation) } else { local.close(conversation) }
     }
 
+    /// The merged connection: online when either owner answers (a Chief
+    /// placed on a server needs no local owner, a local Chief no cloud link);
+    /// else the local owner's state. An op to the owner that is down is
+    /// refused at submit, as before.
+    static func merged(local: HomeConnection, cloud: HomeConnection?) -> HomeConnection {
+        local == .online || cloud == .online ? .online : local
+    }
+
+    /// The merged connection event when it changed, else nil.
+    private static func mergedEvent(_ state: inout State) -> HomeEvent? {
+        let event = HomeEvent.connection(merged(local: state.localConnection, cloud: state.cloudConnection))
+        guard state.lastConnection != event else { return nil }
+        state.lastConnection = event
+        return event
+    }
+
     // MARK: Routing
 
     /// The owner that reported `conversation`.
@@ -170,9 +190,9 @@ nonisolated final class HomeSourceRouter: HomeSource {
     private func forwardLocal(_ event: HomeEvent) {
         publish { state in
             switch event {
-            case .connection:
-                state.lastConnection = event
-                return event
+            case .connection(let connection):
+                state.localConnection = connection
+                return Self.mergedEvent(&state)
             case .inbox(let snapshot):
                 return .inbox(merged(local: snapshot, cloud: cloud.currentInbox().conversations, &state))
             case .conversationChanged(let summary, _, _):
@@ -189,10 +209,13 @@ nonisolated final class HomeSourceRouter: HomeSource {
     /// from a stale copy.
     private func forwardCloud(_ event: HomeEvent) {
         switch event {
-        case .connection:
-            // The local daemon's connection is the merged one. The cloud side
-            // reports its own recovery as `.ownerRecovered`, which passes through.
-            return
+        case .connection(let connection):
+            // The cloud proxy's own link: it joins the merged connection. The
+            // cloud side reports its recovery as `.ownerRecovered`, which passes through.
+            publish { state in
+                state.cloudConnection = connection
+                return Self.mergedEvent(&state)
+            }
         case .inbox(let snapshot):
             let listed = Set(snapshot.conversations.map(\.id))
             let account = cloud.accountID

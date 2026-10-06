@@ -39,8 +39,7 @@ function depthOf(blocks: Block[]): number {
   let deepest = 0;
   for (const block of blocks) {
     if (block.type === "blockquote") deepest = Math.max(deepest, 1 + depthOf(block.children));
-    if (block.type === "list")
-      for (const item of block.items) deepest = Math.max(deepest, 1 + depthOf(item.children));
+    if (block.type === "list") for (const item of block.items) deepest = Math.max(deepest, 1 + depthOf(item.children));
   }
   return deepest;
 }

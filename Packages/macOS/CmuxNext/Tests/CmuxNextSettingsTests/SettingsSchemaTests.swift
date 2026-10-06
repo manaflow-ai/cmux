@@ -45,6 +45,7 @@ import Testing
         case .fontFamily: ["SF Mono", "JetBrains Mono"]
         case .numberList(let number): [[], [.number(number.range.lowerBound), .number(number.range.upperBound)]]
         case .stringMap: [[:], ["*": "★", "Work": ""]]
+        case .stringList: [[], ["ws-1", "ws-2"]]
         }
     }
 
@@ -66,6 +67,7 @@ import Testing
         case .fontFamily: ["Mono = 1", "\"Quoted\"", 12]
         case .numberList(let number): [.number(number.range.lowerBound), [.number(number.range.upperBound + 1)], ["1"]]
         case .stringMap: ["★", ["Work": 1]]
+        case .stringList: ["ws-1", [1], [""]]
         }
     }
 
@@ -113,7 +115,7 @@ import Testing
         let ids = SettingsSchema.all.map(\.id)
         #expect(Set(ids).count == ids.count)
         for descriptor in SettingsSchema.all {
-            #expect(SettingsSchema.settings(in: descriptor.section).contains(descriptor) == descriptor.isShownInCmuxNext)
+            #expect(SettingsSchema.settings(in: descriptor.section).contains(descriptor) == descriptor.isShownOnSettingsPage)
         }
     }
 

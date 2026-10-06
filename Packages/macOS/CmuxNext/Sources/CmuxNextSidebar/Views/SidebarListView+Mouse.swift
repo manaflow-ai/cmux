@@ -4,12 +4,7 @@ import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
 extension SidebarListView {
     // MARK: - Mouse
-    struct Press {
-        var key: SidebarRowKey
-        var point: NSPoint
-        var deferredClick: WorkspaceID?
-        var cancelled = false
-    }
+    typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.click)
@@ -112,6 +107,9 @@ extension SidebarListView {
         }
         reload(animated: true)
     }
+    // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
+    override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
+    override func otherMouseUp(with event: NSEvent) { if !middleClick.up(event, in: self) { super.otherMouseUp(with: event) } }
     // MARK: - Group header single vs double click
     struct PendingGroupToggle {
         let group: GroupID

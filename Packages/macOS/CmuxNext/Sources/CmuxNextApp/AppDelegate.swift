@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardReads: TerminalClipboardReadService?
     /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
     private var ghosttyKeybinds: GhosttyKeybindSync?
+    /// Watches the exact Ghostty files libghostty loaded and reloads them live.
+    private var ghosttyConfigLiveReload: GhosttyConfigLiveReload?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
@@ -74,6 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
         self.ghosttyKeybinds = ghosttyKeybinds
         ghosttyKeybinds.start()
+        let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
+        self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
+        ghosttyConfigLiveReload.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
@@ -203,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings?.managedPreferencesMayHaveChanged()
             }
         }
-        services.tabBarButtons.start(settings: settings)
+        services.configActions.start(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
@@ -289,7 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for session in services?.machines.cloud ?? [] { session.disconnect() }
         services?.ssh.stop()
         control.stop()
-        services?.tabBarButtons.stop()
+        services?.configActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()

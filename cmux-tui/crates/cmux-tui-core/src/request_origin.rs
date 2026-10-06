@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::resource::ResourceError;
+use crate::resource::{ResourceError, ResourceOperation};
 
 mod page_access;
 
@@ -116,7 +116,7 @@ pub(crate) struct ConnectionOrigin {
 
 struct Confirmation {
     token: String,
-    operation: String,
+    operation: ResourceOperation,
     params_sha256: String,
     /// Monotonic deadline ([`OriginClock::monotonic_ms`]).
     deadline_ms: u64,
@@ -136,7 +136,7 @@ impl ConnectionOrigin {
     pub(crate) fn store_confirmation(
         &mut self,
         token: String,
-        operation: String,
+        operation: ResourceOperation,
         params_sha256: String,
         deadline_ms: u64,
         now_ms: u64,
@@ -153,7 +153,7 @@ impl ConnectionOrigin {
     fn consume_confirmation(
         &mut self,
         token: &str,
-        operation: &str,
+        operation: ResourceOperation,
         params: &Value,
         now_ms: u64,
     ) -> bool {
@@ -172,9 +172,11 @@ impl ConnectionOrigin {
 
     /// The origin of one request on this connection: the derived origin,
     /// narrowed by `claim`, then checked against the operation's needs.
+    /// `operation`, `params` and `claim` come from the one typed parse of
+    /// the request (`resource_router::parse_resource_line`).
     pub(crate) fn request_origin(
         &mut self,
-        operation: &str,
+        operation: ResourceOperation,
         params: &Value,
         claim: Option<&OriginClaim>,
         now_ms: u64,
@@ -209,7 +211,9 @@ impl ConnectionOrigin {
                 ));
             }
         };
-        if self.role == HelloRole::PageRelay && operation == ISSUE_OPERATION {
+        if self.role == HelloRole::PageRelay
+            && operation == ResourceOperation::OriginConfirmationIssue
+        {
             return Err(forbidden(
                 "a page relay connection cannot issue confirmations",
                 json!({"derived": RequestOrigin::Page.wire_name()}),
@@ -222,7 +226,14 @@ impl ConnectionOrigin {
         {
             return Err(refusal);
         }
-        require_origin(operation, origin)?;
+        // The token makes a later page call the user's, so the request
+        // that mints one must itself be the user's after narrowing: a claim
+        // the verified app adds (agent, app) is obeyed here.
+        if operation == ResourceOperation::OriginConfirmationIssue && origin != RequestOrigin::User
+        {
+            return Err(needs_user(origin));
+        }
+        require_origin(operation.wire_name(), origin)?;
         Ok(origin)
     }
 }
