@@ -74,6 +74,9 @@ struct RightSidebarPanelView: View {
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
+    var onToggleDockMaximized: () -> Void = {}
+    /// Clears the window's titlebar controls when a maximized Dock reaches the window's leading edge.
+    var modeBarLeadingInset: CGFloat = 0
     let cloudActivationCoordinator: CloudActivationCoordinator = AppDelegate.shared?.cloudActivationCoordinator
         ?? CloudActivationCoordinator.unconfigured()
     /// Live data context for the Custom mode's JS/Swift sidebar (built by the
@@ -271,11 +274,14 @@ struct RightSidebarPanelView: View {
                 if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
+                if fileExplorerState.mode == .dock {
+                    dockMaximizeButton
+                }
                 closeButton
             }
         }
         .rightSidebarChromeBar(
-            leadingPadding: RightSidebarChromeMetrics.headerLeadingPadding,
+            leadingPadding: RightSidebarChromeMetrics.headerLeadingPadding + modeBarLeadingInset,
             trailingPadding: RightSidebarChromeMetrics.headerTrailingPadding,
             height: titlebarHeight
         )
@@ -337,6 +343,35 @@ struct RightSidebarPanelView: View {
             )
         )
         .accessibilityIdentifier("RightSidebar.openAsPaneButton")
+        .titlebarInteractiveControl()
+    }
+
+    private var dockMaximizeButton: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
+        let isMaximized = fileExplorerState.isDockMaximized
+        let title = isMaximized
+            ? String(localized: "rightSidebar.dock.restore.tooltip", defaultValue: "Restore Dock")
+            : String(localized: "rightSidebar.dock.maximize.tooltip", defaultValue: "Maximize Dock")
+        return Button(action: onToggleDockMaximized) {
+            HeaderChromeIconStyle.symbol(
+                isMaximized
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right"
+            )
+        }
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderDockMaximizeIcon"))
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
+        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            keyPrefix: "rightSidebarHeaderDockMaximize",
+            isVisible: true
+        )
+        .rightSidebarHeaderControlAlignment()
+        .safeHelp(KeyboardShortcutSettings.Action.toggleDockMaximized.tooltip(title))
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("RightSidebar.dockMaximizeButton")
         .titlebarInteractiveControl()
     }
 

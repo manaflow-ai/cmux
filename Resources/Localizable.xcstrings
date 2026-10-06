@@ -100506,55 +100506,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom`\n                                 renders a JS/Swift sidebar from\n                                 ~/.config/cmux/sidebars as a right panel;\n                                 the optional name picks which one.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom`\n                                 renders a JS/Swift sidebar from\n                                 ~/.config/cmux/sidebars as a right panel;\n                                 the optional name picks which one.\n  maximize                       Show the Dock and widen it over the main\n                                 area, up to the left sidebar\n  restore                        Return a maximized Dock to its width\n  toggle-maximize                Maximize or restore the Dock\n  mode                           Print {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。`custom` は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを\n                                 右パネルとして表示します。\n                                 省略可能な名前で表示するものを選択します。\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。`custom` は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを\n                                 右パネルとして表示します。\n                                 省略可能な名前で表示するものを選択します。\n  maximize                       Dock を表示し、メイン領域の上に左サイドバー\n                                 まで広げます\n  restore                        最大化した Dock を元の幅に戻します\n  toggle-maximize                Dock を最大化または元に戻します\n  mode                           {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool} を出力します\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux right-sidebar <command> [flags]\n\n从 CLI 控制右侧边栏。\n\n命令：\n  toggle                         切换右侧边栏的显示与隐藏\n  show                           显示右侧边栏\n  hide                           隐藏右侧边栏\n  focus                          聚焦当前的右侧边栏模式\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 显示、切换模式并聚焦。`custom` 会把\n                                 ~/.config/cmux/sidebars 中的 JS/Swift 侧边栏\n                                 渲染为右侧面板；\n                                 可选的名称用于指定其中一个。\n  mode                           打印 {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 show + set + focus 的别名\n\n标志：\n  --workspace <id|ref|index>     指向包含该工作区的窗口\n  --window <id|ref|index>        指向某个窗口\n  --no-focus                     与 set 同用时，只切换模式不移动焦点\n\n示例：\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "用法：cmux right-sidebar <command> [flags]\n\n从 CLI 控制右侧边栏。\n\n命令：\n  toggle                         切换右侧边栏的显示与隐藏\n  show                           显示右侧边栏\n  hide                           隐藏右侧边栏\n  focus                          聚焦当前的右侧边栏模式\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 显示、切换模式并聚焦。`custom` 会把\n                                 ~/.config/cmux/sidebars 中的 JS/Swift 侧边栏\n                                 渲染为右侧面板；\n                                 可选的名称用于指定其中一个。\n  maximize                       显示 Dock 并将其加宽覆盖主区域，\n                                 直到左侧边栏\n  restore                        将已最大化的 Dock 还原为原宽度\n  toggle-maximize                最大化或还原 Dock\n  mode                           打印 {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 show + set + focus 的别名\n\n标志：\n  --workspace <id|ref|index>     指向包含该工作区的窗口\n  --window <id|ref|index>        指向某个窗口\n  --no-focus                     与 set 同用时，只切换模式不移动焦点\n\n示例：\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux right-sidebar <Befehl> [Flags]\n\nSteuern Sie die rechte Seitenleiste über die CLI.\n\nBefehle:\n  toggle                         Sichtbarkeit der rechten Seitenleiste umschalten\n  show                           Die rechte Seitenleiste anzeigen\n  hide                           Die rechte Seitenleiste ausblenden\n  focus                          Den aktuellen Modus der rechten Seitenleiste fokussieren\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [Seitenleisten-Name]\n                                 Anzeigen, Modus wechseln und fokussieren. `custom`\n                                 rendert eine JS/Swift-Seitenleiste aus\n                                 ~/.config/cmux/sidebars als rechtes Panel;\n                                 der optionale Name wählt aus, welche.\n  mode                           {\"visible\":bool,\"mode\":string} ausgeben\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 Alias für show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Zielt auf das Fenster ab, das einen Arbeitsbereich enthält\n  --window <id|ref|index>        Zielt auf ein Fenster ab\n  --no-focus                     Mit set den Modus wechseln, ohne den Fokus zu verschieben\n\nBeispiele:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "Verwendung: cmux right-sidebar <Befehl> [Flags]\n\nSteuern Sie die rechte Seitenleiste über die CLI.\n\nBefehle:\n  toggle                         Sichtbarkeit der rechten Seitenleiste umschalten\n  show                           Die rechte Seitenleiste anzeigen\n  hide                           Die rechte Seitenleiste ausblenden\n  focus                          Den aktuellen Modus der rechten Seitenleiste fokussieren\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [Seitenleisten-Name]\n                                 Anzeigen, Modus wechseln und fokussieren. `custom`\n                                 rendert eine JS/Swift-Seitenleiste aus\n                                 ~/.config/cmux/sidebars als rechtes Panel;\n                                 der optionale Name wählt aus, welche.\n  maximize                       Dock anzeigen und über den Hauptbereich bis zur\n                                 linken Seitenleiste verbreitern\n  restore                        Maximiertes Dock auf seine Breite zurücksetzen\n  toggle-maximize                Dock maximieren oder wiederherstellen\n  mode                           {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool} ausgeben\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 Alias für show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Zielt auf das Fenster ab, das einen Arbeitsbereich enthält\n  --window <id|ref|index>        Zielt auf ein Fenster ab\n  --no-focus                     Mit set den Modus wechseln, ohne den Fokus zu verschieben\n\nBeispiele:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux right-sidebar <commande> [options]\n\nContrôler la barre latérale droite depuis la CLI.\n\nCommandes :\n  toggle                         Basculer la visibilité de la barre latérale droite\n  show                           Afficher la barre latérale droite\n  hide                           Masquer la barre latérale droite\n  focus                          Donner le focus au mode actuel de la barre latérale droite\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [nom-barre-latérale]\n                                 Afficher, changer de mode et donner le focus. `custom`\n                                 affiche une barre latérale JS/Swift depuis\n                                 ~/.config/cmux/sidebars sous forme de panneau droit ;\n                                 le nom optionnel permet de choisir laquelle.\n  mode                           Afficher {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 Alias pour show + set + focus\n\nOptions :\n  --workspace <id|ref|index>     Cibler la fenêtre contenant un espace de travail\n  --window <id|ref|index>        Cibler une fenêtre\n  --no-focus                     Avec set, changer de mode sans déplacer le focus\n\nExemples :\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "Utilisation : cmux right-sidebar <commande> [options]\n\nContrôler la barre latérale droite depuis la CLI.\n\nCommandes :\n  toggle                         Basculer la visibilité de la barre latérale droite\n  show                           Afficher la barre latérale droite\n  hide                           Masquer la barre latérale droite\n  focus                          Donner le focus au mode actuel de la barre latérale droite\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [nom-barre-latérale]\n                                 Afficher, changer de mode et donner le focus. `custom`\n                                 affiche une barre latérale JS/Swift depuis\n                                 ~/.config/cmux/sidebars sous forme de panneau droit ;\n                                 le nom optionnel permet de choisir laquelle.\n  maximize                       Afficher le Dock et l’élargir sur la zone principale,\n                                 jusqu’à la barre latérale gauche\n  restore                        Rendre sa largeur à un Dock agrandi\n  toggle-maximize                Agrandir ou restaurer le Dock\n  mode                           Afficher {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 Alias pour show + set + focus\n\nOptions :\n  --workspace <id|ref|index>     Cibler la fenêtre contenant un espace de travail\n  --window <id|ref|index>        Cibler une fenêtre\n  --no-focus                     Avec set, changer de mode sans déplacer le focus\n\nExemples :\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux right-sidebar <command> [flags]\n\nالتحكم في الشريط الجانبي الأيمن من CLI.\n\nالأوامر:\n  toggle                         تبديل ظهور الشريط الجانبي الأيمن\n  show                           إظهار الشريط الجانبي الأيمن\n  hide                           إخفاء الشريط الجانبي الأيمن\n  focus                          التركيز على الوضع الحالي للشريط الجانبي الأيمن\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 الإظهار وتبديل الوضع والتركيز. يعرض `custom`\n                                 شريطًا جانبيًا بلغة JS/Swift من\n                                 ~/.config/cmux/sidebars كلوحة يمنى؛\n                                 ويحدد الاسم الاختياري أيّها.\n  mode                           طباعة {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 اسم مستعار لـ show + set + focus\n\nالخيارات:\n  --workspace <id|ref|index>     استهداف النافذة التي تحتوي على مساحة عمل\n  --window <id|ref|index>        استهداف نافذة\n  --no-focus                     مع set، تبديل الوضع دون نقل التركيز\n\nأمثلة:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "الاستخدام: cmux right-sidebar <command> [flags]\n\nالتحكم في الشريط الجانبي الأيمن من CLI.\n\nالأوامر:\n  toggle                         تبديل ظهور الشريط الجانبي الأيمن\n  show                           إظهار الشريط الجانبي الأيمن\n  hide                           إخفاء الشريط الجانبي الأيمن\n  focus                          التركيز على الوضع الحالي للشريط الجانبي الأيمن\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 الإظهار وتبديل الوضع والتركيز. يعرض `custom`\n                                 شريطًا جانبيًا بلغة JS/Swift من\n                                 ~/.config/cmux/sidebars كلوحة يمنى؛\n                                 ويحدد الاسم الاختياري أيّها.\n  maximize                       إظهار Dock وتوسيعه فوق المنطقة الرئيسية\n                                 حتى الشريط الجانبي الأيسر\n  restore                        إعادة Dock المكبّر إلى عرضه\n  toggle-maximize                تكبير Dock أو استعادته\n  mode                           طباعة {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 اسم مستعار لـ show + set + focus\n\nالخيارات:\n  --workspace <id|ref|index>     استهداف النافذة التي تحتوي على مساحة عمل\n  --window <id|ref|index>        استهداف نافذة\n  --no-focus                     مع set، تبديل الوضع دون نقل التركيز\n\nأمثلة:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux right-sidebar <command> [flags]\n\nControla la barra lateral derecha desde la CLI.\n\nComandos:\n  toggle                         Alterna la visibilidad de la barra lateral derecha\n  show                           Muestra la barra lateral derecha\n  hide                           Oculta la barra lateral derecha\n  focus                          Enfoca el modo actual de la barra lateral derecha\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 Muestra, cambia de modo y enfoca. `custom`\n                                 muestra una barra lateral JS/Swift de\n                                 ~/.config/cmux/sidebars como panel derecho;\n                                 el nombre opcional elige cuál.\n  mode                           Imprime {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 Alias de show + set + focus\n\nOpciones:\n  --workspace <id|ref|index>     Apunta a la ventana que contiene un espacio de trabajo\n  --window <id|ref|index>        Apunta a una ventana\n  --no-focus                     Con set, cambia de modo sin mover el foco\n\nEjemplos:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "Uso: cmux right-sidebar <command> [flags]\n\nControla la barra lateral derecha desde la CLI.\n\nComandos:\n  toggle                         Alterna la visibilidad de la barra lateral derecha\n  show                           Muestra la barra lateral derecha\n  hide                           Oculta la barra lateral derecha\n  focus                          Enfoca el modo actual de la barra lateral derecha\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 Muestra, cambia de modo y enfoca. `custom`\n                                 muestra una barra lateral JS/Swift de\n                                 ~/.config/cmux/sidebars como panel derecho;\n                                 el nombre opcional elige cuál.\n  maximize                       Mostrar el Dock y ensancharlo sobre el área principal,\n                                 hasta la barra lateral izquierda\n  restore                        Devolver un Dock maximizado a su ancho\n  toggle-maximize                Maximizar o restaurar el Dock\n  mode                           Imprimir {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 Alias de show + set + focus\n\nOpciones:\n  --workspace <id|ref|index>     Apunta a la ventana que contiene un espacio de trabajo\n  --window <id|ref|index>        Apunta a una ventana\n  --no-focus                     Con set, cambia de modo sin mover el foco\n\nEjemplos:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux right-sidebar <command> [flags]\n\n從 CLI 控制右側邊欄。\n\n指令：\n  toggle                         切換右側邊欄可見性\n  show                           顯示右側邊欄\n  hide                           隱藏右側邊欄\n  focus                          聚焦至目前的右側邊欄模式\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 顯示、切換模式並聚焦。`custom` 會將\n                                 來自 ~/.config/cmux/sidebars 的 JS/Swift 側邊欄\n                                 轉譯為右側面板；\n                                 選用名稱可選擇其中一個。\n  mode                           列印 {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 show + set + focus 的別名\n\n旗標：\n  --workspace <id|ref|index>     以包含工作區的視窗為目標\n  --window <id|ref|index>        以視窗為目標\n  --no-focus                     搭配 set 使用時，切換模式但不移動焦點\n\n範例：\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "用法：cmux right-sidebar <command> [flags]\n\n從 CLI 控制右側邊欄。\n\n指令：\n  toggle                         切換右側邊欄可見性\n  show                           顯示右側邊欄\n  hide                           隱藏右側邊欄\n  focus                          聚焦至目前的右側邊欄模式\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 顯示、切換模式並聚焦。`custom` 會將\n                                 來自 ~/.config/cmux/sidebars 的 JS/Swift 側邊欄\n                                 轉譯為右側面板；\n                                 選用名稱可選擇其中一個。\n  maximize                       顯示 Dock 並將其加寬覆蓋主區域，\n                                 直到左側邊欄\n  restore                        將已最大化的 Dock 還原為原寬度\n  toggle-maximize                最大化或還原 Dock\n  mode                           列印 {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool}\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 show + set + focus 的別名\n\n旗標：\n  --workspace <id|ref|index>     以包含工作區的視窗為目標\n  --window <id|ref|index>        以視窗為目標\n  --no-focus                     搭配 set 使用時，切換模式但不移動焦點\n\n範例：\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux right-sidebar <command> [flags]\n\nCLI에서 오른쪽 사이드바를 제어합니다.\n\n명령어:\n  toggle                         오른쪽 사이드바 표시 여부 토글\n  show                           오른쪽 사이드바 표시\n  hide                           오른쪽 사이드바 숨기기\n  focus                          현재 오른쪽 사이드바 모드에 포커스 지정\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 표시, 모드 전환 및 포커스 지정. `custom`은\n                                 ~/.config/cmux/sidebars의 JS/Swift 사이드바를\n                                 오른쪽 패널로 렌더링하며,\n                                 선택 사항인 이름으로 대상을 선택합니다.\n  mode                           {\"visible\":bool,\"mode\":string} 출력\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 show + set + focus의 별칭\n\n플래그:\n  --workspace <id|ref|index>     작업 공간을 포함하는 창을 대상으로 지정\n  --window <id|ref|index>        창을 대상으로 지정\n  --no-focus                     set 사용 시 포커스를 이동하지 않고 모드 전환\n\n예시:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar mode"
+            "value": "사용법: cmux right-sidebar <command> [flags]\n\nCLI에서 오른쪽 사이드바를 제어합니다.\n\n명령어:\n  toggle                         오른쪽 사이드바 표시 여부 토글\n  show                           오른쪽 사이드바 표시\n  hide                           오른쪽 사이드바 숨기기\n  focus                          현재 오른쪽 사이드바 모드에 포커스 지정\n  set <files|find|vault|sessions|feed|dock|cloud|devices|custom> [sidebar-name]\n                                 표시, 모드 전환 및 포커스 지정. `custom`은\n                                 ~/.config/cmux/sidebars의 JS/Swift 사이드바를\n                                 오른쪽 패널로 렌더링하며,\n                                 선택 사항인 이름으로 대상을 선택합니다.\n  maximize                       Dock을 표시하고 주 영역 위로 왼쪽\n                                 사이드바까지 넓힙니다\n  restore                        최대화된 Dock을 원래 너비로 되돌립니다\n  toggle-maximize                Dock을 최대화하거나 복원합니다\n  mode                           {\"visible\":bool,\"mode\":string,\n                                 \"maximized\":bool} 출력\n  files|find|vault|sessions|feed|dock|cloud|devices|custom\n                                 show + set + focus의 별칭\n\n플래그:\n  --workspace <id|ref|index>     작업 공간을 포함하는 창을 대상으로 지정\n  --window <id|ref|index>        창을 대상으로 지정\n  --no-focus                     set 사용 시 포커스를 이동하지 않고 모드 전환\n\n예시:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set custom panel-info\n  cmux right-sidebar maximize\n  cmux right-sidebar mode"
           }
         }
       }
@@ -288423,55 +288423,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: 使用法: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "ERROR: 使用法: right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "错误：用法：right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "错误：用法：right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "FEHLER: Verwendung: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "FEHLER: Verwendung: right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERREUR : utilisation : right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "ERREUR : utilisation : right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "خطأ: الاستخدام: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "خطأ: الاستخدام: right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Uso: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "ERROR: Uso: right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "錯誤：用法：right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "錯誤：用法：right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오류: 사용법: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
+            "value": "오류: 사용법: right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]"
           }
         }
       }
@@ -640828,6 +640828,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@이(가) 아직 작업 중입니다. 현재 탭이 닫힙니다."
+          }
+        }
+      }
+    },
+    "shortcut.toggleDockMaximized.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximize or Restore Dock"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير Dock أو استعادته"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock maximieren oder wiederherstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximizar o restaurar el Dock"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrandir ou restaurer le Dock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock を最大化または元に戻す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 최대화 또는 복원"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大化或还原 Dock"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大化或還原 Dock"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.dockUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Dock not available"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطأ: Dock غير متاح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FEHLER: Dock nicht verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Dock no disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERREUR : Dock indisponible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Dock を利用できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류: Dock을 사용할 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "错误：Dock 不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "錯誤：Dock 無法使用"
+          }
+        }
+      }
+    },
+    "rightSidebar.dock.maximize.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximize Dock"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير Dock"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock maximieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximizar el Dock"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrandir le Dock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock を最大化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 최대화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大化 Dock"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大化 Dock"
+          }
+        }
+      }
+    },
+    "rightSidebar.dock.restore.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Dock"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة Dock"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock wiederherstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar el Dock"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer le Dock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock を元に戻す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 복원"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还原 Dock"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原 Dock"
+          }
+        }
+      }
+    },
+    "rightSidebar.remote.error.usage.maximize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Usage: right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطأ: الاستخدام: right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FEHLER: Verwendung: right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Uso: right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERREUR : utilisation : right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: 使用法: right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류: 사용법: right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "错误：用法：right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "錯誤：用法：right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]"
           }
         }
       }

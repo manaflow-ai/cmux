@@ -147,6 +147,8 @@ extension ShortcutAction {
         case .splitBrowserRight: return "Split Browser Right"
         case .splitBrowserDown: return "Split Browser Down"
         case .toggleRightSidebar: return "Toggle Right Sidebar"
+        case .toggleDockMaximized:
+            return String(localized: "shortcut.toggleDockMaximized.label", defaultValue: "Maximize or Restore Dock")
         case .fileExplorerOpenSelection:
             return String(localized: "shortcut.fileExplorerOpenSelection.label", defaultValue: "File Explorer: Open Selection")
         case .fileExplorerOpenSelectionFinderAlias:

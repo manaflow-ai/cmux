@@ -126,6 +126,8 @@ extension ContentView {
             return .resizePaneDown
         case "palette.triggerFlash":
             return .triggerFlash
+        case Self.commandPaletteToggleDockMaximizedCommandId:
+            return .toggleDockMaximized
         default:
             return nil
         }
@@ -148,6 +150,29 @@ extension ContentView {
                 subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
                 keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
             )
+        }
+    }
+
+    static let commandPaletteToggleDockMaximizedCommandId = "palette.toggleDockMaximized"
+
+    static func commandPaletteDockMaximizeCommandContributions() -> [CommandPaletteCommandContribution] {
+        guard RightSidebarMode.dock.isAvailable() else { return [] }
+        let title = KeyboardShortcutSettings.Action.toggleDockMaximized.label
+        let subtitle = String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
+        return [
+            CommandPaletteCommandContribution(
+                commandId: commandPaletteToggleDockMaximizedCommandId,
+                title: { _ in title },
+                subtitle: { _ in subtitle },
+                keywords: ["dock", "maximize", "restore", "zoom", "fullscreen", "right", "sidebar"]
+            )
+        ]
+    }
+
+    func handleCommandPaletteToggleDockMaximized(observedWindow: NSWindow?) {
+        let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if AppDelegate.shared?.applyDockMaximize(.toggle, preferredWindow: window) != true {
+            NSSound.beep()
         }
     }
 

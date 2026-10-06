@@ -751,7 +751,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
         let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
         let expectedActions: [KeyboardShortcutSettings.Action] = [
-            .focusRightSidebar, .toggleRightSidebar, .findInDirectory,
+            .focusRightSidebar, .toggleRightSidebar, .toggleDockMaximized, .findInDirectory,
             .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
         ]
 

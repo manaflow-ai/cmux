@@ -49,13 +49,15 @@ extension AppDelegate {
     /// focus in `workspace`'s window. Lets the workspace's imperative terminal
     /// portal active-state reconcile honor the same focus-exclusivity gate the
     /// SwiftUI render path uses, so a background layout reconcile cannot
-    /// re-activate a main terminal while the sidebar is focused.
+    /// re-activate a main terminal while the sidebar is focused or a maximized
+    /// Dock covers the main area.
     func rightSidebarOwnsInputFocus(for workspace: Workspace) -> Bool {
         guard let manager = workspace.owningTabManager,
               let context = mainWindowContexts.values.first(where: { $0.tabManager === manager }) else {
             return false
         }
-        return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
+        guard let state = context.fileExplorerState else { return false }
+        return state.rightSidebarOwnsInputFocus || state.isDockMaximized
     }
 
     /// Finds the live Dock that owns a pane through the bounded Dock registry.

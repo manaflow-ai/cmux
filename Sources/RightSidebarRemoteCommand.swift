@@ -25,6 +25,11 @@ enum RightSidebarRemoteCommand: Equatable, Sendable {
     /// Switch to the Custom mode, optionally selecting which sidebar file
     /// (`right_sidebar set custom [name]`). A nil name keeps the persisted one.
     case setCustomSidebar(name: String?, focus: Bool)
+    /// Shows the Dock and maximizes it over the main area.
+    case maximize
+    /// Returns a maximized Dock to its normal width.
+    case restore
+    case toggleMaximize
     case getState
 }
 
@@ -40,6 +45,7 @@ struct RightSidebarRemoteParseError: Error, Equatable, Sendable {
 struct RightSidebarRemoteState: Equatable, Sendable {
     let visible: Bool
     let modeRawValue: String
+    var maximized: Bool = false
 }
 
 enum RightSidebarRemoteApplyResult: Equatable, Sendable {
@@ -105,7 +111,7 @@ extension RightSidebarRemoteRequest {
         }
 
         guard let action = positional.first?.lowercased() else {
-            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
+            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode|maximize|restore|toggle-maximize> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
         }
 
         switch action {
@@ -129,6 +135,17 @@ extension RightSidebarRemoteRequest {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.focus", defaultValue: "ERROR: Usage: right_sidebar focus [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             return .success(.init(command: .focus, target: target))
+        case "maximize", "restore", "toggle-maximize":
+            guard positional.count == 1, !noFocus else {
+                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.maximize", defaultValue: "ERROR: Usage: right_sidebar <maximize|restore|toggle-maximize> [--workspace=<workspace-id>] [--window=<window-id>]")))
+            }
+            let command: RightSidebarRemoteCommand
+            switch action {
+            case "maximize": command = .maximize
+            case "restore": command = .restore
+            default: command = .toggleMaximize
+            }
+            return .success(.init(command: command, target: target))
         case "mode", "state":
             guard positional.count == 1, !noFocus else {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.mode", defaultValue: "ERROR: Usage: right_sidebar mode [--workspace=<workspace-id>] [--window=<window-id>]")))

@@ -7,7 +7,7 @@ public enum ControlSidebarRightSidebarResolution: Sendable, Equatable {
     /// The command applied; reply `OK`.
     case ok
     /// A `get`-style command returned sidebar state to encode.
-    case state(visible: Bool, modeRawValue: String)
+    case state(visible: Bool, modeRawValue: String, maximized: Bool)
     /// A parse or apply failure; `message` is the full legacy reply line
     /// (localized app-side where the original was localized).
     case failure(message: String)

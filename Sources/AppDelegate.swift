@@ -4237,6 +4237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
+        context.fileExplorerState?.setDockMaximized(snapshot.rightSidebarDockMaximized == true)
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
@@ -4691,6 +4692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 )
                 hasher.combine(liveRoute.sidebar.isVisible)
+                hasher.combine(isDockMaximized(windowId: liveRoute.windowId))
                 hasher.combine(
                     Int(
                         SessionPersistencePolicy.sanitizedSidebarWidth(
@@ -5234,8 +5236,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 surfaceResumeBindingIndex: surfaceResumeBindingIndex,
                 downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
-            )
+            ),
+            rightSidebarDockMaximized: isDockMaximized(windowId: route.windowId) ? true : nil
         )
+    }
+
+    private func isDockMaximized(windowId: UUID) -> Bool {
+        mainWindowContexts.values.first(where: { $0.windowId == windowId })?
+            .fileExplorerState?.isDockMaximized == true
     }
 
     func sessionSidebarSnapshot(for context: MainWindowContext) -> SessionSidebarSnapshot {
@@ -7706,7 +7714,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             requiresWindowFocus = true
         case .setMode(_, let focus), .setCustomSidebar(_, let focus):
             requiresWindowFocus = focus
-        case .toggle, .show, .hide, .getState:
+        case .toggle, .show, .hide, .getState, .maximize, .restore, .toggleMaximize:
             requiresWindowFocus = false
         }
         if requiresWindowFocus, !target.isActiveTarget, preferredWindow == nil {
@@ -7790,8 +7798,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 context?.keyboardFocusCoordinator.rememberRightSidebarMode(.customSidebar)
             }
             return .ok
+        case .maximize, .restore, .toggleMaximize:
+            guard target.isActiveTarget || preferredWindow != nil else {
+                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            }
+            let request: DockMaximizeRequest
+            switch command {
+            case .maximize: request = .maximize
+            case .restore: request = .restore
+            default: request = .toggle
+            }
+            guard applyDockMaximize(request, preferredWindow: preferredWindow) else {
+                return .failure(String(localized: "rightSidebar.remote.error.dockUnavailable", defaultValue: "ERROR: Dock not available"))
+            }
+            return .ok
         case .getState:
-            return .state(.init(visible: state.isVisible, modeRawValue: state.rightSidebarRemoteModeRawValue))
+            return .state(.init(
+                visible: state.isVisible,
+                modeRawValue: state.rightSidebarRemoteModeRawValue,
+                maximized: state.isDockMaximized
+            ))
         }
     }
 
@@ -10507,6 +10533,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore.loadAll()
 
         let fileExplorerState = FileExplorerState()
+        if sessionWindowSnapshot?.rightSidebarDockMaximized == true {
+            fileExplorerState.setDockMaximized(true)
+        }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1" {
             fileExplorerState.mode = .files
@@ -15535,6 +15564,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow
             DispatchQueue.main.async { [weak self, weak preferredWindow] in
                 _ = self?.toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
+            }
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleDockMaximized) {
+            let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow
+            DispatchQueue.main.async { [weak self, weak preferredWindow] in
+                _ = self?.applyDockMaximize(.toggle, preferredWindow: preferredWindow)
             }
             return true
         }

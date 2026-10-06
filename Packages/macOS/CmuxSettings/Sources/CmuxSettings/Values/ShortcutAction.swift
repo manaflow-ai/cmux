@@ -149,6 +149,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case splitBrowserRight
     case splitBrowserDown
     case toggleRightSidebar = "toggleFileExplorer"
+    /// Maximizes the right-sidebar Dock over the main area, or restores it.
+    case toggleDockMaximized
     /// Opens the selected File Explorer item from File Explorer focus.
     case fileExplorerOpenSelection
     /// Mirrors Finder's Command-Down open-selection shortcut from File Explorer focus.
