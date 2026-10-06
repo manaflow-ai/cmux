@@ -12,6 +12,8 @@ final class DragLiftView: NSView {
     private let countBadge = NSTextField(labelWithString: "")
     private let badgeBackground = NSView()
     private var lifted = false
+    /// The current hover position cannot accept the drop.
+    private(set) var isRefused = false
 
     init(content: NSView, count: Int) {
         self.content = content
@@ -122,6 +124,7 @@ final class DragLiftView: NSView {
 
     /// Dims the card when the current hover position cannot accept the drop.
     func setRefused(_ refused: Bool) {
+        isRefused = refused
         let target: CGFloat = refused ? 0.55 : 1
         guard alphaValue != target else { return }
         Motion.animate(.hover, in: self) { animator().alphaValue = target }

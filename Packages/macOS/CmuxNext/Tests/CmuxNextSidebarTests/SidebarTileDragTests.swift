@@ -89,4 +89,29 @@ import Testing
         #expect(ids(region.displayedSections) == [["a", "b", "c", "d"], ["f", "e"]])
         region.cancelDrag()
     }
+
+    /// Leo's dogfood capture (2026-10-05): an item dragged out of its band
+    /// followed the pointer over the workspace list with no sign it could
+    /// not land there, then committed whatever order it last made. Outside
+    /// the region the card dims, the region shows its order again, and the
+    /// drop changes nothing.
+    @Test func anItemDraggedOutOfItsRegionIsRefusedAndTheDropChangesNothing() throws {
+        let region = region()
+        var reorders: [[LayoutSection]] = []
+        region.onReorder = { reorders.append($1) }
+        let a = try #require(frame("a", in: region))
+        let b = try #require(frame("b", in: region))
+        region.beginDrag(.item(LayoutItemID("a")), at: NSPoint(x: a.midX, y: a.midY))
+        region.updateDrag(to: NSPoint(x: b.midX, y: b.midY))
+        #expect(ids(region.displayedSections) == [["b", "a", "c", "d"], ["e", "f"]])
+        let lift = try #require(region.reorder?.lift)
+        #expect(!lift.isRefused)
+
+        region.updateDrag(to: NSPoint(x: b.midX, y: region.bounds.maxY + 60))
+        #expect(lift.isRefused, "the card dims outside its region")
+        #expect(ids(region.displayedSections) == [["a", "b", "c", "d"], ["e", "f"]], "the region shows its order again")
+
+        region.finishDrag()
+        #expect(reorders.isEmpty, "a drop outside the region changes nothing")
+    }
 }
