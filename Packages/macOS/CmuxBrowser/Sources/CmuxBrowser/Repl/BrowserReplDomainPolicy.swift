@@ -683,11 +683,18 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         return rules
     }
 
-    /// The content rules a session's tabs carry: this policy's and the
+    /// The content rules a session's tabs carry: this policy's, then the
     /// local-file rules of the session's directories `roots`
-    /// (``BrowserReplFileSandbox/contentRules(roots:subresourcesInsideRoots:)``).
+    /// (``BrowserReplFileSandbox/contentRules(roots:subresourcesInsideRoots:)``)
+    /// last, so no rule of the policy can undo their block of `file:` loads
+    /// outside the directories, or of every `file:` subresource while a
+    /// protected file may lie inside them. The policy's filters match web
+    /// URLs only (``filters(_:)``). An allow list blocks every load it does
+    /// not name, files inside the directories included, so under one the
+    /// directories get no exception.
     public func contentRules(fileRoots roots: [String], subresourcesInsideRoots: Bool) -> [[String: Any]] {
-        BrowserReplFileSandbox.contentRules(roots: roots, subresourcesInsideRoots: subresourcesInsideRoots) + contentRules
+        let exceptions = allowed == nil ? roots : []
+        return contentRules + BrowserReplFileSandbox.contentRules(roots: exceptions, subresourcesInsideRoots: subresourcesInsideRoots)
     }
 
     private static func escape(_ text: String) -> String {
@@ -698,6 +705,9 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         }
         return out
     }
+
+    /// The schemes a policy's content-rule filters may match.
+    private static let webSchemes = ["http", "https", "ws", "wss"]
 
     static func filters(_ pattern: BrowserReplDomainPattern) -> [String] {
         let host: String
@@ -713,9 +723,13 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         }
         // `blob:` URLs carry their origin: `blob:https://host/<id>`.
         func head(_ scheme: String) -> String { "^(blob:)?" + scheme + "://([^/@]*@)?" + host }
+        // Only web schemes: a wildcard scheme (`*://host`) names these, never
+        // `file:` (WebKit loads `file://host/p` as the local file `/p`) or
+        // another scheme. A pattern that names none of them adds no filter.
         let schemes = pattern.scheme.map { scheme in
-            [scheme.map { $0 == "*" ? "[a-z0-9+.-]*" : escape(String($0)) }.joined()]
-        } ?? ["https?", "wss?"]
+            webSchemes.filter { BrowserReplDomainPattern.glob(scheme, matches: $0) }
+        } ?? webSchemes
+        guard !schemes.isEmpty else { return [] }
         guard let port = pattern.port else { return schemes.map { head($0) + "(:[0-9]+)?/" } }
         // A URL without a port has its scheme's default one (`matches`), so
         // the portless form is admitted only under the schemes whose default

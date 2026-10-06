@@ -206,16 +206,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         var options = contextOptions ?? BrowserReplContextOptions()
         let roots = currentFileRoots
         do {
-            // The local-file rules first: a policy's allow list blocks every
-            // load it does not name, files inside the roots included.
+            // The policy's rules, then the local-file rules last, so no
+            // policy rule undoes their block (contentRules(fileRoots:)).
             // Taken before the rules read it: a protection after this
             // posts a change, which compiles them again.
             let holdsSecretSource = await Task.detached(priority: .userInitiated) {
                 BrowserReplFileSandbox.rootsMayHoldSecretSource(roots)
             }.value
             lock.withLock { rulesHeldSecretSource = holdsSecretSource }
-            let rules = BrowserReplFileSandbox.contentRules(roots: roots, subresourcesInsideRoots: !holdsSecretSource)
-                + policy.contentRules
+            let rules = policy.contentRules(fileRoots: roots, subresourcesInsideRoots: !holdsSecretSource)
             options.ruleList = try await compileRuleList(rules)
             policyFailure = nil
         } catch {
