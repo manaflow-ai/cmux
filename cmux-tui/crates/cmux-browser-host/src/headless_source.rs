@@ -157,17 +157,16 @@ impl HeadlessSource {
     }
 
     fn drive(self: &Arc<Self>, session: u64, target: &str) {
-        let first = {
-            let mut driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner);
-            let sessions = driven.entry(target.to_owned()).or_default();
-            let first = sessions.is_empty();
-            sessions.insert(session);
-            first
-        };
-        // Headful: a tab a session drives intercepts its file choosers.
-        if first {
-            self.driver.set_tab_choosers(target, true);
-        }
+        self.driven
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(target.to_owned())
+            .or_default()
+            .insert(session);
+        // Headful: a tab a session drives intercepts its file choosers. On
+        // every call: the first (tabs.open) can come before the driver
+        // knows the tab; the driver does nothing once it is on.
+        self.driver.set_tab_choosers(target, true);
         let changed = self
             .filters
             .lock()

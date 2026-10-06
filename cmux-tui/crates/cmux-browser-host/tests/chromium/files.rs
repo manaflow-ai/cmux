@@ -13,7 +13,7 @@ use super::*;
 pub fn files_page() -> String {
     "<!doctype html><title>Files</title>\
      <button id=picker style=\"position:fixed;left:0;top:0;width:200px;height:100px\" \
-       onclick=\"document.getElementById('hidden').click()\">Pick</button>\
+       onclick=\"window.picks = (window.picks || 0) + 1; document.getElementById('hidden').click()\">Pick</button>\
      <button id=later style=\"position:fixed;left:300px;top:0;width:200px;height:100px\" \
        onclick=\"setTimeout(() => document.getElementById('hidden').click(), 1500)\">Later</button>\
      <input id=one type=file style=\"position:fixed;left:0;top:120px\">\
@@ -291,21 +291,20 @@ fn only_the_choosers_session_answers_it_and_its_end_cancels_it() {
 struct Display(std::process::Child, String);
 
 impl Display {
+    /// Xvfb picks a free display and writes its number when it is ready
+    /// (`-displayfd`).
     fn start() -> Display {
-        let name = format!(":{}", 50 + std::process::id() % 400);
-        let child = std::process::Command::new("Xvfb")
-            .args([name.as_str(), "-screen", "0", "1280x800x24", "-nolisten", "tcp"])
-            .stdout(std::process::Stdio::null())
+        let mut child = std::process::Command::new("Xvfb")
+            .args(["-displayfd", "1", "-screen", "0", "1280x800x24", "-nolisten", "tcp"])
+            .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .spawn()
             .expect("the headful test needs Xvfb");
-        let display = Display(child, name);
-        let socket = format!("/tmp/.X11-unix/X{}", &display.1[1..]);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !std::path::Path::new(&socket).exists() {
-            assert!(Instant::now() < deadline, "Xvfb {} never started", display.1);
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        let mut line = String::new();
+        let read = BufReader::new(child.stdout.take().unwrap()).read_line(&mut line);
+        let number = line.trim().to_owned();
+        let display = Display(child, format!(":{number}"));
+        assert!(read.is_ok() && !number.is_empty(), "Xvfb reported no display");
         display
     }
 }
@@ -383,8 +382,20 @@ fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
         assert!(Instant::now() < deadline, "the page never loaded");
         std::thread::sleep(Duration::from_millis(20));
     }
-    // The session's own tab: the chooser is the session's.
-    click(&a, &target, 50);
+    // The session's own tab: the chooser is the session's. A headful tab
+    // sometimes drops the click handler of its first click (the press lands:
+    // the page has user activation); click until the page counted one.
+    for _ in 0..3 {
+        click(&a, &target, 50);
+        let picks = a.call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "page",
+            "source": "() => window.picks || 0"}),
+        );
+        if picks.ok().and_then(|p| p.as_i64()).unwrap_or(0) > 0 {
+            break;
+        }
+    }
     let deadline = Instant::now() + Duration::from_secs(5);
     let chooser = loop {
         let found =
