@@ -131,11 +131,22 @@ enum DebugMouse {
         ) else { return nil }
         guard [.otherMouseDown, .otherMouseUp, .otherMouseDragged].contains(type) else { return event }
         // NSEvent.mouseEvent leaves buttonNumber 0 on otherMouse events; the
-        // middle button is 2, which the views that handle it check. The
-        // copy keeps the window and the window-local point (on a Mac with a
-        // display; DebugMouseButtonTests).
+        // middle button is 2, which the views that handle it check. AppKit
+        // maps the copy back through the window server's frame for the window,
+        // which for a window not on screen is not the window's own frame, so the
+        // copy is moved by what that mapping got wrong (DebugMouseButtonTests).
         guard let cg = event.cgEvent?.copy() else { return nil }
         cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+        return keepingWindowPoint(cg, event.locationInWindow)
+    }
+
+    /// `cg` as an NSEvent at window-local `base`: built once, then moved by the
+    /// difference between `base` and the point AppKit mapped (global y grows down).
+    static func keepingWindowPoint(_ cg: CGEvent, _ base: NSPoint) -> NSEvent? {
+        guard let first = NSEvent(cgEvent: cg) else { return nil }
+        let miss = NSPoint(x: base.x - first.locationInWindow.x, y: base.y - first.locationInWindow.y)
+        guard miss != .zero else { return first }
+        cg.location = CGPoint(x: cg.location.x + miss.x, y: cg.location.y - miss.y)
         return NSEvent(cgEvent: cg)
     }
 
