@@ -24,6 +24,7 @@ fn dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("atg-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(d.join("work")).unwrap();
+    std::fs::create_dir_all(d.join("work").join("other")).unwrap();
     std::fs::create_dir_all(d.join("home")).unwrap();
     std::fs::canonicalize(&d).unwrap()
 }
@@ -268,5 +269,65 @@ async fn a_trust_record_that_cannot_be_read_is_no_answer() {
     let r = app.prompt(&s, "secret-with-damaged-record").await;
     assert_eq!(reason(&r), "trust.pending", "{r}");
     assert!(!app.agent_saw(&s, "secret-with-damaged-record").await, "the agent got the prompt");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_fork_into_a_folder_without_trust_waits_for_it() {
+    let d = dir("fork");
+    let hub = hub(&d);
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let work = d.join("work");
+    let other = work.join("other");
+    app.trust(&work, "trusted").await;
+    let s = app.new_session(&work, "fcodex").await;
+    // Its own (trusted) folder: the fork goes.
+    let r = app.call("session/fork", json!({"sessionId": s})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    // Another folder with no answer: refused before any agent runs there.
+    let r = app.call("session/fork", json!({"sessionId": s, "cwd": other})).await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    assert_eq!(r["error"]["data"]["cwd"], json!(other.to_string_lossy()), "{r}");
+    app.trust(&other, "trusted").await;
+    let r = app.call("session/fork", json!({"sessionId": s, "cwd": other})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn warm_starts_no_agent_in_a_folder_without_trust() {
+    let d = dir("warm");
+    let hub = hub(&d);
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let work = d.join("work");
+    let s = app.new_session(&work, "fcodex").await;
+    let r = app.call("_acpmux/warm", json!({"sessionIds": [s]})).await;
+    assert_eq!(r["result"]["warmed"], json!([]), "{r}");
+    app.trust(&work, "trusted").await;
+    let r = app.call("_acpmux/warm", json!({"sessionIds": [s]})).await;
+    assert_eq!(r["result"]["warmed"][0]["sessionId"], json!(s), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_peer_request_for_the_app_waits_and_a_peers_own_does_not() {
+    let d = dir("peer");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let s = local.new_session(&d.join("work"), "fclaude").await;
+    let p = |text: &str, via: Option<&str>| {
+        let mut p = json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]});
+        if let Some(via) = via {
+            p["_meta"] = json!({"acpmux": {"via": via}});
+        }
+        p
+    };
+    let r = peer.call("session/prompt", p("peer-for-its-app", Some("app"))).await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    assert!(!peer.agent_saw(&s, "peer-for-its-app").await, "the agent got the prompt");
+    // The peer's own user (its unix socket): the peer judges, as today.
+    let r = peer.call("session/prompt", p("peer-own-user", None)).await;
+    assert!(r.get("error").is_none(), "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }

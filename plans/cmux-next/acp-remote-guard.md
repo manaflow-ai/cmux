@@ -35,10 +35,6 @@ to a peer), `server/local_app.rs` (the LocalApp origin), `server/redact.rs` (rep
 - `_acpmux/set_rules` accepts only `autoDeny` and `ask` lists and a `default` of `ask` or `deny`; no `autoApprove` entry, no unknown field.
 - Defaults writes accept only model, effort, policy and prefer; preset writes only harness, model, effort, policy and description. `_acpmux/warm` accepts only sessionIds and limit. `_acpmux/prewarm` is refused.
 
-### Folder trust (2026-10-06)
-
-A Web connection (and a peer request marked `via: web`) cannot answer the folder-trust question: `acp.trust.set` is refused with `data.reason = "trust.remote"` (after the folder checks, so a bad path is still refused as one). Its `session/prompt` and `_acpmux/handoff_start` are refused, like the app pane's, with `trust.pending` while the folder has no answer and `trust.untrusted` after Don't trust; a trust record that cannot be read is no answer. The user answers in the app pane or over the unix socket, which is not gated. A peer's own request (no `via: web`) is not gated: the peer gates its own clients. Code: `src/server/trust_gate.rs`, `remote_guard.rs`. Tests: `tests/local_app_trust_gate.rs`.
-
 ### Modes: the reviewed per-harness table (`ASKING_MODES`)
 
 A Web source (fork, load, resume, handoff) is accepted only with no mode or a mode its family's row lists. `session/set_mode` and `session/set_config_option` (`mode`) from the Web use the same table; other config options are refused except model, effort, reasoning_effort, thought_level and thinking. An unknown family or mode is refused. A new Web session is moved to its row's first mode; a family with no row is ended and refused. Mode fields (modeId, mode, permissionMode, approvalPolicy, sandbox) are refused at `session/new`, fork, load, resume and handoff_prepare.
