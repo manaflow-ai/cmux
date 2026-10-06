@@ -30,11 +30,14 @@ const KEYS: usize = 20;
 const KEY_SPACING_MS: i64 = 150;
 const IDLE_WINDOW_MS: i64 = 3000;
 const PNG_FRAMES: usize = 4;
+const WATCHDOG_MS: i64 = 30_000;
 
 #[derive(Default)]
 struct Smoke {
     out: PathBuf,
     browser: Option<i32>,
+    capture_started: bool,
+    finished: bool,
     frames: usize,
     jsonl: Option<std::fs::File>,
     idle_start_frames: usize,
@@ -131,17 +134,45 @@ unsafe extern "C" fn on_ready(_: *mut c_void) {
     unsafe {
         rb_shim_set_screen(1200, 800, 2.0);
         rb_shim_open_tab(1, url.as_ptr(), 1200, 800);
+        rb_shim_post_delayed(watchdog, std::ptr::null_mut(), WATCHDOG_MS);
     }
+}
+
+/// Ends a smoke that stalled (no title, no capture) with what it has.
+unsafe extern "C" fn watchdog(_: *mut c_void) {
+    if with(|s| s.finished).unwrap_or(true) {
+        return;
+    }
+    with(|s| {
+        s.error.get_or_insert_with(|| format!("watchdog: not finished after {WATCHDOG_MS} ms"));
+    });
+    // SAFETY: on the UI thread.
+    unsafe { finish(std::ptr::null_mut()) }
 }
 
 unsafe extern "C" fn on_tab_created(_: *mut c_void, _request: c_int, browser: c_int) {
     with(|s| s.browser = Some(browser));
-    // SAFETY: plain values; on the UI thread.
-    unsafe {
-        rb_shim_capture(browser, 1, 0);
-        // Let the page load and settle, then measure idle.
-        rb_shim_post_delayed(start_idle, std::ptr::null_mut(), 2000);
+}
+
+/// The page sets its title to `ready` when its script has run; the capture
+/// starts then (as in the fork's embedder test), when the tab has its view.
+unsafe extern "C" fn on_title(_: *mut c_void, browser: c_int, title: *const c_char) {
+    // SAFETY: the shim passes a NUL-terminated string for the call.
+    let title = unsafe { std::ffi::CStr::from_ptr(title) }.to_string_lossy();
+    if title != "ready" || with(|s| s.capture_started).unwrap_or(true) {
+        return;
     }
+    // SAFETY: plain values; on the UI thread.
+    let started = unsafe { rb_shim_capture(browser, 1, 0) } == 1;
+    with(|s| {
+        s.capture_started = true;
+        if !started {
+            s.error = Some("rb_shim_capture returned 0".to_string());
+        }
+    });
+    // Let the first frames land and the page settle, then measure idle.
+    // SAFETY: plain values.
+    unsafe { rb_shim_post_delayed(start_idle, std::ptr::null_mut(), 2000) }
 }
 
 unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame) {
@@ -263,29 +294,36 @@ unsafe extern "C" fn send_key(_: *mut c_void) {
     }
 }
 
-fn percentile(sorted: &[f64], p: f64) -> f64 {
-    if sorted.is_empty() {
-        return f64::NAN;
-    }
-    let i = ((sorted.len() - 1) as f64 * p).round() as usize;
-    sorted[i.min(sorted.len() - 1)]
+/// A JSON number with one decimal, or `null` (JSON has no NaN).
+fn num(v: Option<f64>) -> String {
+    v.filter(|v| v.is_finite()).map_or("null".to_string(), |v| format!("{v:.1}"))
+}
+
+fn percentile(sorted: &[f64], p: f64) -> Option<f64> {
+    let i = ((sorted.len().checked_sub(1)?) as f64 * p).round() as usize;
+    sorted.get(i).copied()
 }
 
 unsafe extern "C" fn finish(_: *mut c_void) {
+    if with(|s| std::mem::replace(&mut s.finished, true)).unwrap_or(true) {
+        return;
+    }
     with(|s| {
         let mut l = s.latencies_ms.clone();
         l.sort_by(f64::total_cmp);
         let result = format!(
-            "{{\"frames\":{},\"idle_window_ms\":{IDLE_WINDOW_MS},\"idle_frames\":{},\"idle_cpu_seconds\":{:.3},\
-\"keys\":{},\"key_to_capture_ms\":{{\"count\":{},\"p50\":{:.1},\"p95\":{:.1},\"max\":{:.1}}},\"error\":{}}}\n",
+            "{{\"frames\":{},\"idle_window_ms\":{IDLE_WINDOW_MS},\"idle_frames\":{},\"idle_cpu_seconds\":{},\
+\"keys\":{},\"key_to_capture_ms\":{{\"count\":{},\"p50\":{},\"p95\":{},\"max\":{}}},\"error\":{}}}\n",
             s.frames,
-            s.idle_frames.map_or(-1, |v| v as i64),
-            s.idle_cpu_s.unwrap_or(f64::NAN),
+            s.idle_frames.map_or("null".to_string(), |v| v.to_string()),
+            s.idle_cpu_s
+                .filter(|v| v.is_finite())
+                .map_or("null".to_string(), |v| format!("{v:.3}")),
             s.keys_sent,
             l.len(),
-            percentile(&l, 0.5),
-            percentile(&l, 0.95),
-            l.last().copied().unwrap_or(f64::NAN),
+            num(percentile(&l, 0.5)),
+            num(percentile(&l, 0.95)),
+            num(l.last().copied()),
             s.error.as_ref().map_or("null".to_string(), |e| format!("{e:?}")),
         );
         let _ = std::fs::write(s.out.join("result.json"), &result);
@@ -308,7 +346,7 @@ pub fn run(argv: &mut [*mut c_char], out: PathBuf) -> i32 {
         on_ready: Some(on_ready),
         on_tab_created: Some(on_tab_created),
         on_tab_closed: None,
-        on_title: None,
+        on_title: Some(on_title),
         on_url: None,
         on_frame: Some(on_frame),
         on_key_unhandled: None,

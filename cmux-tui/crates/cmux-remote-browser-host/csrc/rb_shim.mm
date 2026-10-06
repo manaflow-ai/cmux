@@ -53,6 +53,8 @@ namespace {
 
 rb_shim_callbacks_t g_cb = {};
 bool g_external_begin_frames = false;
+// rb_shim_quit closes every browser first: CefShutdown needs them closed.
+bool g_quitting = false;
 
 // --- the fork's cmux_rp_* exports (include/cef_cmux.h, API 19) -------------
 
@@ -245,6 +247,9 @@ class Client : public CefClient,
     if (g_cb.on_tab_closed) {
       g_cb.on_tab_closed(g_cb.context, id);
     }
+    if (g_quitting && Browsers().empty()) {
+      CefQuitMessageLoop();
+    }
   }
 
  private:
@@ -405,7 +410,22 @@ int rb_shim_run(int argc,
 }
 
 void rb_shim_quit(void) {
-  CefQuitMessageLoop();
+  g_quitting = true;
+  if (Browsers().empty()) {
+    CefQuitMessageLoop();
+    return;
+  }
+  // Copy: closing erases from the map in OnBeforeClose.
+  std::vector<CefRefPtr<CefBrowser>> open;
+  for (const auto& [id, browser] : Browsers()) {
+    open.push_back(browser);
+  }
+  for (const auto& browser : open) {
+    if (g_rp.capture_stop) {
+      g_rp.capture_stop(browser->GetIdentifier());
+    }
+    browser->GetHost()->CloseBrowser(true);
+  }
 }
 
 void rb_shim_post(void (*fn)(void*), void* ctx) {

@@ -64,7 +64,8 @@ typedef struct {
 // Runs the process: helper processes return their exit code at once; the
 // browser process initializes CEF with --cmux-remote-presentation, calls
 // on_ready and runs the message loop until rb_shim_quit. `cache_dir` holds the
-// profile. Returns the process exit code.
+// profile. Returns the process exit code. rb_shim_quit closes every tab and
+// ends the loop when the last one is closed (CefShutdown needs them closed).
 int rb_shim_run(int argc, char** argv, const char* cache_dir,
                 int external_begin_frames,
                 const rb_shim_callbacks_t* callbacks);
