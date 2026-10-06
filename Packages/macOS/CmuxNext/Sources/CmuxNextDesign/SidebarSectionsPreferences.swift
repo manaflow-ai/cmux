@@ -31,6 +31,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom
+    /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
+    /// `sidebar.stepping`, `sidebar.steppingWraps`).
+    public var navigation = SidebarNavigationSettings.defaults
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

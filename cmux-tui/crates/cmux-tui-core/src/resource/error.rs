@@ -63,12 +63,18 @@ impl ResourceError {
 
     pub fn not_found(kind: &str, selector: &str) -> Self {
         let scope = canonical_resource_scope(kind);
-        Self::new(
-            "selector.not_found",
-            format!("no {kind} matches {selector:?}"),
-            json!({"scope":scope,"selector":selector}),
-            false,
-        )
+        // `current` means the caller's context, which has none outside a
+        // cmux terminal: say so and name the ways to pick one.
+        let message = if selector == "current" {
+            format!(
+                "no current {kind} (outside a cmux terminal there is none): pass \
+                 --workspace or --screen where the command takes them, or an id from \
+                 `cmux {kind} list`"
+            )
+        } else {
+            format!("no {kind} matches {selector:?}")
+        };
+        Self::new("selector.not_found", message, json!({"scope":scope,"selector":selector}), false)
     }
 
     pub fn ambiguous(kind: &str, selector: &str, candidates: Vec<String>) -> Self {

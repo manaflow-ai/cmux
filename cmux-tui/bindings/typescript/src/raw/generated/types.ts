@@ -1,10 +1,21 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30. */
+/* cmux-tui mux protocol 12, IR b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
 export type JsonValue = null | boolean | number | bigint | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
+
+export type ActivitySnapshot = {
+  "attached_clients": number;
+  "last_agent_action_at_ms": (bigint) | null;
+  "last_user_input_at_ms": (bigint) | null;
+  "live_agents": number;
+};
+
+export type ActivitySubscribeResult = {
+  "activity": ActivitySnapshot;
+};
 
 export type AgentRecord = {
   "session": (string) | null;
@@ -218,8 +229,8 @@ export type ConversationMessage = {
 export type ConversationPart = {
   /** type work. */
   "host"?: string;
-  /** type work. */
-  "preview"?: string;
+  /** type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}. */
+  "preview"?: JsonValue;
   /** type text. */
   "runs"?: Array<ConversationTextRun>;
   /** type work. */
@@ -228,7 +239,7 @@ export type ConversationPart = {
   "status"?: string;
   /** type text. */
   "text"?: string;
-  /** Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties. */
+  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
   "type": string;
   [key: string]: unknown;
 };
@@ -286,12 +297,14 @@ export type ConversationSummary = {
 };
 
 export type ConversationTabRecord = {
-  /** Agent session source (agent-session-tabs-v1); exclusive with conversation and owner. */
+  /** Agent session source (agent-session-tabs-v1); exclusive with the other sources. */
   "agent_session"?: AgentSessionSource;
   /** Conversation source: a conv_ id, with owner. */
   "conversation"?: string;
   /** Conversation source: local or cloud. */
   "owner"?: string;
+  /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
+  "page"?: string;
 };
 
 export type ConversationTextRun = {

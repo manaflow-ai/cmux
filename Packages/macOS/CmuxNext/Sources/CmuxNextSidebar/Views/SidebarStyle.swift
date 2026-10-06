@@ -11,8 +11,11 @@ enum SidebarStyle {
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
     static let placeholderFractions: [CGFloat] = [0.72, 0.5, 0.62]
-    /// Icon frame; the glyph inside uses `Metrics.smallIconSize`.
+    /// Icon frame; the glyph inside is `kindGlyphSize`.
     static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
+    /// A workspace row's leading glyph: the size an icon takes beside the
+    /// row title (cap height and stroke matched to the text).
+    static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
     static var indicatorSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
@@ -36,12 +39,14 @@ enum SidebarStyle {
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
     static var subtitleFont: NSFont { Typography.caption }
-    /// Where workspace titles start: past the leading type glyph every row
-    /// reserves. Group headers start their name here too.
-    static var titleLeading: CGFloat { horizontalInset + iconBox + Metrics.space3 }
+    /// Where a workspace title without a custom icon starts: rows draw no
+    /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
+    /// their name here too.
+    static var titleLeading: CGFloat { horizontalInset }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
-    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .regular) }
+    /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
+    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: titleFont.pointSize, weight: .regular) }
     static var chevronConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .bold) }
 
     /// Muted tint for a user color, shared with tab groups (`GroupColor`).

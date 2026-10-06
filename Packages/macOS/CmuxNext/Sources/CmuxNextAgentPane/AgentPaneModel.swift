@@ -162,6 +162,14 @@ public final class AgentPaneModel {
         newTab = page
     }
 
+    /// A new workspace's first tab (its view made before the store's reply
+    /// named it a new tab page): a chat that has no session yet becomes the
+    /// page. A chat with a session keeps it.
+    public func becomeNewTab(_ page: AgentPaneNewTab) {
+        guard sessionId == nil else { return }
+        newTab = page
+    }
+
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
@@ -244,7 +252,10 @@ public final class AgentPaneModel {
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }
+            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New).
+            guard id == "newTab.page" || (id == "palette.welcomeChecklist" && newTab != nil), let onRunAction else {
+                return Self.unsupported("action.run")
+            }
             onRunAction(id)
             return AgentPaneReply.success()
         case .jump(let target, let id):
@@ -279,8 +290,15 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target):
-            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path),
-                  target == .editor || AgentPaneFileOpen.showsInTab(url), await onOpenFile(url, target) else {
+            guard let onOpenFile else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
+            }
+            let url: URL
+            switch checkedFileOpen(path, target: target) {
+            case .success(let checked): url = checked
+            case .failure(let refusal): return Self.transportFailure(refusal)
+            }
+            guard await onOpenFile(url, target) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
             return AgentPaneReply.success()

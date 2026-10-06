@@ -39,11 +39,7 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             }
             let response = HTTPURLResponse(
                 url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                headerFields: [
-                    "Content-Type": Self.mimeType(forExtension: file.pathExtension),
-                    "Content-Length": String(data.count),
-                    "Cache-Control": "no-store",
-                ]
+                headerFields: Self.headers(for: file, length: data.count)
             )
             task.didReceive(response ?? URLResponse(url: url, mimeType: nil, expectedContentLength: data.count, textEncodingName: nil))
             task.didReceive(data)

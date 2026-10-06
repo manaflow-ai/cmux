@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import CmuxNextDaemon
 import CmuxNextTabs
 import Testing
@@ -19,7 +20,7 @@ struct ConversationTabItemTests {
         let model = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
         let item = TabItemMapping.shared.item(model, fallbackTitle: "Chief")
         #expect(item.title == "Chief")
-        #expect(item.icon == .symbol("bubble.left.and.bubble.right"))
+        #expect(item.icon == .icon(.agentChat))
         #expect(item.subtitle == nil)
     }
 }

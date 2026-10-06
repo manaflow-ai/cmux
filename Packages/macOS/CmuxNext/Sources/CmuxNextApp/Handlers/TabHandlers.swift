@@ -56,7 +56,7 @@ enum TabHandlers {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
             } else if ctx.services.agentTabs.isAgentTab(id.rawValue) {
                 pane.duplicateAgentTab(id.rawValue)
-            } else if id.rawValue.hasPrefix(LocalPageTab.prefix) {
+            } else if id.rawValue.hasPrefix(LocalPageTab.prefix) || pane.tab(id)?.page != nil {
                 // One tab per page per window: the page is already there.
                 return
             } else {
@@ -94,6 +94,15 @@ enum TabHandlers {
                 ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
             reveal(tabID: ref.id, ctx: ctx)
         })
+        // `cmux pane <id> focus` / `cmux screen <id> focus`: the same reveal, by target.
+        registry.bind("pane.focus", invoke: { invocation in
+            guard let ref = invocation.target, ref.kind == .pane else { return ctx.refuse(RefusalStrings.paneArgumentRequired) }
+            revealPane(paneID: ref.id, ctx: ctx)
+        })
+        registry.bind("screen.focus", invoke: { invocation in
+            guard let ref = invocation.target, ref.kind == .screen else { return ctx.refuse(RefusalStrings.noScreen("")) }
+            revealScreen(screenID: ref.id, ctx: ctx)
+        })
     }
 
     /// Shows the tab in the window that lists its workspace (the active
@@ -105,14 +114,61 @@ enum TabHandlers {
         // caller only with the run's view-change permission.
         guard ActionRunScope.viewChangeAllowed() else { return }
         guard let (tab, paneModel) = ctx.services.locateTab(tabID) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
-        let owner = ctx.services.machines.allWorkspaces.first { workspace, _ in
-            workspace.screens.contains { $0.panes.contains { $0 === paneModel } }
+        guard let (workspace, screen) = owner(of: paneModel, ctx) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
+        reveal(workspace: workspace, screen: screen, pane: paneModel, tab: tab, ctx: ctx)
+    }
+
+    /// pane.focus: the pane's workspace and screen shown, the pane focused.
+    static func revealPane(paneID: String, ctx: AppActionContext) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
+        for (workspace, _) in ctx.services.machines.allWorkspaces {
+            for screen in workspace.screens {
+                if let pane = screen.panes.first(where: { $0.id == paneID || $0.resourceID?.rawValue == paneID }) {
+                    return reveal(workspace: workspace, screen: screen, pane: pane, tab: nil, ctx: ctx)
+                }
+            }
         }
-        guard let workspace = owner?.0 ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
+        let _: Bool? = ctx.notFound(RefusalStrings.noPaneID(paneID))
+    }
+
+    /// screen.focus: the screen's workspace shown, the screen selected.
+    static func revealScreen(screenID: String, ctx: AppActionContext) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
+        for (workspace, _) in ctx.services.machines.allWorkspaces {
+            if let screen = workspace.screens.first(where: { $0.id == screenID || $0.resourceID?.rawValue == screenID }) {
+                return reveal(workspace: workspace, screen: screen, pane: nil, tab: nil, ctx: ctx)
+            }
+        }
+        let _: Bool? = ctx.notFound(RefusalStrings.noScreen(screenID))
+    }
+
+    private static func owner(of pane: PaneModel, _ ctx: AppActionContext) -> (WorkspaceModel, ScreenModel)? {
+        for (workspace, _) in ctx.services.machines.allWorkspaces {
+            if let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }) { return (workspace, screen) }
+        }
+        return nil
+    }
+
+    /// The one reveal of tab.focus, pane.focus and screen.focus: the window
+    /// that lists `workspace` shows it, `screen` is selected there, then
+    /// `tab` (selected and focused) or `pane` (focused); the window's record
+    /// is saved and the window raised.
+    private static func reveal(workspace: WorkspaceModel, screen: ScreenModel, pane: PaneModel?, tab: TabModel?, ctx: AppActionContext) {
         guard let controller = ctx.window(showing: workspace.id) ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
-        controller.state.selection.select(tab.id, in: paneModel.id)
-        controller.focus.send(.selectTab(pane: paneModel.id, tab: tab.id, workspace: workspace.id, source: .intent))
-        ctx.services.paneController(for: paneModel)?.select(StripTabID(tab.id))
+        // The window's observer swaps the content on a later turn; swap it
+        // now (idempotent), so the screen is selected in this workspace's
+        // content and not dropped (screen.focus from Home, chwsr4 E2E).
+        if controller.content?.workspace !== workspace { controller.showWorkspace(requested: workspace.id) }
+        if let content = controller.content, content.workspace === workspace {
+            ScreenCommands.select(LayoutScreenID(screen.id), in: content)
+        }
+        if let tab, let pane {
+            controller.state.selection.select(tab.id, in: pane.id)
+            controller.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace.id, source: .intent))
+            ctx.services.paneController(for: pane)?.select(StripTabID(tab.id))
+        } else if let pane {
+            controller.focus.send(.focusPane(pane.id, workspace: workspace.id, source: .intent))
+        }
         ctx.services.windows.recordSaver.stateDidChange(controller.state)
         if let window = controller.window { WindowActivation.show(window, .raise) }
     }

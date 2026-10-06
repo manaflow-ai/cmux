@@ -3,8 +3,8 @@
 // runs), so there is no frame of English and no fetch before first paint. The page is served as
 // built, with its own meta CSP, and under the app's real response header: the page host's
 // PageDescriptor.agent header (test/fixtures/agent-page-csp.txt, which AgentPageProviderTests
-// checks against the Swift value). The cmux-agent://pane scheme sends no header, so the meta CSP
-// alone governs it. Both policies allow only same-origin script files (script-src 'self', no
+// checks against the Swift value). The cmux-agent://pane scheme sends no header with the page
+// document, so the meta CSP alone governs it. Both policies allow only same-origin script files (script-src 'self', no
 // 'unsafe-inline'): the page runs with no CSP violation, and markup injected into it (an agent's
 // output rendered as HTML) cannot run script. Real engines (Playwright Chromium and WebKit);
 // skipped where they are not installed.
