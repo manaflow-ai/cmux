@@ -221,7 +221,6 @@ fn only_the_section_4_commands_pass_the_gate() {
         "conversation-tabs",
         "new-conversation-tab",
         "conversation-agent-token",
-        "conversation-import",
         "conversation-bind",
         "conversation-create",
         // Attachment bytes stay on the trusted local socket (no relay reads yet).

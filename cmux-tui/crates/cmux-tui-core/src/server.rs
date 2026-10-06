@@ -1938,7 +1938,6 @@ enum Command {
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
-    ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -14273,7 +14272,6 @@ fn handle_command_with_cancellation(
         }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
-        Command::ConversationImport(params) => conversations::import(mux, client, params),
         Command::CreateProfile {
             name,
             profile,
