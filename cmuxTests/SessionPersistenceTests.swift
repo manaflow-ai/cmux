@@ -1624,6 +1624,71 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredAgentWithoutLiveEvidenceDoesNotPersistRunningState() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminal = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-stale-running-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/repo",
+                capturedAt: nil,
+                source: "test"
+            )
+        )
+
+        // A restored terminal can report generic shell activity while its
+        // former agent is already gone. That activity is not agent evidence.
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+
+        let wasRunning = workspace.sessionAgentWasRunning(
+            panelId: panelId,
+            restorableAgent: agent,
+            resumeBinding: nil,
+            terminal: terminal,
+            observation: nil,
+            currentAgentProcessIdentity: { _ in nil },
+            agentProcessPresence: { _ in .absent }
+        )
+
+        XCTAssertEqual(
+            wasRunning,
+            false,
+            "Generic shell activity must not keep a restored agent Running without a live process or hook"
+        )
+    }
+
+    @MainActor
+    func testRestoredWorkspaceReDerivesAgentStatusInsteadOfReplayingRunningBadge() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        source.setAgentLifecycle(key: "codex", panelId: sourcePanelId, lifecycle: .running)
+        source.setStatusEntry(
+            SidebarStatusEntry(key: "codex", value: "Running", icon: "circle.fill"),
+            key: "codex",
+            panelId: sourcePanelId
+        )
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        XCTAssertTrue(
+            restored.agentLifecycleStatesByPanelId.isEmpty,
+            "Restored lifecycle state requires a fresh process or hook observation"
+        )
+        XCTAssertTrue(
+            restored.sidebarStatusEntriesVisibleForDisplay().isEmpty,
+            "A persisted Running row must not survive relaunch without live evidence"
+        )
+    }
+
+    @MainActor
     func testRestoredAntigravityAgentAutoResumeUsesConversationCommand() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)

@@ -2591,7 +2591,6 @@ extension Workspace {
             return matchingObservation.wasRunningForSnapshot(
                 restorableAgent,
                 binding: resumeBinding,
-                fallingBackTo: panelShellActivityStates[panelId],
                 confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                 currentProcessIdentity: currentAgentProcessIdentity,
                 processPresence: agentProcessPresence
@@ -2615,7 +2614,10 @@ extension Workspace {
             currentProcessIdentity: currentAgentProcessIdentity
         )
         return (matchingObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: panelShellActivityStates[panelId],
+            // Shell activity is not proof that the restored agent is alive.
+            // The shell can be executing a stale restore scaffold after the
+            // owner has exited; require agent-specific process evidence.
+            fallingBackTo: nil,
             recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,
