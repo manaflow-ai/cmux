@@ -76,12 +76,24 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
     if !acpmux {
         return Vec::new();
     }
-    match turn.session_id {
+    // A session the brain never heard of: its fold position, written when
+    // the turn created it, names it (one turn runs at a time, and a turn's
+    // position is dropped when it ends).
+    let session_id = turn.session_id.clone().or_else(|| {
+        let rows = chat.state_prefix(crate::state::FOLD_PREFIX).ok()?;
+        let mut unclaimed = rows.into_iter().filter_map(|(k, _)| {
+            let id = k.strip_prefix(crate::state::FOLD_PREFIX)?.to_owned();
+            (!state.orphans.iter().any(|o| o.session == id)).then_some(id)
+        });
+        let first = unclaimed.next()?;
+        unclaimed.next().is_none().then_some(first)
+    });
+    match session_id {
         Some(session) => {
-            state.orphans.push(Orphan {
-                session,
-                after: turn.after,
-            });
+            // The fold position commits with the folded entries, so it is
+            // never behind the log; the pending turn's copy can be.
+            let after = turn.after.max(crate::state::folded(chat, &session));
+            state.orphans.push(Orphan { session, after });
             Vec::new()
         }
         None => vec![turn.session],

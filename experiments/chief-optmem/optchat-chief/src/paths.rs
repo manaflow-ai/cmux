@@ -35,12 +35,18 @@ pub struct Paths {
     pub host_lock: PathBuf,
     /// `$MUX_HOME/optchat`.
     pub root: PathBuf,
-    /// The OptChat memory (section 2): `main/`, `tree/`, its own `lock`.
+    /// The OptChat memory's directory (section 2): its single-writer `lock`,
+    /// and the plain-text export of the database (`main/`, `tree/` JSONL
+    /// day files, the format the memory was stored in before 2026-10-06),
+    /// a git repository committed after every turn.
     pub chat: PathBuf,
+    /// The memory database (`memory.sqlite3`): log, tree and host state.
+    pub memory_db: PathBuf,
     /// The constant working directory of every turn session (section 7.2:
     /// a constant cwd keeps the harness prompt and tools byte-identical).
     pub session: PathBuf,
-    /// The host's durable state (outbox, cursor, children).
+    /// The host's durable state before 2026-10-06 (`host.json`): imported
+    /// into the memory database once, then renamed `host.json.imported`.
     pub state: PathBuf,
     /// The socket the `mcp` subcommand reaches the live memory on.
     pub tools_socket: PathBuf,
@@ -69,6 +75,7 @@ impl Paths {
             home: home.to_owned(),
             host_lock: home.join("state").join("host.lock"),
             chat: root.join("chat"),
+            memory_db: root.join("memory.sqlite3"),
             session: root.join("session"),
             state: root.join("host.json"),
             tools_socket: root.join("tools.sock"),

@@ -19,6 +19,7 @@ pub mod host;
 pub mod lock;
 pub mod log;
 pub mod mcp;
+pub mod memory_cli;
 pub mod native;
 pub mod paths;
 pub mod persist;

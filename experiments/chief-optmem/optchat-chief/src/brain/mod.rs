@@ -233,6 +233,9 @@ impl Brain {
         tx: Sender<Input>,
         log: Log,
     ) -> Brain {
+        // The state lives in the memory database from here on (an old
+        // host.json is imported once).
+        let file = file.attach(chat.clone());
         let mut state = file.load();
         let acpmux = matches!(settings.engine, Engine::Acpmux);
         let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
@@ -417,7 +420,12 @@ impl Brain {
     }
 
     fn save(&self) {
-        if let Err(e) = self.file.save(&self.state) {
+        self.save_with(Vec::new());
+    }
+
+    /// Saves the state and `extra` writes in one transaction.
+    fn save_with(&self, extra: Vec<optchat_host::StateWrite>) {
+        if let Err(e) = self.file.save_with(&self.state, extra) {
             (self.log)(&format!("saving the host state failed: {e}"));
         }
     }
@@ -438,12 +446,12 @@ impl Brain {
 /// owner would refuse or silently replay the reply). The millisecond stamp
 /// of message `first` tells the two apart.
 fn reply_key(chat: &OptChat, first: u64) -> String {
-    let stamp: String = chat
-        .stamp(first)
-        .unwrap_or_default()
-        .chars()
-        .filter(char::is_ascii_digit)
-        .collect();
+    reply_key_at(first, &chat.stamp(first).unwrap_or_default())
+}
+
+/// `reply_key` from message `first`'s stored date `stamp`.
+fn reply_key_at(first: u64, stamp: &str) -> String {
+    let stamp: String = stamp.chars().filter(char::is_ascii_digit).collect();
     format!("turn:optchat:{first}:{stamp}")
 }
 

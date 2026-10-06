@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -15,7 +15,7 @@ use crate::cap::cap_tool_result;
 use crate::clock::{Clock, SystemClock};
 use crate::compactor::{drive, Shared, State};
 use crate::config::Config;
-use crate::files::FileStore;
+use crate::db::{self, Appended, Db, NewMessage, StateWrite};
 use crate::lines;
 use crate::lock::{ChatLock, LockError};
 use crate::model::CompactModel;
@@ -100,6 +100,10 @@ impl Cancel {
     }
 }
 
+/// The database file's name next to the chat directory's contents when the
+/// config names none (`Config::db`).
+pub const DB_FILE: &str = "memory.sqlite3";
+
 /// One open chat: the lock, the store, the memory and the compactor.
 pub struct OptChat {
     shared: Arc<Shared>,
@@ -128,9 +132,12 @@ impl OptChat {
         OptChat::open_with_fallback(dir, config, model, None, clock)
     }
 
-    /// Opens `dir`: takes the lock, loads the store (reporting torn lines),
+    /// Opens `dir`: takes the lock (a socket in `dir`), opens the database
+    /// (`config.db`, else `dir/memory.sqlite3`), imports the old JSONL
+    /// files under `dir` once if the database is new (`db::migrate_legacy`),
     /// folds the view again from message 0 (section 5.2) and starts the
-    /// compactor. `fallback` builds the nodes `model` declines.
+    /// compactor. `fallback` builds the nodes `model` declines. `dir` is also
+    /// where the text export goes (`db::Exporter`).
     pub fn open_with_fallback(
         dir: impl AsRef<Path>,
         config: Config,
@@ -139,14 +146,20 @@ impl OptChat {
         clock: Arc<dyn Clock>,
     ) -> Result<OptChat, Error> {
         let dir = dir.as_ref();
-        crate::files::private_dir(dir)?;
+        db::private_dir(dir)?;
         let lock = match ChatLock::acquire(dir) {
             Ok(l) => l,
             Err(LockError::Held) => return Err(Error::Locked),
             Err(LockError::Io(e)) => return Err(Error::Io(e)),
         };
+        let path = config.db.clone().unwrap_or_else(|| dir.join(DB_FILE));
         let mut reports = Vec::new();
-        let loaded = FileStore::open(dir, &mut reports);
+        let loaded = Db::open(&path).and_then(|(mut store, built)| {
+            match db::migrate_legacy(&mut store, dir, &mut reports)? {
+                Some((_, built)) => Ok((store, built)),
+                None => Ok((store, built)),
+            }
+        });
         for r in &reports {
             (config.reporter)(r);
         }
@@ -178,14 +191,42 @@ impl OptChat {
         })
     }
 
-    /// Logs one message (fsynced) and returns its id. Tool results (`Echo`)
-    /// are capped at `CAP` characters first (section 7).
+    /// Logs one message (on disk when it returns) and returns its id. Tool
+    /// results (`Echo`) are capped at `CAP` characters first (section 7).
     pub fn append(&self, kind: Kind, text: &str) -> Result<u64, Error> {
-        let text = if kind == Kind::Echo {
-            cap_tool_result(text)
-        } else {
-            text.into()
-        };
+        let done = self.append_with(&[NewMessage::new(kind, text)], |_| Vec::new())?;
+        Ok(done.ids[0])
+    }
+
+    /// Logs `messages` and writes the state `state` returns in ONE
+    /// transaction (section 7's bookkeeping moves with the log: a crash
+    /// leaves both or neither). `state` runs under the chat's lock with the
+    /// ids and dates, and must not call back into the chat. A message whose
+    /// key is already logged is not logged again (`Appended::fresh`).
+    pub fn append_with(
+        &self,
+        messages: &[NewMessage<'_>],
+        state: impl FnOnce(&Appended) -> Vec<StateWrite>,
+    ) -> Result<Appended, Error> {
+        let capped: Vec<std::borrow::Cow<'_, str>> = messages
+            .iter()
+            .map(|m| {
+                if m.kind == Kind::Echo {
+                    cap_tool_result(m.text)
+                } else {
+                    m.text.into()
+                }
+            })
+            .collect();
+        let messages: Vec<NewMessage<'_>> = messages
+            .iter()
+            .zip(&capped)
+            .map(|(m, text)| NewMessage {
+                kind: m.kind,
+                text: text.as_ref(),
+                key: m.key.clone(),
+            })
+            .collect();
         let mut st = self.shared.lock();
         if st.closed {
             return Err(Error::Closed);
@@ -193,20 +234,83 @@ impl OptChat {
         if let Some(e) = &st.fatal {
             return Err(Error::Fatal(e.clone()));
         }
-        let id = match st.store.append_message(kind, &text) {
-            Ok(id) => id,
+        let done = match st.store.append(&messages, state) {
+            Ok(done) => done,
             Err(e) => {
-                st.set_fatal(format!("writing message: {e}"));
+                st.set_fatal(format!("writing messages: {e}"));
                 self.shared.changed.notify_all();
                 self.shared.unlock(st);
                 return Err(Error::Io(e));
             }
         };
-        let in_memory = st.memory.append();
-        debug_assert_eq!(id, in_memory);
+        for (id, fresh) in done.ids.iter().zip(&done.fresh) {
+            if *fresh {
+                let in_memory = st.memory.append();
+                debug_assert_eq!(*id, in_memory);
+            }
+        }
         drive(&self.shared, &mut st);
         self.shared.unlock(st);
-        Ok(id)
+        Ok(done)
+    }
+
+    /// Writes state keys (one transaction).
+    pub fn put_state(&self, writes: &[StateWrite]) -> Result<(), Error> {
+        let mut st = self.shared.lock();
+        if st.closed {
+            return Err(Error::Closed);
+        }
+        let result = st.store.put_state(writes).map_err(Error::Io);
+        self.shared.unlock(st);
+        result
+    }
+
+    /// One state value.
+    pub fn state(&self, key: &str) -> Result<Option<String>, Error> {
+        let st = self.shared.lock();
+        st.store.state(key).map_err(Error::Io)
+    }
+
+    /// Every state key that starts with `prefix`, in key order.
+    pub fn state_prefix(&self, prefix: &str) -> Result<Vec<(String, String)>, Error> {
+        let st = self.shared.lock();
+        st.store.state_prefix(prefix).map_err(Error::Io)
+    }
+
+    /// Imports a JSONL layout (an old home's `main/` and `tree/`, or a text
+    /// export) into this chat, which must be empty, in one verified
+    /// transaction (`db::import_legacy`); the view is folded again.
+    pub fn import_jsonl(&self, from: &Path) -> Result<db::Imported, Error> {
+        let mut st = self.shared.lock();
+        if !st.writable() {
+            let e = if st.closed {
+                Error::Closed
+            } else {
+                Error::Fatal(st.fatal.clone().unwrap_or_default())
+            };
+            self.shared.unlock(st);
+            return Err(e);
+        }
+        let mut reports = Vec::new();
+        let result = db::import_legacy(&mut st.store, from, &mut reports, None);
+        st.reports.extend(reports);
+        let result = match result {
+            Ok((imported, built)) => {
+                let budget = st.memory.budget();
+                st.memory = Memory::load(st.store.len(), built, budget);
+                drive(&self.shared, &mut st);
+                Ok(imported)
+            }
+            Err(e) => Err(Error::Io(e)),
+        };
+        self.shared.unlock(st);
+        result
+    }
+
+    /// The database file.
+    pub fn db_path(&self) -> PathBuf {
+        let st = self.shared.lock();
+        st.store.path().to_owned()
     }
 
     /// A cancel handle for `settle` and `wait_idle`.

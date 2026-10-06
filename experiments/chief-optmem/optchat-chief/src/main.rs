@@ -14,6 +14,7 @@ optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?} (host stopped)
+optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-sr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
@@ -86,7 +87,7 @@ fn main() {
         Some("browse") => {
             let paths = Paths::new(&home(&flags));
             let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|_| {
-                let chat = optchat_chief::browse::open_offline(&paths.chat)?;
+                let chat = optchat_chief::browse::open_offline(&paths.chat, &paths.memory_db)?;
                 let page = optchat_chief::browse::html(&chat);
                 chat.shutdown();
                 Ok::<_, String>(page)
@@ -114,7 +115,9 @@ fn main() {
                 .ok_or_else(|| USAGE.to_owned())
                 .and_then(|file| std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}")))
                 .and_then(|text| optchat_chief::browse::parse_import(&text))
-                .and_then(|items| optchat_chief::browse::import(&paths.chat, &items));
+                .and_then(|items| {
+                    optchat_chief::browse::import(&paths.chat, &paths.memory_db, &items)
+                });
             match result {
                 Ok(n) => {
                     println!("imported {n} messages");
@@ -126,6 +129,16 @@ fn main() {
                 }
             }
         }
+        Some("memory") => match optchat_chief::memory_cli::run(&flags, &home(&flags)) {
+            Ok(out) => {
+                println!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief memory: {e}");
+                1
+            }
+        },
         Some("help") | Some("--help") => {
             println!("{USAGE}");
             0

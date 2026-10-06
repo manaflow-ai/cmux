@@ -208,6 +208,7 @@ fn start(
     let config = Config {
         agent: crate::prompt::AGENT.to_owned(),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
+        db: Some(paths.memory_db.clone()),
         ..Config::default()
     };
     let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
@@ -450,8 +451,12 @@ fn start(
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
-    let persister = crate::persist::Persister::start(paths.chat.clone(), brain_log.clone())
-        .map_err(|e| format!("starting the persister: {e}"))?;
+    let persister = crate::persist::Persister::start(
+        paths.chat.clone(),
+        paths.memory_db.clone(),
+        brain_log.clone(),
+    )
+    .map_err(|e| format!("starting the persister: {e}"))?;
     let brain = Brain::new(
         chat.clone(),
         agents.clone(),

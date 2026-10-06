@@ -2,7 +2,7 @@
 name = "optchat-host"
 version = "0.1.0"
 edition = "2021"
-description = "OptChat I/O for the MacBook and Mac mini placements: file store, single-writer lock, compactor runner"
+description = "OptChat I/O for the MacBook and Mac mini placements: SQLite store, single-writer lock, compactor runner"
 license = "MIT"
 publish = false
 
@@ -16,6 +16,8 @@ serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 ureq = { version = "2", features = ["json"] }
 libc = "0.2"
+# The memory store: one SQLite file per Chief home (bundled SQLite with FTS5).
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"

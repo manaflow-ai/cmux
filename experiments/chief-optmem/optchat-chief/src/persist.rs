@@ -1,27 +1,39 @@
 //! Persist after each turn (section 10: "the reference commits the directory
-//! with git"): the chat directory is a git repository, and every turn ends
-//! with a commit of its log and tree. One thread commits, in turn order, so
-//! the brain never waits on git. The commits are local; pushing them
-//! elsewhere (the backup) is the user's choice of remote.
+//! with git"). The memory lives in SQLite; after every turn this thread
+//! brings the plain-text export in the chat directory up to date (the JSONL
+//! day files, `optchat_host::db::Exporter`, through a read-only connection)
+//! and commits it: the chat directory is a git repository, as before the
+//! move to SQLite, so its history goes on unchanged. One thread exports and
+//! commits, in turn order, so the brain never waits on either. The commits
+//! are local; pushing them elsewhere (the backup) is the user's choice of
+//! remote.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{Sender, channel};
+
+use optchat_host::db::{Exporter, ReadOnly};
 
 pub struct Persister {
     tx: Sender<String>,
 }
 
 impl Persister {
-    /// Commits `dir` after each `turn_ended`. Failures are logged; a missing
-    /// git is said once.
-    pub fn start(dir: PathBuf, log: crate::brain::Log) -> std::io::Result<Persister> {
+    /// Exports the database `db` into `dir` and commits `dir` after each
+    /// `turn_ended`. Failures are logged; a missing git is said once.
+    pub fn start(dir: PathBuf, db: PathBuf, log: crate::brain::Log) -> std::io::Result<Persister> {
         let (tx, rx) = channel::<String>();
         std::thread::Builder::new()
             .name("persist".into())
             .spawn(move || {
                 let mut told = false;
+                let mut export = Export::new(&dir, &db);
                 for key in rx {
+                    if let Err(e) = export.sync() {
+                        log(&format!(
+                            "exporting the memory after turn {key} failed: {e}"
+                        ));
+                    }
                     if let Err(e) = snapshot(&dir, &key)
                         && !told
                     {
@@ -37,6 +49,33 @@ impl Persister {
 
     pub fn turn_ended(&self, key: &str) {
         let _ = self.tx.send(key.to_owned());
+    }
+}
+
+/// The export's read-only connection, opened on first use, and its watermark.
+struct Export {
+    db: PathBuf,
+    conn: Option<ReadOnly>,
+    exporter: Exporter,
+}
+
+impl Export {
+    fn new(dir: &Path, db: &Path) -> Export {
+        Export {
+            db: db.to_owned(),
+            conn: None,
+            exporter: Exporter::new(dir),
+        }
+    }
+
+    fn sync(&mut self) -> std::io::Result<()> {
+        if self.conn.is_none() {
+            self.conn = Some(ReadOnly::open(&self.db)?);
+        }
+        match &self.conn {
+            Some(conn) => self.exporter.sync(conn).map(|_| ()),
+            None => Ok(()),
+        }
     }
 }
 
@@ -64,8 +103,17 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
-/// What the memory's repository never tracks.
-const IGNORED: [&str; 3] = ["lock", "*.tmp*", "takeover.flock"];
+/// What the memory's repository never tracks: process state, temporary
+/// files, the export's watermark, and the database itself when it sits in
+/// the chat directory (tests; the host keeps it one level up).
+const IGNORED: [&str; 6] = [
+    "lock",
+    "*.tmp*",
+    "takeover.flock",
+    ".export.json",
+    "memory.sqlite3*",
+    "*.export.tmp",
+];
 
 /// Commits everything in `dir` (creating the repository on first use) with
 /// the turn key as the message. A turn that changed nothing commits nothing.
@@ -148,6 +196,65 @@ mod tests {
         snapshot(dir.path(), "turn:optchat:1:2").unwrap();
         let tracked = git(dir.path(), &["ls-files"]).unwrap();
         assert!(!tracked.contains("takeover.flock"), "{tracked}");
+    }
+
+    // The memory lives in SQLite; the repository holds its text export.
+    #[test]
+    fn each_turn_commits_the_text_export_and_never_the_database() {
+        use optchat_host::{Config, Kind, OptChat, SystemClock};
+        struct Never;
+        impl optchat_host::CompactModel for Never {
+            fn call(
+                &self,
+                _: &optchat_host::CompactRequest,
+                _: &[optchat_host::Followup],
+            ) -> Result<optchat_host::Reply, optchat_host::ModelError> {
+                Err(optchat_host::ModelError::new("no model"))
+            }
+        }
+        let home = tempfile::tempdir().unwrap();
+        let (dir, db) = (home.path().join("chat"), home.path().join("memory.sqlite3"));
+        let config = Config {
+            db: Some(db.clone()),
+            reporter: std::sync::Arc::new(|_| {}),
+            ..Config::default()
+        };
+        let chat = OptChat::open_with(
+            &dir,
+            config,
+            std::sync::Arc::new(Never),
+            std::sync::Arc::new(SystemClock),
+        )
+        .unwrap();
+        chat.append(Kind::User, "hello").unwrap();
+        let mut export = Export::new(&dir, &db);
+        export.sync().unwrap();
+        snapshot(&dir, "turn:optchat:0:1").unwrap();
+        chat.append(Kind::Talk, "hi").unwrap();
+        export.sync().unwrap();
+        snapshot(&dir, "turn:optchat:1:2").unwrap();
+        let tracked = git(&dir, &["ls-files"]).unwrap();
+        assert!(
+            tracked
+                .lines()
+                .any(|l| l.starts_with("main/") && l.ends_with(".jsonl")),
+            "{tracked}"
+        );
+        assert!(
+            !tracked.contains("sqlite") && !tracked.contains(".export"),
+            "{tracked}"
+        );
+        let log = git(&dir, &["log", "--format=%s"]).unwrap();
+        assert_eq!(log, "turn:optchat:1:2\nturn:optchat:0:1\n");
+        let day = std::fs::read_dir(dir.join("main"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let text = std::fs::read_to_string(day).unwrap();
+        assert_eq!(text.lines().count(), 2, "{text}");
+        assert!(text.contains("\"text\":\"hi\""), "{text}");
     }
 
     #[test]
