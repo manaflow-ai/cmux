@@ -1,6 +1,7 @@
 import Foundation
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// Keeps the applied Ghostty config synchronized with the files libghostty
 /// actually loaded, including `config-file` includes and theme files.
@@ -9,8 +10,8 @@ final class GhosttyConfigLiveReload {
     private let files: @MainActor () -> [String]
     private let reload: @MainActor () -> Void
     private let notifications: NotificationCenter
+    private let reloadTimer = DemandTimer(owner: "GhosttyConfigLiveReload.reload")
     private var watchers: [ConfigFileWatcher] = []
-    private var reloadTimer: DispatchSourceTimer?
     private var observer: (any NSObjectProtocol)?
     private var started = false
 
@@ -25,7 +26,7 @@ final class GhosttyConfigLiveReload {
     }
 
     isolated deinit {
-        reloadTimer?.cancel()
+        reloadTimer.cancel()
         if let observer { notifications.removeObserver(observer) }
         watchers.forEach { $0.stop() }
     }
@@ -41,8 +42,7 @@ final class GhosttyConfigLiveReload {
 
     func stop() {
         started = false
-        reloadTimer?.cancel()
-        reloadTimer = nil
+        reloadTimer.cancel()
         watchers.forEach { $0.stop() }
         watchers.removeAll()
         if let observer {
@@ -64,20 +64,12 @@ final class GhosttyConfigLiveReload {
     }
 
     private func requestReload() {
-        guard started, reloadTimer == nil else { return }
+        guard started, !reloadTimer.isScheduled else { return }
         // Atomic saves touch the file and its include directory. Coalesce the
         // burst, then let libghostty resolve the complete latest file graph.
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(75))
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor in
-                guard let self, self.started else { return }
-                self.reloadTimer?.cancel()
-                self.reloadTimer = nil
-                self.reload()
-            }
+        reloadTimer.scheduleIfIdle(after: .milliseconds(75)) { @MainActor [weak self] in
+            guard let self, self.started else { return }
+            self.reload()
         }
-        reloadTimer = timer
-        timer.resume()
     }
 }
