@@ -99,8 +99,12 @@ fn wait_session(h: &mut Harness) {
 }
 
 fn permission(id: &str, tool: &str, input: Value) -> Input {
+    permission_of("s1", id, tool, input)
+}
+
+fn permission_of(session: &str, id: &str, tool: &str, input: Value) -> Input {
     Input::from(AgentEvent::Permission {
-        session_id: "s1".into(),
+        session_id: session.into(),
         permission_id: id.into(),
         request: json!({
             "toolCall": {"toolCallId": format!("t-{id}"), "title": tool, "rawInput": input,
@@ -285,4 +289,85 @@ fn a_mixed_origin_turn_stays_ask() {
     assert_eq!(inner.specs.len(), 2);
     assert_eq!(inner.specs[0].policy, "ask");
     assert_eq!(inner.specs[1].policy, "ask", "the strictest origin wins");
+}
+
+/// A child that an approved spawn of an `ask` turn started: the `chief
+/// agents spawn` CLI tags it `optchat.policy=ask` and gives it policy `ask`
+/// whatever `--policy` says, because the host's spawn floor is `ask`.
+fn ask_child(status: &str) -> cmux_chief::acp::SessionSummary {
+    serde_json::from_value(json!({
+        "sessionId": "c1", "name": "a1", "status": status, "harness": "claude-sr",
+        "tags": {"mux.parent": optchat_chief::brain::PARENT, "optchat.policy": "ask"}
+    }))
+    .unwrap()
+}
+
+#[test]
+fn a_child_spawned_from_an_ask_turn_asks_too() {
+    use optchat_chief::agents::{apply_floor, cli_may_answer};
+    // The CLI: the host's floor wins over --policy and MUX_POLICY.
+    assert_eq!(apply_floor("approve-all", Some("ask")), "ask");
+    assert_eq!(apply_floor("approve-all", None), "approve-all");
+    let mut h = harness(started());
+    assert_eq!(h.brain.spawn_policy(), None, "a local Chief spawns as before");
+    h.agents.hold(true);
+    deliver(&mut h, true, "start an agent that cleans the cache");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    assert_eq!(h.brain.spawn_policy(), Some("ask"));
+    // The approved spawn's child appears; then the turn ends.
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(ask_child("running"))));
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
+    // Transitively: while an ask child runs, anything it (or anyone) spawns
+    // asks too, and remote.autoApprove cannot be turned on.
+    assert_eq!(h.brain.spawn_policy(), Some("ask"));
+    assert!(h.brain.set_setting("remote.autoApprove", "true").is_err());
+    // The child's shell call waits for a person, asked in the Chief chat
+    // with the child's id.
+    let before = sends(&h).len();
+    h.brain.step(permission_of(
+        "c1",
+        "p9",
+        "Bash",
+        json!({"command": "rm -rf ~/.cache"}),
+    ));
+    assert!(
+        !h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .responses
+            .iter()
+            .any(|r| r.1 == "p9"),
+        "the child's shell call waits"
+    );
+    let asked = sends(&h);
+    assert_eq!(asked.len(), before + 1, "{asked:?}");
+    let question = asked.last().unwrap();
+    assert!(question.contains("a1") && question.contains("rm -rf ~/.cache"), "{question}");
+    // The Chief's own `agents allow` cannot answer it; a person does.
+    assert!(cli_may_answer(&ask_child("running")).is_err());
+    deliver(&mut h, false, "allow");
+    assert!(
+        h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .responses
+            .contains(&("c1".into(), "p9".into(), Some("allow".into())))
+    );
+    let approval = traces(&h)
+        .into_iter()
+        .find(|t| t["ev"] == "approval" && t["permission"] == "p9")
+        .unwrap();
+    assert_eq!(approval["child"], "a1");
+    assert_eq!(approval["approver"], "user_local");
+    // Once the ask child is gone, spawns follow the configured policy again.
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(ask_child("closed"))));
+    assert_eq!(h.brain.spawn_policy(), None);
 }
