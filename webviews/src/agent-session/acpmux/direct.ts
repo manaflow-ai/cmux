@@ -16,6 +16,7 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
+import { errorMessage } from "./transportErrors";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -404,6 +405,8 @@ export class AcpmuxDirectClient {
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
+  /// A prompt that was not sent, by its row: what Retry sends again.
+  private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[] }>();
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
@@ -608,6 +611,7 @@ export class AcpmuxDirectClient {
     this.events = [];
     this.historyExhausted = false;
     this.rows.clear();
+    this.failedPrompts.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.summary = undefined;
@@ -1379,18 +1383,37 @@ export class AcpmuxDirectClient {
         _meta: { acpmux: { promptId } },
       });
     } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      const refused = typeof code === "string" && code.startsWith("transport.");
       const row = this.rows.get(rowId);
       if (row) {
         row.pending = false;
         row.failed = true;
+        // The bubble says why it got no reply; a refusal for want of a gesture asks for Retry.
+        row.error =
+          code === "transport.gesture_required"
+            ? translate("prompt.notSentGesture")
+            : translate("prompt.notSent", { reason: errorMessage(error) });
         row.version += 1;
+        this.failedPrompts.set(rowId, { input, attachments });
       }
       this.optimisticPromptRows.delete(promptId);
       this.optimisticPromptTexts.delete(promptId);
-      this.emit("failed");
+      // The host refused one frame and answered it: the connection is as it was.
+      this.emit(refused ? undefined : "failed");
       throw error;
     }
     return sessionId;
+  }
+
+  /// Retry on a prompt that was not sent: its bubble goes and the same prompt is sent again.
+  async retryPrompt(rowId: string): Promise<string | undefined> {
+    const failed = this.failedPrompts.get(rowId);
+    if (!failed) return undefined;
+    this.failedPrompts.delete(rowId);
+    this.rows.delete(rowId);
+    this.emit();
+    return this.send(failed.input, failed.attachments);
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
