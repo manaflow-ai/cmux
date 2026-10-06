@@ -200,13 +200,18 @@ final class SidebarListView: NSView {
                 targets.append((view, target))
             }
         }
+        // An empty section's placeholder and the section's rows hand off at
+        // once, both ways, so neither fades out under the other.
+        let returning = Set(layout.rows.compactMap { row -> SectionID? in
+            guard case let .emptySection(section) = row.key, old.row(for: row.key) == nil else { return nil }
+            return section
+        })
         var leaving: [SidebarRowView] = []
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
-            // An empty section's placeholder stands in for the rows that
-            // replace it: it leaves at once, not fading under the first one.
             let placeholder = if case .emptySection = key { true } else { false }
-            if suppressed.contains(key) || !animate || placeholder {
+            let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false
+            if suppressed.contains(key) || !animate || placeholder || replaced {
                 recycle(view)
             } else {
                 leaving.append(view)
