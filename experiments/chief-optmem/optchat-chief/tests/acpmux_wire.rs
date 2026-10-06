@@ -114,6 +114,8 @@ fn serve_with(
                             json!({"sessions": [{"sessionId": "old", "name": "x", "status": "idle"}]}),
                         )),
                         "session/new" => send(reply(json!({"sessionId": "s-1"}))),
+                        // What harness_gate reads before each Chief session.
+                        "_acpmux/harnesses" => send(reply(common::catalog())),
                         "_acpmux/presets"
                             if refused_key(&req["params"]["set"], unknown).is_some() =>
                         {

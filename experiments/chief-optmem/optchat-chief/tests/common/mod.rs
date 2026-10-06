@@ -282,6 +282,35 @@ pub struct Agents {
     pub answer_delay: Option<Duration>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
+    /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
+    /// claude on acpmux's own Claude Code adapter, codex on its ACP adapter).
+    pub catalog: Option<Value>,
+    /// The harness acpmux reports a new session on (`session`); None: the
+    /// one the spec asked for.
+    pub session_harness: Option<String>,
+}
+
+/// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
+/// PATH and no `~/.acpx` gets (cmux-lawrence-2, 2026-10-05).
+pub fn catalog() -> Value {
+    json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/Users/cmux/.local/bin/claude"], "fallback": "claude-sr", "family": "claude"},
+        "claude-sr": {"kind": "claude-stdio", "argv": ["/Users/cmux/bin/sr", "claude", "proxy"], "fallback": "claude", "family": "claude"},
+        "codex": {"argv": ["/opt/homebrew/bin/npx", "-y", "@agentclientprotocol/codex-acp@1.10.0"], "family": "codex"},
+    }, "defaultHarness": "claude"})
+}
+
+/// The answer of Lawrence's laptop tagged daemons on 2026-10-05: `~/.acpx`
+/// maps `claude` to the claude-acp ACP adapter, and `sr claude proxy
+/// --version` failed, so acpmux replaced claude-sr with a copy of that
+/// `claude` routed through the subrouter server.
+pub fn acpx_catalog() -> Value {
+    let acp = "/Users/lawrence/.local/share/cmux-acp/current/bin/claude-acp";
+    json!({"harnesses": {
+        "claude": {"argv": [acp], "fallback": "claude-sr", "description": "imported from ~/.acpx", "family": "claude"},
+        "claude-sr": {"argv": [acp], "env": {"ANTHROPIC_BASE_URL": "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415"}, "description": "Claude through the subrouter server http://cmux-lawrences-mac-mini.tail137216.ts.net:31415", "family": "claude"},
+        "codex": {"argv": ["/Users/lawrence/.local/share/cmux-acp/current/bin/codex-acp"], "description": "imported from ~/.acpx", "family": "codex"},
+    }, "defaultHarness": "claude"})
 }
 
 pub struct FakeAgents {
@@ -453,6 +482,24 @@ impl AgentPort for FakeAgents {
     fn find(&self, name: &str) -> Result<Option<String>, String> {
         self.inner.lock().unwrap().finds.push(name.to_owned());
         Ok(None)
+    }
+
+    fn harness_catalog(&self) -> Result<Value, String> {
+        Ok(self.inner.lock().unwrap().catalog.clone().unwrap_or_else(catalog))
+    }
+
+    fn session(&self, id: &str) -> Result<Option<cmux_chief::acp::SessionSummary>, String> {
+        let inner = self.inner.lock().unwrap();
+        let Some(n) = id.strip_prefix('s').and_then(|n| n.parse::<usize>().ok()) else {
+            return Ok(None);
+        };
+        let Some(spec) = inner.specs.get(n.wrapping_sub(1)) else {
+            return Ok(None);
+        };
+        let harness = inner.session_harness.clone().unwrap_or_else(|| spec.harness.clone());
+        Ok(Some(serde_json::from_value(json!({
+            "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": "running",
+        })).unwrap()))
     }
 
     fn system_prompt(&self, _preset: &str) -> bool {

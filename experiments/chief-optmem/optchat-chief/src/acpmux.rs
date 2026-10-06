@@ -179,6 +179,12 @@ pub trait AgentPort: Send + Sync {
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
     }
+    /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
+    /// command and family (`harness_gate::admit` reads it before each Chief
+    /// session). A port without one refuses every Chief session.
+    fn harness_catalog(&self) -> Result<Value, String> {
+        Err("this acpmux port reports no harness catalog".into())
+    }
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
         false
@@ -625,6 +631,12 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn harness_catalog(&self) -> Result<Value, String> {
+        self.client()?
+            .request("_acpmux/harnesses", json!({}))
+            .map_err(|e| format!("harnesses: {e}"))
     }
 
     fn preset_args(&self, preset: &str) -> bool {

@@ -15,6 +15,7 @@ pub mod cli;
 pub mod compactor;
 pub mod daemon;
 pub mod fold;
+pub mod harness_gate;
 pub mod host;
 pub mod lock;
 pub mod log;
