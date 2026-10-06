@@ -67,6 +67,9 @@ import Testing
         #expect(groups[0].name == SidebarGroup.named(""))
         #expect(groups[0].color != .grey)
         #expect(h.list.inlineRename.session?.key == .group(groups[0].id), "the new group renames in place")
+        let field = try #require(h.list.inlineRename.session?.field)
+        let header = try h.frame(.group(groups[0].id))
+        #expect(abs(field.frame.midY - header.midY) < 1, "the rename field sits on the header's settled frame")
 
         h.list.inlineRename.end(commit: false)
         h.window.undoManager?.undo()
