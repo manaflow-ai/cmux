@@ -85,6 +85,8 @@ public final class SidebarView: NSView {
         get { list.inlineRename.onEnded }
         set { list.inlineRename.onEnded = newValue }
     }
+    /// The sidebar's chrome reveal changed (the window's title bar buttons follow).
+    public var onChromeRevealChange: ((Bool) -> Void)?
     /// The update and announcement cards above the spaces dots (R114; the updates lead fills it).
     public var footerCards: NSView?
     /// Builds the same Help destinations as the app's Help menu when the
@@ -97,7 +99,6 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-
     /// A small view in the titlebar row, after the traffic lights (an
     /// incognito window's badge). Nil removes it.
     public var titlebarAccessory: NSView? {
