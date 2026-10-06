@@ -22,11 +22,12 @@ def run_case(
     root: Path,
     *,
     args: tuple[str, ...] = ("--print", "hello"),
+    bin_name: str = "bin",
     disabled: bool = False,
     managed_global: bool = False,
     stale_cached_extension: bool = False,
 ) -> dict[str, object]:
-    bin_dir = root / "bin"
+    bin_dir = root / bin_name
     bin_dir.mkdir(exist_ok=True)
     log = root / "pi-argv.json"
     fake_pi = bin_dir / "pi"
@@ -75,6 +76,13 @@ def run_case(
 
 
 def main() -> int:
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-glob-") as directory:
+        root = Path(directory)
+        (root / "bin1").mkdir()
+        literal_path = run_case(root, bin_name="bin[1]")
+        if "-e" not in literal_path["args"]:
+            raise AssertionError(f"Pi in a literal PATH entry was not launched: {literal_path}")
+
     passthrough_args = (
         ("install", "--help"),
         ("remove", "--help"),
