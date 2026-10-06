@@ -20,10 +20,19 @@ public struct PrivateAddressRouteSelector<Machine: Hashable & Sendable>: Sendabl
         guard let host else { return nil }
         let target = normalized(host)
         guard !target.isEmpty else { return nil }
-        let candidates = addresses.compactMap { normalized($0.value) == target ? $0.key : nil }
+        let targetRouteAddress = normalizedRouteAddress(target)
+        let candidates = addresses.compactMap {
+            normalizedRouteAddress($0.value) == targetRouteAddress ? $0.key : nil
+        }
         if let owner, candidates.contains(owner) { return owner }
         if PrivateNetworkHostPolicy().isLoopback(host: target) { return nil }
         return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    private func normalizedRouteAddress(_ address: String) -> String {
+        let value = normalized(address)
+        if ["127.0.0.1", "localhost", "::1"].contains(value) { return "<loopback-alias>" }
+        return value
     }
 
     private func normalized(_ address: String) -> String {

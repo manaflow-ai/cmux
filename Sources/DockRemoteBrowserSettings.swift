@@ -9,6 +9,7 @@ struct DockRemoteBrowserSettings: Sendable {
     let proxyEndpoint: BrowserProxyEndpoint?
     let bypassRemoteProxy: Bool
     let isRemoteWorkspace: Bool
+    let allowsLocalNavigationWithoutRemoteProxy: Bool
     let remoteWebsiteDataStoreIdentifier: UUID?
     let remoteStatus: BrowserRemoteWorkspaceStatus?
 
@@ -16,6 +17,7 @@ struct DockRemoteBrowserSettings: Sendable {
         proxyEndpoint: nil,
         bypassRemoteProxy: false,
         isRemoteWorkspace: false,
+        allowsLocalNavigationWithoutRemoteProxy: false,
         remoteWebsiteDataStoreIdentifier: nil,
         remoteStatus: nil
     )
