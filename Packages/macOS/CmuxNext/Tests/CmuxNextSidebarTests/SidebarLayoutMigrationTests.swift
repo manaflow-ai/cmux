@@ -22,8 +22,8 @@ import Testing
         #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
-        // Moves keep item ids: Settings is the same item, back at the bottom.
-        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 2)
+        // Moves keep item ids: Settings is the same item, back at the bottom (after Recents).
+        #expect(migrated.locate(LayoutItemID("itm_settings"))?.section == 3)
     }
 
     /// Only the exact rail default migrates.
@@ -88,7 +88,7 @@ import Testing
     @Test func theGridBottomRowBecomesTheMinimalFooter() throws {
         var stored = SidebarLayoutDocument.defaults
         stored.revision = 9
-        stored.sections[2] = SidebarLayoutDocument.gridBottomSection
+        stored.sections[3] = SidebarLayoutDocument.gridBottomSection
         stored.sections[0].items.append(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")))
         let migrated = stored.layoutMigration
         #expect(migrated.section(SidebarLayoutDocument.bottomSectionID) == SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
@@ -99,7 +99,7 @@ import Testing
 
     @Test func aCustomizedGridBottomIsKept() throws {
         var stored = SidebarLayoutDocument.defaults
-        stored.sections[2] = SidebarLayoutDocument.gridBottomSection
+        stored.sections[3] = SidebarLayoutDocument.gridBottomSection
         let custom = try SidebarLayoutReducer.reduce(stored, .itemUpdate(LayoutItemID("itm_account"), showsLabel: true)).get()
         #expect(custom.sectionsMigrationOps.isEmpty)
     }

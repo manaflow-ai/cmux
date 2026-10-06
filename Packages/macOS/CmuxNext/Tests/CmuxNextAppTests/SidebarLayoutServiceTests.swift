@@ -43,13 +43,21 @@ import Testing
 
     private struct Rejected: Error {}
 
+    /// A defaults domain of its own, so no test sees another's Recents offer.
+    static func freshDefaults() -> UserDefaults {
+        let name = "SidebarLayoutServiceTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
     private func settled(_ condition: @MainActor () -> Bool) async {
         for _ in 0..<500 where !condition() { await Task.yield() }
     }
 
     @Test func anIntentShowsAtOnceAndLeavesOnItsReply() async throws {
         let owner = FakeOwner()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         try service.send(.itemRemove(LayoutItemID("itm_home")))
         #expect(service.document.firstItem(with: .app("cmux/home")) == nil)
         #expect(service.pending.count == 1)
@@ -63,7 +71,7 @@ import Testing
     @Test func aRejectAnimatesBackAndIsReported() async throws {
         let owner = FakeOwner()
         var refusals: [String] = []
-        let service = SidebarLayoutService(remote: owner, onRefused: { refusals.append($0) }, prototypeEnabled: { false })
+        let service = SidebarLayoutService(remote: owner, onRefused: { refusals.append($0) }, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         try service.send(.itemRemove(LayoutItemID("itm_settings")))
         #expect(service.document.item(LayoutItemID("itm_settings")) == nil)
         await settled { owner.isWaiting }
@@ -75,14 +83,14 @@ import Testing
 
     @Test func aLocalRejectIsRefusedWithoutSending() {
         let owner = FakeOwner()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         #expect(throws: (any Error).self) { try service.send(.sectionRemove(SidebarLayoutDocument.workspacesSectionID)) }
         #expect(owner.calls.isEmpty && service.pending.isEmpty)
     }
 
     @Test func aDisconnectKeepsTheIntentAndResendsItWithTheSameKey() async throws {
         let owner = FakeOwner()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         service.start()
         try service.send(.itemRemove(LayoutItemID("itm_home")))
         await settled { owner.isWaiting }
@@ -102,7 +110,7 @@ import Testing
 
     @Test func theMirrorNeverMovesBackAndFollowsPersonalChanges() async throws {
         let owner = FakeOwner()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         service.start()
         owner.stored = try SidebarLayoutReducer.reduce(.defaults, .itemRemove(LayoutItemID("itm_home"))).get()
         owner.changeToken += 1
@@ -119,7 +127,7 @@ import Testing
     @Test func aStoredRailLayoutMigratesBackThroughTheOwner() async throws {
         let owner = FakeOwner()
         owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.railDefaults.sections)
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         service.start()
         let expected = owner.stored.layoutMigrationOps
         #expect(!expected.isEmpty)
@@ -139,13 +147,30 @@ import Testing
     @Test func aCustomizedStoredLayoutIsNotMigrated() async throws {
         let owner = FakeOwner()
         owner.stored = try SidebarLayoutReducer.reduce(SidebarLayoutDocument.railDefaults, .itemRemove(LayoutItemID("itm_home"))).get()
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: Self.freshDefaults())
         service.start()
         await settled { service.mirror.revision == 1 }
         await settled { false }
         // Customized: only its built-in App Store becomes an app item (R63/R64).
         let expected = owner.stored.appRefMigrationOps
         #expect(owner.calls.map(\.op) == expected)
+    }
+
+    /// A stored default from before Recents gains it once per Mac; after
+    /// the user removes it, a later launch leaves it out.
+    @Test func recentsIsOfferedOncePerMac() async throws {
+        let defaults = Self.freshDefaults()
+        let owner = FakeOwner()
+        owner.stored.sections.removeAll { $0.id == SidebarLayoutDocument.recentsSectionID }
+        let first = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: defaults)
+        first.start()
+        await settled { owner.calls.count == 1 }
+        #expect(owner.calls.map(\.op) == [.sectionAdd(SidebarLayoutDocument.recentsSection, index: 1)])
+        let next = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, recentsOffered: defaults)
+        next.start()
+        await settled { next.mirror.sections == owner.stored.sections }
+        await settled { false }
+        #expect(owner.calls.count == 1)
     }
 
     @Test func snapshotsDecodeTheDecimalRevision() throws {
