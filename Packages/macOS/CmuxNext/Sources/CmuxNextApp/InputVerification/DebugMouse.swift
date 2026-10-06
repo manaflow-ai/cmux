@@ -131,12 +131,22 @@ enum DebugMouse {
         ) else { return nil }
         guard [.otherMouseDown, .otherMouseUp, .otherMouseDragged].contains(type) else { return event }
         // NSEvent.mouseEvent leaves buttonNumber 0 on otherMouse events; the
-        // middle button is 2, which the views that handle it check. The copy
-        // gets its global point and window like a scroll, so AppKit maps it
-        // back to the same window-local point (DebugMouseButtonTests).
+        // middle button is 2, which the views that handle it check. AppKit
+        // maps the copy back through the window server's frame for the window,
+        // which for a window not on screen is not the window's own frame, so the
+        // copy is moved by what that mapping got wrong (DebugMouseButtonTests).
         guard let cg = event.cgEvent?.copy() else { return nil }
         cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
-        address(cg, at: baseLocation(point, in: window), in: window)
+        return keepingWindowPoint(cg, event.locationInWindow)
+    }
+
+    /// `cg` as an NSEvent at window-local `base`: built once, then moved by the
+    /// difference between `base` and the point AppKit mapped (global y grows down).
+    static func keepingWindowPoint(_ cg: CGEvent, _ base: NSPoint) -> NSEvent? {
+        guard let first = NSEvent(cgEvent: cg) else { return nil }
+        let miss = NSPoint(x: base.x - first.locationInWindow.x, y: base.y - first.locationInWindow.y)
+        guard miss != .zero else { return first }
+        cg.location = CGPoint(x: cg.location.x + miss.x, y: cg.location.y - miss.y)
         return NSEvent(cgEvent: cg)
     }
 
@@ -153,18 +163,12 @@ enum DebugMouse {
             cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: dx)
             cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: dy)
         }
-        address(cg, at: baseLocation(point, in: window), in: window)
-        return NSEvent(cgEvent: cg)
-    }
-
-    /// Puts `cg` at window-local `base` the way the window server addresses a real
-    /// event: the global point (top-left origin of the primary screen) and the window under it.
-    private static func address(_ cg: CGEvent, at base: NSPoint, in window: NSWindow) {
-        let screen = window.convertPoint(toScreen: base)
+        let screen = window.convertPoint(toScreen: baseLocation(point, in: window))
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         cg.location = CGPoint(x: screen.x, y: primaryHeight - screen.y)
         cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
         cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+        return NSEvent(cgEvent: cg)
     }
 
     static func modifiers(_ names: [JSONValue]) -> NSEvent.ModifierFlags {
