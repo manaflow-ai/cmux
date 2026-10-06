@@ -545,7 +545,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   split across strings or lines, Base64 or percent-encoding applied once
   more) and no value matching finds it. A file `secrets.load` read is not
   refused as a whole: `fs.readFile` returns it with the loaded values
-  masked, so an agent can still read and edit its other keys. It must be
+  masked, so an agent can still read and edit its other keys. A tab,
+  though, would render its text as pixels no mask covers, and its page
+  scripts could read it: from the load on, no session's tab loads that
+  file (a navigation of any frame, by the agent or a page, fails with
+  `blocked`), judged by its device and inode, so a rename or another
+  hard link to it is refused too; a copy `fs` makes is masked. A file
+  chooser answer reads its files through `fs`, masked. It must be
   UTF-8 and may not spell a digit with a JSON escape (`\u0030` to
   `\u0039`), else `secrets.load` fails with `invalid`: file reads mask a
   value by its UTF-8 bytes and escaped forms (a short digit value only by

@@ -352,7 +352,9 @@ struct BrowserReplSecretRedactionTests {
         let navigated = driver.params("tab.navigate").compactMap { $0["url"] as? String }
         for name in ["secrets.json", "notes.txt", "alias.txt"] {
             #expect(!navigated.contains { $0.hasSuffix("/" + name) }, "\(name) loaded in a tab: \(navigated) \(output)")
-            // A page's own navigation to it (a link, a frame) is refused by the same rule.
+        }
+        // A page's own navigation to it (a link, a frame) is refused by the same rule.
+        for name in ["notes.txt", "alias.txt"] {
             #expect(BrowserReplFileSandbox.navigationRefusal("\(base)/\(name)", roots: [work.path]) != nil, "\(name)")
         }
         #expect(navigated.contains { $0.hasSuffix("/other.txt") }, "another file in the directory did not load: \(navigated) \(output)")

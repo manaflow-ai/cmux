@@ -1772,7 +1772,12 @@ public final class BrowserReplSession: @unchecked Sendable {
             // secrets.load(path) reads the file here, so its values never
             // reach JavaScript.
             if op == "load", let path = args["path"] as? String {
-                switch self.fileSystem.perform("readFile", arguments: ["path": path]) {
+                // The file, under any name, never loads in a tab
+                // (BrowserReplSecretSources): a tab would show its values
+                // as pixels no mask covers. Protected once opened, before
+                // its values are known to be readable.
+                let opened: (BrowserReplFileIdentity) -> Void = { BrowserReplSecretSources.shared.protect($0) }
+                switch self.fileSystem.perform("readFile", arguments: ["path": path], copyContents: nil, opened: opened) {
                 case .failure(let error):
                     return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))))
                 case .success(let base64):

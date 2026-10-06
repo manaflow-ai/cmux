@@ -510,7 +510,8 @@ rest. Measurements: [performance.md](performance.md).
   the session ends and when cmux replaces the tab's web view to restore an
   unloaded page or recover from a crash), the domain policy's content rules block
   subresources, pages load local files (frames and subresources) only
-  from the session's working and temporary directories, and plain-http
+  from the session's working and temporary directories (never a file a
+  `secrets.load` read, under any name), and plain-http
   pages load without cmux's prompt. Another
   session that drives such a tab does not change these; they follow the
   creating session. Any other tab is the user's, also one a session drives
