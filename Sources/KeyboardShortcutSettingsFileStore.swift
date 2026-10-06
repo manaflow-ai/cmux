@@ -447,11 +447,11 @@ final class CmuxSettingsFileStore {
         if let notificationsSection = root["notifications"] as? [String: Any] {
             parseNotificationsSection(notificationsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
-        if let sidebarSection = root["sidebar"] as? [String: Any] {
-            parseSidebarSection(sidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
-        }
         if let workspaceColorsSection = root["workspaceColors"] as? [String: Any] {
             parseWorkspaceColorsSection(workspaceColorsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let sidebarSection = root["sidebar"] as? [String: Any] {
+            parseSidebarSection(sidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let sidebarAppearanceSection = root["sidebarAppearance"] as? [String: Any] {
             parseSidebarAppearanceSection(sidebarAppearanceSection, sourcePath: sourcePath, snapshot: &snapshot)
