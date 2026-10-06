@@ -62,6 +62,14 @@ struct WorkspaceDragResolverTests {
         #expect(outcome(window: "b", group: true, layout: split) == .window(id: "b", target: .window))
     }
 
+    /// Lawrence 2026-10-07: any workspace merges into a pane, even one
+    /// holding a single tab; only the fixed top rows (Home) never do.
+    @Test func onlyHomeNeverMergesIntoAPane() {
+        #expect(WorkspaceMerge.staysPut(kind: "home"))
+        #expect(!WorkspaceMerge.staysPut(kind: nil))
+        #expect(!WorkspaceMerge.staysPut(kind: "terminal"))
+    }
+
     @Test func sidebarDropsMapToTargets() {
         #expect(WorkspaceDragResolver.target(for: .newWorkspace(section: .machine(.local), group: nil, index: 2)) == .position(slot))
         #expect(WorkspaceDragResolver.target(for: .intoGroup(GroupID("g"))) == .intoGroup(GroupID("g")))

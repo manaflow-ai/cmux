@@ -68,6 +68,15 @@ struct TabDropPreviewTests {
         }
     }
 
+    /// Lawrence 2026-10-07: a refused zone does not highlight (no outline,
+    /// no reason, no toast on the drop); every other preview does.
+    @Test func aRefusedZoneDoesNotHighlight() {
+        let refused = resolve(.newSplit(paneID: "pane-a", edge: .right), context(paneTabs: 1))
+        #expect(!refused.preview.highlights)
+        #expect(resolve(.newSplit(paneID: "pane-b", edge: .right), context()).preview.highlights)
+        #expect(resolve(.strip(stripID: strip, index: 0, groupID: nil), context()).preview.highlights)
+    }
+
     /// A surface that refuses at a point (a sidebar row of another
     /// machine) still previews there, with its own reason.
     @Test func aSurfaceRefusalPreviewsWithItsReason() {
