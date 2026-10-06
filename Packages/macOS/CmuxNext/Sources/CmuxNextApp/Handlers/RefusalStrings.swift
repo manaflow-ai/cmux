@@ -38,6 +38,9 @@ nonisolated enum RefusalStrings {
     static var homeAttachNoHome: String {
         text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
     }
+    static var homeFlightRecorderOff: String {
+        text("handlers.refusal.homeFlightRecorderOff", "The flight recorder is off, or no Home conversation is open. Turn it on in Debug Settings > Home.")
+    }
     static func homeAttachNoFile(_ path: String) -> String {
         String(format: text("handlers.refusal.homeAttachNoFile", "No file at “%@”."), path)
     }

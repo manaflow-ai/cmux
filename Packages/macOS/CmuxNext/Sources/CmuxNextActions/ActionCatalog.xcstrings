@@ -69439,39 +69439,6 @@
             "state": "translated",
             "value": "Increase Interface Scale"
           }
-        }
-      }
-    },
-    "action.appearance.uiScale.decrease": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Decrease Interface Scale"
-          }
-        }
-      }
-    },
-    "action.appearance.uiScale.reset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset Interface Scale"
-          }
-        }
-      }
-    },
-    "action.appearance.uiScale.increase": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Increase Interface Scale"
-          }
         },
         "ar": {
           "stringUnit": {
@@ -69853,6 +69820,23 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Reset Interface Scale"
+          }
+        }
+      }
+    },
+    "action.agent.openSessionWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Agent Session in New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを新しいワークスペースで開く"
           }
         }
       }

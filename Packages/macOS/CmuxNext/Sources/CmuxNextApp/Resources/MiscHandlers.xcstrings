@@ -6082,6 +6082,23 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.sessionRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the acpmux session to open (session)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開くacpmuxセッションを指定してください(session)。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

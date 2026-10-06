@@ -1,7 +1,15 @@
-import AVFoundation
-import CmuxHomeCore
+public import AVFoundation
+public import CmuxHomeCore
 import Foundation
 import QuartzCore
+
+/// Where a video's original bytes come from for inline playback: a local
+/// file or a short-lived signed GET (the render core's `MediaStore`, or a
+/// host's own media cache such as the Mac MessagesLab host's `HomeMedia`).
+@MainActor
+public protocol HomeVideoSource: AnyObject, Sendable {
+    func originalURL(for ref: AttachmentRef) async throws -> URL
+}
 
 /// Where a video bubble is: its poster, fetching its bytes, playing, or paused.
 public enum HomeVideoState: Sendable, Hashable {
@@ -16,7 +24,7 @@ public enum HomeVideoState: Sendable, Hashable {
 /// at the same time. A row that scrolls away pauses; the end
 /// of the video returns it to the start, paused.
 @MainActor
-final class VideoPlayback {
+public final class VideoPlayback {
     private struct Entry {
         var state: HomeVideoState
         var ref: AttachmentRef
@@ -35,20 +43,22 @@ final class VideoPlayback {
     static let urlLifetime: TimeInterval = 9 * 60
     private var entries: [String: Entry] = [:]
     /// A row's playback changed (the scene re-decorates it).
-    var onChange: (String) -> Void = { _ in }
+    public var onChange: (String) -> Void = { _ in }
     var now: () -> Date = { Date() }
 
-    func state(_ key: String) -> HomeVideoState { entries[key]?.state ?? .poster }
+    public init() {}
+
+    public func state(_ key: String) -> HomeVideoState { entries[key]?.state ?? .poster }
 
     /// The player layer while there is a player (also while a paused
     /// video fetches its URL again, so the frame stays).
-    func layer(_ key: String) -> AVPlayerLayer? {
+    public func layer(_ key: String) -> AVPlayerLayer? {
         guard let entry = entries[key], entry.state != .poster, entry.player != nil else { return nil }
         return entry.layer
     }
 
     /// Poster or paused: play. Playing: pause. Loading: cancel.
-    func toggle(_ key: String, ref: AttachmentRef, media: MediaStore) {
+    public func toggle(_ key: String, ref: AttachmentRef, media: any HomeVideoSource) {
         var entry = entries[key] ?? Entry(state: .poster, ref: ref)
         switch entry.state {
         case .poster:
@@ -78,7 +88,7 @@ final class VideoPlayback {
     }
 
     /// Fetches the URL (again) and plays from `time`.
-    private func fetch(_ key: String, media: MediaStore, at time: CMTime) {
+    private func fetch(_ key: String, media: any HomeVideoSource, at time: CMTime) {
         guard var entry = entries[key] else { return }
         let ref = entry.ref
         entry.state = .loading
@@ -94,7 +104,7 @@ final class VideoPlayback {
         onChange(key)
     }
 
-    private func started(_ key: String, url: URL?, media: MediaStore) {
+    private func started(_ key: String, url: URL?, media: any HomeVideoSource) {
         guard var entry = entries[key], entry.state == .loading else { return }
         entry.load = nil
         guard let url else {
@@ -144,7 +154,7 @@ final class VideoPlayback {
 
     /// A URL that loads clears the refetch guard; one that fails (an
     /// expired signed GET) is fetched once more.
-    private func statusChanged(_ key: String, status: AVPlayerItem.Status, media: MediaStore) {
+    private func statusChanged(_ key: String, status: AVPlayerItem.Status, media: any HomeVideoSource) {
         switch status {
         case .readyToPlay: entries[key]?.refetched = false
         case .failed: failed(key, media: media)
@@ -154,7 +164,7 @@ final class VideoPlayback {
 
     /// The URL expired or the stream broke: fetch once more, same position.
     /// A second failure in a row stops, paused with the play badge.
-    private func failed(_ key: String, media: MediaStore) {
+    private func failed(_ key: String, media: any HomeVideoSource) {
         guard var entry = entries[key], entry.state == .playing || entry.state == .paused else { return }
         guard !entry.refetched else {
             entry.player?.pause()
@@ -177,7 +187,7 @@ final class VideoPlayback {
 
     /// The row left the viewport: its player is released (memory) and the
     /// position kept; playing again fetches the URL and continues there.
-    func rowLeft(_ key: String) {
+    public func rowLeft(_ key: String) {
         guard var entry = entries[key], entry.player != nil || entry.load != nil else { return }
         entry.load?.cancel()
         entry.load = nil
@@ -192,8 +202,11 @@ final class VideoPlayback {
         entries[key] = entry
     }
 
+    /// Keys with a player or a fetch in flight (a host re-places their layers).
+    public var activeKeys: [String] { entries.filter { $0.value.player != nil || $0.value.load != nil }.map(\.key) }
+
     /// Returns when no video is fetching its URL.
-    func settled() async {
+    public func settled() async {
         while let next = entries.values.compactMap(\.load).first {
             await next.value
         }

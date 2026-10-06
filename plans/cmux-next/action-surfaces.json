@@ -7568,6 +7568,29 @@
       "title_table" : "HomeActions"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action home-save-flight-recording",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.saveFlightRecording",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Save Last 10 Seconds",
+      "title_key" : "action.home.saveFlightRecording",
+      "title_table" : "HomeActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "tab-group create",
       "context_menu" : "offered",

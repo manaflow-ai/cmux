@@ -1,0 +1,29 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
+@@ -76,11 +76,12 @@
+         }
+         if let held = pending {
+             pending = nil
+-            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { if at == nil { c.window.sendEvent(held) }; return e }
++            // cmux: optional window (pane host).
++            if e.phase.contains(.ended) || e.phase.contains(.cancelled) { if at == nil { c.window?.sendEvent(held) }; return e }
+             if begin(e, start: held) { return nil }
+             // A vertical gesture: deliver its held start to the window first (not
+             // through NSApp, so this monitor does not see it again).
+-            if at == nil { c.window.sendEvent(held) }
++            if at == nil { c.window?.sendEvent(held) }  // cmux: optional window
+             return e
+         }
+         guard claimed else { return e }
+@@ -104,8 +105,9 @@
+         armed = false
+         cell.layer.removeAnimation(forKey: "swipe.back")
+         arrow.removeAllAnimations()
+-        arrow.contents = Self.arrowImage(scale: c.window.backingScaleFactor)
+-        arrow.contentsScale = c.window.backingScaleFactor
++        // cmux: a pane's controller has an optional window.
++        arrow.contents = Self.arrowImage(scale: c.window?.backingScaleFactor ?? DisplayScale.current)
++        arrow.contentsScale = c.window?.backingScaleFactor ?? DisplayScale.current
+         cell.layer.addSublayer(arrow)
+         move(by: dx)
+         return true
