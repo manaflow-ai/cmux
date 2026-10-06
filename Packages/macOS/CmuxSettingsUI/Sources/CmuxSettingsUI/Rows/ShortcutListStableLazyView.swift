@@ -29,43 +29,8 @@ struct ShortcutListStableLazyView: View {
 
     var body: some View {
         let actions = matchedActions ?? ShortcutAction.settingsVisibleActions
-        LazyVStack(spacing: 0) {
-            if actions.isEmpty {
-                Text(String(localized: "settings.shortcuts.search.noResults", defaultValue: "No shortcuts match"))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .accessibilityIdentifier("SettingsShortcutSearchNoResults")
-            }
-            ForEach(Array(actions.enumerated()), id: \.element) { index, action in
-                let effective = model.effective(for: action)
-                let snapshot = ShortcutListRowSnapshot(
-                    action: action,
-                    isLast: index == actions.count - 1,
-                    title: action.displayName,
-                    subtitle: model.scopeCaption(for: action),
-                    placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
-                    chordsEnabled: model.chordModeActions.contains(action.rawValue),
-                    hasPendingRejection: model.hasPendingRejection(for: action),
-                    firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
-                    isUnbound: effective?.isUnbound ?? true,
-                    canRestore: model.canRestore(for: action),
-                    validationMessage: model.validationMessage(for: action),
-                    recorderAccessibilityIdentifier: "ShortcutRecorder.\(action.rawValue)"
-                )
-                ShortcutListRowView(
-                    snapshot: snapshot,
-                    actions: ShortcutListRowActions(
-                        onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
-                        onChord: { chord in Task { await model.assignChord(chord, to: action) } },
-                        onBareKeyRejected: { model.markBareKeyRejected(action) },
-                        onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
-                        onClearRejections: { model.clearRejections(for: action) }
-                    )
-                )
-                .equatable()
-            }
-        }
+        ShortcutListRows(model: model, actions: actions, revision: searchIndexRevision)
+            .equatable()
         .background {
             ShortcutListHeightReader { height in
                 updateMeasuredHeight(to: height)
@@ -111,6 +76,59 @@ struct ShortcutListStableLazyView: View {
             guard !Task.isCancelled else { return }
             matchedActions = results
             preserveShownOnIndexRefresh = false
+        }
+    }
+
+    /// Isolates the row tree from query state. A query change now updates this
+    /// child only when matching produces a different action array, instead of
+    /// diffing every visible row for each keystroke during the debounce.
+    private struct ShortcutListRows: View, Equatable {
+        let model: ShortcutListModel
+        let actions: [ShortcutAction]
+        let revision: Int
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.actions == rhs.actions && lhs.revision == rhs.revision
+        }
+
+        var body: some View {
+            LazyVStack(spacing: 0) {
+                if actions.isEmpty {
+                    Text(String(localized: "settings.shortcuts.search.noResults", defaultValue: "No shortcuts match"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .accessibilityIdentifier("SettingsShortcutSearchNoResults")
+                }
+                ForEach(Array(actions.enumerated()), id: \.element) { index, action in
+                    let effective = model.effective(for: action)
+                    let snapshot = ShortcutListRowSnapshot(
+                        action: action,
+                        isLast: index == actions.count - 1,
+                        title: action.displayName,
+                        subtitle: model.scopeCaption(for: action),
+                        placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
+                        chordsEnabled: model.chordModeActions.contains(action.rawValue),
+                        hasPendingRejection: model.hasPendingRejection(for: action),
+                        firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
+                        isUnbound: effective?.isUnbound ?? true,
+                        canRestore: model.canRestore(for: action),
+                        validationMessage: model.validationMessage(for: action),
+                        recorderAccessibilityIdentifier: "ShortcutRecorder.\(action.rawValue)"
+                    )
+                    ShortcutListRowView(
+                        snapshot: snapshot,
+                        actions: ShortcutListRowActions(
+                            onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
+                            onChord: { chord in Task { await model.assignChord(chord, to: action) } },
+                            onBareKeyRejected: { model.markBareKeyRejected(action) },
+                            onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
+                            onClearRejections: { model.clearRejections(for: action) }
+                        )
+                    )
+                    .equatable()
+                }
+            }
         }
     }
 
