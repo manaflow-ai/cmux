@@ -20,9 +20,9 @@ final class OmniboxSuggestionPanel {
     private let content = SuggestionCardView()
     private var rows: [SuggestionRowView] = []
     private(set) var overlay: OverlayHandle?
-    /// What `show` last drew and the bar's window rect it drew under, so a
-    /// later layout can tell whether the card must move (`follow`).
-    private var shown: (suggestions: [BrowserSuggestion], highlighted: Int?, anchor: NSRect)?
+    /// The bar's window rect the card was last placed under, so a later
+    /// layout can tell whether the card must move (`follow`).
+    private var placedAnchor: NSRect?
 
     var isVisible: Bool { overlay.map { !$0.isDismissed } ?? false }
 
@@ -40,9 +40,14 @@ final class OmniboxSuggestionPanel {
             return row
         }
         rows.forEach { content.card.addSubview($0) }
+        place(below: anchor, pane: pane, in: window)
+    }
 
+    /// Sizes the card and its rows to `anchor` (the bar) and puts it under
+    /// it: presented when it is not on screen, else moved in place.
+    private func place(below anchor: NSView, pane: NSView, in window: NSWindow) {
         let anchorRect = anchor.convert(anchor.bounds, to: nil)
-        shown = (suggestions, highlighted, anchorRect)
+        placedAnchor = anchorRect
         let outset = OmnibarStyle.cardSideOutset
         let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
         let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
@@ -79,15 +84,15 @@ final class OmniboxSuggestionPanel {
         overlay = handle
     }
 
-    /// Draws the open card again when `anchor` moved since it was shown (a
-    /// window resize, or a toolbar render that lands after the rows).
+    /// Moves and resizes the open card when `anchor` moved since it was
+    /// placed (a window resize, or a toolbar render that lands after the
+    /// rows). The row views stay, so a hovered row keeps its tracking.
     func follow(below anchor: NSView, pane: NSView, in window: NSWindow) {
-        guard isVisible, let shown, anchor.convert(anchor.bounds, to: nil) != shown.anchor else { return }
-        show(shown.suggestions, highlighted: shown.highlighted, below: anchor, pane: pane, in: window)
+        guard isVisible, let placedAnchor, anchor.convert(anchor.bounds, to: nil) != placedAnchor else { return }
+        place(below: anchor, pane: pane, in: window)
     }
 
     func highlight(_ index: Int?) {
-        shown?.highlighted = index
         for (offset, row) in rows.enumerated() {
             row.isHighlighted = offset == index
         }
@@ -99,7 +104,7 @@ final class OmniboxSuggestionPanel {
     func dismiss() {
         let presented = overlay
         overlay = nil
-        shown = nil
+        placedAnchor = nil
         presented?.dismiss()
     }
 }
