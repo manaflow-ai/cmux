@@ -24,6 +24,9 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
+                                                             answer the chief's cloud conversation (an always-on brain host)
+optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-sr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
@@ -222,6 +225,16 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
+        Some("cloud") => match optchat_chief::cloud::cli::run(&flags) {
+            Ok(out) => {
+                println!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief cloud: {e}");
+                1
+            }
+        },
         Some("memory") => match optchat_chief::memory_cli::run(&flags, &home(&flags)) {
             Ok(out) => {
                 println!("{out}");

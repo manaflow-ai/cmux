@@ -48,6 +48,9 @@ pub(super) struct Inner {
     pub(super) hidden_viewport: Option<(i64, i64)>,
     /// Fetch shells that are open, and whether the session ended.
     pub(super) shells: Mutex<super::fetch::Shells>,
+    /// The browser's own user agent (`Browser.getVersion`), what a tab
+    /// without a `session.configure` user agent goes back to.
+    pub(super) default_ua: std::sync::OnceLock<String>,
 }
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
@@ -129,6 +132,7 @@ impl Inner {
             cors,
             hidden_viewport,
             shells: Mutex::default(),
+            default_ua: std::sync::OnceLock::new(),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -187,6 +191,62 @@ impl CdpDriver {
 }
 
 impl CdpDriver {
+    /// Sets (or with `None` removes) a tab's `session.configure` user agent
+    /// and headers; its next request and document use them, and so do the
+    /// popups it opens from now on.
+    pub fn set_tab_overrides(
+        &self,
+        target_id: &str,
+        overrides: Option<super::state::TabOverrides>,
+    ) -> Result<(), DriverError> {
+        self.inner.set_tab_overrides(target_id, overrides)
+    }
+
+    /// `tabs.open` with the creating session's options: in browser context
+    /// `context` (a proxy store) when set, and with `overrides` set before
+    /// the first request.
+    pub fn open_tab(
+        &self,
+        params: &Value,
+        context: Option<&str>,
+        overrides: Option<super::state::TabOverrides>,
+    ) -> Result<Value, DriverError> {
+        self.inner.browser_page_refusal("tabs.open", params)?;
+        self.inner.tabs_open_in(params, context, overrides)
+    }
+
+    /// A private store for a session's `session.configure {proxy}`.
+    pub fn create_proxy_context(
+        &self,
+        server: &str,
+        bypass: Option<&str>,
+    ) -> Result<String, DriverError> {
+        let mut params = json!({"proxyServer": server});
+        if let Some(bypass) = bypass {
+            params["proxyBypassList"] = json!(bypass);
+        }
+        let created =
+            self.inner.conn.call(None, "Target.createBrowserContext", params, INTERNAL_TIMEOUT)?;
+        created
+            .get("browserContextId")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| DriverError::invalid("Target.createBrowserContext returned no id"))
+    }
+
+    /// Closes a proxy store and every tab in it.
+    pub fn dispose_context(&self, context: &str) -> Result<(), DriverError> {
+        self.inner
+            .conn
+            .call(
+                None,
+                "Target.disposeBrowserContext",
+                json!({"browserContextId": context}),
+                INTERNAL_TIMEOUT,
+            )
+            .map(|_| ())
+    }
+
     /// Releases the keys and mouse buttons left pressed in a tab; the
     /// session engine's source calls it when the last session leaves the
     /// tab. A gone tab has nothing to release.
@@ -425,6 +485,8 @@ impl Inner {
             .chain(agent.into_iter().flatten())
             // Request and response events (page.on("request"), ...).
             .chain([("Network.enable", json!({}))])
+            // A popup's opener's session.configure options, before its first request.
+            .chain(self.inherited_override_steps(target_id))
             .chain(self.hidden_viewport_step().filter(|_| !shell))
             // Out-of-process iframes attach as child sessions of this page.
             .chain([("Target.setAutoAttach", auto_attach)])
@@ -604,14 +666,22 @@ impl Inner {
     }
 
     pub(super) fn tabs_open(&self, params: &Value) -> Result<Value, DriverError> {
+        self.tabs_open_in(params, None, None)
+    }
+
+    pub(super) fn tabs_open_in(
+        &self,
+        params: &Value,
+        context: Option<&str>,
+        overrides: Option<super::state::TabOverrides>,
+    ) -> Result<Value, DriverError> {
         let deadline = Instant::now() + timeout_of(params);
         let background = params.get("background").and_then(Value::as_bool).unwrap_or(false);
-        let created = self.conn.call(
-            None,
-            "Target.createTarget",
-            json!({"url": "about:blank", "background": true}),
-            INTERNAL_TIMEOUT,
-        )?;
+        let mut create = json!({"url": "about:blank", "background": true});
+        if let Some(context) = context {
+            create["browserContextId"] = json!(context);
+        }
+        let created = self.conn.call(None, "Target.createTarget", create, INTERNAL_TIMEOUT)?;
         let target_id = created
             .get("targetId")
             .and_then(Value::as_str)
@@ -644,6 +714,9 @@ impl Inner {
             if !background {
                 state.active = Some(target_id.clone());
             }
+        }
+        if overrides.is_some() {
+            self.set_tab_overrides(&target_id, overrides)?;
         }
         if let Some(url) = params.get("url").and_then(Value::as_str).filter(|url| !url.is_empty()) {
             let left = deadline.saturating_duration_since(Instant::now()).as_millis() as u64;

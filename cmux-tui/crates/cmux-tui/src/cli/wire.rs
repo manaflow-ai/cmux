@@ -428,6 +428,17 @@ fn run_response(
                 let result = response.result.expect("validated result");
                 key_report.succeeded();
                 if !plan.stream {
+                    // Focus in a session a cmux app owns is the app's (app_focus).
+                    #[cfg(unix)]
+                    let result = match &plan.operation {
+                        WireOperation::Typed(operation) => {
+                            match super::app_focus::after_daemon(global, *operation, result) {
+                                Ok(result) => result,
+                                Err(error) => return print_operation_error(&error, global.output),
+                            }
+                        }
+                        WireOperation::Raw { .. } => result,
+                    };
                     let shown = match global.output {
                         OutputMode::Human => human_view(plan, &result),
                         _ => std::borrow::Cow::Borrowed(&result),

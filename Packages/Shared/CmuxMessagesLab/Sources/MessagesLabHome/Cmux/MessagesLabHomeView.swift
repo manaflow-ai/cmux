@@ -19,7 +19,9 @@ public final class MessagesLabHomeView: NSView {
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
         MessagesLabHomeView.liveFormatting()
         controller = ChatController(wake: wake)
-        projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller)
+        // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
+        projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
+                                    linkPreviews: HomeLinkPreviews())
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)

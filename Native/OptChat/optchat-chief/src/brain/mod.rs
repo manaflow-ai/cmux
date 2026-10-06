@@ -288,6 +288,8 @@ pub struct Brain {
     /// their id, removed by name once acpmux is up.
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
+    /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
+    last_agent_send: Option<u64>,
     fatal: Option<String>,
     /// A human message arrived while an acpmux turn ran: that turn is
     /// being stopped, and its end posts nothing.
@@ -371,6 +373,7 @@ impl Brain {
             sessions: HashMap::new(),
             stale_sessions,
             outbox_timer: None,
+            last_agent_send: None,
             fatal: None,
             stop_wanted: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
@@ -710,6 +713,8 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
         },
         rate_retried: false,
         not_before: None,
+        attempted: false,
+        rate_attempts: 0,
     }
 }
 

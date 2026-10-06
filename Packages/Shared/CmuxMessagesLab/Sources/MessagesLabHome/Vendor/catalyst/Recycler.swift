@@ -120,6 +120,8 @@ final class RowRecycler: UIScrollView, TranscriptList {
         index = newIndex
         CATransaction.commit()
         for (c, i) in fresh { configure(c, i) }
+        // Long text rows: tiles follow the viewport inside the row (TiledBubble.swift).
+        for c in next.values where c.tiled?.isActive == true { c.tiled?.update(c) }
     }
 
     private func take() -> RowCell {
