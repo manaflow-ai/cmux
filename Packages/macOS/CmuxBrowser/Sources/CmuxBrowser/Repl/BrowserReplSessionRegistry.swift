@@ -57,7 +57,8 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         /// The name is empty, longer than ``maximumNameLength`` or has a
         /// character outside `A-Z a-z 0-9 . _ -`.
         case invalidName
-        /// ``maximumSessions`` sessions are live.
+        /// ``maximumSessions`` sessions are live, or, for a private
+        /// session, ``maximumPrivateSessions`` private ones.
         case tooManySessions(limit: Int)
         /// A live session of that name belongs to another client (its
         /// owner token is not the caller's).
@@ -107,6 +108,16 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
     }
 
     public let maximumSessions: Int
+
+    /// Live private sessions (made with an owner token) at most: three
+    /// quarters of ``maximumSessions``. Only its owner resets a private
+    /// session, and one whose client was killed stays until it idles out,
+    /// so private sessions alone never fill every slot; named sessions,
+    /// which any client lists and resets, keep the rest.
+    public var maximumPrivateSessions: Int {
+        maximumSessions - max(1, maximumSessions / 4)
+    }
+
     private let lock = NSLock()
     private var sessions: [BrowserReplSessionKey: BrowserReplSession] = [:]
     /// The owner token of each session made with one.
@@ -154,10 +165,14 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
             }
             session = existing
         } else {
-            let live = sessions.values.filter { !$0.isClosed }.count
-            guard live < maximumSessions else {
+            let live = sessions.filter { !$0.value.isClosed }
+            guard live.count < maximumSessions else {
                 lock.unlock()
                 throw Refusal.tooManySessions(limit: maximumSessions)
+            }
+            if owner != nil, live.keys.filter({ owners[$0] != nil }).count >= maximumPrivateSessions {
+                lock.unlock()
+                throw Refusal.tooManySessions(limit: maximumPrivateSessions)
             }
             session = make(key.makeInstanceID())
             // A session that ended by itself (its JavaScript heap passed
