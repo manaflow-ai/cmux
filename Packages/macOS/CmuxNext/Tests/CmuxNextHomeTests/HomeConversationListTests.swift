@@ -71,6 +71,12 @@ import Testing
         #expect(merged.map(\.source) == [.team, .team, .connection])
     }
 
+    @Test func chiefCompactorErrorsAreNotShownAsPreviews() {
+        var row = Self.row("conv_chief_error", with: [Self.chief("agent_mux", "Chief")], at: 1)
+        row.preview = "The memory compactor cannot build summaries (acpmux route: unavailable)"
+        #expect(HomeConversationCellView.previewText(row).isEmpty)
+    }
+
     @Test func choosingARowAsksTheHostAndArrowKeysSkipHeaders() throws {
         let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
         var chosen: [String] = []
