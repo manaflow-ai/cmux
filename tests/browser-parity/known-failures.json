@@ -9,7 +9,7 @@
       "perf:deep-1k": {
         "bench": true,
         "owner": "browser REPL S1 lane (nx-brepl-s0)",
-        "reason": "perf/bench.mjs page deep-1k (1000 nested divs): on Chromium the page agent's recursive snapshot walk overflows the renderer stack between DOM depth 700 and 900 (V8 trivial recursion depth 12,480), and a result nested deeper than about 300 levels fails CDP's CBOR conversion. Not the QuickJS VM. Fix (ff, 2026-10-06): explicit-stack walk, flat pre-order node list with depth, iterative rebuild and rendering, after item 4 and on the classic round-16 iterative walk."
+        "reason": "perf/bench.mjs page deep-1k (1000 nested divs): on Chromium the page agent's recursive snapshot walk overflows the renderer stack between DOM depth 700 and 900 (V8 trivial recursion depth 12,480), and a result nested deeper than about 300 levels fails CDP's CBOR conversion. Not the QuickJS VM. Fix (ff, 2026-10-06): explicit-stack walk, flat pre-order node list with depth, iterative rebuild and rendering, after item 4, based on classic's depth bound (round 16) once it lands on main. Constraints (ff): keep classic's 1,000-level depth budget over all stitched frames and its exact cut notes (\"nested deeper than 1000 elements; snapshot this ref to read it\" in snapshots, \"<!-- not read: parts of the page nested deeper than 1000 elements -->\" in Markdown) so WebKit and Chromium match; the flat pre-order list stays required on Chromium (CDP CBOR limit about 300 levels); add a parity case at depth 1,200 that checks the cut note on both engines."
       }
     }
   },
