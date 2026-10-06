@@ -740,9 +740,17 @@ struct BrowserReplFileSystemSpecialFileTests {
         let size = 3 * BrowserReplFileSystem.chunkBytes
         try Data(count: size).write(to: URL(fileURLWithPath: scratch.root + "/source.bin"))
         let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { true })
+        // Cancelled once the write has begun, so its own loop is what stops
+        // (an earlier cancel stops the Base64 decode before the file opens).
+        let writtenPath = scratch.root + "/written.bin"
+        let writer = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { FileManager.default.fileExists(atPath: writtenPath) })
+        let base64 = Data(count: size).base64EncodedString()
 
         let copied = fs.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"])
-        let written = fs.perform("writeFile", arguments: ["path": "written.bin", "base64": Data(count: size).base64EncodedString()])
+        let decoding = fs.perform("writeFile", arguments: ["path": "written.bin", "base64": base64])
+        #expect(decoding.failureCode == "ECANCELED")
+        #expect(!FileManager.default.fileExists(atPath: writtenPath))
+        let written = writer.perform("writeFile", arguments: ["path": "written.bin", "base64": base64])
 
         #expect(copied.failureCode == "ECANCELED")
         #expect(written.failureCode == "ECANCELED")

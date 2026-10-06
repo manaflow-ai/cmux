@@ -623666,6 +623666,65 @@
         }
       }
     },
+    "cli.browser.repl.error.sessionOwnerShared": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A named REPL session is shared by name and takes no owner token; send session_owner only with a session name the client made for itself (cli-, mcp- or oneshot-)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة REPL المسماة مشتركة بالاسم ولا تقبل رمز مالك؛ أرسل session_owner فقط مع اسم جلسة أنشأه العميل لنفسه (cli- أو mcp- أو oneshot-)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine benannte REPL-Sitzung wird über ihren Namen geteilt und nimmt kein Besitzer-Token an; senden Sie session_owner nur mit einem Sitzungsnamen, den der Client selbst erzeugt hat (cli-, mcp- oder oneshot-)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una sesión de REPL con nombre se comparte por su nombre y no acepta token de propietario; envía session_owner solo con un nombre de sesión que el cliente creó para sí mismo (cli-, mcp- u oneshot-)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une session REPL nommée est partagée par son nom et n’accepte pas de jeton de propriétaire ; envoyez session_owner uniquement avec un nom de session que le client a créé pour lui-même (cli-, mcp- ou oneshot-)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前付きの REPL セッションは名前で共有されるため、オーナートークンは使えません。session_owner は、クライアントが自分用に作ったセッション名（cli-、mcp-、oneshot-）と一緒にのみ送ってください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 있는 REPL 세션은 이름으로 공유되며 소유자 토큰을 받지 않습니다. session_owner는 클라이언트가 직접 만든 세션 이름(cli-, mcp-, oneshot-)과 함께만 보내세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命名的 REPL 会话按名称共享，不接受所有者令牌；仅在会话名称由客户端为自己生成时（cli-、mcp- 或 oneshot-）才发送 session_owner"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "具名的 REPL 工作階段以名稱共用，不接受擁有者權杖；僅在工作階段名稱由用戶端為自己產生時（cli-、mcp- 或 oneshot-）才傳送 session_owner"
+          }
+        }
+      }
+    },
     "cli.browser.repl.error.cwdTooLong": {
       "extractionState": "manual",
       "localizations": {

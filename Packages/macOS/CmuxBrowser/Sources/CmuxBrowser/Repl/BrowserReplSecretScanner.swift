@@ -343,10 +343,11 @@ struct BrowserReplSecretScanner {
                 return number(in: input, at: start + (hex ? 3 : 2), hex: hex, maximumDigits: hex ? 8 : 10)
                     .flatMap { Unicode.Scalar($0.0) }
             }
-            for (scalar, name) in htmlNames where Self.has(input, at: start + 1, caseInsensitive: name) {
-                return scalar
+            var best: (scalar: Unicode.Scalar, end: Int)?
+            for name in htmlNamesByFirstByte[Int(kind)] {
+                if let end = name.end(in: input, at: start + 1), end > (best?.end ?? start) { best = (name.scalar, end) }
             }
-            return nil
+            return best?.scalar
         default:
             return nil
         }
@@ -361,16 +362,6 @@ struct BrowserReplSecretScanner {
         guard next + 1 < input.count, input[next] == input[start], input[next + 1] | 0x20 == UInt8(ascii: "u"),
               let low = hexValue(input, at: next + 2, digits: 4), (0xDC00...0xDFFF).contains(low) else { return nil }
         return Unicode.Scalar(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
-    }
-
-    /// Whether `input` holds `text` at `start`, ignoring ASCII case.
-    private static func has(_ input: UnsafeBufferPointer<UInt8>, at start: Int, caseInsensitive text: String) -> Bool {
-        var position = start
-        for byte in text.utf8 {
-            guard position < input.count, input[position] | 0x20 == byte else { return false }
-            position += 1
-        }
-        return true
     }
 
     /// Reads `value` character by character, each written literally or in
@@ -426,7 +417,8 @@ struct BrowserReplSecretScanner {
     /// `scalar` escaped as one character: JSON and JavaScript (`\"`, `\n`,
     /// `\uXXXX` with surrogate pairs, `\u{X}`, `\xHH`), JavaScript's
     /// `escape` (`%uXXXX`) and HTML (`&amp;`, `&#64;`, `&#x40;`, a numeric
-    /// reference without its semicolon, a legacy name in upper case).
+    /// reference without its semicolon, a name of HTML's legacy table such
+    /// as `&lt`, `&AMP` or `&eacute` without its semicolon).
     private static func escaped(_ scalar: Unicode.Scalar, in input: UnsafeBufferPointer<UInt8>, at start: Int) -> Int? {
         guard start + 1 < input.count else { return nil }
         let kind = input[start + 1]
@@ -453,15 +445,11 @@ struct BrowserReplSecretScanner {
                       value == scalar.value else { return nil }
                 return end < input.count && input[end] == UInt8(ascii: ";") ? end + 1 : end
             }
-            guard let name = htmlNames[scalar] else { return nil }
-            var position = start + 1
-            for byte in name.utf8 {
-                guard position < input.count else { return nil }
-                let read = input[position]
-                guard read == byte || (scalar != "'" && read | 0x20 == byte) else { return nil }
-                position += 1
+            var best: Int?
+            for name in htmlNamesByFirstByte[Int(kind)] where name.scalar == scalar {
+                if let end = name.end(in: input, at: start + 1), end > (best ?? start) { best = end }
             }
-            return position < input.count && input[position] == UInt8(ascii: ";") ? position + 1 : nil
+            return best
         default:
             return nil
         }
@@ -507,10 +495,62 @@ struct BrowserReplSecretScanner {
         "\r": UInt8(ascii: "r"), "\t": UInt8(ascii: "t"),
     ]
 
-    /// HTML's named references for the characters an escaper replaces.
-    /// All but `apos` are also valid in upper case.
-    private static let htmlNames: [Unicode.Scalar: String] = [
-        "&": "amp", "<": "lt", ">": "gt", "\"": "quot", "'": "apos",
+    /// An HTML named character reference, without its `&`.
+    private struct HTMLName {
+        let name: [UInt8]
+        let scalar: Unicode.Scalar
+        /// HTML reads a name of its legacy table also without the
+        /// semicolon (`&amp`, `&lt`, `&eacute`); any other name needs it.
+        let semicolonOptional: Bool
+
+        /// Where the reference ends when it starts at `start` (just past
+        /// the `&`): past its semicolon, or past the name when a legacy
+        /// name has none. Names are case-sensitive (`&Eacute` is not
+        /// `&eacute`).
+        func end(in input: UnsafeBufferPointer<UInt8>, at start: Int) -> Int? {
+            var position = start
+            for byte in name {
+                guard position < input.count, input[position] == byte else { return nil }
+                position += 1
+            }
+            if position < input.count, input[position] == UInt8(ascii: ";") { return position + 1 }
+            return semicolonOptional ? position : nil
+        }
+    }
+
+    /// The HTML named references for the characters an escaper replaces
+    /// and for Latin-1: every name of the HTML standard's legacy table
+    /// (read with or without the semicolon), and `apos` (with it). Indexed
+    /// by the name's first byte.
+    private static let htmlNamesByFirstByte: [[HTMLName]] = {
+        var table = [[HTMLName]](repeating: [], count: 256)
+        let names = legacyHTMLNames.map { HTMLName(name: Array($0.0.utf8), scalar: Unicode.Scalar($0.1)!, semicolonOptional: true) }
+            + [HTMLName(name: Array("apos".utf8), scalar: "'", semicolonOptional: false)]
+        for name in names { table[Int(name.name[0])].append(name) }
+        return table
+    }()
+
+    /// The HTML standard's named references that are valid without a
+    /// semicolon (its legacy table), and the character each stands for.
+    private static let legacyHTMLNames: [(String, UInt32)] = [
+        ("AElig", 0xC6), ("AMP", 0x26), ("Aacute", 0xC1), ("Acirc", 0xC2), ("Agrave", 0xC0), ("Aring", 0xC5),
+        ("Atilde", 0xC3), ("Auml", 0xC4), ("COPY", 0xA9), ("Ccedil", 0xC7), ("ETH", 0xD0), ("Eacute", 0xC9),
+        ("Ecirc", 0xCA), ("Egrave", 0xC8), ("Euml", 0xCB), ("GT", 0x3E), ("Iacute", 0xCD), ("Icirc", 0xCE),
+        ("Igrave", 0xCC), ("Iuml", 0xCF), ("LT", 0x3C), ("Ntilde", 0xD1), ("Oacute", 0xD3), ("Ocirc", 0xD4),
+        ("Ograve", 0xD2), ("Oslash", 0xD8), ("Otilde", 0xD5), ("Ouml", 0xD6), ("QUOT", 0x22), ("REG", 0xAE),
+        ("THORN", 0xDE), ("Uacute", 0xDA), ("Ucirc", 0xDB), ("Ugrave", 0xD9), ("Uuml", 0xDC), ("Yacute", 0xDD),
+        ("aacute", 0xE1), ("acirc", 0xE2), ("acute", 0xB4), ("aelig", 0xE6), ("agrave", 0xE0), ("amp", 0x26),
+        ("aring", 0xE5), ("atilde", 0xE3), ("auml", 0xE4), ("brvbar", 0xA6), ("ccedil", 0xE7), ("cedil", 0xB8),
+        ("cent", 0xA2), ("copy", 0xA9), ("curren", 0xA4), ("deg", 0xB0), ("divide", 0xF7), ("eacute", 0xE9),
+        ("ecirc", 0xEA), ("egrave", 0xE8), ("eth", 0xF0), ("euml", 0xEB), ("frac12", 0xBD), ("frac14", 0xBC),
+        ("frac34", 0xBE), ("gt", 0x3E), ("iacute", 0xED), ("icirc", 0xEE), ("iexcl", 0xA1), ("igrave", 0xEC),
+        ("iquest", 0xBF), ("iuml", 0xEF), ("laquo", 0xAB), ("lt", 0x3C), ("macr", 0xAF), ("micro", 0xB5),
+        ("middot", 0xB7), ("nbsp", 0xA0), ("not", 0xAC), ("ntilde", 0xF1), ("oacute", 0xF3), ("ocirc", 0xF4),
+        ("ograve", 0xF2), ("ordf", 0xAA), ("ordm", 0xBA), ("oslash", 0xF8), ("otilde", 0xF5), ("ouml", 0xF6),
+        ("para", 0xB6), ("plusmn", 0xB1), ("pound", 0xA3), ("quot", 0x22), ("raquo", 0xBB), ("reg", 0xAE),
+        ("sect", 0xA7), ("shy", 0xAD), ("sup1", 0xB9), ("sup2", 0xB2), ("sup3", 0xB3), ("szlig", 0xDF),
+        ("thorn", 0xFE), ("times", 0xD7), ("uacute", 0xFA), ("ucirc", 0xFB), ("ugrave", 0xF9), ("uml", 0xA8),
+        ("uuml", 0xFC), ("yacute", 0xFD), ("yen", 0xA5), ("yuml", 0xFF),
     ]
 
     // MARK: Base64
