@@ -909,3 +909,90 @@ private extension Result where Success == Any, Failure == BrowserReplFileSystemE
         return (value as? [String: Any])?["type"] as? String
     }
 }
+
+/// r17 native#1: two sessions whose roots nest (one session works in a
+/// directory, another in its parent) share entries. The outer session can
+/// rename a directory the inner one holds open out of the inner root while
+/// an operation of the inner one runs; the inner operation must not then
+/// create, write or remove anything there, outside its root.
+@Suite("Browser REPL fs against a descendant moved out of the root")
+struct BrowserReplFileSystemDescendantMoveTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    private func fileSystem(root: String, isCancelled: @escaping @Sendable () -> Bool = { false }) -> BrowserReplFileSystem {
+        BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: root),
+            temporaryDirectory: nil,
+            rootDescriptor: nil,
+            temporaryDescriptor: nil,
+            writeBudget: BrowserReplWriteBudget(),
+            isCancelled: isCancelled
+        )
+    }
+
+    @Test("A copy whose destination directory another session moves out of the root writes nothing there")
+    func copyIntoMovedDirectoryIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let victimRoot = scratch.root + "/victim"
+        try FileManager.default.createDirectory(atPath: victimRoot + "/sub", withIntermediateDirectories: true)
+        try Data("payload".utf8).write(to: URL(fileURLWithPath: victimRoot + "/source.txt"))
+        let outer = fileSystem(root: scratch.root)
+        let victim = fileSystem(root: victimRoot)
+        let moved = scratch.root + "/moved"
+
+        // The copy has located its destination's directory; the outer
+        // session moves that directory out of the victim's root.
+        let copied = victim.perform("copyFile", arguments: ["from": "source.txt", "to": "sub/copy.txt"], copyContents: { data in
+            _ = outer.perform("rename", arguments: ["from": "victim/sub", "to": "moved"])
+            return data
+        })
+
+        #expect(FileManager.default.fileExists(atPath: moved), "the outer session's rename did not run")
+        #expect(copied.failureCode == "EACCES", "\(copied)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: moved) == [], "the copy wrote outside its root")
+    }
+
+    @Test("A recursive rm whose directory another session moves out of the root removes nothing more there")
+    func recursiveRemoveOfMovedDirectoryStops() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let victimRoot = scratch.root + "/victim"
+        let inner = victimRoot + "/tree/inner"
+        try FileManager.default.createDirectory(atPath: inner, withIntermediateDirectories: true)
+        for index in 0..<(2 * BrowserReplFileSystem.entriesPerCancellationCheck) {
+            FileManager.default.createFile(atPath: inner + "/f\(index)", contents: nil)
+        }
+        let outer = fileSystem(root: scratch.root)
+        let moved = scratch.root + "/moved"
+        let left = BrowserReplMovedCount()
+        // The rm asks whether it is cancelled every 1,024 entries: the
+        // first time, the outer session moves the directory the rm is
+        // emptying out of the victim's root.
+        let victim = fileSystem(root: victimRoot, isCancelled: {
+            if !left.isSet {
+                _ = outer.perform("rename", arguments: ["from": "victim/tree/inner", "to": "moved"])
+                left.set((try? FileManager.default.contentsOfDirectory(atPath: moved).count) ?? -1)
+            }
+            return false
+        })
+
+        let removed = victim.perform("rm", arguments: ["path": "tree", "recursive": true])
+
+        #expect(left.isSet, "the rm never asked whether it was cancelled")
+        #expect(left.value > 0, "the outer session's rename did not run")
+        #expect(removed.failureCode == "EACCES", "\(removed)")
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: moved).count) == left.value, "the rm removed entries outside its root")
+    }
+}
+
+/// How many entries a moved directory held when it was moved.
+private final class BrowserReplMovedCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count: Int?
+
+    var isSet: Bool { lock.withLock { count != nil } }
+    var value: Int { lock.withLock { count ?? 0 } }
+
+    func set(_ value: Int) { lock.withLock { count = value } }
+}
