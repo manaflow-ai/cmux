@@ -18,12 +18,14 @@ extension PaneContentView {
         view.layer?.contents = image.layerContents(forContentsScale: view.layer?.contentsScale ?? 2)
         contentHost.addSubview(view, positioned: .below, relativeTo: nil)
         launchImageView = view
+        DebugTimings.markLaunch("agent_pane.launch_image_shown")
         launchImageDeadline.schedule(after: paneLaunchImageLimit) { @MainActor [weak self] in self?.clearLaunchImage() }
     }
 
     /// Removes the launch image (the page painted, or the pane shows another tab).
     func clearLaunchImage() {
         launchImageDeadline.cancel()
+        if launchImageView != nil { DebugTimings.markLaunch("agent_pane.launch_image_cleared") }
         launchImageView?.removeFromSuperview()
         launchImageView = nil
     }
