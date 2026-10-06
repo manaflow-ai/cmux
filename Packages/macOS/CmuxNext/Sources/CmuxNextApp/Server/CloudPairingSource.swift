@@ -46,15 +46,16 @@ final class CloudPairingSource: ServerSource {
     func start(_ sink: @escaping @MainActor (ServerSourceEvent) -> Void) {
         self.sink = sink
         inner.start(sink)
+        refreshChief()
     }
 
     func send(_ intent: ServerIntent) {
         switch intent.kind {
         case let .lookupCode(code):
             run(intent.key) { [weak self] in await self?.lookup(PairingCode.normalize(code), key: intent.key) }
-        case let .approveCode(code, team, name):
+        case let .approveCode(code, team, name, placeChief):
             run(intent.key) { [weak self] in
-                await self?.approve(code: PairingCode.normalize(code), team: team, name: name, key: intent.key)
+                await self?.approve(code: PairingCode.normalize(code), team: team, name: name, placeChief: placeChief, key: intent.key)
             }
         default:
             inner.send(intent)
@@ -123,7 +124,7 @@ final class CloudPairingSource: ServerSource {
         return ServerTeam(id: id, name: account.isEmpty ? id : account)
     }
 
-    private func approve(code: String, team: String, name: String, key: String) async {
+    private func approve(code: String, team: String, name: String, placeChief: Bool, key: String) async {
         guard account() != nil else { return sink?(.settled(key: key, reject: Self.signedOut)) ?? () }
         let body: [String: Any] = [
             "op": "server.pair.approve",
@@ -135,13 +136,50 @@ final class CloudPairingSource: ServerSource {
             let reply = try await call("v1/ops", body)
             // Success only with the enrolled host: a Worker error reply
             // (`{_tag, code, message}`) has no `value.host`.
-            guard (try Self.okValue(reply) as? [String: Any])?["host"] is String else { throw FeedServiceError.badReply }
+            let value = try Self.okValue(reply) as? [String: Any]
+            guard let host = value?["host"] as? String else { throw FeedServiceError.badReply }
+            if placeChief {
+                // The server is added either way; a Chief that could not move says so.
+                if let reject = await self.placeChief(host: host, install: value?["install"] as? String, key: key) {
+                    return sink?(.settled(key: key, reject: reject)) ?? ()
+                }
+            }
             sink?(.settled(key: key, reject: nil))
         } catch let FeedServiceError.owner(_, message) {
             sink?(.settled(key: key, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message)))
         } catch {
             sink?(.settled(key: key, reject: Self.reject(for: error)))
         }
+    }
+
+    /// Places the user's Chief on the server just approved (G8); a refusal
+    /// text, or nil when the Chief now runs there.
+    private func placeChief(host: String, install: String?, key: String) async -> String? {
+        defer { refreshChief() }
+        guard let install else { return Self.chiefNotMoved("the server has no install") }
+        do {
+            _ = try await CloudChiefs.place(CloudChief.BrainPlace(host: host, install: install), key: key, call: call)
+            return nil
+        } catch let FeedServiceError.owner(_, message) {
+            return Self.chiefNotMoved(message)
+        } catch {
+            return Self.chiefNotMoved(Self.reject(for: error))
+        }
+    }
+
+    /// Reads where the user's Chief runs for the panel (once per open, after an approve).
+    private func refreshChief() {
+        guard account() != nil else { return }
+        run("chief-status") { [weak self] in
+            guard let self else { return }
+            let status = try? await CloudChiefStatus.read(call: call)
+            guard !Task.isCancelled else { return }
+            sink?(.chief(status ?? nil))
+        }
+    }
+
+    private static func chiefNotMoved(_ reason: String) -> String {
+        format("refusal.server.chiefNotMoved", "The server was added, but your Chief could not move to it: %@", reason)
     }
 
     /// The `value` of a successful reply; a Worker error reply
@@ -183,7 +221,9 @@ final class CloudPairingSource: ServerSource {
             version: info["cmux_version"] as? String ?? "",
             region: value["country"] as? String,
             words: words,
-            teams: [team]
+            teams: [team],
+            // `optchat-chief cloud pair` names itself in the version field.
+            isChiefBrain: (info["cmux_version"] as? String)?.hasPrefix("optchat-chief/") == true
         )
     }
 

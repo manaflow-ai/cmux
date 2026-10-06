@@ -10,6 +10,7 @@ import Testing
 struct ServerChiefPlacementTests {
     private func started(_ scenario: MockServerScenario = .unpaired) -> (ServerModel, MockServerSource) {
         let source = MockServerSource(scenario: scenario)
+        source.echoImmediately = false
         let model = ServerModel(source: source)
         model.start()
         return (model, source)
@@ -18,15 +19,17 @@ struct ServerChiefPlacementTests {
     @Test func approvingARemoteServerWorksWhileThisMacIsNoServer() {
         let (model, source) = started()
         source.disconnect("not installed")
+        // Controls of this Mac's own server still need it running.
+        #expect(model.send(.showPairingCode) == false)
         model.setApprovalCode("7kq4-m2xd")
         #expect(source.received.last?.kind == .lookupCode("7KQ4M2XD"))
+        // The mock echoes a snapshot with the candidate; this Mac stays no server.
         source.deliverHeld()
+        source.disconnect("not installed")
         #expect(model.candidate != nil)
         #expect(model.canApprove)
         model.approve()
         if case .approveCode = source.received.last?.kind {} else { Issue.record("approve was not sent") }
-        // Controls of this Mac's own server still need it running.
-        #expect(model.send(.showPairingCode) == false)
     }
 
     @Test func aChiefBrainServerRunsTheChiefByDefault() {
