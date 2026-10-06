@@ -70,6 +70,7 @@ public struct SettingsSchemaExport {
             "agent_refusal": SettingsSchema.agentRefusedKeys[descriptor.id].map { $0.rawValue as Any } ?? NSNull(),
             "kept_on_reset_all": SettingsSchema.keptOnResetAll.contains(descriptor.path),
             "consumers": descriptor.consumers.sorted().map(\.rawValue),
+            "page_hidden": descriptor.page != .shown,
         ]
         let samples = SettingsSchemaSamples.samples(for: descriptor)
         row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
@@ -101,6 +102,7 @@ public struct SettingsSchemaExport {
             row["kind"] = "number_list"
             row["range"] = range(number)
         case .stringMap: row["kind"] = "string_map"
+        case .stringList: row["kind"] = "string_list"
         }
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the
