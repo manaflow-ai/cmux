@@ -106,8 +106,9 @@ fn replies_after_a_memory_reset_are_not_dropped_as_reused_keys() {
     chat.shutdown();
     drop(chat);
     // The user resets the Chief's memory (or restores an older backup).
+    // The memory database (and the host state in it) lives in the chat
+    // directory in these tests.
     std::fs::remove_dir_all(dir.path().join("chat")).unwrap();
-    std::fs::remove_file(dir.path().join("host.json")).unwrap();
     let mut h = Harness::in_dir(dir, default_script(), owner);
     h.connect();
     h.say("user_local", "second question");
@@ -244,7 +245,9 @@ fn the_host_state_is_private_to_the_user() {
     h.connect();
     h.say("user_local", "my password is hunter2");
     h.settle();
-    let mode = std::fs::metadata(h.dir.path().join("host.json"))
+    // The host state is in the memory database, which is 0600.
+    assert!(!h.dir.path().join("host.json").exists());
+    let mode = std::fs::metadata(h.dir.path().join("chat").join(optchat_host::DB_FILE))
         .unwrap()
         .permissions()
         .mode();
