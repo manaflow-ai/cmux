@@ -15,7 +15,8 @@ import Observation
 /// the owner is unreachable, edits are refused (nothing queues), except in
 /// DEV with Debug Settings `sidebar.sections.localPrototype`, which edits an
 /// in-memory copy that is never saved. A stored layout that still equals
-/// the pre-rail default migrates to the rail default once per session.
+/// the pre-rail default migrates to the rail default once per session, and
+/// one equal to a default from before Recents gains it once per Mac.
 @Observable @MainActor
 final class SidebarLayoutService {
     /// The capability the store serves the layout under.
@@ -34,14 +35,18 @@ final class SidebarLayoutService {
     /// The sections migration went out this session (at most once, so an
     /// owner that refuses it is not asked again on every fetch).
     @ObservationIgnored private var migrationSent = false
+    /// This Mac added Recents to the layout, or saw it there, once.
+    @ObservationIgnored private let recentsOffered: UserDefaults
+    static let recentsOfferedKey = "cmux.next.sidebar.recentsOffered"
 
     init(remote: (any SidebarLayoutRemote)? = nil, onRefused: @escaping @MainActor (String) -> Void = { _ in },
          prototypeEnabled: @escaping @MainActor () -> Bool = {
              DevTools.isEnabled && SidebarSectionTunables.localPrototype.override == true
-         }) {
+         }, recentsOffered: UserDefaults = .standard) {
         self.remote = remote
         self.onRefused = onRefused
         self.prototypeEnabled = prototypeEnabled
+        self.recentsOffered = recentsOffered
     }
 
     isolated deinit {
@@ -153,7 +158,15 @@ final class SidebarLayoutService {
     /// flight.
     private func migrateIfNeeded() {
         guard !migrationSent, pending.isEmpty else { return }
-        let ops = mirror.layoutMigrationOps
+        // Recents is added once per Mac: a layout without it after that is one the user removed it from.
+        let offered = recentsOffered.bool(forKey: Self.recentsOfferedKey)
+        let ops = mirror.layoutMigrationOps(offeringRecents: !offered)
+        let addsRecents = ops.contains { op in
+            if case .sectionAdd(let section, _) = op { section.id == SidebarLayoutDocument.recentsSectionID } else { false }
+        }
+        if !offered, addsRecents || mirror.section(SidebarLayoutDocument.recentsSectionID) != nil {
+            recentsOffered.set(true, forKey: Self.recentsOfferedKey)
+        }
         guard !ops.isEmpty else { return }
         migrationSent = true
         for op in ops {
