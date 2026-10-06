@@ -26,16 +26,24 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("../conversation/Markdown");
 const { setChipHost } = await import("./host");
+const { resetLinkStore } = await import("./linkStore");
 
-async function render(source: string) {
+type Inspect = { paths?: Record<string, unknown>; sites?: Record<string, unknown>; policy?: Record<string, string> };
+
+/// Renders `source` with a host that answers `link.inspect` with `inspect` and records the rest.
+async function render(source: string, inspect: Inspect = {}, answers: Record<string, unknown> = {}) {
+  resetLinkStore();
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   setChipHost(async (method, params) => {
+    if (method === "link.inspect") return inspect;
     calls.push({ method, params });
-    return null;
+    return answers[method] ?? null;
   });
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   await act(async () => root.render(createElement(Markdown, null, source)));
+  // The batched inspect, then the render with its answer.
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   return {
     container,
     calls,
@@ -54,7 +62,7 @@ test("a file link is a chip: file icon, the link text, the full path in the tool
   expect(chip.querySelector(".cv-chip__label")?.textContent).toBe("the readme");
   expect(chip.querySelector("svg")).not.toBeNull();
   await act(async () => chip.click());
-  expect(calls).toEqual([{ method: "file.open", params: { path: "/Users/ada/repo/README.md", where: "tab" } }]);
+  expect(calls).toEqual([{ method: "link.openPath", params: { path: "/Users/ada/repo/README.md" } }]);
   await unmount();
 });
 
@@ -65,14 +73,75 @@ test("a path in inline code is a chip named by its file; a line suffix is droppe
   expect(chip.title).toBe("/Users/ada/repo/src/main.ts");
   expect(container.querySelector("code")).toBeNull();
   await act(async () => chip.click());
-  expect(calls[0]?.params).toEqual({ path: "/Users/ada/repo/src/main.ts", where: "tab" });
+  expect(calls[0]).toEqual({ method: "link.openPath", params: { path: "/Users/ada/repo/src/main.ts" } });
   await unmount();
 });
 
-test("a file:// link and a page type open in cmux's file pages (a tab), never in an outside app", async () => {
+test("a file:// link and a page type open through the host's path open, never in an outside app", async () => {
   const { container, calls, unmount } = await render("[report](file:///tmp/out/report.html)");
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-chip.is-path")!.click());
-  expect(calls).toEqual([{ method: "file.open", params: { path: "/tmp/out/report.html", where: "tab" } }]);
+  expect(calls).toEqual([{ method: "link.openPath", params: { path: "/tmp/out/report.html" } }]);
+  await unmount();
+});
+
+test("outside the project a chip has a lock; the host's denied, missing and text answers draw plain text", async () => {
+  const source = "`/tmp/app.log`, `/Users/ada/repo/gone.ts`, `/Users/ada/notes/secret.txt` and `/Users/ada/repo/src/`";
+  const paths = {
+    "/tmp/app.log": { place: "outside", folder: false },
+    "/Users/ada/repo/gone.ts": { place: "missing", folder: false },
+    "/Users/ada/notes/secret.txt": { place: "denied", folder: false },
+    "/Users/ada/repo/src/": { place: "root", folder: true },
+  };
+  let { container, unmount } = await render(source, { paths });
+  const chips = [...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")];
+  expect(chips.map((chip) => chip.dataset.path)).toEqual(["/tmp/app.log", "/Users/ada/repo/src/"]);
+  expect(chips[0]!.classList.contains("is-outside")).toBe(true);
+  expect(chips[0]!.querySelectorAll("svg").length).toBe(2);
+  expect(chips[0]!.title).toBe("/tmp/app.log\nOutside this project");
+  expect(container.textContent).toContain("/Users/ada/repo/gone.ts");
+  await unmount();
+  ({ container, unmount } = await render(source, { paths, policy: { outsideRoots: "text" } }));
+  expect([...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path)).toEqual([
+    "/Users/ada/repo/src/",
+  ]);
+  await unmount();
+});
+
+test("a web chip shows the site's favicon only when the host already has it", async () => {
+  const icon = "data:image/png;base64,iVBORw0KGgo=";
+  const { container, unmount } = await render("[a](https://a.example/x) and [b](https://b.example/y)", {
+    sites: { "https://a.example/x": { icon } },
+  });
+  const chips = [...container.querySelectorAll<HTMLAnchorElement>("a.cv-chip.is-web")];
+  expect(chips[0]!.querySelector("img")?.getAttribute("src")).toBe(icon);
+  expect(chips[1]!.querySelector("img")).toBeNull();
+  expect(chips[1]!.querySelector("svg")).not.toBeNull();
+  await unmount();
+});
+
+test("a web image waits for a click by default, then shows the host's data URL", async () => {
+  const data = "data:image/png;base64,iVBORw0KGgo=";
+  const { container, calls, unmount } = await render("![cat](https://img.example/cat.png)", {}, { "image.load": { src: data } });
+  expect(container.querySelector("img")).toBeNull();
+  expect(container.querySelector(".cv-image-placeholder__host")?.textContent).toBe("img.example");
+  expect(calls).toEqual([]);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-image-placeholder__load")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(calls).toEqual([{ method: "image.load", params: { src: "https://img.example/cat.png" } }]);
+  expect(container.querySelector("img")?.getAttribute("src")).toBe(data);
+  await unmount();
+});
+
+test("never keeps a web image a link; a local image inside the project loads at once", async () => {
+  const data = "data:image/png;base64,AAAA";
+  let { container, calls, unmount } = await render("![cat](https://img.example/cat2.png)", { policy: { remoteImages: "never" } });
+  expect(container.querySelector(".cv-image-placeholder")).toBeNull();
+  expect(container.querySelector("a.is-image")).not.toBeNull();
+  await unmount();
+  ({ container, calls, unmount } = await render("![shot](docs/shot.png)", {}, { "image.load": { src: data } }));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(calls).toEqual([{ method: "image.load", params: { src: "docs/shot.png" } }]);
+  expect(container.querySelector("img")?.getAttribute("src")).toBe(data);
   await unmount();
 });
 
