@@ -362,13 +362,46 @@ public final class BrowserReplFrameGate {
     /// A call that was cancelled (its cell timed out, its session was
     /// reset or closed) is refused too (`cancelled`), so it reads and sends
     /// nothing more after a suspension in WebKit.
+    ///
+    /// While guarded input is in flight in `webView`
+    /// (``guardingInput(in:frames:checkFocusAfter:_:)``) it also judges the
+    /// main frame's live page: the input sends several native events (a
+    /// drag's press, moves and release) and the page can navigate its main
+    /// frame between two of them, which the child-frame hold does not stop.
+    /// A page the authority refuses fails with its refusal (`blocked`), and
+    /// a main frame of another origin than when the input started with
+    /// `stale`: the input's frame checks and guards judged the old document
+    /// only. WebKit names a main-frame navigation's page from its start,
+    /// before it commits.
     public func checkTab(in webView: WKWebView) throws {
         if Task.isCancelled {
             throw BrowserReplDriverError(code: "cancelled", message: "cancelled because the cell that made the call timed out or its session ended; nothing more was sent to the tab")
         }
         let (authority, tab) = authority(in: webView)
-        guard let tab, let refusal = authority.verdict(BrowserReplAccess(in: tab, capability: .use)).refusal else { return }
-        throw BrowserReplDriverError(code: refusal.code, message: refusal.message)
+        if let tab, let refusal = authority.verdict(BrowserReplAccess(in: tab, capability: .use)).refusal {
+            throw BrowserReplDriverError(code: refusal.code, message: refusal.message)
+        }
+        guard let started = inputMainFrames[ObjectIdentifier(webView)], !started.isEmpty else { return }
+        let live = webView.url
+        try authority.verdict(BrowserReplAccess(.tabPage(live?.absoluteString ?? ""), in: tab)).check()
+        let origin = Self.mainFrameOrigin(live)
+        if started.values.contains(where: { $0 != origin }) {
+            throw BrowserReplDriverError(
+                code: "stale",
+                message: "the tab's main frame navigated to \(origin.isEmpty ? "another page" : origin) while the input was in flight, so nothing more was sent (the drag ended with no drop); run the input again on the new page"
+            )
+        }
+    }
+
+    /// The main frame's origin as ``checkTab(in:)`` compares it during
+    /// input: scheme, host and port, or the whole URL for one without a
+    /// host (`about:blank`, `data:`), which may be a document of another
+    /// origin.
+    private static func mainFrameOrigin(_ url: URL?) -> String {
+        guard let url else { return "" }
+        guard let host = url.host, !host.isEmpty else { return url.absoluteString }
+        let scheme = url.scheme?.lowercased() ?? ""
+        return "\(scheme)://\(host.lowercased())" + (url.port.map { ":\($0)" } ?? "")
     }
 
     /// Whether the gate judges `webView`'s frames: a domain policy is in
@@ -425,6 +458,9 @@ public final class BrowserReplFrameGate {
     private let prober: BrowserReplScriptProbe
     /// The document each frame last showed when the gate read it.
     private var known: [Key: BrowserReplFrameDocument] = [:]
+    /// The main frame's origin when each guarded input in flight started,
+    /// by web view and input (``checkTab(in:)``).
+    private var inputMainFrames: [ObjectIdentifier: [UUID: String]] = [:]
     /// Holds back child-frame loads while guarded input or a capture is in
     /// flight; the navigation delegate honors it.
     public let loadHold: BrowserReplSubframeLoadHold
@@ -723,6 +759,13 @@ public final class BrowserReplFrameGate {
     ) async throws -> T {
         try checkTab(in: webView)
         guard isActive(in: webView) else { return try await input() }
+        let key = ObjectIdentifier(webView)
+        let token = UUID()
+        inputMainFrames[key, default: [:]][token] = Self.mainFrameOrigin(webView.url)
+        defer {
+            inputMainFrames[key]?[token] = nil
+            if inputMainFrames[key]?.isEmpty == true { inputMainFrames[key] = nil }
+        }
         return try await loadHold.holding(webView) {
             let guards = try await installInputGuards(in: webView, frames: await frames())
             let value: T

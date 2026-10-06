@@ -2404,7 +2404,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     ) async throws {
         // Each native step asks the tab capability again
         // (BrowserReplFrameGate.checkTab): a tab moved out of the session's
-        // workspace while the call waited gets no further event.
+        // workspace while the call waited gets no further event, and under
+        // guarded input neither does a main frame that navigated to a page
+        // the authority refuses or to another origin (a drag then ends with
+        // no drop when the pointer gesture ends).
         func send() throws {
             try frameGate.checkTab(in: webView)
             guard let event = BrowserReplNativeInput.mouseEvent(

@@ -826,7 +826,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   only after the input (`BrowserReplSubframeLoadHold`). A frame the page creates meanwhile
   shows its initial empty document, which takes its parent's origin, and an
   allowed frame cannot navigate to a blocked page; main-frame navigations
-  and new windows are not held. Then the guard comes off (an element the
+  and new windows are not held. So every native step of the input (each
+  event of an `input.drag`, also its drop) judges the main frame's live
+  page first, which WebKit names from the start of a navigation, before it
+  commits: a page the authority refuses fails the input with `blocked`, and
+  a main frame of another origin than when the input started (which the
+  input's checks and guards never judged) with `stale`; an `input.drag`
+  then ends with `dragend` and no drop. Then the guard comes off (an element the
   page made inert itself stays inert), and the call fails with `blocked`
   when the page changed a guarded element's `inert` attribute meanwhile.
   Residual: `inert` is an attribute of the page's DOM, so the page sees it.
