@@ -164,18 +164,18 @@ impl Slots {
     }
 
     fn take(&self) -> usize {
-        let mut free = self.free.lock().expect("slots");
+        let mut free = self.free.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if let Some(k) = free.iter().position(|f| *f) {
                 free[k] = false;
                 return k;
             }
-            free = self.freed.wait(free).expect("slots");
+            free = self.freed.wait(free).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
     fn give(&self, k: usize) {
-        if let Some(slot) = self.free.lock().expect("slots").get_mut(k) {
+        if let Some(slot) = self.free.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(k) {
             *slot = true;
         }
         self.freed.notify_one();
@@ -342,7 +342,7 @@ impl AcpmuxCompactor {
         };
         match self.port.new_session(&spec) {
             Ok(id) => {
-                self.live.lock().expect("live").insert(
+                self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(
                     node,
                     Live {
                         id: id.clone(),
@@ -435,7 +435,7 @@ impl AcpmuxCompactor {
         let after = self
             .live
             .lock()
-            .expect("live")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(&node)
             .map_or(0, |l| l.seq);
         let events = self
@@ -450,7 +450,7 @@ impl AcpmuxCompactor {
             fold.apply(event);
         }
         fold.finish(None);
-        if let Some(l) = self.live.lock().expect("live").get_mut(&node) {
+        if let Some(l) = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(&node) {
             l.seq = fold.seq();
         }
         if let Some(error) = fold.ended().and_then(|e| e.error.clone()) {
@@ -463,7 +463,7 @@ impl AcpmuxCompactor {
 
     /// Adds a prompt's reported token use and cost to its node.
     fn count(&self, node: NodeId, answer: &Value) {
-        let mut live = self.live.lock().expect("live");
+        let mut live = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(l) = live.get_mut(&node) else { return };
         l.prompts += 1;
         if let Some((u, _)) = answer_usage(answer) {
@@ -530,7 +530,7 @@ impl CompactModel for AcpmuxCompactor {
                 let session = self
                     .live
                     .lock()
-                    .expect("live")
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .get(&node)
                     .map(|l| l.id.clone())
                     .ok_or_else(|| ModelError::new("the node's compactor session is gone"))?;
@@ -541,7 +541,7 @@ impl CompactModel for AcpmuxCompactor {
     }
 
     fn end(&self, request: &CompactRequest) {
-        let Some(live) = self.live.lock().expect("live").remove(&request.node) else {
+        let Some(live) = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&request.node) else {
             return;
         };
         // Purged: a node's session holds the chat's text, and nothing reads it again.
@@ -573,7 +573,7 @@ impl CompactModel for AcpmuxCompactor {
     }
 }
 
-fn private_dir(dir: &Path) -> io::Result<()> {
+pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     std::fs::DirBuilder::new()
         .recursive(true)
@@ -785,7 +785,7 @@ fn write_settings(path: &Path) -> io::Result<()> {
         path,
         format!(
             "{}\n",
-            serde_json::to_string_pretty(&compactor_settings()).expect("json")
+            serde_json::to_string_pretty(&compactor_settings()).map_err(io::Error::other)?
         )
         .as_bytes(),
     )
@@ -894,226 +894,7 @@ pub fn compactor_spec(
     }
 }
 
-/// The env the cmux codex fork reads its `prompt_cache_key` from (in
-/// place of the thread id, which is new for every acpmux session).
-pub const CODEX_CACHE_KEY_ENV: &str = "CODEX_PROMPT_CACHE_KEY";
-
-/// The Chief's codex `prompt_cache_key` for `role` (`turn`, `compact`):
-/// `optchat-<home id>-<role>`. One key per prefix family, so every turn
-/// (and every node) of one Chief lands on the cache the one before wrote.
-pub fn codex_cache_key(home: &Path, role: &str) -> String {
-    format!("optchat-{}-{role}", home_id(home))
-}
-
-/// Compactor slot `k`'s own `CODEX_HOME` under `base`.
-pub fn codex_slot_home(base: &Path, k: usize) -> PathBuf {
-    base.join(format!("slot-{k}"))
-}
-
-/// The user's codex home: `CODEX_HOME` of the host, else `~/.codex`.
-pub fn user_codex_home() -> PathBuf {
-    if let Some(dir) = crate::cli::env("CODEX_HOME") {
-        return PathBuf::from(dir);
-    }
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| "/".into())
-        .join(".codex")
-}
-
-/// Top-level keys of the user's codex config.toml a compactor slot keeps:
-/// where its requests go (the team subrouter) and the model it asks for.
-/// Nothing else: no MCP servers, profiles, hooks, notify, projects,
-/// plugins or skills.
-pub const CODEX_KEPT_KEYS: [&str; 8] = [
-    "model",
-    "model_provider",
-    "model_providers",
-    "openai_base_url",
-    "chatgpt_base_url",
-    "service_tier",
-    "model_reasoning_effort",
-    "model_verbosity",
-];
-
-/// A compactor slot's codex config.toml: the routing and model keys of the
-/// user's (`user`, its text), then the isolation: no project AGENTS.md, no
-/// skills (none loaded, none listed in the prompt), no apps, plugins,
-/// memories, hooks, subagents or code mode, no history file.
-pub fn codex_compactor_config(user: Option<&str>) -> Result<String, String> {
-    let mut out = toml::Table::new();
-    if let Some(text) = user {
-        let table: toml::Table = text
-            .parse()
-            .map_err(|e| format!("reading the user's codex config.toml: {e}"))?;
-        for key in CODEX_KEPT_KEYS {
-            if let Some(value) = table.get(key) {
-                out.insert(key.to_owned(), value.clone());
-            }
-        }
-    }
-    let isolation: toml::Table = r#"
-project_doc_max_bytes = 0
-suppress_unstable_features_warning = true
-
-[history]
-persistence = "none"
-
-[features]
-apps = false
-plugins = false
-memories = false
-hooks = false
-multi_agent = false
-code_mode = false
-skip_host_skill_discovery = true
-
-[skills]
-include_instructions = false
-
-[skills.bundled]
-enabled = false
-"#
-    .parse()
-    .expect("the isolation table parses");
-    out.extend(isolation);
-    toml::to_string(&out).map_err(|e| format!("writing the compactor's codex config: {e}"))
-}
-
-/// Creates every compactor slot's `CODEX_HOME` (0700) under
-/// `paths.compactor_codex` with `codex_compactor_config` of the user's
-/// config.toml in `user_home`, and empties it (`wipe_codex_home`). When the
-/// user has an auth.json, the slot's is a symlink to it: codex-acp refuses
-/// a session without a sign-in (checked live 2026-10-04), and a copy whose
-/// token refresh rotated the refresh token would sign the user out; codex
-/// writes auth.json in place, so a refresh through the link updates the
-/// user's own file.
-pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String> {
-    let user = match std::fs::read_to_string(user_home.join("config.toml")) {
-        Ok(text) => Some(text),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("reading {}: {e}", user_home.display())),
-    };
-    let config = codex_compactor_config(user.as_deref())?;
-    private_dir(&paths.compactor_codex)
-        .map_err(|e| format!("creating {}: {e}", paths.compactor_codex.display()))?;
-    let id = chief_installation_id(&paths.compactor_codex)
-        .map_err(|e| format!("the compactor's codex installation id: {e}"))?;
-    for k in 0..optchat_core::JOBS {
-        let dir = codex_slot_home(&paths.compactor_codex, k);
-        let made = private_dir(&dir)
-            .and_then(|()| wipe_codex_home(&dir))
-            .and_then(|()| {
-                crate::session_dir::write_if_changed(&dir.join("config.toml"), config.as_bytes())
-            })
-            .and_then(|()| {
-                crate::session_dir::write_if_changed(&dir.join("installation_id"), id.as_bytes())
-            });
-        made.map_err(|e| format!("preparing {}: {e}", dir.display()))?;
-        link_auth(&dir, user_home).map_err(|e| format!("preparing {}: {e}", dir.display()))?;
-    }
-    Ok(())
-}
-
-/// The installation id every codex compactor slot sends: the subrouter
-/// keeps one installation id on one account, and OpenAI's prompt cache is
-/// per account, so slots with their own ids never read each other's prefix
-/// (checked live 2026-10-04: 0 of 31.5k tokens with two ids, 30,464 with
-/// one). Kept in `<base>/installation_id`, made once (a version 4 UUID, as
-/// codex makes its own).
-pub fn chief_installation_id(base: &Path) -> io::Result<String> {
-    let path = base.join("installation_id");
-    if let Ok(text) = std::fs::read_to_string(&path) {
-        let id = text.trim();
-        if is_uuid(id) {
-            return Ok(id.to_owned());
-        }
-    }
-    let mut bytes = [0u8; 16];
-    {
-        use std::io::Read;
-        std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    }
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let id = format!(
-        "{}-{}-{}-{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
-    );
-    crate::session_dir::write_if_changed(&path, id.as_bytes())?;
-    Ok(id)
-}
-
-fn is_uuid(text: &str) -> bool {
-    text.len() == 36
-        && text.char_indices().all(|(i, c)| {
-            if matches!(i, 8 | 13 | 18 | 23) {
-                c == '-'
-            } else {
-                c.is_ascii_hexdigit()
-            }
-        })
-}
-
-/// Points `<dir>/auth.json` at the user's auth.json, or removes it when the
-/// user has none.
-fn link_auth(dir: &Path, user_home: &Path) -> io::Result<()> {
-    let link = dir.join("auth.json");
-    let target = user_home.join("auth.json");
-    if std::fs::read_link(&link).is_ok_and(|t| t == target) && target.exists() {
-        return Ok(());
-    }
-    match std::fs::remove_file(&link) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    if target.exists() {
-        std::os::unix::fs::symlink(&target, &link)?;
-    }
-    Ok(())
-}
-
-/// Files of a compactor `CODEX_HOME` that hold no chat text and survive
-/// `wipe_codex_home`: its configuration, the link to the user's sign-in,
-/// the Chief's installation id and codex's model catalog cache.
-pub const CODEX_KEPT_FILES: [&str; 5] = [
-    "config.toml",
-    "auth.json",
-    "installation_id",
-    "models_cache.json",
-    "version.json",
-];
-
-/// Removes everything in a compactor `CODEX_HOME` but `CODEX_KEPT_FILES`:
-/// the node's rollout (`sessions/`), thread and log databases, history,
-/// shell snapshots, the bundled skills codex unpacks.
-pub fn wipe_codex_home(dir: &Path) -> io::Result<()> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    for entry in entries {
-        let entry = entry?;
-        let name = entry.file_name();
-        if CODEX_KEPT_FILES.iter().any(|k| name == *k) {
-            continue;
-        }
-        let path = entry.path();
-        if entry.file_type()?.is_dir() {
-            std::fs::remove_dir_all(&path)?;
-        } else {
-            std::fs::remove_file(&path)?;
-        }
-    }
-    Ok(())
-}
+pub use crate::codex_home::*;
 
 /// Which model builds the compactor's nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

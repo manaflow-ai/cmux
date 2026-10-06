@@ -41,7 +41,7 @@ impl Interrupt {
 
     pub fn request(&self) {
         self.wanted.store(true, Ordering::SeqCst);
-        if let Some(tx) = self.wake.lock().expect("wake").as_ref() {
+        if let Some(tx) = self.wake.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
             let _ = tx.send(TurnSignal::Changed);
         }
     }
@@ -56,7 +56,7 @@ impl Interrupt {
     }
 
     fn wake_with(&self, tx: Option<Sender<TurnSignal>>) {
-        *self.wake.lock().expect("wake") = tx;
+        *self.wake.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = tx;
     }
 }
 

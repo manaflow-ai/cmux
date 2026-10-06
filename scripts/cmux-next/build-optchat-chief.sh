@@ -1,32 +1,36 @@
 #!/usr/bin/env bash
-# Build the OptChat Chief brain host (experiments/chief-optmem/optchat-chief)
-# for the cmux-next app bundle, the same way build-acpmux.sh builds acpmux:
+# Build the OptChat Chief brain host (cmux-tui/crates/optchat-chief, its own
+# Cargo workspace and lockfile) for the cmux-next app bundle, the same way build-acpmux.sh builds acpmux:
 # only on CI or a fleet build (CMUX_FLEET_BUILD_TAG), into an immutable,
 # commit-addressed cache that a later local reload may reuse. It never runs
 # Cargo on a developer machine, and --cached-only never builds.
 #
 # The app starts Contents/Resources/bin/optchat-chief as its Home brain host
-# when CMUX_NEXT_MUX_HOST names no other host (HomeBrainHost.swift).
+# when CMUX_NEXT_MUX_HOST names no other host (HomeBrainHost.swift). The
+# nightly-next build passes --output and hands the file to the Release build
+# through CMUX_NEXT_OPTCHAT_CHIEF_BIN (bundle-optchat-chief.sh).
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-crate="$repo_root/experiments/chief-optmem/optchat-chief"
+crate="$repo_root/cmux-tui/crates/optchat-chief"
 
 usage() {
-  sed -n '2,9p' "$0" | sed 's/^# //'
+  sed -n '2,12p' "$0" | sed 's/^# //'
   cat <<'USAGE'
 
-Usage: build-optchat-chief.sh [--cached-only] [--print-path]
+Usage: build-optchat-chief.sh [--output PATH] [--cached-only] [--print-path]
 Environment:
   CMUX_NEXT_OPTCHAT_CHIEF_ARCHS  arm64 and/or x86_64 (default: ARCHS, else the host)
   CMUX_NEXT_OPTCHAT_CHIEF_CACHE  cache root (default: <crate>/target/hosted)
 USAGE
 }
 
+output=""
 cached_only=0
 print_path=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --output) output="${2:?missing path after --output}"; shift 2 ;;
     --cached-only) cached_only=1; shift ;;
     --print-path) print_path=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -51,8 +55,21 @@ done
 cache_dir="${CMUX_NEXT_OPTCHAT_CHIEF_CACHE:-$crate/target/hosted}/$commit/${archs// /-}"
 cache_bin="$cache_dir/optchat-chief"
 
+# Copies the cached binary to --output (when given) and reports where it is.
+deliver() {
+  local found="$cache_bin" verb="$1"
+  if [[ -n "$output" && "$output" != "$cache_bin" ]]; then
+    mkdir -p "$(dirname "$output")"
+    cp -f "$cache_bin" "$output"
+    cp -f "$cache_bin.ref" "$output.ref" 2>/dev/null || true
+    chmod 755 "$output"
+    found="$output"
+  fi
+  if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$found"; else echo "optchat-chief $verb at $found"; fi
+}
+
 if [[ -x "$cache_bin" ]]; then
-  if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$cache_bin"; else echo "optchat-chief already cached at $cache_bin"; fi
+  deliver "already cached"
   exit 0
 fi
 if [[ "$cached_only" -eq 1 ]]; then
@@ -92,4 +109,4 @@ if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -creat
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
 printf '%s\n' "commit=$commit" "archs=$archs" "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
-if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$cache_bin"; else echo "built optchat-chief at $cache_bin"; fi
+deliver built

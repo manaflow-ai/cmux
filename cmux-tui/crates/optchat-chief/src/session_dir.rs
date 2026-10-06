@@ -169,12 +169,14 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     };
     write_if_changed(&paths.session.join(keep), text.as_bytes())?;
     remove_if_present(&paths.session.join(drop))?;
-    let pretty = |v: &Value| format!("{}\n", serde_json::to_string_pretty(v).expect("json"));
+    let pretty = |v: &Value| -> io::Result<String> {
+        Ok(format!("{}\n", serde_json::to_string_pretty(v).map_err(io::Error::other)?))
+    };
     write_if_changed(
         &paths.session.join(".mcp.json"),
-        pretty(&mcp_json(setup, paths)).as_bytes(),
+        pretty(&mcp_json(setup, paths))?.as_bytes(),
     )?;
-    let settings = pretty(&settings_json(setup, paths));
+    let settings = pretty(&settings_json(setup, paths))?;
     write_if_changed(
         &paths.session.join(".claude").join("settings.json"),
         settings.as_bytes(),
@@ -188,7 +190,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::create_dir_all(&paths.claude_config)?;
     write_if_changed(
         &paths.claude_config.join("settings.json"),
-        pretty(&claude_settings()).as_bytes(),
+        pretty(&claude_settings())?.as_bytes(),
     )?;
     let chief = paths.bin.join("chief");
     write_if_changed(&chief, launcher(setup).as_bytes())?;

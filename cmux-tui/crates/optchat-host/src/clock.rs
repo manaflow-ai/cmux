@@ -38,25 +38,25 @@ impl ManualClock {
 
     /// Moves time forward, waking every sleeper whose deadline passed.
     pub fn advance(&self, d: Duration) {
-        self.state.lock().expect("clock").now += d;
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).now += d;
         self.changed.notify_all();
     }
 
     /// Threads blocked in `sleep` now.
     pub fn sleepers(&self) -> usize {
-        self.state.lock().expect("clock").sleepers
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).sleepers
     }
 
     /// Blocks until at least `n` threads sleep, or `limit` of real time passes.
     pub fn wait_for_sleepers(&self, n: usize, limit: Duration) -> bool {
         let end = Instant::now() + limit;
-        let mut st = self.state.lock().expect("clock");
+        let mut st = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while st.sleepers < n {
             let left = end.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 return false;
             }
-            st = self.changed.wait_timeout(st, left).expect("clock").0;
+            st = self.changed.wait_timeout(st, left).unwrap_or_else(std::sync::PoisonError::into_inner).0;
         }
         true
     }
@@ -64,12 +64,12 @@ impl ManualClock {
 
 impl Clock for ManualClock {
     fn sleep(&self, d: Duration) {
-        let mut st = self.state.lock().expect("clock");
+        let mut st = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let deadline = st.now + d;
         st.sleepers += 1;
         self.changed.notify_all();
         while st.now < deadline {
-            st = self.changed.wait(st).expect("clock");
+            st = self.changed.wait(st).unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         st.sleepers -= 1;
         self.changed.notify_all();

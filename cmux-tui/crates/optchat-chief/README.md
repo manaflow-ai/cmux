@@ -51,12 +51,12 @@ tool calls".
 1. Build the macOS binary on a fleet Mac (cargo never runs on the laptop):
 
    ```bash
-   nx-remote --host cmux-mini-6 --xcode 26.6 --worktree "$PWD" --cwd experiments/chief-optmem/optchat-chief \
-     --fetch experiments/chief-optmem/optchat-chief/target/release/optchat-chief \
+   nx-remote --host cmux-mini-6 --xcode 26.6 --worktree "$PWD" --cwd cmux-tui/crates/optchat-chief \
+     --fetch cmux-tui/crates/optchat-chief/target/release/optchat-chief \
      -- bash -c "umask 022; OPTCHAT_BUILD_COMMIT=$(git rev-parse --short HEAD) cargo build --release"
    ```
 
-   Copy the fetched file to `experiments/chief-optmem/optchat-chief/dist/optchat-chief` (gitignored).
+   Copy the fetched file to `cmux-tui/crates/optchat-chief/dist/optchat-chief` (gitignored).
    Build with `OPTCHAT_BUILD_COMMIT=$(git rev-parse --short HEAD)` in the
    command's environment: the host's first log line names the build, so a
    dogfood run shows which code it runs. Rebuild before every dogfood run.

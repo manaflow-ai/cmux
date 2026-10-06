@@ -96,7 +96,7 @@ impl RpcClient {
                 }
                 closed.store(true, Ordering::SeqCst);
                 // Taking the map refuses later registrations and fails the waiting ones.
-                if let Some(pending) = waiters.lock().expect("waiters").take() {
+                if let Some(pending) = waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
                     for (_, tx) in pending {
                         let _ = tx.send(Err(RpcError::Closed));
                     }
@@ -118,7 +118,7 @@ impl RpcClient {
         let _ = self
             .writer
             .lock()
-            .expect("writer")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .shutdown(std::net::Shutdown::Both);
     }
 
@@ -132,7 +132,7 @@ impl RpcClient {
         let (tx, rx) = channel();
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         {
-            let mut waiters = self.waiters.lock().expect("waiters");
+            let mut waiters = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(map) = waiters.as_mut() else {
                 let _ = tx.send(Err(RpcError::Closed));
                 return (id, rx);
@@ -146,10 +146,10 @@ impl RpcClient {
         let sent = self
             .writer
             .lock()
-            .expect("writer")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .write_all(line.as_bytes());
         if sent.is_err()
-            && let Some(map) = self.waiters.lock().expect("waiters").as_mut()
+            && let Some(map) = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut()
             && let Some(tx) = map.remove(&id)
         {
             let _ = tx.send(Err(RpcError::Closed));
@@ -174,7 +174,7 @@ impl RpcClient {
             Ok(answer) => answer,
             Err(RecvTimeoutError::Disconnected) => Err(RpcError::Closed),
             Err(RecvTimeoutError::Timeout) => {
-                if let Some(map) = self.waiters.lock().expect("waiters").as_mut() {
+                if let Some(map) = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
                     map.remove(&id);
                 }
                 Err(RpcError::Timeout(deadline))
@@ -189,7 +189,7 @@ fn dispatch(waiters: &Waiters, on_notification: &impl Fn(Notification), message:
     if let (Some(id), true) = (id, is_response) {
         let tx = waiters
             .lock()
-            .expect("waiters")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_mut()
             .and_then(|m| m.remove(&id));
         if let Some(tx) = tx {

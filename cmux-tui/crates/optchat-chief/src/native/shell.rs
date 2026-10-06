@@ -49,12 +49,12 @@ impl Shell {
     }
 
     pub fn cwd(&self) -> PathBuf {
-        self.cwd.lock().expect("cwd").clone()
+        self.cwd.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// Back to the start directory (`{"restart": true}`).
     pub fn restart(&self) {
-        *self.cwd.lock().expect("cwd") = self.home.clone();
+        *self.cwd.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = self.home.clone();
     }
 
     /// Runs `command`; Err is a failure to run it at all. A non-zero exit is
@@ -79,7 +79,7 @@ impl Shell {
             .process_group(0)
             .spawn()
             .map_err(|e| format!("starting bash: {e}"))?;
-        let mut stdout = child.stdout.take().expect("piped stdout");
+        let mut stdout = child.stdout.take().ok_or_else(|| "bash has no stdout pipe".to_owned())?;
         let pid = child.id() as i32;
         let (tx, rx) = channel();
         let output = tx.clone();
@@ -152,7 +152,7 @@ impl Shell {
         if let Ok(dir) = std::fs::read_to_string(&self.pwd_file) {
             let dir = PathBuf::from(dir.trim_end_matches('\n'));
             if dir.is_dir() {
-                *self.cwd.lock().expect("cwd") = dir;
+                *self.cwd.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = dir;
             }
         }
         let mut text = String::from_utf8_lossy(&kept).into_owned();

@@ -284,8 +284,8 @@ fn connect(config: &LinkConfig) -> Result<(Client, Summary, cmux::raw::Stream), 
     let summary = match select_chief(listed) {
         Some(found) => found,
         None => {
-            let participants =
-                serde_json::to_value(participants(&config.display_name)).expect("participants");
+            let participants = serde_json::to_value(participants(&config.display_name))
+                .map_err(|e| ConnectError::Other(format!("participants: {e}")))?;
             let created = client
                 .conversation_create(ConversationCreateRequest {
                     actor: Optional::Value(USER_LOCAL.into()),
@@ -331,7 +331,8 @@ pub fn spawn_link(
     sink: Arc<dyn Fn(DaemonEvent) + Send + Sync>,
     log: Arc<dyn Fn(&str) + Send + Sync>,
 ) {
-    std::thread::Builder::new()
+    let fatal = sink.clone();
+    let spawned = std::thread::Builder::new()
         .name("daemon-link".into())
         .spawn(move || {
             let mut delay = Duration::from_millis(500);
@@ -390,6 +391,8 @@ pub fn spawn_link(
                 std::thread::sleep(delay);
                 delay = (delay * 2).min(Duration::from_secs(30));
             }
-        })
-        .expect("spawn daemon link");
+        });
+    if let Err(e) = spawned {
+        fatal(DaemonEvent::Fatal(format!("cannot start the daemon link thread: {e}")));
+    }
 }

@@ -19,7 +19,7 @@ Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
      CMUX_SOCKET_PATH, CMUX_MCP_COMMAND, OPTCHAT_ANTHROPIC_BASE_URL (compactor; the team subrouter)";
 
-fn main() {
+fn main() -> std::process::ExitCode {
     let started_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
@@ -135,7 +135,7 @@ fn main() {
             2
         }
     };
-    std::process::exit(code);
+    std::process::ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
 fn home(flags: &Flags) -> PathBuf {

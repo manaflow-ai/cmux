@@ -11,7 +11,7 @@ import os
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
 /// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
 /// builds bundle as Contents/Resources/bin/optchat-chief
-/// (scripts/cmux-next/bundle-optchat-chief.sh; experiments/chief-optmem,
+/// (scripts/cmux-next/bundle-optchat-chief.sh; cmux-tui/crates/optchat-chief,
 /// chief-done.md check 7: every Chief turn follows OptChat). Release builds
 /// carry neither: Home works and the Chief does not answer. Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.

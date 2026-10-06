@@ -110,7 +110,9 @@ impl Stream {
             };
             self.writer = Some((k as u32, file, len));
         }
-        let (k, file, len) = self.writer.as_mut().expect("writer opened above");
+        let Some((k, file, len)) = self.writer.as_mut() else {
+            return Err(io::Error::other("optchat: the day file did not open"));
+        };
         file.write_all(line.as_bytes())?;
         // On Apple platforms std's sync_all is F_FULLFSYNC, which reaches the disk.
         file.sync_all()?;
@@ -308,14 +310,14 @@ impl FileStore {
         let i = self.len();
         let loc = self
             .main
-            .append(&lines::main_line(i, kind, text, &lines::now_iso()))?;
+            .append(&lines::main_line(i, kind, text, &lines::now_iso())?)?;
         self.messages.push(loc);
         Ok(i)
     }
 
     /// Stores one built node (fsynced).
     pub fn append_node(&mut self, node: NodeId, text: &str) -> io::Result<()> {
-        let loc = self.tree.append(&lines::tree_line(node, text))?;
+        let loc = self.tree.append(&lines::tree_line(node, text)?)?;
         let level = node.l as usize;
         if self.nodes.len() <= level {
             self.nodes.resize_with(level + 1, Vec::new);
@@ -357,8 +359,10 @@ impl FileStore {
     fn read_main(&self, i: u64, loc: Loc) -> MainIn {
         let bytes = self
             .read(true, loc)
+            // crash-allow: Store is infallible; a fsynced record that reads back wrong is disk corruption, and the Chief host must stop before it summarizes garbage into the permanent tree (a panic ends this helper process, never the app).
             .unwrap_or_else(|e| panic!("optchat: cannot read message {i}: {e}"));
         serde_json::from_slice(&bytes)
+            // crash-allow: Store is infallible; a fsynced record that reads back wrong is disk corruption, and the Chief host must stop before it summarizes garbage into the permanent tree (a panic ends this helper process, never the app).
             .unwrap_or_else(|e| panic!("optchat: message {i} changed on disk: {e}"))
     }
 }
@@ -368,6 +372,7 @@ impl Store for FileStore {
         let loc = self.messages[i as usize];
         let m = self.read_main(i, loc);
         let kind =
+            // crash-allow: Store is infallible; a fsynced record that reads back wrong is disk corruption, and the Chief host must stop before it summarizes garbage into the permanent tree (a panic ends this helper process, never the app).
             Kind::parse(&m.kind).unwrap_or_else(|| panic!("optchat: message {i} changed on disk"));
         (kind, m.text)
     }
@@ -379,8 +384,10 @@ impl Store for FileStore {
         }
         let bytes = self
             .read(false, loc)
+            // crash-allow: Store is infallible; a fsynced record that reads back wrong is disk corruption, and the Chief host must stop before it summarizes garbage into the permanent tree (a panic ends this helper process, never the app).
             .unwrap_or_else(|e| panic!("optchat: cannot read node {}: {e}", id.name()));
         let node: TreeIn = serde_json::from_slice(&bytes)
+            // crash-allow: Store is infallible; a fsynced record that reads back wrong is disk corruption, and the Chief host must stop before it summarizes garbage into the permanent tree (a panic ends this helper process, never the app).
             .unwrap_or_else(|e| panic!("optchat: node {} changed on disk: {e}", id.name()));
         Some(node.text)
     }

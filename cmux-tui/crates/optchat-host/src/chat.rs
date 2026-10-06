@@ -251,7 +251,7 @@ impl OptChat {
                     .shared
                     .changed
                     .wait(st)
-                    .expect("optchat state poisoned"),
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
                 Some(end) => {
                     let left = end.saturating_duration_since(Instant::now());
                     if left.is_zero() {
@@ -260,7 +260,7 @@ impl OptChat {
                     self.shared
                         .changed
                         .wait_timeout(st, left)
-                        .expect("optchat state poisoned")
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .0
                 }
             };
@@ -344,7 +344,7 @@ impl OptChat {
         st.closed = true;
         self.shared.changed.notify_all();
         self.shared.unlock(st);
-        drop(self.lock.lock().expect("optchat lock poisoned").take());
+        drop(self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
     }
 }
 

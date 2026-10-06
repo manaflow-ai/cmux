@@ -53,7 +53,7 @@ pub struct TreeIn {
 
 /// One message line, newline included. serde_json escapes newlines in the
 /// text, so a message is always exactly one line.
-pub fn main_line(i: u64, kind: Kind, text: &str, date: &str) -> String {
+pub fn main_line(i: u64, kind: Kind, text: &str, date: &str) -> std::io::Result<String> {
     let kind = kind.as_str();
     let out = MainOut {
         i,
@@ -62,22 +62,22 @@ pub fn main_line(i: u64, kind: Kind, text: &str, date: &str) -> String {
         size: kind.len() + 2 + text.len(),
         date,
     };
-    let mut line = serde_json::to_string(&out).expect("a message serializes");
+    let mut line = serde_json::to_string(&out).map_err(std::io::Error::other)?;
     line.push('\n');
-    line
+    Ok(line)
 }
 
 /// One node line, newline included.
-pub fn tree_line(node: NodeId, text: &str) -> String {
+pub fn tree_line(node: NodeId, text: &str) -> std::io::Result<String> {
     let out = TreeOut {
         l: node.l,
         i: node.i,
         text,
         size: text.len(),
     };
-    let mut line = serde_json::to_string(&out).expect("a node serializes");
+    let mut line = serde_json::to_string(&out).map_err(std::io::Error::other)?;
     line.push('\n');
-    line
+    Ok(line)
 }
 
 /// The local day a line written now goes to.

@@ -135,7 +135,7 @@ fn append(block: &mut Value, key: &str, text: &str) {
 /// Reads an SSE body line by line into an assembler.
 #[cfg(test)]
 pub fn read(body: impl std::io::BufRead) -> Result<Value, String> {
-    read_until(body, &|| false).map(|m| m.expect("never stopped"))
+    read_until(body, &|| false)?.ok_or_else(|| "the stream stopped".to_owned())
 }
 
 /// `read`, checking `stop` after every event: Ok(None) when it said so (the
