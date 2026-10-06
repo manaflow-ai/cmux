@@ -33,6 +33,7 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
         tableScroll.documentView = table
         scrollFit = ScrollFitElasticity(scrollView: tableScroll)
         tableScroll.hasVerticalScroller = true
+        SystemScrollers.follow(tableScroll)
         tableScroll.drawsBackground = false
 
         valueView.isEditable = false
@@ -41,6 +42,7 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
         let valueScroll = NSScrollView()
         valueScroll.documentView = valueView
         valueScroll.hasVerticalScroller = true
+        SystemScrollers.follow(valueScroll)
         valueScroll.drawsBackground = false
         valueView.autoresizingMask = [.width]
 

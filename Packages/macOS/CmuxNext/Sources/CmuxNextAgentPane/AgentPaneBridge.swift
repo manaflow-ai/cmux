@@ -30,8 +30,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
                 replyHandler(AgentPaneModel.transportReply(error), nil)
             }
         }
-        // Transport requests carry chat content and run per batch: not logged.
-        if !request.isTransport {
+        // Transport and shell requests carry chat content or commands and run often: not logged.
+        if !request.isTransport, !request.isShell {
             logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
         }
         // task-owner: one page request; its reply goes back through replyHandler

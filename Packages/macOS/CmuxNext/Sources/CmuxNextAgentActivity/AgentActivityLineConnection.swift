@@ -1,12 +1,12 @@
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 import Network
 import Synchronization
 
 /// A line-delimited JSON connection to a Unix socket (the CUA host's
 /// framing). All state lives on one private serial queue; callbacks run there
 /// and callers hop to their own actor.
-nonisolated final class AgentActivityLineConnection: @unchecked Sendable {
+public nonisolated final class AgentActivityLineConnection: @unchecked Sendable {
     private let queue = DispatchQueue(label: "cmux.agent-activity.socket")
     private let connection: NWConnection
     private var buffer = Data()
@@ -18,11 +18,11 @@ nonisolated final class AgentActivityLineConnection: @unchecked Sendable {
     /// Largest line accepted (a full frame is base64 PNG).
     static let maxLine = 64 * 1024 * 1024
 
-    init(path: String) {
+    public init(path: String) {
         connection = NWConnection(to: .unix(path: path), using: .tcp)
     }
 
-    func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
+    public func start(send: Data, onLine: @escaping @Sendable (Data) -> Void, onClose: @escaping @Sendable () -> Void) {
         queue.async { [self] in
             self.onLine = onLine
             self.onClose = onClose
@@ -52,7 +52,7 @@ nonisolated final class AgentActivityLineConnection: @unchecked Sendable {
         }
     }
 
-    func cancel() {
+    public func cancel() {
         queue.async { [self] in
             onClose = nil
             onLine = nil

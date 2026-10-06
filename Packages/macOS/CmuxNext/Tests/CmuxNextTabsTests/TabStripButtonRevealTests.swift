@@ -142,6 +142,29 @@ import Testing
         }
     }
 
+    /// TAB-STRIP-TRAILING-BUTTONS-REMOVED follow-up: the plus is a hover
+    /// reveal, so a VoiceOver user never hovers it. It shows while VoiceOver
+    /// focuses the strip, one of its tabs, or the plus itself.
+    @Test func voiceOverFocusInTheStripRevealsThePlus() throws {
+        try withHarness { h in
+            #expect(!h.plusVisible)
+            h.strip.setAccessibilityFocused(true)
+            #expect(h.plusVisible, "VoiceOver on the strip")
+            h.strip.setAccessibilityFocused(false)
+            #expect(!h.plusVisible)
+
+            let tab = try #require(h.strip.accessibilityChildren()?.first as? NSAccessibilityElement)
+            tab.setAccessibilityFocused(true)
+            #expect(h.plusVisible, "VoiceOver on a tab")
+            // Focus moves from the tab to the plus: it stays shown throughout.
+            h.strip.newTabButton.setAccessibilityFocused(true)
+            tab.setAccessibilityFocused(false)
+            #expect(h.plusVisible, "VoiceOver on the plus")
+            h.strip.newTabButton.setAccessibilityFocused(false)
+            #expect(!h.plusVisible, "VoiceOver left the strip")
+        }
+    }
+
     /// `tabs.plusButton` = always keeps the plus shown at rest; back to
     /// hover hides it again.
     @Test func plusButtonAlwaysKeepsThePlusShown() {

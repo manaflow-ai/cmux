@@ -13,7 +13,7 @@ use super::*;
 pub fn files_page() -> String {
     "<!doctype html><title>Files</title>\
      <button id=picker style=\"position:fixed;left:0;top:0;width:200px;height:100px\" \
-       onclick=\"window.picks = (window.picks || 0) + 1; document.getElementById('hidden').click()\">Pick</button>\
+       onclick=\"document.getElementById('hidden').click()\">Pick</button>\
      <button id=later style=\"position:fixed;left:300px;top:0;width:200px;height:100px\" \
        onclick=\"setTimeout(() => document.getElementById('hidden').click(), 1500)\">Later</button>\
      <input id=one type=file style=\"position:fixed;left:0;top:120px\">\
@@ -288,12 +288,12 @@ fn only_the_choosers_session_answers_it_and_its_end_cancels_it() {
 }
 
 /// An Xvfb display for a headful browser, stopped (exact PID) on drop.
-struct Display(std::process::Child, String);
+pub(crate) struct Display(std::process::Child, pub(crate) String);
 
 impl Display {
     /// Xvfb picks a free display and writes its number when it is ready
     /// (`-displayfd`).
-    fn start() -> Display {
+    pub(crate) fn start() -> Display {
         let mut child = std::process::Command::new("Xvfb")
             .args(["-displayfd", "1", "-screen", "0", "1280x800x24", "-nolisten", "tcp"])
             .stdout(std::process::Stdio::piped())
@@ -382,20 +382,8 @@ fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
         assert!(Instant::now() < deadline, "the page never loaded");
         std::thread::sleep(Duration::from_millis(20));
     }
-    // The session's own tab: the chooser is the session's. A headful tab
-    // sometimes drops the click handler of its first click (the press lands:
-    // the page has user activation); click until the page counted one.
-    for _ in 0..3 {
-        click(&a, &target, 50);
-        let picks = a.call(
-            "frame.evaluate",
-            &json!({"targetId": target, "world": "page",
-            "source": "() => window.picks || 0"}),
-        );
-        if picks.ok().and_then(|p| p.as_i64()).unwrap_or(0) > 0 {
-            break;
-        }
-    }
+    // The session's own tab: the chooser is the session's.
+    click(&a, &target, 50);
     let deadline = Instant::now() + Duration::from_secs(5);
     let chooser = loop {
         let found =
@@ -453,8 +441,76 @@ fn headless_cancels_and_logs_a_chooser_no_session_takes() {
     assert_eq!(choosers_in_mode(true), (true, "hidden: cancel".to_owned(), 1));
 }
 
+/// The person's chooser is not intercepted (no D2 entry); what the
+/// browser's own panel then does depends on the display (bare Xvfb has no
+/// file dialog, so it may cancel), so the page's text is not checked.
 #[test]
 #[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME and Xvfb; run explicitly with --ignored"]
 fn headful_leaves_a_persons_chooser_to_the_browser() {
-    assert_eq!(choosers_in_mode(false), (true, "none".to_owned(), 0));
+    let (session_got_its_chooser, _page, unrouted) = choosers_in_mode(false);
+    assert!(session_got_its_chooser, "the session's own tab intercepts");
+    assert_eq!(unrouted, 0, "the person's chooser was intercepted and D2-cancelled");
+}
+
+/// `/clicks`: one button over the page that logs its pointer and mouse
+/// events (`#log`).
+pub fn clicks_page() -> String {
+    "<!doctype html><title>Clicks</title><button id=b style=\"position:fixed;left:0;top:0;width:400px;height:300px\">Click</button>\
+     <p id=log style=\"position:fixed;left:0;top:320px\"></p><script>\
+     for (const t of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) addEventListener(t, (e) => {\
+       document.getElementById('log').textContent += t + ';'; }, true); window.ready = true;</script>"
+        .to_owned()
+}
+
+/// A headful tab gets the click of its first agent click: one move, press
+/// and release in each of several fresh tabs, each must fire `click`.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME and Xvfb; run explicitly with --ignored"]
+fn a_headful_tab_gets_its_first_click() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource};
+    let port = serve();
+    let display = Display::start();
+    let mut options = HeadlessOptions::new(chrome().into());
+    options.headless = false;
+    options.extra_args = vec![format!("--display={}", display.1), "--ozone-platform=x11".into()];
+    let source = HeadlessSource::launch(&options, Arc::from(AGENT), "agent").expect("launch");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let a = sessions::headless_session(&source, &browsers, "a");
+    let mut logs = Vec::new();
+    for _ in 0..5 {
+        let target = a
+            .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/clicks")}))
+            .unwrap()["targetId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while a
+            .call("frame.evaluate", &json!({"targetId": target, "world": "page", "source": "() => window.ready === true"}))
+            .ok()
+            != Some(json!(true))
+        {
+            assert!(Instant::now() < deadline, "the page never loaded");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        a.call("input.mouse", &json!({"targetId": target, "type": "move", "x": 100, "y": 100}))
+            .unwrap();
+        for kind in ["down", "up"] {
+            a.call(
+                "input.mouse",
+                &json!({"targetId": target, "type": kind, "x": 100, "y": 100, "button": "left", "clickCount": 1}),
+            )
+            .unwrap();
+        }
+        let log = a
+            .call(
+                "frame.evaluate",
+                &json!({"targetId": target, "world": "page",
+                "source": "() => document.getElementById('log').textContent"}),
+            )
+            .unwrap();
+        logs.push(log.as_str().unwrap_or("").to_owned());
+        a.call("tabs.close", &json!({"targetId": target})).unwrap();
+    }
+    assert!(logs.iter().all(|log| log.ends_with("click;")), "{logs:?}");
 }

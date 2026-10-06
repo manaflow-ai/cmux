@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1.
+// cmux-tui mux protocol 12, IR 55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -344,6 +344,17 @@ pub struct ConversationChange {
     pub seq: Option<u64>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationImportMessage {
+    pub author: String,
+    pub client_msg_id: String,
+    pub created_at: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub id: Optional<String>,
+    pub parts: Vec<ConversationPart>,
 }
 
 #[rustfmt::skip]

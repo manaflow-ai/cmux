@@ -133,7 +133,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID)
                 }
-                browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL).apply(to: &item)
+                browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
             }
             return item
         }
@@ -158,14 +158,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
                         generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue))
     }
 
-    /// The favicon, throbber or globe of browser tab `key`: its live page's
-    /// load state and favicon, else the favicon its record names.
-    private func browserIcon(key: String, recordFavicon: String?) -> BrowserTabIconState {
+    /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
+    /// address, load state and favicon, else the address and favicon its record names.
+    private func browserIcon(key: String, recordFavicon: String?, recordURL: String? = nil) -> BrowserTabIconState {
         _ = services.cache.pageInstalls.revision
         let page = services.cache.existingBrowser(key)?.tab.state
         let address = page.map { $0.faviconURL?.absoluteString } ?? recordFavicon
         let image = services.favicons.image(for: address, profile: services.browserProfiles.engineProfile(forTab: key))
-        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image)
+        let url = page?.url ?? recordURL.flatMap(URL.init(string:))
+        return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url)
     }
 
     /// Pushes daemon truth into the strip. `force` resets optimistic strip

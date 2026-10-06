@@ -61,7 +61,11 @@ export type CodeBlockProps = {
  * monospace text; any other is highlighted (`HighlightedCode`).
  */
 export function CodeBlock(props: CodeBlockProps) {
-  return highlightsCode(props.code) ? <HighlightedCode {...props} /> : <PlainCode code={props.code} lang={props.lang ?? "text"} />;
+  return highlightsCode(props.code) ? (
+    <HighlightedCode {...props} />
+  ) : (
+    <PlainCode code={props.code} lang={props.lang ?? "text"} />
+  );
 }
 
 /**

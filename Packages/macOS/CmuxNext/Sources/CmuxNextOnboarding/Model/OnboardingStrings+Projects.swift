@@ -30,7 +30,12 @@ extension OnboardingStrings {
         case .downloads: String(localized: "onboarding.projects.folder.downloads", defaultValue: "Downloads", bundle: .module)
         case .iCloudDrive: String(localized: "onboarding.projects.folder.iCloudDrive", defaultValue: "iCloud Drive", bundle: .module)
         case .cloudStorage: String(localized: "onboarding.projects.folder.cloudStorage", defaultValue: "cloud storage folders", bundle: .module)
+        case .pictures: String(localized: "onboarding.projects.folder.pictures", defaultValue: "Pictures", bundle: .module)
+        case .music: String(localized: "onboarding.projects.folder.music", defaultValue: "Music", bundle: .module)
+        case .movies: String(localized: "onboarding.projects.folder.movies", defaultValue: "Movies", bundle: .module)
+        case .appData: String(localized: "onboarding.projects.folder.appData", defaultValue: "other apps’ data", bundle: .module)
         case .volumes: String(localized: "onboarding.projects.folder.volumes", defaultValue: "other drives", bundle: .module)
+        case .network: String(localized: "onboarding.projects.folder.network", defaultValue: "network drives", bundle: .module)
         }
     }
 }

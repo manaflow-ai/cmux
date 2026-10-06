@@ -132,137 +132,6 @@
         }
       }
     },
-    "home.chief.memoryScope.deviceOnly": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This Chief remembers on this device only."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この Chief はこのデバイスでのみ記憶します。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتذكر Chief هذا على هذا الجهاز فقط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ovaj Chief pamti samo na ovom uređaju."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne Chief husker kun på denne enhed."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dieser Chief merkt sich Dinge nur auf diesem Gerät."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este Chief solo recuerda en este dispositivo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ce Chief ne mémorise que sur cet appareil."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Questo Chief ricorda solo su questo dispositivo."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief នេះចងចាំតែនៅលើឧបករណ៍នេះប៉ុណ្ណោះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 Chief는 이 기기에서만 기억합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne Chief husker bare på denne enheten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ten Chief zapamiętuje tylko na tym urządzeniu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este Chief lembra apenas neste dispositivo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Этот Chief запоминает только на этом устройстве."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief นี้จดจำได้เฉพาะบนอุปกรณ์นี้เท่านั้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu Chief yalnızca bu cihazda hatırlar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Цей Chief запам’ятовує лише на цьому пристрої."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief này chỉ ghi nhớ trên thiết bị này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此 Chief 仅在这台设备上记忆。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此 Chief 僅在這台裝置上記憶。"
-          }
-        }
-      }
-    },
     "home.firstRun.suggestion": {
       "extractionState": "manual",
       "localizations": {
@@ -2374,138 +2243,6 @@
         }
       }
     },
-    "home.send.unanswered": {
-      "comment": "Home composer notice: a tapback or read cursor ran out of resends unanswered.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A change may not have gone through. Check your connection."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ربما لم يتم تطبيق تغيير. تحقق من اتصالك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Promjena možda nije prošla. Provjerite vezu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En ændring er måske ikke gået igennem. Tjek din forbindelse."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eine Änderung wurde möglicherweise nicht übernommen. Prüfe deine Verbindung."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Puede que un cambio no se haya aplicado. Comprueba tu conexión."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Une modification n’a peut-être pas été prise en compte. Vérifiez votre connexion."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una modifica potrebbe non essere stata applicata. Controlla la connessione."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "変更が反映されていない可能性があります。接続を確認してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការផ្លាស់ប្តូរអាចមិនបានសម្រេច។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "변경 사항이 적용되지 않았을 수 있습니다. 연결을 확인하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En endring ble kanskje ikke gjennomført. Sjekk tilkoblingen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zmiana mogła nie zostać zastosowana. Sprawdź połączenie."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma alteração pode não ter sido aplicada. Verifique sua conexão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Изменение могло не примениться. Проверьте подключение."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเปลี่ยนแปลงอาจไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir değişiklik uygulanmamış olabilir. Bağlantınızı kontrol edin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Зміну могло не застосовано. Перевірте підключення."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Một thay đổi có thể chưa được áp dụng. Hãy kiểm tra kết nối."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "某项更改可能未生效。请检查你的网络连接。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "某項變更可能未生效。請檢查你的網路連線。"
-          }
-        }
-      }
-    },
     "home.send.attachmentsUnsupported": {
       "comment": "Home composer notice: a send with attachments was not delivered because this conversation's owner stores no attachments.",
       "extractionState": "manual",
@@ -2638,133 +2375,134 @@
         }
       }
     },
-    "home.firstRun.lead": {
+    "home.send.unanswered": {
+      "comment": "Home composer notice: a tapback or read cursor ran out of resends unanswered.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask Chief below, or start something new."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下で Chief に聞くか、新しく始めましょう。"
+            "value": "A change may not have gone through. Check your connection."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اسأل Chief أدناه، أو ابدأ شيئًا جديدًا."
+            "value": "ربما لم يتم تطبيق تغيير. تحقق من اتصالك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pitajte Chief ispod ili započnite nešto novo."
+            "value": "Promjena možda nije prošla. Provjerite vezu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spørg Chief nedenfor, eller start noget nyt."
+            "value": "En ændring er måske ikke gået igennem. Tjek din forbindelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Frag unten Chief oder starte etwas Neues."
+            "value": "Eine Änderung wurde möglicherweise nicht übernommen. Prüfe deine Verbindung."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pregunta a Chief abajo o empieza algo nuevo."
+            "value": "Puede que un cambio no se haya aplicado. Comprueba tu conexión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Demandez à Chief ci-dessous, ou lancez quelque chose de nouveau."
+            "value": "Une modification n’a peut-être pas été prise en compte. Vérifiez votre connexion."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiedi a Chief qui sotto o inizia qualcosa di nuovo."
+            "value": "Una modifica potrebbe non essere stata applicata. Controlla la connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "変更が反映されていない可能性があります。接続を確認してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សួរ Chief ខាងក្រោម ឬចាប់ផ្ដើមអ្វីថ្មី។"
+            "value": "ការផ្លាស់ប្តូរអាចមិនបានសម្រេច។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아래에서 Chief에게 묻거나 새로 시작하세요."
+            "value": "변경 사항이 적용되지 않았을 수 있습니다. 연결을 확인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spør Chief nedenfor, eller start noe nytt."
+            "value": "En endring ble kanskje ikke gjennomført. Sjekk tilkoblingen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zapytaj Chief poniżej albo zacznij coś nowego."
+            "value": "Zmiana mogła nie zostać zastosowana. Sprawdź połączenie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pergunte ao Chief abaixo ou comece algo novo."
+            "value": "Uma alteração pode não ter sido aplicada. Verifique sua conexão."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спросите Chief ниже или начните что-то новое."
+            "value": "Изменение могло не примениться. Проверьте подключение."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ถาม Chief ด้านล่าง หรือเริ่มสิ่งใหม่"
+            "value": "การเปลี่ยนแปลงอาจไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aşağıda Chief'e sorun ya da yeni bir şey başlatın."
+            "value": "Bir değişiklik uygulanmamış olabilir. Bağlantınızı kontrol edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запитайте Chief нижче або почніть щось нове."
+            "value": "Зміну могло не застосовано. Перевірте підключення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hỏi Chief bên dưới hoặc bắt đầu việc mới."
+            "value": "Một thay đổi có thể chưa được áp dụng. Hãy kiểm tra kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在下方询问 Chief，或开始新的工作。"
+            "value": "某项更改可能未生效。请检查你的网络连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在下方詢問 Chief，或開始新的工作。"
+            "value": "某項變更可能未生效。請檢查你的網路連線。"
           }
         }
       }
