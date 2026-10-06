@@ -604,7 +604,8 @@ fn the_local_user_imports_history_once_with_its_own_authors_and_times() {
     assert_eq!(changed.len(), 1, "one conversation-changed for the import: {changed:?}");
     assert_eq!(changed[0]["change"]["kind"], "conversation");
     let snapshot =
-        run(&mux, client, json!({"cmd":"conversation-snapshot","conversation":id,"tail":10})).unwrap();
+        run(&mux, client, json!({"cmd":"conversation-snapshot","conversation":id,"tail":10}))
+            .unwrap();
     let messages = snapshot["messages"].as_array().unwrap();
     assert_eq!(messages[0]["created_at"], "2026-10-06T03:06:01.998Z");
     assert_eq!(messages[1]["author"], "agent_mux");

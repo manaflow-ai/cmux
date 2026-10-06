@@ -216,7 +216,9 @@ pub(super) fn import(mux: &Mux, client: u64, params: ImportParams) -> anyhow::Re
             })))
         },
     )?;
-    Ok(json!({"conversation": outcome.summary, "imported": outcome.imported, "skipped": outcome.skipped}))
+    Ok(
+        json!({"conversation": outcome.summary, "imported": outcome.imported, "skipped": outcome.skipped}),
+    )
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {

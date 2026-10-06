@@ -11,12 +11,14 @@
 //! forwards the command.
 
 use anyhow::Context;
-use cmux_conversation::{Message, ParticipantKind, Part, Reject, Summary, summary, valid_token};
+use cmux_conversation::{Message, Part, ParticipantKind, Reject, Summary, summary, valid_token};
 use rusqlite::{TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-use super::{ConversationStore, load_head, load_message_by_seq, new_id, rejected, write_head, write_message};
+use super::{
+    ConversationStore, load_head, load_message_by_seq, new_id, rejected, write_head, write_message,
+};
 
 /// One message to import, as the store it comes from had it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -59,31 +61,54 @@ fn valid_time(text: &str) -> bool {
 impl ConversationStore {
     /// Appends `messages` to `conversation` in one transaction with their own
     /// authors and times. One rev for the whole import.
-    pub(crate) fn import(&mut self, conversation: &str, messages: &[ImportedMessage]) -> anyhow::Result<ImportOutcome> {
+    pub(crate) fn import(
+        &mut self,
+        conversation: &str,
+        messages: &[ImportedMessage],
+    ) -> anyhow::Result<ImportOutcome> {
         let now_ms = crate::workspace_registry::unix_epoch_ms()?;
         let now = cmux_conversation::format_rfc3339_millis(now_ms);
-        let transaction = self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut head = load_head(&transaction, conversation)?.ok_or_else(|| rejected(Reject::UnknownConversation))?;
+        let transaction =
+            self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut head = load_head(&transaction, conversation)?
+            .ok_or_else(|| rejected(Reject::UnknownConversation))?;
         let mut previous: Option<&str> = None;
         for message in messages {
             if head.participant(&message.author).is_none() {
                 return Err(rejected(Reject::NotParticipant));
             }
-            anyhow::ensure!(valid_token(&message.client_msg_id), "bad request: client_msg_id must be 1-128 printable ASCII characters");
-            anyhow::ensure!(!message.parts.is_empty(), "bad request: an imported message needs parts");
-            anyhow::ensure!(valid_time(&message.created_at), "bad request: created_at must be YYYY-MM-DDTHH:MM:SS.mmmZ");
-            anyhow::ensure!(message.created_at <= now, "bad request: import_out_of_order: created_at is in the future");
+            anyhow::ensure!(
+                valid_token(&message.client_msg_id),
+                "bad request: client_msg_id must be 1-128 printable ASCII characters"
+            );
+            anyhow::ensure!(
+                !message.parts.is_empty(),
+                "bad request: an imported message needs parts"
+            );
+            anyhow::ensure!(
+                valid_time(&message.created_at),
+                "bad request: created_at must be YYYY-MM-DDTHH:MM:SS.mmmZ"
+            );
+            anyhow::ensure!(
+                message.created_at <= now,
+                "bad request: import_out_of_order: created_at is in the future"
+            );
             if let Some(previous) = previous {
-                anyhow::ensure!(previous <= message.created_at.as_str(), "bad request: import_out_of_order: created_at goes backward");
+                anyhow::ensure!(
+                    previous <= message.created_at.as_str(),
+                    "bad request: import_out_of_order: created_at goes backward"
+                );
             }
             previous = Some(&message.created_at);
         }
         let mut held_keys = HashSet::new();
         let mut held_ids = HashSet::new();
         {
-            let mut statement = transaction.prepare("SELECT message_json FROM message WHERE conversation = ?1")?;
+            let mut statement =
+                transaction.prepare("SELECT message_json FROM message WHERE conversation = ?1")?;
             for row in statement.query_map(params![conversation], |row| row.get::<_, String>(0))? {
-                let held: Message = serde_json::from_str(&row?).context("conversation message is corrupt")?;
+                let held: Message =
+                    serde_json::from_str(&row?).context("conversation message is corrupt")?;
                 held_keys.insert((held.author.clone(), held.client_msg_id.clone()));
                 held_ids.insert(held.id);
             }
@@ -92,17 +117,27 @@ impl ConversationStore {
         let mut skipped = 0;
         for message in messages {
             let id_taken = match &message.id {
-                Some(id) => held_ids.contains(id)
-                    || transaction.query_row("SELECT 1 FROM message WHERE id = ?1", params![id], |_| Ok(())).is_ok(),
+                Some(id) => {
+                    held_ids.contains(id)
+                        || transaction
+                            .query_row("SELECT 1 FROM message WHERE id = ?1", params![id], |_| {
+                                Ok(())
+                            })
+                            .is_ok()
+                }
                 None => false,
             };
-            if held_keys.contains(&(message.author.clone(), message.client_msg_id.clone())) || id_taken {
+            if held_keys.contains(&(message.author.clone(), message.client_msg_id.clone()))
+                || id_taken
+            {
                 skipped += 1;
             } else {
                 fresh.push(message);
             }
         }
-        if let (Some(first), Some(last)) = (fresh.first(), load_message_by_seq(&transaction, conversation, head.last_seq)?) {
+        if let (Some(first), Some(last)) =
+            (fresh.first(), load_message_by_seq(&transaction, conversation, head.last_seq)?)
+        {
             anyhow::ensure!(
                 first.created_at >= last.created_at,
                 "bad request: import_out_of_order: the conversation already holds newer messages"
@@ -115,7 +150,8 @@ impl ConversationStore {
                 Some(id) => id.clone(),
                 None => new_id("msg_", now_ms)?,
             };
-            let human = head.participant(&message.author).is_some_and(|p| p.kind == ParticipantKind::Human);
+            let human =
+                head.participant(&message.author).is_some_and(|p| p.kind == ParticipantKind::Human);
             if human {
                 head.agent_text_streak = 0;
             } else {
@@ -180,14 +216,27 @@ mod tests {
     fn history() -> Vec<ImportedMessage> {
         vec![
             message("msg_b1", "user_local", "cmk_1", "hi", "2026-10-06T03:06:01.998Z"),
-            message("msg_b2", "agent_mux", "turn:optchat:0:x", "Hello.", "2026-10-06T03:06:04.622Z"),
-            message("msg_c1", "user_local", "cmk_3", "What are my agents doing?", "2026-10-06T04:55:30.495Z"),
+            message(
+                "msg_b2",
+                "agent_mux",
+                "turn:optchat:0:x",
+                "Hello.",
+                "2026-10-06T03:06:04.622Z",
+            ),
+            message(
+                "msg_c1",
+                "user_local",
+                "cmk_3",
+                "What are my agents doing?",
+                "2026-10-06T04:55:30.495Z",
+            ),
         ]
     }
 
     fn store_with_chief() -> (ConversationStore, String) {
         let mut store = ConversationStore::open(None).unwrap();
-        let id = store.create("home-chief", "user_local", "Chief", &participants()).unwrap().summary.id;
+        let id =
+            store.create("home-chief", "user_local", "Chief", &participants()).unwrap().summary.id;
         (store, id)
     }
 
@@ -200,12 +249,18 @@ mod tests {
         assert_eq!(outcome.summary.last_seq, 3);
         assert_eq!(outcome.summary.rev, 2, "one rev for the whole import");
         let (_, messages) = store.snapshot(&id, 10).unwrap();
-        let shown: Vec<_> = messages.iter().map(|m| (m.seq, m.id.as_str(), m.author.as_str(), m.created_at.as_str())).collect();
-        assert_eq!(shown, vec![
-            (1, "msg_b1", "user_local", "2026-10-06T03:06:01.998Z"),
-            (2, "msg_b2", "agent_mux", "2026-10-06T03:06:04.622Z"),
-            (3, "msg_c1", "user_local", "2026-10-06T04:55:30.495Z"),
-        ]);
+        let shown: Vec<_> = messages
+            .iter()
+            .map(|m| (m.seq, m.id.as_str(), m.author.as_str(), m.created_at.as_str()))
+            .collect();
+        assert_eq!(
+            shown,
+            vec![
+                (1, "msg_b1", "user_local", "2026-10-06T03:06:01.998Z"),
+                (2, "msg_b2", "agent_mux", "2026-10-06T03:06:04.622Z"),
+                (3, "msg_c1", "user_local", "2026-10-06T04:55:30.495Z"),
+            ]
+        );
     }
 
     #[test]
@@ -244,9 +299,13 @@ mod tests {
         assert!(store.import(&id, &backward).unwrap_err().to_string().contains("goes backward"));
         let future = vec![message("msg_f", "user_local", "cmk_f", "x", "2999-01-01T00:00:00.000Z")];
         assert!(store.import(&id, &future).unwrap_err().to_string().contains("future"));
-        let stranger = vec![message("msg_s", "agent_other", "cmk_s", "x", "2026-10-06T03:00:00.000Z")];
+        let stranger =
+            vec![message("msg_s", "agent_other", "cmk_s", "x", "2026-10-06T03:00:00.000Z")];
         let error = store.import(&id, &stranger).unwrap_err();
-        assert_eq!(error.downcast_ref::<super::super::ConversationRejected>().map(|r| r.0), Some(Reject::NotParticipant));
+        assert_eq!(
+            error.downcast_ref::<super::super::ConversationRejected>().map(|r| r.0),
+            Some(Reject::NotParticipant)
+        );
         let bad_time = vec![message("msg_t", "user_local", "cmk_t", "x", "2026-10-06T03:00:00Z")];
         assert!(store.import(&id, &bad_time).is_err());
         assert_eq!(store.snapshot(&id, 10).unwrap().0.last_seq, 0);
@@ -254,11 +313,16 @@ mod tests {
 
     #[test]
     fn an_imported_history_survives_a_reopen() {
-        let directory = std::env::temp_dir().join(format!("cmux-import-{}", crate::workspace_registry::new_uuid_v4()));
+        let directory = std::env::temp_dir()
+            .join(format!("cmux-import-{}", crate::workspace_registry::new_uuid_v4()));
         std::fs::create_dir_all(&directory).unwrap();
         let id = {
             let mut store = ConversationStore::open(Some(&directory)).unwrap();
-            let id = store.create("home-chief", "user_local", "Chief", &participants()).unwrap().summary.id;
+            let id = store
+                .create("home-chief", "user_local", "Chief", &participants())
+                .unwrap()
+                .summary
+                .id;
             store.import(&id, &history()).unwrap();
             id
         };
