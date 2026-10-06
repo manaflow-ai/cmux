@@ -50,6 +50,8 @@ def rpc(method, params=None, notify=False):
             return reply
 rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "flicker", "version": "1"}})
 rpc("notifications/initialized", notify=True)
+# The agent cursor overlay glides to each click: it would read as app motion.
+rpc("tools/call", {"name": "set_agent_cursor_enabled", "arguments": {"enabled": False}})
 rpc("tools/call", {"name": "start_recording", "arguments": {"output_dir": out, "record_video": True}})
 start = time.time()
 for step in steps:
