@@ -356,6 +356,12 @@ async function stripePersonalCheckout(
       return NextResponse.redirect(portalURL);
     }
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
+    // An App Store subscriber changes plans in the App Store; a Stripe
+    // subscription on top would bill them twice for one entitlement.
+    if (status.billingSource === "apple") {
+      captureCheckoutDecision(user.id, plan, status.planId, "app_store_managed", attribution);
+      return NextResponse.redirect(new URL("/dashboard/billing", requestOrigin(request)));
+    }
     if (status.isPro && (plan !== MAX_PLAN_ID || status.planId === MAX_PLAN_ID)) {
       captureCheckoutDecision(user.id, plan, status.planId, "already_active", attribution);
       return NextResponse.redirect(new URL("/pricing?welcome=active", requestOrigin(request)));
@@ -559,7 +565,7 @@ function captureCheckoutDecision(
   userId: string,
   plan: string,
   currentPlan: string | null,
-  decision: "switch_plan" | "manage_billing" | "already_active",
+  decision: "switch_plan" | "manage_billing" | "already_active" | "app_store_managed",
   attribution: CheckoutAttribution,
 ): void {
   void captureServerEvent({

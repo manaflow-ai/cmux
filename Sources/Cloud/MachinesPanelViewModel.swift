@@ -10,7 +10,15 @@ import SwiftUI
 final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var machines: [MachineSnapshot] = []
     @Published private(set) var plan: MachinePlanSnapshot?
-    @Published private(set) var isLoading = false
+    @Published private(set) var isLoading = false { didSet { if !isLoading { isRefreshingOnRequest = false } } }
+    /// A refresh someone asked for (`refresh(tree:)`) is loading, as opposed to the poll.
+    @Published private(set) var isRefreshingOnRequest = false
+    /// A rename keeps the Cloud Machines section visibly refreshing while its
+    /// optimistic label is waiting for the command completion callback.
+    @Published private(set) var isRenamingMachine = false
+    /// Labels submitted by the user remain over the sidebar projection until
+    /// an authoritative list response confirms the same value.
+    private var optimisticLabels: [String: String] = [:]
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var lastErrorDescription: String?
     /// Classified list failure for the matching sign-in, plan, or retry presentation.
@@ -34,6 +42,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
+    /// Set when `treeErrorDescription` is trusted, user-facing guidance rather
+    /// than an upstream failure; only that copy is shown verbatim.
+    @Published private(set) var treeHint: String?
     /// In-flight and failed creates appear above the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
@@ -50,8 +61,38 @@ final class MachinesPanelViewModel: ObservableObject {
         if wantsPolling { refresh() }
     }
 
+    /// Opens one local Cloud Agent terminal and owns the asynchronous work for
+    /// the lifetime of this panel model. Selecting another agent cancels the
+    /// previous launch instead of leaving an unowned task behind the view.
+    func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
+        cloudAgentTask?.cancel()
+        cloudAgentTask = Task { @MainActor [weak self] in
+            defer { self?.cloudAgentTask = nil }
+            do { _ = try await CloudAgentSkillLauncher.openAgent(agent) }
+            catch is CancellationError { return }
+            catch { self?.noteTreeFailure(error.localizedDescription) }
+            self?.endOperation()
+        }
+    }
+
+    /// Cancels a launch when the Machines panel leaves the view hierarchy.
+    func cancelCloudAgentTask() {
+        cloudAgentTask?.cancel()
+        cloudAgentTask = nil
+    }
+
     func noteTreeFailure(_ description: String) {
+        // A tree failure is an event, not a persistent state banner. Clear a
+        // prior dismissal so repeating the same ownership hint remains
+        // visible on the next invalid attempt.
+        AppDelegate.shared?.cloudBannerDismissalStore.clear(id: "machines.tree-error")
+        treeHint = nil
         treeErrorDescription = description
+    }
+
+    func noteTreeHint(_ hint: String) {
+        noteTreeFailure(hint)
+        treeHint = hint
     }
 
     /// Projects the coordinator's typed reachability event into this panel's
@@ -95,6 +136,7 @@ final class MachinesPanelViewModel: ObservableObject {
     let resourceStats: VMResourceStatsStore?
     var machineIndexByID: [String: Int] = [:]
     var usageTask: Task<Void, Never>?
+    private var cloudAgentTask: Task<Void, Never>?
     var usageFailureCount = 0
     var usageRetryNotBefore: Date?
     /// One-shot timer armed at the exact next free-access transition (a
@@ -110,6 +152,7 @@ final class MachinesPanelViewModel: ObservableObject {
     var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
+    var vcpusByMemoryMb: [String: Int]? { lastLimits?.vcpusByMemoryMb }
     private var authScopeObservers: [NSObjectProtocol] = []
     private var wakeObserver: NSObjectProtocol?
     private var lifecycleObserver: NSObjectProtocol?
@@ -266,6 +309,7 @@ final class MachinesPanelViewModel: ObservableObject {
         pollTask?.cancel()
         statsTask?.cancel()
         usageTask?.cancel()
+        cloudAgentTask?.cancel()
         treeTask?.cancel()
         freeAccessTransitionTask?.cancel()
         resourceUpdatesTask?.cancel()
@@ -318,6 +362,21 @@ final class MachinesPanelViewModel: ObservableObject {
         // state, so a catalog read also refreshes it. Cheap: a dictionary read.
         readUnreadTerminalIDs()
     }
+
+    /// Refreshes the local workspace projection with the selection that was just committed.
+    /// The selection publisher fires from `willSet`, so reading the tab manager here can still
+    /// return the previous workspace and leave the Cloud tree highlight one selection behind.
+    func refreshLocalWorkspaces(selectedWorkspaceID: UUID?) {
+        let updated = localWorkspacesProvider().map { workspace in
+            CloudTreeLocalWorkspace(
+                id: workspace.id,
+                title: workspace.title,
+                isSelected: workspace.id == selectedWorkspaceID
+            )
+        }
+        guard updated != localWorkspaces else { return }
+        localWorkspaces = updated
+    }
     private func readUnreadTerminalIDs() {
         let unread = CloudNotificationSyncHub.shared.unreadTerminalIDs
         guard unread != unreadTerminalIDs else { return }
@@ -342,6 +401,7 @@ final class MachinesPanelViewModel: ObservableObject {
     func refresh(tree forceTree: Bool) {
         recoverList()
         refreshTree(force: forceTree)
+        isRefreshingOnRequest = isLoading
     }
     func refreshMachine(_ machine: SurfaceMachineID) { machineRefreshes.refresh(machine) }
     nonisolated static func usageBackoffDelay(failureCount: Int) -> TimeInterval {
@@ -352,18 +412,51 @@ final class MachinesPanelViewModel: ObservableObject {
         usageByMachineID = usage
         machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage)
     }
+
+    /// Projects a submitted label into the sidebar immediately. The next
+    /// authoritative list refresh replaces it if the command was rejected.
+    func beginOptimisticRename(id: String, label: String?) {
+        optimisticLabels[id] = label ?? ""
+        machines = MachineSnapshotBuilder.applyingLabel(to: machines, machineID: id, label: label)
+        isRenamingMachine = true
+        // Catalog-only machines are rendered by `sidebarMachines`, so notify
+        // those readers even when the list response does not contain this id.
+        objectWillChange.send()
+    }
+
+    func finishOptimisticRename() {
+        isRenamingMachine = false
+    }
+
+    func applyingOptimisticLabels(to snapshots: [MachineSnapshot]) -> [MachineSnapshot] {
+        snapshots.map { snapshot in
+            guard let encoded = optimisticLabels[snapshot.id] else { return snapshot }
+            var next = snapshot
+            next.label = encoded.isEmpty ? nil : encoded
+            return next
+        }
+    }
+
+    private func reconcileOptimisticLabels(with authoritative: [MachineSnapshot]) {
+        for snapshot in authoritative {
+            guard let encoded = optimisticLabels[snapshot.id] else { continue }
+            let expected = encoded.isEmpty ? nil : encoded
+            if snapshot.label == expected { optimisticLabels.removeValue(forKey: snapshot.id) }
+        }
+    }
+
+    func optimisticallyRenameMachine(id: String, label: String?) {
+        beginOptimisticRename(id: id, label: label)
+    }
     static let pollInterval: Duration = .seconds(45)
     static let initialTransientFailureLimit = 3
-    /// A refresh asked for while one is in flight runs again afterwards: a
-    /// create that lands mid-poll must still replace its pending row with the
-    /// real machine now, not on the next 45 s sweep.
+    /// A refresh asked for while one is in flight runs again afterwards: a create that lands
+    /// mid-poll must still replace its pending row with the real machine now, not on the next 45 s sweep.
     var refreshRequestedWhileLoading = false
-    /// A queued automatic refresh promotes the current request to recovery
-    /// presentation and keeps that intent for the follow-up read.
+    /// A queued automatic refresh promotes the current request to recovery presentation and keeps that intent for the follow-up read.
     var refreshRequestedWhileLoadingIsRecovery = false
-    /// Invalidates refresh completions when the Cloud gate closes. A cancelled
-    /// URLSession task may still resume on the main actor, so cancellation
-    /// alone is not enough to prevent stale rows or follow-up work.
+    /// Invalidates refresh completions when the Cloud gate closes. A cancelled URLSession task may
+    /// still resume on the main actor, so cancellation alone is not enough to prevent stale rows or follow-up work.
     var refreshGeneration: UInt64 = 0
     /// Sleeps until the earliest upcoming transition across the fleet, then
     /// recomputes the free-access facet locally and re-arms for the next one.
@@ -421,8 +514,8 @@ final class MachinesPanelViewModel: ObservableObject {
         awaitingCatalogScope = true
     }
 
-    /// Re-enables catalog rows only after the shared provider registry has
-    /// finished retiring the old team and resuming the new one.
+    /// Re-enables catalog rows once the registry has discovered the new team.
+    /// Remote workspace details continue refreshing independently.
     private func finishTeamScopeTransition() {
         awaitingCatalogScope = false
         readCatalog()
@@ -486,6 +579,8 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshRequestedWhileLoadingIsRecovery = false
         refreshGeneration &+= 1
         isLoading = false
+        isRenamingMachine = false
+        optimisticLabels.removeAll()
         isRecoveringList = false
         statsTask?.cancel(); statsTask = nil; statsID = nil
         usageTask?.cancel(); usageTask = nil
@@ -526,6 +621,8 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
+            reconcileOptimisticLabels(with: snapshots)
+            snapshots = applyingOptimisticLabels(to: snapshots)
             // The authoritative fleet plus catalog-only rows is the complete
             // visible set: a pin whose machine is gone from both is pruned.
             machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))

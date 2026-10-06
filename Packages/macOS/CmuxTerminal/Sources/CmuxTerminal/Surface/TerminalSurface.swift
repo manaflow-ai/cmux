@@ -369,6 +369,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Ghostty's renderer layer for the live runtime surface. Every free path
+    /// takes it and detaches its display callback on the main actor before
+    /// the native free (#17483).
+    var runtimeDisplayLayer: TerminalSurfaceRuntimeDisplayLayer?
     var agentCommandShims: AgentCommandShimSet?
     var agentCommandShimSpawnPolicy: TerminalSurfaceSpawnPolicy?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
@@ -732,6 +736,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         agentCommandShimCompletionTask?.cancel()
         retireSurfaceRegistryRegistrationIfNeeded()
         markPortalLifecycleClosed(reason: "deinit")
+        // Mirror teardownSurface: release an unconsumed agent-hibernation
+        // reservation so the bounded slot is not stranded (#15652). The
+        // admission state is main-actor isolated and deinit is not.
+        if let hibernationReservation = agentHibernationRuntimeTeardownReservation {
+            agentHibernationRuntimeTeardownReservation = nil
+            let coordinator = runtimeTeardown
+            Task { @MainActor in
+                coordinator.cancelIsolatedHibernationTeardown(hibernationReservation)
+            }
+        }
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
         // the NSWindow teardown hops to the main actor through the same kind of
         // @unchecked Sendable transport the runtime teardown request uses. The
@@ -757,6 +771,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // mobileByteTeeLease, so teeLease is nil here and ?.release() no-ops.
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        // Deinit is nonisolated; the coordinator detaches the layer's display
+        // callback on the main actor before it schedules the native free.
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         // `dropSurface` is @MainActor but `deinit` is nonisolated, so hop to the
         // main actor with the surface id captured by value (no self capture).
         // Dropping by id only clears the registry/replay state; releasing
@@ -823,6 +841,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                displayLayer: displayLayer,
                 beforeFree: {
                     await retiredRemoteOutputLane.drain()
                 },
@@ -839,6 +858,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            displayLayer: displayLayer,
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
             }

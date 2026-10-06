@@ -236,8 +236,10 @@ struct cmuxApp: App {
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog,
+            cloudDeviceID: { try? await Self.root.irx.installationDeviceID() },
             appLog: Self.root.appLog,
-            v2Configuration: Self.root.irx.configuration
+            v2Configuration: Self.root.irx.configuration,
+            billing: Self.root.billing
         )
     }
 }

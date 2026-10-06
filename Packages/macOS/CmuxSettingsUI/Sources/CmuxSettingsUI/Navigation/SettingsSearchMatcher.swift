@@ -44,7 +44,7 @@ struct SettingsSearchMatcher: Sendable {
             score += tokenScore
         }
 
-        let title = normalize(entry.title)
+        let title = entry.normalizedTitle
         if title == query { score -= 1_000 }
         if title.hasPrefix(query) { score -= 800 }
         if containsAtWordBoundary(query, in: title) { score -= 700 }
@@ -52,6 +52,53 @@ struct SettingsSearchMatcher: Sendable {
         if containsAtWordBoundary(query, in: entry.normalizedSearchText) { score -= 500 }
         if entry.normalizedSearchText.contains(query) { score -= 400 }
         if case .section = entry.kind { score += 25 }
+        return score
+    }
+
+    /// Scores `query` against a title and its secondary text (lower is better),
+    /// returning `nil` when any query word misses both.
+    ///
+    /// Like command-palette ranking, a word found in the title beats one found
+    /// only in the secondary text, so a row named "Browser…" outranks a row that
+    /// merely mentions browsers in a caption. The secondary text takes only
+    /// literal matches; typo and subsequence fallbacks apply to the title alone,
+    /// which keeps short queries from matching long captions by accident.
+    func matchScore(query: String, title: String, secondaryText: String) -> Int? {
+        let queryWords = tokens(in: query)
+        guard !queryWords.isEmpty else { return 0 }
+        let normalizedTitle = normalize(title)
+        let titleWords = tokens(in: normalizedTitle)
+        let titleWordSet = Set(titleWords)
+        let normalizedSecondary = normalize(secondaryText)
+        let secondaryWords = tokens(in: normalizedSecondary)
+        let secondaryWordSet = Set(secondaryWords)
+
+        var score = 0
+        var captionOnlyWordCount = 0
+        for word in queryWords {
+            if let titleScore = matchScore(token: word, text: normalizedTitle, words: titleWords, wordSet: titleWordSet) {
+                score += titleScore
+            } else if let secondaryScore = matchScore(
+                token: word,
+                text: normalizedSecondary,
+                words: secondaryWords,
+                wordSet: secondaryWordSet
+            ), secondaryScore <= 30 {
+                score += secondaryScore + 100
+                captionOnlyWordCount += 1
+            } else {
+                return nil
+            }
+        }
+
+        let normalizedQuery = queryWords.joined(separator: " ")
+        let titleText = titleWords.joined(separator: " ")
+        if titleText == normalizedQuery { score -= 1_000 }
+        if titleText.hasPrefix(normalizedQuery) { score -= 800 }
+        if containsAtWordBoundary(normalizedQuery, in: titleText) { score -= 700 }
+        // Keep title matches ahead of caption-only matches for multi-word
+        // queries, regardless of the fuzzy score of the title text.
+        score += captionOnlyWordCount * 1_000
         return score
     }
 

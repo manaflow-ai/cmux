@@ -16,11 +16,9 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
-
 struct cmuxApp: App {
     /// App-owned settings graph, injected into each SwiftUI hosting root.
     private let settingsRuntime: SettingsRuntime
-
     /// Single owner of the independently launched Computer Use helper daemon.
     private let computerUseRuntimeService: ComputerUseRuntimeService
 
@@ -188,6 +186,17 @@ struct cmuxApp: App {
         let devices = MacDevicesComposition(defaults: .standard, catalog: settingsCatalog)
         let devicesRegistry = devices.registry
         let computersService = devices.computers
+        let hostSettingsActions = HostSettingsActions(
+            configFileURL: configFileURL,
+            computerUseRuntimeService: computerUseRuntimeService,
+            browserDataImportCoordinator: browserDataImportCoordinator,
+            computersActions: devices.settingsActions,
+            runComputerUseOnboardingAction: { startingPoint in
+                AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
+                    startingAt: startingPoint
+                )
+            }
+        )
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: devices.defaultsStore,
@@ -195,17 +204,7 @@ struct cmuxApp: App {
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
             accountFlow: authComposition.accountFlow,
-            hostActions: HostSettingsActions(
-                configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService,
-                browserDataImportCoordinator: browserDataImportCoordinator,
-                computersActions: devices.settingsActions,
-                runComputerUseOnboardingAction: { startingPoint in
-                    AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
-                        startingAt: startingPoint
-                    )
-                }
-            ),
+            hostActions: hostSettingsActions,
             shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
@@ -214,6 +213,7 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
+        CmuxExtensionSidebarSelection.clearStaleTemplatePreviewSelection(defaults: defaults)
         TerminalController.shared.prepareControlHandleRegistryForLaunch(defaults: defaults)
         let workspaceCustomizationStore = WorkspaceCustomizationStore(
             defaults: defaults
@@ -322,6 +322,7 @@ struct cmuxApp: App {
             devicesRegistry: devicesRegistry,
             computersService: computersService
         )
+        hostSettingsActions.cloudActivationCoordinator = appDelegate.cloudActivationCoordinator
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
     }
@@ -557,11 +558,6 @@ struct cmuxApp: App {
                 }
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
-                }
-                if let target = appDelegate.appChannelSwitchTarget {
-                    Button(AppChannelSwitchPresenter.menuTitle(for: target)) {
-                        appDelegate.switchAppChannel(nil)
-                    }
                 }
                 InstallUpdateMenuItem(model: appDelegate.updateViewModel, actions: appDelegate)
             }
@@ -1700,16 +1696,22 @@ private struct MainWindowBootstrapView: View {
                 window.identifier = NSUserInterfaceItemIdentifier("cmux.bootstrap")
                 window.isRestorable = false
                 window.orderOut(nil)
-                Task { @MainActor [weak window] in
-                    window?.orderOut(nil)
-                    window?.close()
+                let windowIdentifier = ObjectIdentifier(window)
+                Task { @MainActor in
+                    guard let window = NSApp.windows.first(where: { ObjectIdentifier($0) == windowIdentifier }) else {
+                        return
+                    }
+                    window.orderOut(nil)
+                    window.close()
                 }
             })
     }
 }
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
+    "cmux.newMachine",
     "cmux.settings",
     "cmux.about",
+    "cmux.cloud.welcome",
     "cmux.licenses",
     "cmux.browser-popup",
     "cmux.browserProfilePopoverDebug",

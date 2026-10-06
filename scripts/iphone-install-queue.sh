@@ -12,13 +12,17 @@
 #           --auth-profile personal --expected-account <email>
 #           --credentials-file <absolute-0600-file>
 #           [--no-attach] [--no-sign-in] [--no-setup] [--no-launch]
-#           [--allow-unauthenticated]
+#           [--allow-unauthenticated] [--readiness mac-rpc|app-receipt|auto]
 #     Copy the signed app into the persistent queue (one slot per tag; a
 #     re-enqueue of the same tag replaces the older build). The sign-in/attach
 #     opt-out flags produce an unauthenticated install, so they require the human-only
 #     CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 (agents never set it); reload also
 #     passes --allow-unauthenticated to make that intent explicit. The
 #     authorization is recorded in the entry so a headless drain honors it.
+#     --readiness (default auto: the app's Info.plist CMUXDogfoodReadiness,
+#     app-receipt-v1 = app-receipt, absent = mac-rpc) is resolved now and
+#     replayed by the drain: app-receipt entries launch with
+#     `--readiness app-receipt` (no tagged Mac) instead of --ensure-mac.
 #   drain [--device-id <id>] [--wait <seconds>] [--interval <seconds>]
 #     Install + launch every queued build whose device is reachable. With
 #     --wait, keep polling until the queue empties or the budget runs out.
@@ -87,7 +91,7 @@ log() {
   printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" | tee -a "$LOGS_DIR/drain.log" >&2 || true
 }
 
-usage() { sed -n '2,57p' "$0"; }
+usage() { sed -n '2,61p' "$0"; }
 
 default_device_id() {
   if [[ -n "${CMUX_IPHONE_DEVICE_ID:-}" ]]; then
@@ -106,6 +110,31 @@ default_device_id() {
 # re-implements the tag->slug transform (scripts/lib/mobile-attach.sh owns it).
 app_bundle_id() {
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Info.plist" 2>/dev/null
+}
+
+# Readiness contract declared by the signed app (mirrors
+# cmux_attach_app_readiness_mode in scripts/lib/mobile-attach.sh): absent key
+# = mac-rpc, app-receipt-v1 = app-receipt, anything else fails closed.
+app_readiness_mode() {
+  /usr/bin/python3 - "$1/Info.plist" <<'PY'
+import plistlib
+import sys
+
+try:
+    with open(sys.argv[1], "rb") as stream:
+        info = plistlib.load(stream)
+except Exception:
+    print("mac-rpc")
+    raise SystemExit(0)
+value = info.get("CMUXDogfoodReadiness") if isinstance(info, dict) else None
+if value is None:
+    print("mac-rpc")
+elif value == "app-receipt-v1":
+    print("app-receipt")
+else:
+    print(f"unsupported CMUXDogfoodReadiness value {value!r}", file=sys.stderr)
+    raise SystemExit(2)
+PY
 }
 
 # Reachability probe: the device counts as reachable when devicectl reports it
@@ -242,11 +271,12 @@ queue_validate_auth_contract() {
 cmd_enqueue() {
   local tag="" app="" device_id="" checkout="" no_attach=0 no_sign_in=0 no_setup=0 launch=1
   local allow_unauthenticated_requested=0
-  local auth_profile="" expected_account="" credentials_file=""
+  local auth_profile="" expected_account="" credentials_file="" readiness="auto"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --tag) tag="${2:-}"; shift 2 ;;
       --app) app="${2:-}"; shift 2 ;;
+      --readiness) readiness="${2:-}"; shift 2 ;;
       --device-id) device_id="${2:-}"; shift 2 ;;
       --checkout) checkout="${2:-}"; shift 2 ;;
       --auth-profile) auth_profile="${2:-}"; shift 2 ;;
@@ -283,6 +313,12 @@ cmd_enqueue() {
     *) die "enqueue: refusing non-dev bundle id '$bundle_id' (expected dev.cmux.ios.<slug>)" ;;
   esac
   local slug="${bundle_id#dev.cmux.ios.}"
+  case "$readiness" in
+    mac-rpc|app-receipt) ;;
+    auto) readiness="$(app_readiness_mode "$app")" \
+      || die "enqueue: the app declares an unsupported readiness contract" ;;
+    *) die "enqueue: --readiness must be mac-rpc, app-receipt, or auto" ;;
+  esac
   [[ -n "$device_id" ]] || device_id="$(default_device_id)"
   [[ -n "$device_id" ]] || die "enqueue: no device id (pass --device-id, set CMUX_IPHONE_DEVICE_ID, or write $CONFIG_DIR/iphone-device-id)"
   if [[ -z "$checkout" ]]; then
@@ -322,7 +358,7 @@ cmd_enqueue() {
   NO_SETUP="$no_setup" LAUNCH="$launch" META="$staging/meta.json" \
   ALLOW_UNAUTHENTICATED="$allow_unauthenticated" \
   AUTH_PROFILE="$auth_profile" EXPECTED_ACCOUNT="$expected_account" \
-  CREDENTIALS_FILE="$credentials_file" \
+  CREDENTIALS_FILE="$credentials_file" READINESS="$readiness" \
   /usr/bin/python3 - <<'PY'
 import json, os, time
 meta = {
@@ -339,6 +375,7 @@ meta = {
     "auth_profile": os.environ["AUTH_PROFILE"],
     "expected_account": os.environ["EXPECTED_ACCOUNT"],
     "credentials_file": os.environ["CREDENTIALS_FILE"],
+    "readiness": os.environ["READINESS"],
     "enqueued_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
 }
 with open(os.environ["META"], "w") as fh:
@@ -346,7 +383,7 @@ with open(os.environ["META"], "w") as fh:
 PY
   rm -rf "$entry"
   mv "$staging" "$entry"
-  log "enqueued tag=$tag bundle=$bundle_id device=$device_id profile=${auth_profile:-none} account=${expected_account:-none}"
+  log "enqueued tag=$tag bundle=$bundle_id device=$device_id profile=${auth_profile:-none} account=${expected_account:-none} readiness=$readiness"
   cat <<EOF
 ==> iPhone build QUEUED (device unreachable or deferred install)
 Tag:       $tag
@@ -409,7 +446,7 @@ drain_entry() {
   local meta="$entry/meta.json"
   local app="$entry/cmux.app"
   local tag device_id bundle_id checkout no_attach no_sign_in no_setup launch
-  local allow_unauthenticated auth_profile expected_account credentials_file
+  local allow_unauthenticated auth_profile expected_account credentials_file readiness
   local stamp
   stamp="$(meta_field "$meta" enqueued_at 2>/dev/null || true)"
   entry_unchanged() {
@@ -453,6 +490,15 @@ drain_entry() {
   auth_profile="$(meta_field "$meta" auth_profile 2>/dev/null || true)"
   expected_account="$(meta_field "$meta" expected_account 2>/dev/null || true)"
   credentials_file="$(meta_field "$meta" credentials_file 2>/dev/null || true)"
+  # Entries written before the readiness field existed are mac-rpc.
+  readiness="$(meta_field "$meta" readiness 2>/dev/null || true)"
+  case "$readiness" in
+    ""|mac-rpc|app-receipt) ;;
+    *)
+      finish_failed "queued entry has an unknown readiness mode '$readiness'"
+      return $?
+      ;;
+  esac
 
   if [[ -z "$device_id" ]]; then
     finish_failed "no device id in meta and no default configured"
@@ -587,10 +633,18 @@ drain_entry() {
   # opt-out was human-authorized at enqueue time re-asserts that authorization
   # for the launcher (the LaunchAgent env cannot carry it).
   local mdl_env=()
+  # An app-receipt entry proves sign-in from the app itself, without the
+  # tagged Mac, so it replays its recorded mode instead of --ensure-mac.
   if [[ "$no_attach" == "1" ]]; then
     args+=(--no-attach)
     [[ "$allow_unauthenticated" == "1" ]] && mdl_env=(CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1)
+  elif [[ "$readiness" == "app-receipt" ]]; then
+    args+=(--readiness app-receipt)
+  elif [[ "$readiness" == "mac-rpc" ]]; then
+    # Pin the recorded mode so the launcher cannot re-detect another one.
+    args+=(--ensure-mac --readiness mac-rpc)
   else
+    # Legacy entry (no recorded mode): the launcher detects it from the app.
     args+=(--ensure-mac)
   fi
   if [[ "$allow_unauthenticated" != "1" ]]; then
@@ -656,6 +710,12 @@ drain_entry() {
     return $?
   fi
 
+  # Report the mode the launcher actually verified, from its own receipt.
+  if [[ "$(meta_field "$receipt" readiness 2>/dev/null || true)" == "app-receipt" ]]; then
+    DRAIN_ENTRY_READINESS="app-receipt"
+  else
+    DRAIN_ENTRY_READINESS="mac-rpc"
+  fi
   log "installed + launched $bundle_id (tag $tag) on $device_id; auth gate PASS (receipt: $receipt)"
   finish_installed 0
   return $?
@@ -693,16 +753,24 @@ cmd_drain() {
   trap 'rm -rf "$LOCK_DIR"' EXIT
 
   local start now installed_tags="" unverified_tags="" needs_auth_slugs="" had_failure=0
+  local app_receipt_tags=""
   start="$(date +%s)"
   while :; do
     local slug rc remaining=0
     for slug in $(pending_slugs); do
       set +e
+      DRAIN_ENTRY_READINESS=""
       drain_entry "$slug" "$override_device"
       rc=$?
       set -e
       case "$rc" in
-        0) installed_tags="$installed_tags $slug" ;;
+        0)
+          if [[ "$DRAIN_ENTRY_READINESS" == "app-receipt" ]]; then
+            app_receipt_tags="$app_receipt_tags $slug"
+          else
+            installed_tags="$installed_tags $slug"
+          fi
+          ;;
         1) had_failure=1 ;;
         2) remaining=1 ;;
         3) needs_auth_slugs="$needs_auth_slugs $slug" ;;
@@ -722,11 +790,16 @@ cmd_drain() {
   # "signed in" are different claims, and only a fresh auth-gate pass earns the
   # second one.
   installed_tags="${installed_tags# }"
+  app_receipt_tags="${app_receipt_tags# }"
   unverified_tags="${unverified_tags# }"
   needs_auth_slugs="${needs_auth_slugs# }"
   if [[ -n "$installed_tags" ]]; then
     notify "iPhone install queue: installed $installed_tags" \
       "Auto-installed on the iPhone and VERIFIED signed in + paired (auth gate PASS): $installed_tags"
+  fi
+  if [[ -n "$app_receipt_tags" ]]; then
+    notify "iPhone install queue: installed $app_receipt_tags" \
+      "Auto-installed on the iPhone and VERIFIED signed in by app receipt (auth gate PASS): $app_receipt_tags"
   fi
   if [[ -n "$unverified_tags" ]]; then
     notify "iPhone install queue: installed $unverified_tags (auth NOT verified)" \

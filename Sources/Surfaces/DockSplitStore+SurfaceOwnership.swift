@@ -27,7 +27,8 @@ extension DockSplitStore {
             guard transfer.isFromCurrentProcess else { return ownershipPolicy.rejection(for: nil) }
             // A Dock surface split or reordered within this Dock stays on its machine.
             if surfaceIdToPanelId[TabID(uuid: transfer.tabId)] != nil { return nil }
-            return ownershipPolicy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+            guard let app = AppDelegate.shared else { return ownershipPolicy.rejection(for: nil) }
+            return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: ownershipPolicy)
         case .vaultSession, .filePreview, .rightSidebarTool:
             return ownershipPolicy.rejection(for: .local)
         }
@@ -37,12 +38,12 @@ extension DockSplitStore {
         if transfer.origin == .dock(workspaceId) { return true }
         return surfaceOwnershipPolicy.rejection(for: transfer.surfaceMachine
             ?? SurfaceCatalog.shared.machineOwningPanel(transfer.panelId)
-            ?? transfer.panel.transferredSurfaceMachine) == nil
+            ?? transfer.panel.transferredSurfaceMachine, kind: AppDelegate.shared?.surfaceResourceKind(for: transfer.panel)) == nil
     }
 
     func acceptsRestoredDisplay(_ snapshot: SessionPanelSnapshot) -> Bool {
         if let resource = snapshot.browser?.cloudResource {
-            return surfaceOwnershipPolicy.rejection(for: resource.machine) == nil
+            return surfaceOwnershipPolicy.rejection(for: resource.machine, kind: resource.kind) == nil
         }
         if let raw = snapshot.browser?.urlString, URL(string: raw)?.path == "/vnc.html" {
             return scope == .global || surfaceOwnershipPolicy.rejection(for: nil) == nil

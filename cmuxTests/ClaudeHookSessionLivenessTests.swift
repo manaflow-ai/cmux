@@ -227,6 +227,125 @@ struct ClaudeHookSessionLivenessTests {
         #expect(entry.processLiveness == .running)
     }
 
+    /// Claude is indexed from its hook record, never by process detection, so
+    /// the hook PID alone must not leave an exclusive pane unsafe to hibernate.
+    @Test("A live Claude hook session in an exclusive pane is safe to hibernate")
+    func liveClaudeHookSessionInExclusivePaneIsSafeToHibernate() throws {
+        let fixture = try makeFixture(prefix: "cmux-claude-hook-scope")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let shellPID = 7_900
+        let agentPID = 7_901
+        let mcpServerPID = 7_902
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(agentPID),
+            startSeconds: 1_790_627_504,
+            startMicroseconds: 891_303
+        )
+        let mcpServerIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(mcpServerPID),
+            startSeconds: 1_790_627_505,
+            startMicroseconds: 0
+        )
+        try writeHookRecord(fixture: fixture, identity: identity)
+        let index = loadIndex(
+            fixture: fixture,
+            processes: [
+                processInfo(fixture: fixture, pid: shellPID, parentPID: 1, name: "zsh", path: "/bin/zsh"),
+                processInfo(
+                    fixture: fixture,
+                    pid: agentPID,
+                    parentPID: shellPID,
+                    name: "claude",
+                    path: fixture.executablePath,
+                    processGroupID: agentPID
+                ),
+                processInfo(
+                    fixture: fixture,
+                    pid: mcpServerPID,
+                    parentPID: agentPID,
+                    name: "cmux-cua",
+                    path: "/usr/local/bin/cmux-cua",
+                    processGroupID: agentPID
+                ),
+            ],
+            agentPID: agentPID,
+            identities: [agentPID: identity, mcpServerPID: mcpServerIdentity]
+        )
+
+        let entry = try #require(index.entry(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
+        #expect(entry.processLiveness == .running)
+        #expect(entry.terminationProcessIDs == [agentPID, mcpServerPID])
+        #expect(entry.containsUnrelatedProcess == false)
+        #expect(entry.processSafetyAllowsScheduledHibernation)
+    }
+
+    @Test("An unrelated process in a Claude hook session's pane keeps it unsafe to hibernate")
+    func unrelatedProcessInClaudeHookPaneKeepsItUnsafeToHibernate() throws {
+        let fixture = try makeFixture(prefix: "cmux-claude-hook-scope-unrelated")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let shellPID = 7_950
+        let agentPID = 7_951
+        let unrelatedPID = 7_952
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(agentPID),
+            startSeconds: 1_790_627_504,
+            startMicroseconds: 891_303
+        )
+        try writeHookRecord(fixture: fixture, identity: identity)
+        let index = loadIndex(
+            fixture: fixture,
+            processes: [
+                processInfo(fixture: fixture, pid: shellPID, parentPID: 1, name: "zsh", path: "/bin/zsh"),
+                processInfo(
+                    fixture: fixture,
+                    pid: agentPID,
+                    parentPID: shellPID,
+                    name: "claude",
+                    path: fixture.executablePath,
+                    processGroupID: agentPID
+                ),
+                processInfo(fixture: fixture, pid: unrelatedPID, parentPID: 1, name: "sleep", path: "/bin/sleep"),
+            ],
+            agentPID: agentPID,
+            identities: [agentPID: identity]
+        )
+
+        let entry = try #require(index.entry(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
+        #expect(entry.processLiveness == .running)
+        #expect(entry.containsUnrelatedProcess)
+        #expect(!entry.processSafetyAllowsScheduledHibernation)
+    }
+
+    private func loadIndex(
+        fixture: Fixture,
+        processes: [CmuxTopProcessInfo],
+        agentPID: Int,
+        identities: [Int: AgentPIDProcessIdentity]
+    ) -> RestorableAgentSessionIndex {
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: fixture.capturedAt),
+            includesProcessDetails: true
+        )
+        return SharedLiveAgentIndexLoader(
+            homeDirectory: fixture.root.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            processSnapshotProvider: { processSnapshot },
+            capturedAtProvider: { fixture.capturedAt },
+            processArgumentsProvider: { pid in
+                guard pid == agentPID else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: liveArguments(fixture: fixture),
+                    environment: liveEnvironment(fixture: fixture)
+                )
+            },
+            processIdentityProvider: { pid in identities[pid] }
+        ).loadSynchronously()
+    }
+
     private func makeFixture(prefix: String) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
@@ -300,9 +419,11 @@ struct ClaudeHookSessionLivenessTests {
         pid: Int,
         parentPID: Int,
         name: String,
-        path: String
+        path: String,
+        processGroupID: Int? = nil
     ) -> CmuxTopProcessInfo {
-        CmuxTopProcessInfo(
+        let resolvedProcessGroupID = processGroupID ?? (parentPID == 1 ? pid : parentPID)
+        return CmuxTopProcessInfo(
             pid: pid,
             parentPID: parentPID,
             name: name,
@@ -311,8 +432,8 @@ struct ClaudeHookSessionLivenessTests {
             cmuxWorkspaceID: fixture.workspaceId,
             cmuxSurfaceID: fixture.panelId,
             cmuxAttributionReason: "cmux-test",
-            processGroupID: parentPID == 1 ? pid : parentPID,
-            terminalProcessGroupID: parentPID == 1 ? pid : parentPID,
+            processGroupID: resolvedProcessGroupID,
+            terminalProcessGroupID: resolvedProcessGroupID,
             cpuPercent: 0,
             residentBytes: 0,
             virtualBytes: 0,

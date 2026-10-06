@@ -41,6 +41,30 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(result.isEmpty)
     }
 
+    @Test("accepts canonical classic catalog sections")
+    func acceptsCanonicalClassicCatalogSections() throws {
+        let result = try issues([
+            "terminal": [
+                "titleUpdates": [
+                    "coalescing": ["enabled": true, "delayMilliseconds": 500],
+                    "diagnostics": false,
+                ],
+                "runawayMemoryGuardrail": ["enabled": true, "thresholdGB": 12],
+            ],
+            "sidebar": [
+                "branchVerticalLayout": false,
+                "activeTabIndicatorStyle": "solidFill",
+                "selectionColor": "#123456",
+            ],
+            "integrations": [
+                "claudeCode": ["hooksEnabled": true, "customClaudePath": "/opt/claude"],
+                "kiro": ["hooksEnabled": true, "notificationLevel": "verbose"],
+            ],
+            "remoteTmux": ["beta": ["enabled": true]],
+        ])
+        #expect(result.isEmpty)
+    }
+
     @Test("reports unknown paths, types, enums, bounds, and nested constraints")
     func reportsSemanticFailures() throws {
         let cases: [(Any, String, String)] = [

@@ -81,6 +81,7 @@ extension BrowserPanel {
         // committed, so their session state would bring back the wrong page.
         if navigationDelegate?.activeErrorPageDisplayURL == nil,
            pendingRecoveryURL == nil,
+           let documentURL,
            BrowserDiscardRestoreStrategy.canRestoreSessionState(for: documentURL),
            let restoreURL,
            BrowserFormStateSnapshot.isSameDocument(
@@ -191,8 +192,7 @@ extension BrowserPanel {
     private func showRestoreOverlay() {
         pageRestoration.dismissOverlay()
         let overlay = BrowserPageSnapshotOverlayView(
-            snapshot: pageRestoration.discardedCapture?.snapshot,
-            restoringLabel: String(localized: "browser.discard.restoring", defaultValue: "Restoring…")
+            snapshot: pageRestoration.discardedCapture?.snapshot
         )
         overlay.install(over: webView)
         pageRestoration.overlayView = overlay

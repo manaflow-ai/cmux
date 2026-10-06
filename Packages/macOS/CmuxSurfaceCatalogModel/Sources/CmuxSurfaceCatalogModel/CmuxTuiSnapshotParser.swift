@@ -1837,6 +1837,15 @@ public struct CmuxTuiSnapshotParser: Sendable {
         VMMachineKind.inferred(fromImage: image).hasDesktop
     }
 
+    /// "Display N" for a guest display key, the same title guest discovery
+    /// gives it, so a pane opened before discovery is not first titled
+    /// "Desktop" and renamed seconds later. Other keys keep "Desktop".
+    public static func displayTitle(key: String) -> String {
+        guard key.hasPrefix("display:"), let number = Int(key.dropFirst("display:".count)) else { return "Desktop" }
+        let format = String(localized: "cloud.display.numberedTitle", defaultValue: "Display %d")
+        return format.replacingOccurrences(of: "%d", with: String(number))
+    }
+
     /// The VNC display of a desktop machine (`display:1`; the key is the daemon's content id
     /// once a workspace points at it).
     public static func display(
@@ -1846,7 +1855,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
     ) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .display, key: key),
-            title: "Desktop",
+            title: displayTitle(key: key),
             detail: "noVNC",
             lifecycle: .running,
             agent: nil,

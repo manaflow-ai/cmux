@@ -43,6 +43,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Whether copy-on-select briefly shows "Copied to clipboard". Applies
+    /// whether cmux's ``copyOnSelect`` or Ghostty's `copy-on-select` is on.
+    public let showCopyConfirmation = DefaultsKey<Bool>(
+        id: "terminal.showCopyConfirmation",
+        defaultValue: false,
+        userDefaultsKey: "terminal.showCopyConfirmation"
+    )
+
     /// Whether copy also rejoins lines an application hard-wrapped to the
     /// terminal width. Off by default. Soft-wrapped rows Ghostty marks with
     /// the row wrap flag are always joined, regardless of this key.
@@ -135,6 +143,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.showPasswordInputDots",
         defaultValue: false,
         userDefaultsKey: "terminal.showPasswordInputDots"
+    )
+
+    /// Whether cmux shows a "Jump to Bottom" button in a terminal pane while
+    /// its viewport is scrolled up into scrollback. On by default.
+    public let showJumpToBottomButton = DefaultsKey<Bool>(
+        id: "terminal.showJumpToBottomButton",
+        defaultValue: true,
+        userDefaultsKey: "terminal.showJumpToBottomButton"
     )
 
     public let autoResumeAgentSessions = DefaultsKey<Bool>(

@@ -1983,7 +1983,6 @@ def expect_computer_use_env_scrubbed(
         "CMUX_CUA_DEFAULT_SESSION": "cmux-surface:test",
         "CMUX_CUA_MCP_FORCE_PROXY": "1",
         "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1",
-        "CMUX_CUA_SOCKET_AUTH_TOKEN": "cmux-test-auth-token",
         "CMUX_CUA_TELEMETRY_ENABLED": "false",
         "CMUX_CUA_UPDATE_CHECK": "false",
         "CMUX_CUA_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
@@ -2054,6 +2053,12 @@ def expect_cmux_cua_config(
             f"{context}: proxy command must use the bundled cmux Computer Use client, got {command}",
             failures,
         )
+    env = server.get("env", {})
+    expect(
+        "CMUX_CUA_SOCKET_AUTH_TOKEN" not in env,
+        f"{context}: socket credential must be inherited, never serialized into MCP argv config: {config}",
+        failures,
+    )
     expect_computer_use_env_scrubbed(server, failures, context, helper_owned=bundled_client)
 
 

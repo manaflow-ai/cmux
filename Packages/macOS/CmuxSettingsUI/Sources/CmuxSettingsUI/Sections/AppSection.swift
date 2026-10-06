@@ -54,6 +54,9 @@ public struct AppSection: View {
     @State private var showInMenuBar: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var paneFlashDoubleBlink: DefaultsValueModel<Bool>
+    @State private var paneFlashOnTyping: DefaultsValueModel<Bool>
+    @State private var paneFlashThemeColor: DefaultsValueModel<Bool>
     @State private var desktopNotifications: DesktopNotificationAuthorizationModel
     @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
     @State private var agentTurnComplete: DefaultsValueModel<String>
@@ -68,6 +71,7 @@ public struct AppSection: View {
     @State private var telemetry: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
+    @State private var warnCloseAgentSession: DefaultsValueModel<Bool>
     @State private var warnCloseX: DefaultsValueModel<Bool>
     @State private var warnCloseWorkspace: DefaultsValueModel<Bool>
     @State private var warnCloseWindow: DefaultsValueModel<Bool>
@@ -124,6 +128,9 @@ public struct AppSection: View {
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _paneFlashDoubleBlink = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashDoubleBlink))
+        _paneFlashOnTyping = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashOnTyping))
+        _paneFlashThemeColor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashThemeColor))
         _desktopNotifications = State(initialValue: DesktopNotificationAuthorizationModel(hostActions: hostActions))
         _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
         _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
@@ -139,6 +146,7 @@ public struct AppSection: View {
         _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
+        _warnCloseAgentSession = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingAgentSession))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
         _warnCloseWorkspace = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWorkspace))
         _warnCloseWindow = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWindow))
@@ -164,10 +172,9 @@ public struct AppSection: View {
             SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"), section: .app)
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard
-            AppChannelSwitchCard(hostActions: hostActions)
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -706,6 +713,43 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
+            // Pane Flash: Double Blink
+            SettingsCardRow(
+                configurationReview: .json("notifications.paneFlashDoubleBlink"),
+                String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink"),
+                subtitle: String(localized: "settings.notifications.paneFlashDoubleBlink.subtitle", defaultValue: "Blink the pane flash twice instead of one short pulse.")
+            ) {
+                Toggle("", isOn: Binding(get: { paneFlashDoubleBlink.current }, set: { paneFlashDoubleBlink.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!paneFlash.current)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("notifications.paneFlashOnTyping"),
+                String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing"),
+                subtitle: String(localized: "settings.notifications.paneFlashOnTyping.subtitle", defaultValue: "Flash the pane when typing dismisses its notification.")
+            ) {
+                Toggle("", isOn: Binding(get: { paneFlashOnTyping.current }, set: { paneFlashOnTyping.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!paneFlash.current)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("notifications.paneFlashThemeColor"),
+                String(localized: "settings.notifications.paneFlashThemeColor.title", defaultValue: "Use Theme Foreground"),
+                subtitle: String(localized: "settings.notifications.paneFlashThemeColor.subtitle", defaultValue: "Use the terminal theme foreground for flashes; unread rings stay cmux blue.")
+            ) {
+                Toggle("", isOn: Binding(get: { paneFlashThemeColor.current }, set: { paneFlashThemeColor.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!paneFlash.current)
+            }
+            SettingsCardDivider()
+
             // Agent: Needs Permission
             SettingsCardRow(
                 configurationReview: .json("notifications.agentPermissionPrompt"),
@@ -866,6 +910,18 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.app.warnBeforeClosingTab.subtitle", defaultValue: "Closing a tab asks for confirmation first.")
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseTab.current }, set: { warnCloseTab.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Warn Before Closing Active Agent Session
+            SettingsCardRow(
+                configurationReview: .json(catalog.app.warnBeforeClosingAgentSession.id),
+                catalog.app.warnBeforeClosingAgentSession.userFacing!.title,
+                subtitle: String(localized: "settings.app.warnBeforeClosingAgentSession.subtitle", defaultValue: "Closing an agent during a turn asks for confirmation.")
+            ) {
+                Toggle("", isOn: Binding(get: { warnCloseAgentSession.current }, set: { warnCloseAgentSession.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

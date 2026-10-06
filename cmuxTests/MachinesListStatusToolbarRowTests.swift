@@ -22,6 +22,15 @@ struct MachinesListStatusToolbarRowTests {
         .unreachable, .sessionRejected, .requiresPro,
     ]
 
+    /// Every stale line joins its cause to "showing last known" with a dash,
+    /// and every translation of it uses an em or en dash, so this holds on a
+    /// non-English Mac too. The comma form these keys used to carry has no
+    /// dash at all, which is the regression this catches and the resolved-copy
+    /// comparisons below cannot: they read the same catalog the view reads.
+    private static func hasDashSeparator(_ line: String) -> Bool {
+        line.contains("\u{2014}") || line.contains("\u{2013}")
+    }
+
     @Test("Each failure offers the action that can fix it")
     func failureOffersItsAction() throws {
         let expected: [(MachinesPanelViewModel.CloudListProblem, String)] = [
@@ -38,14 +47,31 @@ struct MachinesListStatusToolbarRowTests {
     }
 
     /// Each row must carry its own sentence and symbol, not merely differ from
-    /// the other two because of its action button. The stale copy is asserted
-    /// explicitly so punctuation changes cannot make the surfaces drift.
+    /// the other two because of its action button. The copy comparison below
+    /// resolves the same catalog key as the presentation, so it pins which key
+    /// each failure picks, not the words in it; the separator assertion at the
+    /// end is what a revert to the comma form would break.
     @Test("Each failure renders its own line and symbol, not the panel headline")
     func failuresReadDifferently() throws {
+        // Resolve the expected copy through the catalog exactly as the
+        // presentation does, so the key-selection assertion stays green on a
+        // non-English development Mac instead of asserting English words.
         let expected: [(MachinesPanelViewModel.CloudListProblem, String, String)] = [
-            (.unreachable, "Machine list unavailable \u{2014} showing last known", "exclamationmark.icloud"),
-            (.sessionRejected, "Sign-in needs a refresh \u{2014} showing last known", "person.crop.circle.badge.exclamationmark"),
-            (.requiresPro, "Cloud machines need cmux Pro \u{2014} showing last known", "sparkles"),
+            (
+                .unreachable,
+                String(localized: "machines.listUnavailable.stale", defaultValue: "Machine list unavailable — showing last known"),
+                "exclamationmark.icloud"
+            ),
+            (
+                .sessionRejected,
+                String(localized: "machines.sessionRejected.stale", defaultValue: "Sign-in needs a refresh — showing last known"),
+                "person.crop.circle.badge.exclamationmark"
+            ),
+            (
+                .requiresPro,
+                String(localized: "machines.requiresPro.stale", defaultValue: "Cloud machines need cmux Pro — showing last known"),
+                "sparkles"
+            ),
         ]
         for (problem, expectedStale, expectedSymbol) in expected {
             let presentation = MachineListStatusPresentation(.failed(problem))
@@ -62,6 +88,9 @@ struct MachinesListStatusToolbarRowTests {
         }
         let lines = expected.map(\.1)
         #expect(Set(lines).count == Self.problems.count, "two failures share a stale line: \(lines)")
+        for line in lines {
+            #expect(Self.hasDashSeparator(line), "\(line) separates its cause with something other than a dash")
+        }
     }
 
     /// Waiting for the network is not a failure: it keeps its own glyph, offers
@@ -73,6 +102,7 @@ struct MachinesListStatusToolbarRowTests {
         #expect(Self.element("CloudMachinesUnavailableRetryButton", in: hosted) == nil)
         let offline = try #require(MachineListStatusPresentation(.waitingForNetwork).staleTitle)
         #expect(Self.text(of: hosted).contains(offline))
+        #expect(Self.hasDashSeparator(offline), "\(offline) separates its cause with something other than a dash")
         // The dismiss button is what pins `failure = isFailure ? error : nil`.
         // Without this, simplifying that line to `let failure = error` leaves
         // every other case in this suite green while offline gains an orange
@@ -262,6 +292,18 @@ struct MachinesCloudStatusTests {
         #expect(texts.allSatisfy { !$0.contains(rawError) }, "Upstream error details reached accessibility")
     }
 
+    /// Ownership and availability hints are trusted copy and stay readable;
+    /// a raw failure that merely follows one is still sanitized.
+    @Test("A trusted tree hint is shown verbatim, an upstream failure never is")
+    func trustedTreeHintIsShownVerbatim() {
+        let hint = SurfaceTransferRejection.cloudMachineMismatch.message
+        let shown = Self.accessibilitySnapshot(in: Self.host(treeError: hint, treeHint: hint) { _ in }.view).texts
+        #expect(shown.contains(hint))
+        let rawError = "https://cloud.example.test/api/vm?trace=secret response-body=private"
+        let raw = Self.accessibilitySnapshot(in: Self.host(treeError: rawError, treeHint: hint) { _ in }.view).texts
+        #expect(raw.allSatisfy { !$0.contains(rawError) && !$0.contains(hint) })
+    }
+
     @MainActor
     private final class ActionLog {
         var error: String?
@@ -274,6 +316,7 @@ struct MachinesCloudStatusTests {
 
     private static func host(
         treeError: String?,
+        treeHint: String? = nil,
         listStatus: MachineListStatus? = nil,
         onDismissTreeError: @escaping (String) -> Void
     ) -> Hosted {
@@ -282,6 +325,7 @@ struct MachinesCloudStatusTests {
                 listStatus: listStatus,
                 listError: nil,
                 treeError: treeError,
+                treeHint: treeHint,
                 onDismissStale: { _ in },
                 onDismissTreeError: onDismissTreeError,
                 performListStatusAction: { _ in }

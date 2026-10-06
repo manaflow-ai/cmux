@@ -134,6 +134,15 @@ extension GhosttyNSView {
         return try terminalSurface.withRuntimeClipboardPasteIntent(body)
     }
 
+    func withPointerDispatchIntents<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        guard let terminalSurface else { return try body() }
+        return try terminalSurface.withRuntimeClipboardPasteIntent {
+            try terminalSurface.withPointerSelectionCopyIntent(body)
+        }
+    }
+
     private func replayClipboardDeferredInput(
         _ deferredInput: ClipboardDeferredInput
     ) {
