@@ -5,7 +5,7 @@ import CmuxNextDesign
 import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
-    private let icon = SidebarIconView()
+    let icon = SidebarIconView()
     /// Fades a clipped title and scrolls it while the pointer rests on the
     /// row (TitleFade); NSTextField would end it in an ellipsis instead.
     let title = MarqueeLabel()
