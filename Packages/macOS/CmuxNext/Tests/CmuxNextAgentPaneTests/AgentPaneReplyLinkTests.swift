@@ -41,9 +41,9 @@ import Testing
             model.workspaceRoots = { [root] }
             model.replyLinks.home = home.path
             model.replyLinks.settings = { setting }
-            model.replyLinks.revealFolder = { box.revealed.append($0.path) }
+            model.replyLinks.revealFolder = { box.revealed.append($0.resolvingSymlinksInPath().path) }
             model.onOpenFile = { url, target in
-                box.opened.append((url.path, target))
+                box.opened.append((url.resolvingSymlinksInPath().path, target))
                 return true
             }
             return (model, box)
@@ -60,7 +60,9 @@ import Testing
         (reply["error"] as? [String: Any])?["code"] as? String
     }
 
-    static func canonical(_ url: URL) -> String { AcpmuxPathPolicy.canonical(url.path) ?? url.path }
+    /// The path the app is handed (`AgentPaneFileOpen.resolve` resolves links, so `/private/var`
+    /// reads `/var`).
+    static func canonical(_ url: URL) -> String { url.resolvingSymlinksInPath().path }
 
     @Test func inspectSaysWhereEachPathIsWithoutLookingOutsideTheRoots() async throws {
         let fixture = try Fixture()

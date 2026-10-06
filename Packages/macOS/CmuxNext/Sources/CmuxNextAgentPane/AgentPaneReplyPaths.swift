@@ -76,6 +76,20 @@ nonisolated struct AgentPaneReplyPaths {
         }
     }
 
+    /// `path` with its deepest existing folder made canonical and the rest kept as spelled.
+    static func canonicalParent(_ path: String) -> String {
+        var head = path
+        var rest: [String] = []
+        while head != "/", !head.isEmpty {
+            if let canonical = AcpmuxPathPolicy.canonical(head) {
+                return ([canonical == "/" ? "" : canonical] + rest.reversed()).joined(separator: "/")
+            }
+            rest.append((head as NSString).lastPathComponent)
+            head = (head as NSString).deletingLastPathComponent
+        }
+        return path
+    }
+
     func isInsideRoot(_ path: String) -> Bool {
         roots.contains { AcpmuxPathPolicy.contains(root: $0, path: path) }
     }
@@ -86,7 +100,10 @@ nonisolated struct AgentPaneReplyPaths {
         guard let spelled = expanded(text) else { return nil }
         if isDenied(spelled) { return Resolved(place: .denied, path: spelled, isFolder: false) }
         guard let canonical = AcpmuxPathPolicy.canonical(spelled) else {
-            return Resolved(place: isInsideRoot(spelled) ? .missing : .outside, path: spelled, isFolder: text.hasSuffix("/"))
+            // Nothing there: compare its nearest existing folder, made canonical (`/var` is
+            // `/private/var`), with the missing rest appended.
+            let place: Place = isInsideRoot(Self.canonicalParent(spelled)) ? .missing : .outside
+            return Resolved(place: place, path: spelled, isFolder: text.hasSuffix("/"))
         }
         // A link can point a harmless name at a secret.
         if isDenied(canonical) { return Resolved(place: .denied, path: canonical, isFolder: false) }
