@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// `{sha256, byte_count, mime_type}` of a poster or preview in an upload `begin`.
 public struct ConversationDerivedImageDeclaration: Encodable, Sendable, Hashable {

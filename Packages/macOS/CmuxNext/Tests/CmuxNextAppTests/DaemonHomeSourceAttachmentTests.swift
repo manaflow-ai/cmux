@@ -30,14 +30,19 @@ import UniformTypeIdentifiers
             var preview: (sha256: String, mime: String, bytes: Data)?
         }
 
-        let uploads = Mutex<[String: Upload]>([:])
-        let records = Mutex<[String: Record]>([:])
-        let chunks = Mutex(0)
-        let refuseWith = Mutex<String?>(nil)
+        final class State: Sendable {
+            let uploads = Mutex<[String: Upload]>([:])
+            let records = Mutex<[String: Record]>([:])
+            let chunks = Mutex(0)
+            let refuseWith = Mutex<String?>(nil)
+        }
+
+        let state: State
         let socket: ScriptedDaemonSocket
 
         init() throws {
-            let uploads = uploads, records = records, chunks = chunks, refuseWith = refuseWith
+            let state = State()
+            self.state = state
             socket = try ScriptedDaemonSocket { request in
                 let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
                 func ok(_ data: String) -> [String] { [#"{"id":\#(id),"ok":true,"data":\#(data)}"#] }
@@ -52,7 +57,7 @@ import UniformTypeIdentifiers
                 case "conversation-attachment-upload":
                     switch request["op"]?.stringValue {
                     case "begin":
-                        if let reason = refuseWith.withLock({ $0 }) { return refused(reason) }
+                        if let reason = state.refuseWith.withLock({ $0 }) { return refused(reason) }
                         let sha = request["sha256"]?.stringValue ?? ""
                         var upload = Upload(sha256: sha, mimeType: request["mime_type"]?.stringValue ?? "")
                         var needs = [#""original""#]
@@ -61,30 +66,30 @@ import UniformTypeIdentifiers
                             needs.append(#""preview""#)
                         }
                         let uploadID = "u\(sha.prefix(8))"
-                        uploads.withLock { $0[uploadID] = upload }
+                        state.uploads.withLock { $0[uploadID] = upload }
                         return ok(#"{"upload":"\#(uploadID)","needs":[\#(needs.joined(separator: ","))],"stored":null}"#)
                     case "chunk":
                         let uploadID = request["upload"]?.stringValue ?? ""
                         let piece = request["piece"]?.stringValue ?? ""
                         let data = Data(base64Encoded: request["data"]?.stringValue ?? "") ?? Data()
-                        chunks.withLock { $0 += 1 }
-                        let received = uploads.withLock { uploads -> Int in
+                        state.chunks.withLock { $0 += 1 }
+                        let received = state.uploads.withLock { uploads -> Int in
                             uploads[uploadID]?.bytes[piece, default: Data()].append(data)
                             return uploads[uploadID]?.bytes[piece]?.count ?? 0
                         }
                         return ok(#"{"received":\#(received)}"#)
                     case "commit":
                         let uploadID = request["upload"]?.stringValue ?? ""
-                        guard let upload = uploads.withLock({ $0.removeValue(forKey: uploadID) }),
+                        guard let upload = state.uploads.withLock({ $0.removeValue(forKey: uploadID) }),
                               let original = upload.bytes["original"],
                               Self.hex(original) == upload.sha256 else { return refused("hash_mismatch") }
-                        var preview: (String, String, Data)?
+                        var preview: (sha256: String, mime: String, bytes: Data)?
                         var previewJSON = ""
                         if let declared = upload.preview, let bytes = upload.bytes["preview"] {
                             preview = (declared.sha256, declared.mime, bytes)
                             previewJSON = #","preview":{"hash":"\#(declared.sha256)","mime_type":"\#(declared.mime)","byte_count":\#(bytes.count)}"#
                         }
-                        records.withLock { $0[upload.sha256] = Record(mimeType: upload.mimeType, bytes: original, preview: preview) }
+                        state.records.withLock { $0[upload.sha256] = Record(mimeType: upload.mimeType, bytes: original, preview: preview) }
                         return ok(#"{"stored":{"hash":"\#(upload.sha256)","mime_type":"\#(upload.mimeType)","byte_count":\#(original.count)\#(previewJSON)}}"#)
                     default:
                         return ok("{}")
@@ -94,7 +99,7 @@ import UniformTypeIdentifiers
                     let variant = request["variant"]?.stringValue ?? "original"
                     let offset = request["offset"]?.doubleValue.map { Int($0) } ?? 0
                     let length = request["length"]?.doubleValue.map { Int($0) } ?? 4 << 20
-                    guard let record = records.withLock({ $0[hash] }) else { return refused("unknown_attachment") }
+                    guard let record = state.records.withLock({ $0[hash] }) else { return refused("unknown_attachment") }
                     let piece: (hash: String, mime: String, bytes: Data)
                     switch variant {
                     case "preview":
@@ -160,17 +165,18 @@ import UniformTypeIdentifiers
                                 preview: AttachmentDerivedImage(hash: Owner.hex(preview), mimeType: "image/jpeg", byteCount: preview.count))
         let (source, connection) = try await connectedSource(owner)
         defer { Task { await connection.close() } }
-        let progress = Mutex<[Double]>([])
+        final class Progress: Sendable { let values = Mutex<[Double]>([]) }
+        let progress = Progress()
         let stored = try await source.upload(AttachmentUpload(conversation: ConversationID("conv_A"), fileURL: image.url, ref: ref,
                                                               previewURL: previewURL) { fraction in
-            progress.withLock { $0.append(fraction) }
+            progress.values.withLock { $0.append(fraction) }
         })
         #expect(stored.hash == ref.hash)
         #expect(stored.mimeType == "image/png")
         #expect(stored.byteCount == image.data.count)
         #expect(stored.preview == ref.preview)
-        #expect(owner.records.withLock { $0[ref.hash]?.bytes } == image.data)
-        #expect(progress.withLock { $0.last } == 1)
+        #expect(owner.state.records.withLock { $0[ref.hash]?.bytes } == image.data)
+        #expect(progress.values.withLock { $0.last } == 1)
 
         let location = AttachmentLocation(conversation: ConversationID("conv_A"), message: MessageID("msg_1"), partIndex: 0)
         let original = try await source.fetch(ref, at: location, variant: .original)
@@ -189,7 +195,7 @@ import UniformTypeIdentifiers
     @Test func aRefusedTypeIsAFinalRejectionWithTheOwnersReason() async throws {
         let owner = try Owner()
         defer { owner.socket.stop() }
-        owner.refuseWith.withLock { $0 = "type_refused" }
+        owner.state.refuseWith.withLock { $0 = "type_refused" }
         let (source, connection) = try await connectedSource(owner)
         defer { Task { await connection.close() } }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("dhs-\(UUID().uuidString).png")

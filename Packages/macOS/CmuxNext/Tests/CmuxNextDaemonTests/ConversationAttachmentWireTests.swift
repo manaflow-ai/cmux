@@ -41,6 +41,7 @@ import Testing
         #expect(part == .attachment(expected))
         #expect(part.plainText == "a.mov")
         let encoded = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(part))
-        #expect(encoded == (try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))))
+        let original = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+        #expect(encoded == original)
     }
 }
