@@ -183,22 +183,30 @@ export function cleanShellOutput(raw: string): string {
     .join("\n");
 }
 
-/// The chat's rows with each command block placed where it ran (before the first row that came
-/// later). The same array when there are none.
+/// The chat's rows with each command block placed where it ran. The same array when there are none.
 export function withShellRows(rows: AcpmuxRow[], runs: readonly ShellRun[]): AcpmuxRow[] {
-  if (runs.length === 0) return rows;
-  const out = [...rows];
-  for (const run of [...runs].sort((a, b) => a.startedAt - b.startedAt)) {
-    const at = out.findIndex((row) => row.kind !== SHELL_ROW && row.at > run.startedAt);
-    const block: AcpmuxRow = {
+  return insertByTime(
+    rows,
+    runs.map((run) => ({
       id: `shell-${run.id}`,
       kind: SHELL_ROW,
       at: run.startedAt,
       version: run.version,
       shell: run,
-    };
-    if (at < 0) out.push(block);
-    else out.splice(at, 0, block);
+    })),
+  );
+}
+
+/// `rows` with each of `extra` (rows the page adds) before the first chat row that came later.
+/// The same array when there are none.
+export function insertByTime(rows: AcpmuxRow[], extra: AcpmuxRow[]): AcpmuxRow[] {
+  if (extra.length === 0) return rows;
+  const added = new Set(extra.map((row) => row.id));
+  const out = [...rows];
+  for (const row of [...extra].sort((a, b) => a.at - b.at)) {
+    const at = out.findIndex((item) => !added.has(item.id) && item.at > row.at);
+    if (at < 0) out.push(row);
+    else out.splice(at, 0, row);
   }
   return out;
 }
