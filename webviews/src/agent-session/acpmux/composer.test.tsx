@@ -499,3 +499,40 @@ describe("acpmux composer draft", () => {
     await act(async () => root.unmount());
   });
 });
+
+describe("acpmux composer remote editing note", () => {
+  let root: ReturnType<typeof createRoot>;
+  const note = () => dom.window.document.querySelector(".acpmux-composer-remote-note");
+  const render = async (value: AcpmuxSnapshot) => {
+    await act(async () =>
+      root.render(createElement(Composer, { snapshot: value, chips: () => null, onSend: () => {}, onStop: () => {} })),
+    );
+    await ready();
+  };
+  const showing = (remote: boolean, harness: string): AcpmuxSnapshot => ({
+    ...snapshot(),
+    remote,
+    summary: { sessionId: "s", harness, family: harness },
+  });
+  beforeEach(() => {
+    root = createRoot(dom.window.document.getElementById("root")!);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+  });
+
+  test("a remote Codex or opencode chat says why editing is not offered", async () => {
+    await render(showing(true, "codex"));
+    expect(note()?.textContent).toBe("Editing from here needs a mode that asks before each change");
+    expect(note()?.getAttribute("role")).toBe("note");
+    await render(showing(true, "opencode"));
+    expect(note()?.textContent).toBe("Editing from here needs a mode that asks before each change");
+  });
+
+  test("a local chat and a remote Claude chat show no note", async () => {
+    await render(showing(false, "codex"));
+    expect(note()).toBeNull();
+    await render(showing(true, "claude"));
+    expect(note()).toBeNull();
+  });
+});

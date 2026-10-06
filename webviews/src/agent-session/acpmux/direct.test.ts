@@ -987,6 +987,27 @@ describe("direct client session state", () => {
     });
   });
 
+  // acpmux names the connection's origin in initialize; the composer's remote note follows it.
+  test("the snapshot says remote only when acpmux calls this connection remote", async () => {
+    const remoteFor = async (meta: Record<string, unknown> | undefined) => {
+      ScriptedSocket.respond = ({ method, params }) => {
+        if (method === "initialize") return meta ? { _meta: { acpmux: meta } } : {};
+        if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
+        if (method === "_acpmux/attach") return attachReply(params.sessionId);
+        return {};
+      };
+      const client = await connect();
+      await settle();
+      const remote = latest().remote;
+      client.close();
+      return remote;
+    };
+    expect(await remoteFor({ origin: "remote" })).toBe(true);
+    expect(await remoteFor({ origin: "local" })).toBe(false);
+    expect(await remoteFor({ origin: "peer" })).toBe(false);
+    expect(await remoteFor(undefined)).toBe(false);
+  });
+
   test("a refused prewarm hint is ignored and never blocks", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "initialize") return { _meta: { acpmux: { extensions: ["_acpmux/prewarm"], origin: "local" } } };
