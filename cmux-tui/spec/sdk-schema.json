@@ -7144,8 +7144,18 @@
      },
      "presence": "optional",
      "nullable": false,
-     "description": "Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.",
+     "description": "Agent session source (agent-session-tabs-v1); exclusive with the other sources.",
      "capability": "agent-session-tabs-v1"
+    },
+    "page": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.",
+     "capability": "page-tabs-v1"
     }
    },
    "additional_properties": false
@@ -7775,6 +7785,65 @@
     }
    },
    "additional_properties": true
+  },
+  "ActivitySnapshot": {
+   "kind": "object",
+   "fields": {
+    "attached_clients": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "live_agents": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_user_input_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "last_agent_action_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "attached_clients counts attached connections whose set-client-info kind is tui, web, mac or frontend (a person's client); automation connections never count.",
+    "live_agents counts agents whose state is working or blocked.",
+    "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
+    "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+    "Times and counts only: no content and no surface ids."
+   ]
+  },
+  "ActivitySubscribeResult": {
+   "kind": "object",
+   "fields": {
+    "activity": {
+     "type": {
+      "kind": "ref",
+      "name": "ActivitySnapshot"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -15018,6 +15087,16 @@
       "default": null,
       "capability": "agent-session-tabs-v1"
      },
+     "page": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "page-tabs-v1"
+     },
      "pane": {
       "type": {
        "kind": "ref",
@@ -15143,7 +15222,7 @@
    },
    "stream": null,
    "constraints": [
-    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), or agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), never both. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
    ]
   },
   "bind-conversation-tab-session": {
@@ -19999,6 +20078,32 @@
     "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
     "The secret is never journaled, logged or put in an event."
    ]
+  },
+  "subscribe-activity": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "vm-activity-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ActivitySubscribeResult"
+   },
+   "stream": {
+    "kind": "subscribe",
+    "event_names": [
+     "activity-changed"
+    ],
+    "ordering": "Registration response with the current snapshot, then activity-changed after each change, at most one per second (leading edge plus one trailing event); no replay. Closing the connection ends the subscription.",
+    "terminal_event": null
+   },
+   "constraints": [
+    "Trusted local (Unix socket) connections only. The Cloud VM agent uses it to report activity for the idle pause (plans/cmux-next/cloud-automation.md 27).",
+    "At most 16 subscribers."
+   ]
   }
  },
  "events": {
@@ -23716,6 +23821,36 @@
       },
       "presence": "optional",
       "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "activity-changed": {
+   "since": 12,
+   "capability": "vm-activity-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "activity-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "activity": {
+      "type": {
+       "kind": "ref",
+       "name": "ActivitySnapshot"
+      },
+      "presence": "required",
+      "nullable": false
      }
     },
     "additional_properties": false

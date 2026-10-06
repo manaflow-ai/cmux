@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30'
+IR_SHA256 = '6a8683d848449d95fc36bb1e5c5391547842520c0e3104bb8c7b82fe24b5b935'
 
 
 @dataclass(frozen=True)
@@ -1646,6 +1646,7 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
             'owner': CommandFieldMetadata(None, None),
+            'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, 'conversation-tab-transaction-v1'),
@@ -2713,6 +2714,16 @@ COMMANDS = {
             'tree_events': CommandFieldMetadata(7, None),
         },
     ),
+    'subscribe-activity': CommandMetadata(
+        'subscribe-activity',
+        'local-admin',
+        12,
+        'vm-activity-v1',
+        ('local-admin',),
+        'subscribe',
+        {
+        },
+    ),
     'swap-pane': CommandMetadata(
         'swap-pane',
         'control',
@@ -3086,6 +3097,7 @@ COMMANDS = {
 }
 
 EVENTS = {
+    'activity-changed': EventMetadata('activity-changed', 12, 'vm-activity-v1', ('control',), 'emitted'),
     'agent-changed': EventMetadata('agent-changed', 11, None, ('subscribe',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30. */
+/* cmux-tui mux protocol 12, IR 6a8683d848449d95fc36bb1e5c5391547842520c0e3104bb8c7b82fe24b5b935. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30" as const;
+export const SDK_IR_SHA256 = "6a8683d848449d95fc36bb1e5c5391547842520c0e3104bb8c7b82fe24b5b935" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1464,6 +1464,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "agent-session-tabs-v1"
       },
+      "page": {
+        "since": null,
+        "capability": "page-tabs-v1"
+      },
       "transaction": {
         "since": null,
         "capability": "conversation-tab-transaction-v1"
@@ -1471,7 +1475,7 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), or agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), never both. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
     ]
   },
   "new-frontend-browser-tab": {
@@ -2536,6 +2540,24 @@ export const COMMAND_METADATA = {
       "surface filtering occurs before the bounded mailbox."
     ]
   },
+  "subscribe-activity": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "vm-activity-v1",
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "activity-changed"
+      ],
+      "kind": "subscribe",
+      "ordering": "Registration response with the current snapshot, then activity-changed after each change, at most one per second (leading edge plus one trailing event); no replay. Closing the connection ends the subscription.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "Trusted local (Unix socket) connections only. The Cloud VM agent uses it to report activity for the idle pause (plans/cmux-next/cloud-automation.md 27).",
+      "At most 16 subscribers."
+    ]
+  },
   "swap-pane": {
     "authority": "control",
     "since": 6,
@@ -2845,6 +2867,14 @@ export const COMMAND_METADATA = {
   }
 } as const;
 export const EVENT_METADATA = {
+  "activity-changed": {
+    "since": 12,
+    "capability": "vm-activity-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "agent-changed": {
     "since": 11,
     "capability": null,
@@ -3392,6 +3422,65 @@ export interface CommandSchema {
   readonly result: TypeSchema;
 }
 export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "ActivitySnapshot": {
+    "additional_properties": false,
+    "constraints": [
+      "attached_clients counts attached connections whose set-client-info kind is tui, web, mac or frontend (a person's client); automation connections never count.",
+      "live_agents counts agents whose state is working or blocked.",
+      "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
+      "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+      "Times and counts only: no content and no surface ids."
+    ],
+    "fields": {
+      "attached_clients": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "last_agent_action_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_user_input_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "live_agents": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ActivitySubscribeResult": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ActivitySnapshot"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "AgentRecord": {
     "additional_properties": false,
     "fields": {
@@ -4819,7 +4908,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "agent_session": {
         "capability": "agent-session-tabs-v1",
-        "description": "Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.",
+        "description": "Agent session source (agent-session-tabs-v1); exclusive with the other sources.",
         "nullable": false,
         "presence": "optional",
         "type": {
@@ -4838,6 +4927,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "owner": {
         "description": "Conversation source: local or cloud.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page": {
+        "capability": "page-tabs-v1",
+        "description": "Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.",
         "nullable": false,
         "presence": "optional",
         "type": {
@@ -16445,6 +16544,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "page": {
+          "capability": "page-tabs-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "pane": {
           "default": null,
           "nullable": true,
@@ -20570,6 +20679,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "subscribe-activity": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ActivitySubscribeResult"
+    }
+  },
   "swap-pane": {
     "request": {
       "additional_properties": false,
@@ -21675,6 +21795,28 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   }
 };
 export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "activity-changed": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ActivitySnapshot"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "activity-changed"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "agent-changed": {
     "additional_properties": false,
     "fields": {

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
+import { UI_ANCHOR_GAP } from "./anchor";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
 export interface UiAnchorRect {
@@ -72,7 +73,7 @@ export function Popover({
           anchor={virtualAnchor(anchor)}
           side="bottom"
           align="start"
-          sideOffset={6}
+          sideOffset={UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
             className={cx("ui-popup ui-popover", className)}

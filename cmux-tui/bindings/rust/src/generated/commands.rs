@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30.
+// cmux-tui mux protocol 12, IR 6a8683d848449d95fc36bb1e5c5391547842520c0e3104bb8c7b82fe24b5b935.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1698,6 +1698,8 @@ pub struct NewConversationTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub owner: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
@@ -2784,6 +2786,14 @@ pub struct SubscribeRequest {
 pub type SubscribeResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SubscribeActivityRequest {
+}
+
+#[rustfmt::skip]
+pub type SubscribeActivityResult = T::ActivitySubscribeResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SwapPaneRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3773,6 +3783,9 @@ impl CmuxClient {
         if !request.agent_session.is_missing() {
             self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
         }
+        if !request.page.is_missing() {
+            self.require_capability_field("new-conversation-tab", "page-tabs-v1")?;
+        }
         if !request.transaction.is_missing() {
             self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;
         }
@@ -4299,6 +4312,10 @@ impl CmuxClient {
             self.require_protocol_field("subscribe", 7)?;
         }
         self.execute_stream(&SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn subscribe_activity(&mut self, request: SubscribeActivityRequest) -> Result<CmuxStream> {
+        self.execute_stream(&SUBSCRIBE_ACTIVITY_METADATA, &request)
     }
 
     pub fn swap_pane(&mut self, request: SwapPaneRequest) -> Result<SwapPaneResult> {

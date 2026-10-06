@@ -1,10 +1,21 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30. */
+/* cmux-tui mux protocol 12, IR 6a8683d848449d95fc36bb1e5c5391547842520c0e3104bb8c7b82fe24b5b935. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
 export type JsonValue = null | boolean | number | bigint | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
+
+export type ActivitySnapshot = {
+  "attached_clients": number;
+  "last_agent_action_at_ms": (bigint) | null;
+  "last_user_input_at_ms": (bigint) | null;
+  "live_agents": number;
+};
+
+export type ActivitySubscribeResult = {
+  "activity": ActivitySnapshot;
+};
 
 export type AgentRecord = {
   "session": (string) | null;
@@ -286,12 +297,14 @@ export type ConversationSummary = {
 };
 
 export type ConversationTabRecord = {
-  /** Agent session source (agent-session-tabs-v1); exclusive with conversation and owner. */
+  /** Agent session source (agent-session-tabs-v1); exclusive with the other sources. */
   "agent_session"?: AgentSessionSource;
   /** Conversation source: a conv_ id, with owner. */
   "conversation"?: string;
   /** Conversation source: local or cloud. */
   "owner"?: string;
+  /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
+  "page"?: string;
 };
 
 export type ConversationTextRun = {

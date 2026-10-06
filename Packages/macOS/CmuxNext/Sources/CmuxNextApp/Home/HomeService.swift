@@ -27,6 +27,9 @@ final class HomeService {
     @ObservationIgnored var homeWorkspaceStep = "not started"
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
+    /// The signed-in user's chief placed on a paired server (G6), as last
+    /// read on a connect or sign-in; its main conversation is the Chief tab.
+    private(set) var cloudChief: CloudChief?
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
@@ -54,9 +57,13 @@ final class HomeService {
     func start() {
         services.machines.local.store.sideEvents.subscribe { [weak self] event in self?.handle(event) }
         let local = services.machines.local
+        let auth = services.cloud.auth
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            for await connection in Observations({ local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil }) {
+            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
+            for await (connection, _) in Observations({
+                (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
+            }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)
             }
@@ -81,6 +88,11 @@ final class HomeService {
     }
 
     var connection: DaemonConnection? { isAvailable ? services.machines.local.connection : nil }
+
+    /// Records the placed chief the last read found (HomeService+Workspace).
+    func setCloudChief(_ chief: CloudChief?) {
+        if cloudChief != chief { cloudChief = chief }
+    }
 
     /// Home opened in a window: start the local mux's brain host once per launch.
     func homeDidOpen() {

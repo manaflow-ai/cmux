@@ -103,18 +103,22 @@ function pullRequest(value: any): SessionPullRequest | undefined {
   };
 }
 
-/** The title (the first prompt) when the name was generated (`codex`, `codex-3`), else the name the user gave. */
-export function sessionTitle(session: { title?: string; name?: string; harness?: string; sessionId: string }): string {
+/**
+ * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
+ * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
+ * name is the launch profile's (`claude-sr`), so a chat with no prompt yet is a "New chat".
+ */
+export function sessionTitle(
+  session: { title?: string; lastPrompt?: string; name?: string; harness?: string; family?: string; sessionId: string },
+  t: Translate = translate,
+): string {
   const name = session.name ?? "";
-  const harness = session.harness ?? "";
   const bare = name.split("/").pop() ?? name;
-  const generated =
-    !name ||
-    (harness !== "" &&
-      (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
-  const title = session.title?.trim();
-  if (generated) return title || name || session.sessionId.slice(0, 8);
-  return name;
+  // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
+  const generatedFrom = (agent: string | undefined) =>
+    !!agent && bare.startsWith(agent) && /^(?:-(?:fork|\d+))*$/.test(bare.slice(agent.length));
+  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family)) return name;
+  return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
 }
 
 /** A project's name for its header: the folder's last component, `~` for a home folder. */

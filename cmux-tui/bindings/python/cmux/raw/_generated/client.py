@@ -378,8 +378,8 @@ class GeneratedClientMixin:
     def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows))
 
-    def new_conversation_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, workspace: Union[Id, None, MissingType] = MISSING, agent_session: Union[AgentSessionSource, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> NewConversationTabResult:
-        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(pane=pane, workspace=workspace, agent_session=agent_session, cols=cols, conversation=conversation, mutation_id=mutation_id, origin=origin, owner=owner, rows=rows, transaction=transaction))
+    def new_conversation_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, workspace: Union[Id, None, MissingType] = MISSING, agent_session: Union[AgentSessionSource, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> NewConversationTabResult:
+        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(pane=pane, workspace=workspace, agent_session=agent_session, cols=cols, conversation=conversation, mutation_id=mutation_id, origin=origin, owner=owner, page=page, rows=rows, transaction=transaction))
 
     def new_frontend_browser_tab(self, engine: str, url: str, *, pane: Union[Id, None, MissingType] = MISSING, activate: Union[bool, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, favicon_url: Union[str, None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-frontend-browser-tab', NewFrontendBrowserTabRequest(engine=engine, url=url, pane=pane, activate=activate, cols=cols, favicon_url=favicon_url, idempotency_key=idempotency_key, owner=owner, profile_id=profile_id, rows=rows, title=title))
@@ -608,6 +608,9 @@ class GeneratedClientMixin:
 
     def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
+
+    def subscribe_activity(self) -> Any:
+        return self._open_command_stream('subscribe-activity', SubscribeActivityRequest())
 
     def swap_pane(self, pane: Id, *, dir: Union[PaneDirection, None, MissingType] = MISSING, target: Union[Id, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('swap-pane', SwapPaneRequest(pane=pane, dir=dir, target=target))
@@ -896,6 +899,7 @@ GeneratedClientMixin.sidebar_plugin.__cmux_command__ = COMMANDS['sidebar-plugin'
 GeneratedClientMixin.snapshot_request.__cmux_command__ = COMMANDS['snapshot-request']
 GeneratedClientMixin.split.__cmux_command__ = COMMANDS['split']
 GeneratedClientMixin.subscribe.__cmux_command__ = COMMANDS['subscribe']
+GeneratedClientMixin.subscribe_activity.__cmux_command__ = COMMANDS['subscribe-activity']
 GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_clipboard_reply.__cmux_command__ = COMMANDS['terminal-clipboard-reply']
 GeneratedClientMixin.terminal_clipboard_subscribe.__cmux_command__ = COMMANDS['terminal-clipboard-subscribe']
