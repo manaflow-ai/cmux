@@ -87,7 +87,8 @@ public final class SleepyModeSettingsStore {
     }
 
     deinit {
-        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        // NotificationCenter retains the token and the closure captures self weakly.
+        // Accessing the token from deinit is not actor-safe under Swift 6.
     }
 
     /// Re-reads the managed defaults snapshot after cmux.json is applied.
