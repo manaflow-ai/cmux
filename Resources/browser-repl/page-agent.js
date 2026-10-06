@@ -769,29 +769,28 @@
     return inside(el);
   }
 
-  // "host/first-segment/…" for a link to another site (hosts that differ
-  // after "www." and ignoring subdomains of the same two-label base). Not
-  // shortened here: secrets are masked natively by whole value after the
-  // reply leaves the page, so a cut here could hand on a value's prefix.
-  // The snapshot renderer (snapshot.js) caps it after masking.
+  // Whether a link goes to another site (hosts that differ after "www." and
+  // ignoring subdomains of the same two-label base). The link's URL is sent
+  // whole (displayUrl) and the snapshot renderer (snapshot.js) makes its
+  // "host/first-segment/…" summary: secrets are masked natively by whole
+  // value after the reply leaves the page, so a summary made here (or any
+  // cut) could hand on part of a value.
   const siteOf = (host) => host.replace(/^www\./, "").split(".").slice(-2).join(".");
-  function offsiteSummary(el) {
+  function isOffsite(el) {
     const href = el.href;
-    if (!href || typeof href !== "string") return null;
+    if (!href || typeof href !== "string") return false;
     let url;
     try {
       url = new global.URL(href);
     } catch {
-      return null;
+      return false;
     }
-    if (!/^https?:$/.test(url.protocol) || !global.location.hostname) return null;
-    if (siteOf(url.hostname) === siteOf(global.location.hostname)) return null;
-    const segments = url.pathname.split("/").filter(Boolean);
-    let out = url.hostname.replace(/^www\./, "") + (segments.length ? "/" + segments[0] : "");
-    if (segments.length > 1 || url.search) out += "/…";
-    return out;
+    if (!/^https?:$/.test(url.protocol) || !global.location.hostname) return false;
+    return siteOf(url.hostname) !== siteOf(global.location.hostname);
   }
 
+  // A link's URL, whole (snapshot.js drops an on-site link's origin and
+  // caps it after masking), and whether it is on the page's own origin.
   function displayUrl(el) {
     const href = el.href;
     if (!href || typeof href !== "string" || /^javascript:/i.test(href)) return null;
@@ -799,12 +798,10 @@
     try {
       url = new global.URL(href);
     } catch {
-      return href;
+      return { href, sameOrigin: false };
     }
     if (url.protocol === "data:") return null;
-    if (url.origin !== "null" && url.origin === global.location.origin) return url.pathname + url.search + url.hash;
-    // Whole, as the off-site summary: snapshot.js caps it after masking.
-    return url.href;
+    return { href: url.href, sameOrigin: url.origin !== "null" && url.origin === global.location.origin };
   }
 
   // A value is charged to the snapshot's size budget by the caller; what
@@ -1421,9 +1418,11 @@
     if (value !== null) node.value = fit(ctx, value);
     if (role === "link") {
       const url = displayUrl(el);
-      if (url) node.url = fit(ctx, url);
-      const offsite = offsiteSummary(el);
-      if (offsite) node.offsite = fit(ctx, offsite);
+      if (url) {
+        node.url = fit(ctx, url.href);
+        if (url.sameOrigin) node.sameOrigin = 1;
+        else if (isOffsite(el)) node.offsite = 1;
+      }
     }
     const placeholder = el.getAttribute("placeholder");
     if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = fit(ctx, normalize(placeholder));

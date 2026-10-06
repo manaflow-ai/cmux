@@ -544,9 +544,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   string (the page-read budget, a long name) it drops the 53,248
   characters before the cut (4,096 bytes in their longest escaped form)
   before the reply leaves the page: a cut never hands on a value's prefix.
-  A snapshot's link URLs (a cross-origin URL, an off-site link's
-  `host/first-segment` summary) leave the page whole and are shortened
-  (300 and 48 characters) by the snapshot renderer, after masking.
+  A snapshot's link URLs leave the page whole; the snapshot renderer
+  makes every summary of one after masking: an off-site link's
+  `host/first-segment` form, an on-site link's path without its origin,
+  and the caps (300 characters for a cross-origin URL, 48 for an off-site
+  summary, 100 for an unnamed link's URL).
   Text the agent's own page scripts cut or search (a `searchText` context
   window, a regex group, `page.evaluate`) is outside this, as other
   transforms are.

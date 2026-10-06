@@ -22,6 +22,23 @@
   const CROSS_ORIGIN_URL_LIMIT = 300;
   const OFFSITE_LIMIT = 48;
   const cap = (s, limit) => (s.length > limit ? s.slice(0, limit - 1) + "…" : s);
+  // Link URL summaries, made from the URL as it arrived (masked whole by
+  // the egress gate), never in the page agent: a summary drops part of the
+  // URL, and with it part of a secret masking would no longer see whole.
+  const URL_PARTS = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)([^?#]*)(\?[^#]*)?/i;
+  // An on-site link's path, query and fragment, without its origin.
+  const onSitePath = (url) => {
+    const m = URL_PARTS.exec(url);
+    return m ? url.slice(m[0].length - m[2].length - (m[3] || "").length) || "/" : url;
+  };
+  // "host/first-segment/…" for an off-site link.
+  const offsiteSummary = (url) => {
+    const m = URL_PARTS.exec(url);
+    if (!m) return url;
+    const host = m[1].replace(/^[^@]*@/, "").replace(/:\d*$/, "").replace(/^www\./, "");
+    const segments = m[2].split("/").filter(Boolean);
+    return host + (segments.length ? "/" + segments[0] : "") + (segments.length > 1 || (m[3] && m[3].length > 1) ? "/…" : "");
+  };
   // Unnamed wrappers that print as their only element child.
   const TRANSPARENT_WRAPPERS = new Set(["listitem", "cell", "gridcell"]);
   // Printing prefers the diff whenever it is shorter than the tree; above
@@ -209,10 +226,11 @@
     // The page agent sends link URLs whole, so a secret in one is masked
     // whole before these caps cut it (a cross-origin URL at
     // CROSS_ORIGIN_URL_LIMIT, an off-site summary at OFFSITE_LIMIT).
-    if (n.url && options.urls) head += ` [url=${n.url.startsWith("/") ? n.url : cap(n.url, CROSS_ORIGIN_URL_LIMIT)}]`;
-    else if (n.offsite) head += ` [url=${cap(n.offsite, OFFSITE_LIMIT)}]`;
-    // An unnamed link's on-site URL, capped: enough to tell such links apart.
-    else if (n.url && n.showUrl) head += ` [url=${n.url.length > URL_LIMIT ? n.url.slice(0, URL_LIMIT - 1) + "…" : n.url}]`;
+    if (n.url && options.urls) head += ` [url=${n.sameOrigin ? onSitePath(n.url) : cap(n.url, CROSS_ORIGIN_URL_LIMIT)}]`;
+    else if (n.url && n.offsite) head += ` [url=${cap(offsiteSummary(n.url), OFFSITE_LIMIT)}]`;
+    // An unnamed link's URL (on-site without its origin), capped: enough
+    // to tell such links apart.
+    else if (n.url && n.showUrl) head += ` [url=${cap(n.sameOrigin ? onSitePath(n.url) : n.url, URL_LIMIT)}]`;
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
     if (n.inlineOptions && n.inlineOptions.length) {
       const shown = n.inlineOptions.slice(0, INLINE_OPTIONS).join(", ");
