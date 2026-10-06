@@ -50,6 +50,10 @@ class CloudVPNDistributionTests(unittest.TestCase):
                         ))
                         self.assertEqual(ent["keychain-access-groups"], [fixtures.TEAM_ID + "." + host])
                         self.assertIn("packet-tunnel-provider", ent["com.apple.developer.networking.networkextension"])
+                        self.assertNotIn("hotspot-provider", ent["com.apple.developer.networking.networkextension"])
+
+    def test_both_exports_reject_signed_hotspot_provider(self):
+        self.assert_rejected("CMUX_FAKE_HOST_HOTSPOT_PROVIDER", "hotspot-provider")
 
     def test_both_exports_reject_empty_signed_vpn_group(self):
         self.assert_rejected("CMUX_FAKE_VPN_EMPTY_SIGNED_GROUP", "keychain")

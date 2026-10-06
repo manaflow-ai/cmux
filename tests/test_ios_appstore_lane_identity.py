@@ -92,7 +92,7 @@ def _profile_plist(
             "aps-environment": "production",
             "com.apple.developer.usernotifications.time-sensitive": True,
             "com.apple.developer.applesignin": ["Default"],
-            "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"],
+            "com.apple.developer.networking.networkextension": ["packet-tunnel-provider", "hotspot-provider"],
             "keychain-access-groups": [app_id],
         },
     }
@@ -579,6 +579,8 @@ if "-d" in args and "--entitlements" in args:
         entitlements["keychain-access-groups"] = []
     if bundle_id in (APPSTORE_BUNDLE_ID, BETA_BUNDLE_ID) and os.environ.get("CMUX_FAKE_HOST_MISSING_PACKET_TUNNEL") == "1":
         entitlements.pop("com.apple.developer.networking.networkextension", None)
+    if bundle_id in (APPSTORE_BUNDLE_ID, BETA_BUNDLE_ID) and os.environ.get("CMUX_FAKE_HOST_HOTSPOT_PROVIDER") == "1":
+        entitlements.setdefault("com.apple.developer.networking.networkextension", []).append("hotspot-provider")
     sys.stdout.buffer.write(plist_bytes(entitlements))
     sys.exit(0)
 if "--force" in args:
@@ -870,6 +872,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
     repo = target / "repo"
     for relative in (
         "ios/scripts/upload-testflight.sh",
+        "ios/scripts/filter-ios-appstore-entitlements.py",
         "ios/scripts/notification-service-bundle-id.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
