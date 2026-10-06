@@ -8,11 +8,18 @@
   if (!S) return;
   const APP = "https://app.slack.com";
 
-  // Runs in app.slack.com. arg: { list } or { team, method, params,
-  // expect }. With expect { teamId, userId }, auth.test runs first with the
-  // same token and the method runs only when that token is that member of
-  // that workspace: a token names one member, so the method acts as them.
+  // Runs in app.slack.com through the loader's fixed-origin guard
+  // (t.withOrigin). arg: { list } or { team, method, params, expect }. With
+  // expect { teamId, userId }, auth.test runs first with the same token and
+  // the method runs only when that token is that member of that workspace: a
+  // token names one member, so the method acts as them. The token is read
+  // and sent only while this document is on https://app.slack.com, checked
+  // again before each request, and only to that fixed origin's /api/ (never
+  // a URL built from the page's location).
   async function slackCall(arg) {
+    const ORIGIN = "https://app.slack.com";
+    const away = () => (location.origin !== ORIGIN ? { error: "origin_changed", at: String(location.origin) } : null);
+    if (away()) return away();
     let config = null;
     try {
       config = JSON.parse(localStorage.getItem("localConfig_v2") || "null");
@@ -26,7 +33,7 @@
     if (arg.expect) {
       const who = new FormData();
       who.append("token", token);
-      const a = await fetch(location.origin + "/api/auth.test", { method: "POST", body: who, credentials: "include" });
+      const a = await fetch(ORIGIN + "/api/auth.test", { method: "POST", body: who, credentials: "same-origin" });
       let auth = null;
       try {
         auth = await a.json();
@@ -34,12 +41,14 @@
       if (!auth || !auth.ok) return { status: a.status, teamId: team.id, json: auth };
       if (auth.team_id !== arg.expect.teamId || auth.user_id !== arg.expect.userId) return { error: "account_changed", now: { teamId: auth.team_id, userId: auth.user_id, user: auth.user || null } };
     }
+    if (away()) return away();
     const body = new FormData();
     body.append("token", token);
     for (const [k, v] of Object.entries(arg.params || {})) if (v !== undefined && v !== null) body.append(k, typeof v === "object" ? JSON.stringify(v) : String(v));
     // Same-origin, as the web client calls it; the token selects the
     // workspace (workspace hosts refuse cross-origin calls).
-    const r = await fetch(location.origin + "/api/" + arg.method, { method: "POST", body, credentials: "include" });
+    if (!/^[\w.]+$/.test(String(arg.method))) return { error: "invalid_method" };
+    const r = await fetch(ORIGIN + "/api/" + arg.method, { method: "POST", body, credentials: "same-origin" });
     let json = null;
     try {
       json = await r.json();
@@ -64,14 +73,25 @@
           return false;
         }
       };
-      const slackPage = (body) =>
-        t.withTab(APP + "/robots.txt", async (page) => {
-          if (!(await page.evaluate(hasConfig))) {
-            await page.goto(APP + "/client", { waitUntil: "load", timeout: 45000 });
-            await t.waitIn(page, hasConfig, undefined, { timeout: 30000, what: "Slack's web client to load the workspaces", name: "slack" }).catch(() => {});
-          }
-          return body((fn, arg) => page.evaluate(fn, arg));
-        });
+      // Every page call runs under the loader's fixed-origin guard on
+      // app.slack.com/robots.txt (no scripts): a call never runs in a
+      // document of another origin. The web client boots in its own tab
+      // (it can send that tab elsewhere: sign-in, SSO), and only whether
+      // that tab found a config leaves it; the calls then read
+      // app.slack.com's own config through the guard.
+      const slackPage = async (body) => {
+        if (!(await t.inOrigin(APP, hasConfig))) {
+          await t.withTab(APP + "/client", (page) => t.waitIn(page, hasConfig, undefined, { timeout: 30000, what: "Slack's web client to load the workspaces", name: "slack" }).catch(() => {}));
+        }
+        return t.withOrigin(APP, (run) =>
+          body(async (fn, arg) => {
+            const r = await run(fn, arg);
+            if (r && r.error === "origin_changed") throw new S.SiteError("origin_changed", `slack: the Slack tab is on ${r.at}, not ${APP}; nothing was sent there`);
+            if (r && r.error === "invalid_method") throw new S.SiteError("invalid", `slack: ${JSON.stringify(arg.method)} is not a Web API method name`);
+            return r;
+          }),
+        );
+      };
       const withSlack = (body) =>
         slackPage((run) =>
           body(async (team, method, params, expect) => {
