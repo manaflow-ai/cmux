@@ -31,6 +31,8 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     /// source has only the inbox entry (no `lastMessage`). Rows derive it
     /// from `lastMessage` otherwise.
     public var previewAttachments: AttachmentPreview?
+    /// Unread messages that mention the user (the inbox owner's `mentions`).
+    public var mentionCount: Int
 
     public init(
         id: ConversationID,
@@ -46,7 +48,8 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         readCursorTimes: [ParticipantID: Date] = [:],
         pinRank: Int? = nil,
         muted: Bool = false,
-        previewAttachments: AttachmentPreview? = nil
+        previewAttachments: AttachmentPreview? = nil,
+        mentionCount: Int = 0
     ) {
         self.id = id
         self.owner = owner
@@ -62,6 +65,7 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         self.pinRank = pinRank
         self.muted = muted
         self.previewAttachments = previewAttachments
+        self.mentionCount = mentionCount
     }
 
     public enum Kind: Hashable, Sendable {
