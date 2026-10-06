@@ -7316,19 +7316,14 @@ fn handle_resource_session_shutdown(
     }
 }
 
+/// Dispatches one request the origin gate admitted; `request` is the
+/// gate's own parse of the line.
 fn handle_resource_connection_message(
     mux: &Arc<Mux>,
     client: u64,
-    message: &str,
+    request: crate::resource_router::ParsedResourceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let request = match crate::resource_router::parse_resource_request(message) {
-        Ok(request) => request,
-        Err(error) => {
-            let response = crate::resource_router::malformed_resource_response(message, error);
-            return writer.send_control(&response).is_ok();
-        }
-    };
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     if matches!(
@@ -7516,11 +7511,8 @@ fn handle_resource_connection_message(
                     activity::note_resource_input(mux, client, operation, &response);
                     writer.send_control(&response).is_ok()
                 }
-                Err(error) => {
-                    let response =
-                        crate::resource_router::malformed_resource_response(message, error);
-                    writer.send_control(&response).is_ok()
-                }
+                // Only a response that cannot be encoded fails here.
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
     }
@@ -10417,8 +10409,8 @@ fn handle_connection_frame(
     if mux.daemon_handoff_in_progress() {
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
-    if crate::resource_router::is_resource_protocol_message(message) {
-        return origin_gate::handle_resource_line(mux, client, message, writer);
+    if let Some(request) = crate::resource_router::parse_resource_line(message) {
+        return origin_gate::handle_resource_line(mux, client, message, request, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
         return keep_open;

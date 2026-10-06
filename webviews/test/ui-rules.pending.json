@@ -17,7 +17,6 @@
   "agent-session/acpmux/EffortPicker.tsx": 1,
   "agent-session/acpmux/EffortTrack.tsx": 1,
   "agent-session/acpmux/FileSearch.tsx": 5,
-  "agent-session/acpmux/handoff/ContinueMenu.tsx": 6,
   "agent-session/acpmux/MenuRow.tsx": 1,
   "agent-session/acpmux/ModelPicker.tsx": 1,
   "agent-session/acpmux/ModelPickerDrill.tsx": 3,
