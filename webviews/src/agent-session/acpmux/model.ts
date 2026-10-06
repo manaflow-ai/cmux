@@ -3,6 +3,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
+import { safeHref } from "./replyHref";
 
 export type AcpmuxRow = {
   id: string;
@@ -98,6 +99,8 @@ export type AcpmuxSnapshot = {
     title?: string;
     name?: string;
     harness?: string;
+    /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
+    family?: string;
     model?: string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
@@ -119,6 +122,10 @@ export type AcpmuxSnapshot = {
     }[];
   };
   connection: string;
+  /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
+  /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
+  /// acpmux that names none. Unset in a snapshot no client built (fixtures).
+  origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
@@ -280,14 +287,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
-/// A link target the page opens: http and https only.
-export function safeHref(href: string): string | undefined {
-  try {
-    return /^https?:$/i.test(new URL(href, "https://cmux.invalid").protocol) ? href : undefined;
-  } catch {
-    return undefined;
-  }
-}
+/// A link target the page opens: absolute http and https only (replyHref.ts).
+export { safeHref };
 
 /// The text `renderInline` in conversation/Markdown.tsx draws for `tokens`, as the estimator
 /// measures it. Inline code draws in 12px monospace (conversation.css), no wider per character than the prose font's digits,

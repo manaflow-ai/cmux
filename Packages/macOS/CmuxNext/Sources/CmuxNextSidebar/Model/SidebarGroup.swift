@@ -12,6 +12,13 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var isPinned: Bool
     public var workspaces: [SidebarWorkspace]
 
+    /// `name`, or the localized default for a group made without one (an
+    /// onto-drop, "group selected"): the home daemon refuses an empty name.
+    public static func named(_ name: String) -> String {
+        guard name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return name }
+        return String(localized: "sidebar.group.newName", defaultValue: "New Group", bundle: .module)
+    }
+
     public init(
         id: GroupID,
         name: String,

@@ -1,4 +1,5 @@
 import CmuxAgentBrands
+import CmuxNextIcons
 import Foundation
 public import CmuxNextDaemon
 public import CmuxNextTabs
@@ -11,10 +12,7 @@ public struct TabItemMapping {
     /// page, whose recorded title is that page's address.
     /// A conversation tab (conversation-tabs-v1) rides a frontend browser
     /// record titled with the blank page's address: it shows `fallbackTitle`
-    /// (the conversation's) and this symbol.
-    public static let conversationSymbol = "bubble.left.and.bubble.right"
-    /// An agent chat tab (a conversation tab on an acpmux session, `agent-session-tabs-v1`).
-    public static let agentChatSymbol = "bubble.left.and.text.bubble.right"
+    /// (the conversation's) and the agent chat icon.
 
     public func item(_ tab: TabModel, fallbackTitle: String) -> StripTabItem {
         let isBrowser = tab.kind == .browser
@@ -41,14 +39,17 @@ public struct TabItemMapping {
         return item
     }
 
-    /// A live agent terminal wears its agent's brand mark (design/agent-icons); other
-    /// terminals, and agents without a mark, keep the terminal symbol.
+    /// A tab's kind icon from the cmux icon registry. A live agent terminal, and an agent chat
+    /// whose harness is known, wear the agent's brand mark (design/agent-icons); others, and
+    /// agents without a mark, keep their kind's icon.
     func icon(_ tab: TabModel, isBrowser: Bool, isConversation: Bool) -> TabIcon {
-        if isConversation { return .symbol(tab.agentSession == nil ? Self.conversationSymbol : Self.agentChatSymbol) }
-        if isBrowser { return .symbol("globe") }
-        if tab.dead { return .symbol("xmark.octagon") }
+        if isConversation {
+            return AgentBrandCatalog.brand(for: tab.agentSession?.harness).map { TabIcon.agentMark($0.rawValue) } ?? .icon(.agentChat)
+        }
+        if isBrowser { return .icon(.browser) }
+        if tab.dead { return .icon(.terminalDead) }
         if let brand = AgentBrandCatalog.brand(for: tab.agent?.agent) { return .agentMark(brand.rawValue) }
-        return .symbol("terminal")
+        return .icon(.terminal)
     }
 
     /// A browser tab whose page was never shown keeps the record the daemon

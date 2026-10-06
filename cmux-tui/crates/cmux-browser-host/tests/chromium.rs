@@ -39,6 +39,7 @@ fn serve() -> u16 {
                     return;
                 }
                 let path = line.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                let mut headers = Vec::new();
                 loop {
                     let mut header = String::new();
                     if reader.read_line(&mut header).map(|n| n == 0).unwrap_or(true)
@@ -46,7 +47,18 @@ fn serve() -> u16 {
                     {
                         break;
                     }
+                    headers.push(header.trim_end().to_owned());
                 }
+                // The request's User-Agent and X-Brepl headers, for session.configure.
+                let header = |name: &str| {
+                    headers
+                        .iter()
+                        .find_map(|h| {
+                            let (k, v) = h.split_once(':')?;
+                            k.eq_ignore_ascii_case(name).then(|| v.trim().to_owned())
+                        })
+                        .unwrap_or_default()
+                };
                 // One hop to the other loopback origin (host fetch redirects).
                 if path == "/redirect" {
                     let mut stream = stream;
@@ -56,7 +68,18 @@ fn serve() -> u16 {
                     );
                     return;
                 }
-                let body = match path.as_str() {
+                let body = match path.split('?').next().unwrap_or("") {
+                    "/echo" => format!(
+                        "<!doctype html><title>Echo</title><pre id=h>{}|{}</pre>",
+                        header("user-agent"),
+                        header("x-brepl")
+                    ),
+                    _ => String::new(),
+                };
+                let body = if !body.is_empty() {
+                    body
+                } else {
+                    match path.as_str() {
                     "/" => format!(
                         "<!doctype html><title>Host test</title>\
                          <button id=b style=\"width:120px;height:40px\" onclick=\"window.clicked = event.isTrusted\">Go</button>\
@@ -64,16 +87,38 @@ fn serve() -> u16 {
                          <iframe id=x src=\"http://localhost:{port}/cross\" style=\"width:300px;height:100px\"></iframe>"
                     ),
                     "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
-                    "/cross" => "<!doctype html><p id=c>cross-origin frame</p>".to_owned(),
+                    "/cross" => "<!doctype html><p id=c>cross-origin frame</p><input id=ci>".to_owned(),
+                    "/dl" => "<!doctype html><title>Downloads</title><a id=d href=\"/report.txt\" download=\"report.txt\">Report</a>".to_owned(),
+                    "/report.txt" => "report body".to_owned(),
+                    "/closed" => format!(
+                        "<!doctype html><title>Closed</title><div id=h></div><p id=out></p>\
+                         <iframe id=xc src=\"http://localhost:{port}/cross-closed\" style=\"width:300px;height:80px\"></iframe>\
+                         <script>const r = document.getElementById('h').attachShadow({{mode: 'closed'}});\
+                         r.innerHTML = '<label>Closed input <input id=ci></label>\
+                         <input type=password aria-label=\"Closed password\" value=\"hunter2-closed\">\
+                         <button onclick=\"document.getElementById(&quot;out&quot;).textContent = &quot;clicked&quot;\">Closed button</button>';</script>"
+                    ),
+                    "/cross-closed" => "<!doctype html><div id=h></div><script>document.getElementById('h')\
+                         .attachShadow({mode: 'closed'}).innerHTML = '<button>Cross closed button</button>';</script>"
+                        .to_owned(),
+                    "/confirm" => "<!doctype html><title>Confirm</title><button id=c onclick=\"document.getElementById('r').textContent = String(confirm('go?'))\">Ask</button><p id=r>none</p>".to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
+                    "/held" => "<!doctype html><title>Held</title><p id=log></p><script>\
+                         for (const t of ['keyup', 'mouseup']) addEventListener(t, (e) => { \
+                           document.getElementById('log').textContent += t + ' ' + (t === 'mouseup' ? e.button : e.key) + ' ' + e.isTrusted + ';'; }, true);</script>"
+                        .to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
+                    "/files" => files_page(),
+                    "/clip" => clipboard::clip_page(),
+                    "/leak" => clipboard::leak_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
                          <input id=plain value=visible-value>"
                         .to_owned(),
                     _ => "<!doctype html><title>404</title>".to_owned(),
+                }
                 };
                 let mut stream = stream;
                 let _ = write!(
@@ -87,6 +132,43 @@ fn serve() -> u16 {
         }
     });
     port
+}
+
+/// A `cmux-browser-host serve` the test started itself, so `eval` connects
+/// to it instead of starting a detached host that outlives the test. Drop
+/// kills and reaps this exact child, also when the test panics.
+struct HostGuard(std::process::Child);
+
+impl HostGuard {
+    fn start(socket: &std::path::Path, chromium: impl AsRef<std::ffi::OsStr>) -> HostGuard {
+        let child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["serve", "--socket"])
+            .arg(socket)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", chromium)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("start cmux-browser-host serve");
+        let guard = HostGuard(child);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while std::os::unix::net::UnixStream::connect(socket).is_err() {
+            assert!(
+                Instant::now() < deadline,
+                "the test host never listened on {}",
+                socket.display()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        guard
+    }
+}
+
+impl Drop for HostGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 fn wait_event(events: &Mutex<Vec<DriverEvent>>, name: &str) -> DriverEvent {
@@ -381,6 +463,8 @@ fn host_sessions_reach_the_page_agent_after_goto() {
     let dir = std::env::temp_dir().join(format!("cmux-host-agent-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
     let eval = |code: &str| -> String {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
             .args(["eval", "--engine", "headless", "--socket"])
@@ -456,6 +540,8 @@ fn eval_without_a_session_is_one_shot() {
     let dir = std::env::temp_dir().join(format!("cmux-host-oneshot-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
     let eval = |args: &[&str], code: &str| -> String {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
             .arg("eval")
@@ -622,3 +708,403 @@ fn a_manual_redirect_reports_its_address() {
     assert_eq!(out["redirect"]["status"], 302, "{out}");
     assert_eq!(out["remoteIPAddress"], "127.0.0.1", "the redirect's address is gone: {out}");
 }
+
+/// The host's focus check for secret typing: a field focused inside an
+/// out-of-process (cross-origin) frame is reported with that frame's URL.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn the_focused_field_is_found_in_a_cross_origin_frame() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(chromium.connection().clone(), AGENT, Arc::new(|_| {}))
+        .expect("attach to Chromium");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({"url": format!("{origin}/")}))["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    call(
+        "tab.navigate",
+        json!({"targetId": target, "url": format!("{origin}/"), "waitUntil": "load"}),
+    );
+
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "() => document.querySelector('#i').focus()"}),
+    );
+    let top = call("frame.focused", json!({"targetId": target}));
+    assert_eq!(top["url"], format!("{origin}/"), "{top}");
+
+    let frames = call("frames.list", json!({"targetId": target}));
+    let cross = frames
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["url"].as_str().is_some_and(|u| u.ends_with("/cross")))
+        .expect("the out-of-process frame is listed")
+        .clone();
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "frameId": cross["frameId"], "world": "page", "source": "() => document.querySelector('#ci').focus()"}),
+    );
+    let inner = call("frame.focused", json!({"targetId": target}));
+    assert_eq!(inner["url"], format!("http://localhost:{port}/cross"), "{inner}");
+    assert_eq!(inner["frameId"], cross["frameId"]);
+}
+
+/// Downloads on headless Chromium: `download.started` and
+/// `download.finished` reach the session, the file lands in the host's own
+/// directory, and `download.path` answers once it completed.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_download_is_reported_and_saved() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let (tx, rx) = std::sync::mpsc::channel::<DriverEvent>();
+    let tx = Mutex::new(tx);
+    let driver = CdpDriver::attach_browser(
+        chromium.connection().clone(),
+        AGENT,
+        Arc::new(move |event| {
+            if event.name.starts_with("download.") {
+                let _ = tx.lock().unwrap().send(event);
+            }
+        }),
+    )
+    .expect("attach to Chromium");
+    driver.save_downloads_in(chromium.downloads_dir()).expect("downloads go to the host");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({"url": format!("{origin}/dl")}))["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    call(
+        "tab.navigate",
+        json!({"targetId": target, "url": format!("{origin}/dl"), "waitUntil": "load"}),
+    );
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "() => document.querySelector('#d').click()"}),
+    );
+    let started = rx.recv_timeout(Duration::from_secs(10)).expect("download.started");
+    assert_eq!(started.name, "download.started");
+    assert_eq!(started.payload["targetId"], target);
+    assert_eq!(started.payload["url"], format!("{origin}/report.txt"));
+    assert_eq!(started.payload["suggestedFilename"], "report.txt");
+    let id = started.payload["downloadId"].clone();
+    let path = call("download.path", json!({"downloadId": id, "timeoutMs": 10_000}));
+    let path = path["path"].as_str().expect("a path").to_owned();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "report body");
+    let finished = rx.recv_timeout(Duration::from_secs(10)).expect("download.finished");
+    assert_eq!(finished.name, "download.finished");
+    assert_eq!(finished.payload["downloadId"], id);
+    assert_eq!(finished.payload["path"], path.as_str());
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::path::Path::new(&path).parent().unwrap();
+    assert_eq!(dir, chromium.downloads_dir());
+    assert_eq!(std::fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
+}
+
+/// Closed shadow roots on headless Chromium (closed-shadow design): the
+/// snapshot, refs and locators reach inside them, in the main frame and in a
+/// cross-origin frame; a password value inside stays redacted; a secret
+/// typed into a closed-root field is hidden in captures.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn closed_shadow_roots_are_read_redacted_and_masked() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-closed-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
+    let code = format!(
+        r##"secrets.set("k", "sk-closed-4242", {{ domains: ["127.0.0.1"] }});
+await page.goto("http://127.0.0.1:{port}/closed");
+await page.frameLocator("#xc").locator("body").waitFor();
+const s = await snapshot();
+console.log("main:" + s.tree.includes('textbox "Closed input"'));
+console.log("frame:" + s.tree.includes('button "Cross closed button"'));
+console.log("redacted:" + !s.tree.includes("hunter2-closed"));
+await page.getByRole("button", {{ name: "Closed button" }}).click({{ timeout: 3000 }}).catch(() => {{}});
+console.log("click:" + await page.locator("#out").textContent());
+const ref = (s.tree.match(/textbox "Closed input" \[ref=(\w+)\]/) || [])[1] || "#missing";
+const shot = async (text) => {{ await page.locator(ref).fill(text, {{ timeout: 3000 }}); await page.locator(ref).evaluate((e) => e.blur()); return (await page.locator(ref).screenshot()).toString("base64"); }};
+try {{
+  const shotSecret = await shot(secret("k"));
+  const shotText = await shot("xx-xxxx-xxxxxx");
+  secrets.set("d", "xx-xxxx-xxxxxx", {{ domains: ["127.0.0.1"] }});
+  const shotDecoy = (await page.locator(ref).screenshot()).toString("base64");
+  console.log("masked:" + (shotSecret === shotDecoy && shotSecret !== shotText));
+}} catch (e) {{ console.log("masked:error " + e.message); }}
+const info = await page._session.call("tab.info", {{ targetId: page._targetId }});
+const cr = info.closedRoots;
+console.log("stats:" + !!(cr && cr.walks >= 1 && cr.roots >= 1 && cr.walkMs >= 0 && typeof cr.domEvents === "number"));
+"##
+    );
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["eval", "--engine", "headless", "--socket"])
+        .arg(&socket)
+        .arg("-")
+        .current_dir(&dir)
+        .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run cmux-browser-host eval");
+    child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let out =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    for line in
+        ["main:true", "frame:true", "redacted:true", "click:clicked", "masked:true", "stats:true"]
+    {
+        assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
+    }
+}
+
+/// One headless browser per (host, profile) (item 4b): a tab a one-shot run
+/// kept outlives the run, the next session lists and attaches it, and a tab
+/// it did not keep is gone (parity 20).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_kept_tab_outlives_its_one_shot_run() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-kept-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
+    let eval = |code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let origin = format!("http://127.0.0.1:{port}");
+    let first = eval(&format!(
+        "const kept = await tabs.open('{origin}/second?kept'); await kept.keep(); \
+         await tabs.open('{origin}/second?closed', {{ background: true }}); console.log('opened');"
+    ));
+    assert!(first.contains("opened"), "{first}");
+    let second = eval(&format!(
+        "const urls = (await tabs.list()).map((t) => t.url).filter((u) => u.startsWith('{origin}')).sort(); \
+         console.log('after:' + JSON.stringify(urls)); \
+         const row = (await tabs.list()).find((t) => t.url.endsWith('?kept')); \
+         if (row) {{ await tabs.use(row.id); console.log('attached:' + page.url().endsWith('?kept')); await page.close(); }}"
+    ));
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(second.contains(&format!("after:[\"{origin}/second?kept\"]")), "{second}");
+    assert!(second.contains("attached:true"), "{second}");
+}
+
+/// One `tabs.list` shape for every source: the headless source through the
+/// session engine (the provider source is checked in provider_engine_tests).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn headless_tabs_list_has_the_protocol_shape() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSession, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let lease = cmux_browser_host::lease::LeaseCaller {
+        session: "s".into(),
+        actor: "t".into(),
+        on_behalf_of: None,
+        origin: "cli".into(),
+        label: String::new(),
+        implicit_session: false,
+        engine: "headless".into(),
+    };
+    let session =
+        HeadlessSession::new(source, &browsers, Arc::from(AGENT), Arc::new(|_| {}), lease).unwrap();
+    session.call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/")})).unwrap();
+    let tabs = session.call("tabs.list", &json!({})).unwrap();
+    cmux_browser_host::tab_source::check_tabs_list_shape(&tabs).unwrap();
+    assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+}
+
+/// Events of a shared headless browser go to one session (item 4c, classic
+/// routing): the session with a handler for the event in the tab, else the
+/// tab's creator, else the session whose call the page is handling; a
+/// dialog no session gets is dismissed (D2), so the page is never stuck.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn shared_browser_events_reach_one_session() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-route-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
+    let eval = |session: &str, code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--session", session, "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let origin = format!("http://127.0.0.1:{port}");
+    // Session a creates and drives the tab (it holds the lease); session b
+    // attaches it and only listens for dialogs (a registration, not an act).
+    let a = eval("a", &format!("await page.goto('{origin}/confirm'); console.log('a-ready');"));
+    assert!(a.contains("a-ready"), "{a}");
+    let b = eval(
+        "b",
+        &format!(
+            "const row = (await tabs.list()).find((t) => t.url === '{origin}/confirm'); \
+             globalThis.t = await tabs.use(row.id); t.once('dialog', (d) => d.accept()); \
+             await t.waitForTimeout(50); console.log('b-listening');"
+        ),
+    );
+    assert!(b.contains("b-listening"), "{b}");
+    let a_click = eval(
+        "a",
+        "await page.locator('#c').click(); \
+         await page.waitForFunction(() => document.getElementById('r').textContent !== 'none', null, { timeout: 5000 }); \
+         console.log('a-result:' + await page.locator('#r').textContent() + ' held:' + !!page._pendingDialog());",
+    );
+    // a keeps the tab (no creator now) and the page asks on its own, outside
+    // any call, with no handler anywhere: the host dismisses it (D2).
+    let a_late = eval(
+        "a",
+        "await page.keep(); \
+         await page.evaluate(() => { document.getElementById('r').textContent = 'wait'; \
+           setTimeout(() => { document.getElementById('r').textContent = String(confirm('late?')); }, 50); }); \
+         await page.waitForFunction(() => document.getElementById('r').textContent !== 'wait', null, { timeout: 5000 }); \
+         console.log('late-result:' + await page.locator('#r').textContent() + ' held:' + !!page._pendingDialog());",
+    );
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(a_click.contains("a-result:true held:false"), "b's handler answered, not a: {a_click}");
+    assert!(a_late.contains("late-result:false held:false"), "dismissed, not held: {a_late}");
+}
+
+/// D2 log (ff, 2026-10-06): an event no session took is logged in the
+/// policy log of the session that created the tab while it is alive
+/// (`session.blockedNavigations()`, `blocked: "unrouted"`), never in
+/// another session's.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn an_unrouted_dialog_goes_to_the_creators_policy_log() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-unrouted-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    // The test's own host: stopped (exact PID) when the test ends, also on failure.
+    let _host = HostGuard::start(&socket, &binary);
+    let eval = |session: &str, code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--session", session, "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let origin = format!("http://127.0.0.1:{port}");
+    let other = eval("other", "console.log('other-ready');");
+    assert!(other.contains("other-ready"), "{other}");
+    let a = eval(
+        "a",
+        &format!(
+            "await page.goto('{origin}/confirm'); await page.keep(); \
+             await page.evaluate(() => {{ document.getElementById('r').textContent = 'wait'; \
+               setTimeout(() => {{ document.getElementById('r').textContent = String(confirm('late?')); }}, 50); }}); \
+             await page.waitForFunction(() => document.getElementById('r').textContent !== 'wait', null, {{ timeout: 5000 }}); \
+             const log = session.blockedNavigations().filter((b) => b.blocked === 'unrouted'); \
+             console.log('a-log:' + JSON.stringify(log.map((b) => [b.event, b.action, b.url.endsWith('/confirm'), typeof b.reason])));"
+        ),
+    );
+    let other_log = eval(
+        "other",
+        "console.log('other-log:' + JSON.stringify(session.blockedNavigations().filter((b) => b.blocked === 'unrouted').length));",
+    );
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(a.contains("a-log:[[\"dialog.opened\",\"dismissed\",true,\"string\"]]"), "{a}");
+    assert!(other_log.contains("other-log:0"), "{other_log}");
+}
+
+// Shared-browser session tests (items 4c-4e): in chromium/sessions.rs, one
+// test target with this file (the workflows run `--test chromium`).
+#[path = "chromium/sessions.rs"]
+mod sessions;
+
+// Uploads and file choosers on the shared headless browser (items 10/11).
+#[path = "chromium/files.rs"]
+mod files;
+use files::files_page;
+
+// The tab clipboard on the shared headless browser (item 19).
+#[path = "chromium/clipboard.rs"]
+mod clipboard;

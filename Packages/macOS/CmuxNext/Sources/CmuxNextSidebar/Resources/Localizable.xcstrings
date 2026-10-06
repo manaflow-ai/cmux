@@ -1573,6 +1573,137 @@
         }
       }
     },
+    "sidebar.group.newName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいグループ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مجموعة جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova grupa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny gruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Gruppe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuevo grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouveau groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo gruppo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 그룹"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny gruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowa grupa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая группа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Grup"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова група"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新建组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增群組"
+          }
+        }
+      }
+    },
     "sidebar.newWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -2093,6 +2224,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "拖放至此以釘選"
+          }
+        }
+      }
+    },
+    "sidebar.section.projects": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المشاريع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projects"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proyectos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosjekter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projetos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проекты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรเจกต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проєкти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dự án"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "專案"
           }
         }
       }
@@ -6682,133 +6944,133 @@
         }
       }
     },
-    "sidebar.help.button": {
+    "sidebar.item.titleWithShortcut": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Help"
+            "value": "%1$@ (%2$@)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Help"
+            "value": "%1$@（%2$@）"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Help"
+            "value": "%1$@ (%2$@)"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@(%2$@)"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@ (%2$@)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Help"
+            "value": "%1$@ (%2$@)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@（%2$@）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Help"
+            "state": "needs_review",
+            "value": "%1$@（%2$@）"
           }
         }
       }

@@ -109,6 +109,14 @@ impl Gate {
         self
     }
 
+    /// An entry the engine wrote for this session (an event of its tab that
+    /// no session took, D2): kept in the policy log, masked like the tab's
+    /// other values.
+    pub fn log_policy(&self, entry: Value) {
+        let target = entry.get("targetId").and_then(Value::as_str).map(str::to_owned);
+        push_log(&self.log, self.mask_for_target(target.as_deref(), &entry));
+    }
+
     /// The session ends: the driver releases its per-session state now.
     pub fn end_session(&self) {
         self.end_fetches();
@@ -252,6 +260,11 @@ impl Gate {
                     "frame.evaluate: the host world is not available to sessions",
                 ));
             }
+            "frame.focused" => {
+                return Err(Self::refuse(
+                    "frame.focused: the host's focus check is not available to sessions",
+                ));
+            }
             "cdp" if !self.grants.raw_cdp => {
                 return Err(Self::refuse(
                     "cdp: raw CDP needs the browser.cdp grant for this session",
@@ -317,7 +330,17 @@ impl Gate {
             "frame.evaluate",
             &json!({"targetId": target, "world": "host", "source": FOCUSED_FRAME_URL, "args": []}),
         )?;
-        let Some(frame_url) = frame_url.as_str() else {
+        // The probe cannot look into an out-of-process (cross-origin) frame;
+        // the engine then names the focused frame itself.
+        let frame_url = match frame_url {
+            Value::String(url) => Some(url),
+            _ => self
+                .driver
+                .call("frame.focused", &json!({"targetId": target}))
+                .ok()
+                .and_then(|focused| focused.get("url")?.as_str().map(str::to_owned)),
+        };
+        let Some(frame_url) = frame_url.as_deref() else {
             return Err(Self::refuse(format!(
                 "secret {name:?}: the focused field is in a frame the host cannot verify"
             )));
