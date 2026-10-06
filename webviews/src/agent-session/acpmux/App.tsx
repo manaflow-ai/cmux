@@ -913,9 +913,7 @@ function AcpmuxPane() {
   useEffect(() => {
     if (!handshaken || paintReported.current) return;
     paintReported.current = true;
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)),
-    );
+    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
   }, [handshaken]);
   useEffect(() => {
     void callNative("pane.checkpointAvailability", { available: checkpoints.supported }).catch(() => undefined);
