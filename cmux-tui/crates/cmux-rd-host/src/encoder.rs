@@ -70,7 +70,7 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
             cfg.profile,
         )?)),
         #[cfg(target_os = "macos")]
-        "videotoolbox" => Ok(Box::new(crate::vt::VideoToolbox::new(
+        "videotoolbox" => Ok(Box::new(cmux_encode::videotoolbox::VideoToolbox::new(
             cfg.width,
             cfg.height,
             cfg.fps,

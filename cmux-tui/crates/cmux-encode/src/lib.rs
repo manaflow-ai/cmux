@@ -2,12 +2,15 @@
 //! plans/cmux-next/remote-desktop-c7.md): the I420 picture and its BGRX
 //! conversion, the `H264Encoder` trait, and OpenH264 under the binary rule in
 //! [`openh264`]. x264 (GPL) stays in the cmux-rd host binary and never enters
-//! this crate; macOS hosts use VideoToolbox.
+//! this crate; macOS hosts use VideoToolbox (module `videotoolbox`, macOS only).
 
 mod picture;
 
 #[cfg(any(feature = "openh264-source", feature = "openh264-runtime"))]
 pub mod openh264;
+
+#[cfg(target_os = "macos")]
+pub mod videotoolbox;
 
 pub use picture::{I420, bgrx_rect_to_i420};
 
