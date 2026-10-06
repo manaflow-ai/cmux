@@ -40,6 +40,10 @@ const LINK_TOKEN: &[&str] = &[
     "validation.invalid",
 ];
 
+/// The ops a VM calls about itself (`cloud.vm.*`, a VM install principal):
+/// no SSO or client-version gate and no idempotency or revision input.
+const VM_SELF: &[&str] = &["auth.forbidden", "auth.unauthenticated", "validation.invalid"];
+
 /// Codes a provider call can add: it may fail for now or be cut off.
 const PROVIDER: &[&str] = &["cloud.provider.unavailable", "mutation.indeterminate"];
 
@@ -60,12 +64,35 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         ],
     ),
     ("cloud.machine.rename", MUTATION, &["cloud.machine.not_found"]),
-    ("cloud.machine.start", MUTATION, &["cloud.machine.not_found", "cloud.quota.exceeded"]),
-    ("cloud.machine.pause", MUTATION, &["cloud.machine.not_found"]),
+    (
+        "cloud.machine.start",
+        MUTATION,
+        &[
+            "cloud.machine.not_bound",
+            "cloud.machine.not_found",
+            "cloud.machine.not_paused",
+            "cloud.plan.required",
+            "cloud.quota.exceeded",
+            "cloud.rate_limited",
+        ],
+    ),
+    (
+        "cloud.machine.pause",
+        MUTATION,
+        &["cloud.machine.not_found", "cloud.machine.not_running", "cloud.rate_limited"],
+    ),
     (
         "cloud.machine.resize",
         MUTATION,
-        &["cloud.machine.not_found", "cloud.quota.exceeded", "cloud.size.locked"],
+        &[
+            "cloud.machine.busy",
+            "cloud.machine.not_found",
+            "cloud.machine.not_running",
+            "cloud.plan.required",
+            "cloud.rate_limited",
+            "cloud.size.grow_only",
+            "cloud.size.locked",
+        ],
     ),
     ("cloud.machine.delete", MUTATION, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.machine.idle_policy.set", MUTATION, &["cloud.machine.not_found"]),
@@ -75,7 +102,13 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     (
         "cloud.machine.link_token",
         LINK_TOKEN,
-        &["cloud.machine.not_bound", "cloud.machine.not_found", "cloud.rate_limited"],
+        &[
+            "cloud.link.install_refused",
+            "cloud.machine.not_bound",
+            "cloud.machine.not_found",
+            "cloud.machine.paused",
+            "cloud.rate_limited",
+        ],
     ),
     (
         "cloud.machine.upgrade",
@@ -83,7 +116,17 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         &["cloud.machine.not_classic", "cloud.machine.not_found", "cloud.upgrade.failed"],
     ),
     ("cloud.snapshot.list", READ, &["cloud.machine.not_found"]),
-    ("cloud.snapshot.create", MUTATION, &["cloud.machine.not_found", "cloud.quota.exceeded"]),
+    (
+        "cloud.snapshot.create",
+        MUTATION,
+        &[
+            "cloud.machine.not_found",
+            "cloud.machine.not_running",
+            "cloud.plan.required",
+            "cloud.quota.exceeded",
+            "cloud.rate_limited",
+        ],
+    ),
     (
         "cloud.snapshot.restore",
         MUTATION,
@@ -91,16 +134,26 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
             "cloud.no_snapshot_configured",
             "cloud.plan.required",
             "cloud.quota.exceeded",
+            "cloud.rate_limited",
             "cloud.size.locked",
             "cloud.snapshot.not_found",
         ],
     ),
-    ("cloud.snapshot.delete", MUTATION, &["cloud.snapshot.not_found"]),
+    (
+        "cloud.snapshot.delete",
+        MUTATION,
+        &["cloud.machine.busy", "cloud.rate_limited", "cloud.snapshot.not_found"],
+    ),
     ("cloud.plan.get", READ, &[]),
     ("cloud.billing.checkout", MUTATION, &[]),
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),
     ("cloud.migration.status", READ, &[]),
     ("cloud.migration.start", MUTATION, &["cloud.migration.unavailable"]),
+    // A VM calls these about itself; this server never does (listed so the
+    // table is the whole CloudDO catalog).
+    ("cloud.vm.self.get", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
+    ("cloud.vm.status.report", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
+    ("cloud.vm.event.emit", VM_SELF, &["cloud.machine.not_found", "cloud.rate_limited"]),
 ];
 
 /// Ops whose provider call can fail for now or be cut off.

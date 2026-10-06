@@ -38,6 +38,8 @@ impl Token {
         Ok(Self(out))
     }
 
+    /// The bench viewer sends the token in its hello; the host only compares.
+    #[cfg(any(feature = "bench", test))]
     pub fn to_hex(&self) -> String {
         self.0.iter().map(|b| format!("{b:02x}")).collect()
     }
