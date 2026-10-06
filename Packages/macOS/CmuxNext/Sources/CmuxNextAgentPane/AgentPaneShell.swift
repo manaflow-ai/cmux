@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Darwin
 public import Foundation
 
@@ -10,12 +11,15 @@ public import Foundation
 /// Bounded: at most ``maximumRunning`` commands run per pane, each keeps the last
 /// ``maximumBuffer`` bytes, and finished runs past ``maximumKept`` are dropped oldest first.
 /// Idle, nothing runs: no timer, only a blocked `waitpid` and a pipe read per running command.
+/// Deadlines (a read's wait, Stop's escalation, the drain after exit) are one-shot DemandTimers.
 public final class AgentPaneShell {
     public static let maximumRunning = 4
     public static let maximumKept = 16
     public static let maximumBuffer = 1 << 20
     public static let maximumRead = 256 << 10
     public static let readWait: Duration = .seconds(10)
+    /// Output events waiting for the main actor, per running command.
+    static let maximumEvents = 256
     /// Stop: SIGINT to the group, then SIGTERM and SIGKILL to what is left.
     static let stopEscalation: Duration = .seconds(2)
     /// After the shell exits, how long its pipe may still drain; a background child that keeps
@@ -53,6 +57,9 @@ public final class AgentPaneShell {
         var outputClosed = false
         var stopping = false
         var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+        let escalation = DemandTimer(owner: "agent-pane.shell.stop")
+        let drain = DemandTimer(owner: "agent-pane.shell.drain")
+        var stopReading: (() -> Void)?
 
         init(pid: pid_t) { self.pid = pid }
 
@@ -119,14 +126,17 @@ public final class AgentPaneShell {
         runs[id] = run
         order.append(id)
         evict()
-        let (events, continuation) = AsyncStream<Event>.makeStream()
+        // The main actor drains this as events come; past the cap the oldest output goes first (the
+        // run keeps only its last ``maximumBuffer`` bytes anyway), never the end and exit events.
+        let (events, continuation) = AsyncStream<Event>.makeStream(bufferingPolicy: .bufferingNewest(Self.maximumEvents))
         let reader = FileHandle(fileDescriptor: pipe[0], closeOnDealloc: true)
         reader.readabilityHandler = { handle in
+            // concurrency-allow: the readability handler runs on a background queue once data is ready.
             let data = handle.availableData
+            // The stream stays open after EOF: the exit may still be on its way.
             if data.isEmpty {
                 handle.readabilityHandler = nil
                 continuation.yield(.closed)
-                continuation.finish()
             } else {
                 continuation.yield(.output(data))
             }
@@ -134,12 +144,25 @@ public final class AgentPaneShell {
         DispatchQueue.global(qos: .utility).async {
             var status: Int32 = 0
             var result: pid_t
+            // wakeup-allow: a blocking wait for the child's exit, retried only when a signal interrupts it.
             repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
             // ECHILD: someone else reaped it; the exit status is unknown.
             continuation.yield(.exit(result == pid ? status : nil))
         }
-        Task { [weak self] in
-            for await event in events { self?.receive(event, for: id) }
+        // Reading ends once the run has both its exit and its EOF, or when the drain after exit
+        // gives up on a pipe a background child keeps open; either way the pipe closes.
+        run.stopReading = {
+            reader.readabilityHandler = nil
+            continuation.finish()
+        }
+        Task { [weak self, weak run] in
+            for await event in events {
+                self?.receive(event, for: id)
+                if run?.finished ?? true { break }
+            }
+            run?.stopReading = nil
+            reader.readabilityHandler = nil
+            continuation.finish()
             withExtendedLifetime(reader) {}
         }
         return id
@@ -150,13 +173,14 @@ public final class AgentPaneShell {
         guard let run = runs[id] else { throw .unknownRun }
         if !run.hasNews(after: after) {
             let token = UUID()
+            let deadline = DemandTimer(owner: "agent-pane.shell.read")
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 run.waiters[token] = continuation
-                Task { [weak run] in
-                    try? await Task.sleep(for: Self.readWait)
+                deadline.schedule(after: Self.readWait) { @MainActor [weak run] in
                     run?.waiters.removeValue(forKey: token)?.resume()
                 }
             }
+            deadline.cancel()
         }
         return Self.chunk(run, after: after)
     }
@@ -168,12 +192,16 @@ public final class AgentPaneShell {
         run.stopping = true
         let group = -run.pid
         kill(group, SIGINT)
-        Task { [weak run] in
-            for signal in [SIGTERM, SIGKILL] {
-                try? await Task.sleep(for: Self.stopEscalation)
-                guard let run, run.exit == nil else { return }
-                kill(group, signal)
-            }
+        escalate(run, group: group, signals: [SIGTERM, SIGKILL])
+    }
+
+    /// Sends the next of `signals` after ``stopEscalation`` while the command still runs.
+    private func escalate(_ run: Run, group: pid_t, signals: [Int32]) {
+        guard let signal = signals.first else { return }
+        run.escalation.schedule(after: Self.stopEscalation) { @MainActor [weak self, weak run] in
+            guard let self, let run, run.exit == nil else { return }
+            kill(group, signal)
+            self.escalate(run, group: group, signals: Array(signals.dropFirst()))
         }
     }
 
@@ -199,11 +227,12 @@ public final class AgentPaneShell {
             run.outputClosed = true
         case .exit(let status):
             run.exit = status.map(Self.exit(status:)) ?? Exit()
+            run.escalation.cancel()
             if !run.outputClosed {
-                Task { [weak run] in
-                    try? await Task.sleep(for: Self.drainAfterExit)
+                run.drain.schedule(after: Self.drainAfterExit) { @MainActor [weak run] in
                     guard let run, !run.outputClosed else { return }
                     run.outputClosed = true
+                    run.stopReading?()
                     run.wake()
                 }
             }

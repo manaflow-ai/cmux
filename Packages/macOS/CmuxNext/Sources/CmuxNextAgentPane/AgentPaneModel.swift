@@ -249,34 +249,8 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .touched:
             return AgentPaneReply.success()
-        case .shellRun(let command, let cwd):
-            // Page script cannot make a gesture: only the user's Return or click runs a command.
-            guard transport.gestures.consume() else {
-                return AgentPaneReply.failure(code: "shell.gesture_required", message: Self.shellGestureMessage)
-            }
-            do {
-                return AgentPaneReply.success(["id": try shell.run(command, cwd: cwd)])
-            } catch {
-                return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(error))
-            }
-        case .shellRead(let id, let after):
-            do {
-                let chunk = try await shell.read(id, after: after)
-                var value: [String: Any] = ["output": chunk.output, "next": chunk.next]
-                if chunk.truncated { value["truncated"] = true }
-                if let exit = chunk.exit {
-                    var exitValue: [String: Any] = [:]
-                    if let code = exit.code { exitValue["code"] = Int(code) }
-                    if let signal = exit.signal { exitValue["signal"] = Int(signal) }
-                    value["exit"] = exitValue
-                }
-                return AgentPaneReply.success(value)
-            } catch {
-                return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(error))
-            }
-        case .shellStop(let id):
-            shell.stop(id)
-            return AgentPaneReply.success()
+        case .shellRun, .shellRead, .shellStop:
+            return await respondToShell(request)
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
@@ -320,8 +294,15 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target):
-            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path),
-                  target == .editor || AgentPaneFileOpen.showsInTab(url), await onOpenFile(url, target) else {
+            guard let onOpenFile else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
+            }
+            let url: URL
+            switch checkedFileOpen(path, target: target) {
+            case .success(let checked): url = checked
+            case .failure(let refusal): return Self.transportFailure(refusal)
+            }
+            guard await onOpenFile(url, target) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
             return AgentPaneReply.success()
