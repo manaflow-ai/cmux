@@ -313,6 +313,45 @@ test("snapshot: names and values read within the budget, and deep nesting is cut
   }
 });
 
+// r16 runtime#1: iframes nest inside each other, each one's elements
+// nested almost as deep as one frame's walk reads; stitched together the
+// tree was as deep as all of them, and stitching and printing it recursed
+// that deep. The whole tree keeps the walk's 1,000-element bound: a frame
+// past it is cut with the same note, and its ref reads it.
+test("snapshot: iframes nested inside each other are cut at the walk's depth bound with a ref instead of failing", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const deep = await run(`await page.evaluate(() => {
+          document.body.innerHTML = '<button>First</button><div id="root"></div><button>Last</button>';
+          let doc = document;
+          let e = document.getElementById("root");
+          for (let f = 0; f < 30; f++) {
+            for (let i = 0; i < 900; i++) (e = e.appendChild(doc.createElement("div"))).setAttribute("role", "group"), e.setAttribute("aria-label", "g");
+            const frame = e.appendChild(doc.createElement("iframe"));
+            doc = frame.contentDocument;
+            doc.open(); doc.write("<!doctype html><body><p>frame " + f + "</p></body>"); doc.close();
+            e = doc.body;
+          }
+          e.appendChild(doc.createElement("p")).textContent = "deepest";
+        });
+        let out;
+        try { out = String(await snapshot({ maxChars: Infinity, showHidden: true })); } catch (e) { out = "error: " + e.message; }
+        console.log("@@" + JSON.stringify({ error: /^error:/.test(out) ? out.slice(0, 300) : null, last: /button "Last"/.test(out), first: /frame 0/.test(out), deepest: /deepest/.test(out), cut: /\\[ref=f?\\d*e\\d+\\] \\[not read: nested deeper than 1000 elements; snapshot this ref to read it\\]/.test(out), depth: Math.max(...out.split("\\n").map((l) => l.search(/\\S/))) }));`);
+      const r = JSON.parse(deep.value);
+      assert.equal(r.error, null);
+      assert.ok(r.last, "the snapshot lost the page after the nested frames");
+      assert.ok(r.first, "the first frame was not read");
+      assert.ok(!r.deepest, "a frame past the depth bound was read");
+      assert.ok(r.cut, "no note where the frames were cut");
+      assert.ok(r.depth <= 2 * 1002, `the printed tree is ${r.depth / 2} levels deep`);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("page.searchText: the text it scans and the contexts it returns stop at the page-read budget with a note", async () => {
   const servers = await startFixtureServers();
   try {
