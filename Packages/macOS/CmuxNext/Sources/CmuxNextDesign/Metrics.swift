@@ -42,7 +42,7 @@ public struct Metrics {
     public static var tabStripHeight: CGFloat { MetricTunables.tabStripHeight.value }
 
     /// Space reserved at the leading edge of the titlebar for traffic lights.
-    public nonisolated static var trafficLightInset: CGFloat { scale(ChromeTunables.trafficLightInset.value) }
+    public static var trafficLightInset: CGFloat { scale(ChromeTunables.trafficLightInset.value) }
 
     // MARK: Rows and tabs
 
@@ -64,12 +64,12 @@ public struct Metrics {
 
     // MARK: Spacing (2 pt grid)
 
-    public nonisolated static var space1: CGFloat { scale(ChromeTunables.space1.value) }
-    public nonisolated static var space2: CGFloat { scale(ChromeTunables.space2.value) }
-    public nonisolated static var space3: CGFloat { scale(ChromeTunables.space3.value) }
-    public nonisolated static var space4: CGFloat { scale(ChromeTunables.space4.value) }
-    public nonisolated static var space5: CGFloat { scale(ChromeTunables.space5.value) }
-    public nonisolated static var space6: CGFloat { scale(ChromeTunables.space6.value) }
+    public static var space1: CGFloat { scale(ChromeTunables.space1.value) }
+    public static var space2: CGFloat { scale(ChromeTunables.space2.value) }
+    public static var space3: CGFloat { scale(ChromeTunables.space3.value) }
+    public static var space4: CGFloat { scale(ChromeTunables.space4.value) }
+    public static var space5: CGFloat { scale(ChromeTunables.space5.value) }
+    public static var space6: CGFloat { scale(ChromeTunables.space6.value) }
 
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
@@ -85,14 +85,14 @@ public struct Metrics {
     /// content is hidden beyond it (`ScrollEdgeFade`).
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
 
-    public nonisolated static var dividerThickness: CGFloat { scale(ChromeTunables.dividerThickness.value) }
+    public static var dividerThickness: CGFloat { scale(ChromeTunables.dividerThickness.value) }
     /// Width of the sidebar's resting edge line (`sidebar.border`,
     /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
     public static var sidebarBorderWidth: CGFloat {
         let border = DesignSettings.shared.sidebarBorder
         return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
     }
-    public nonisolated static var dividerHitWidth: CGFloat { scale(ChromeTunables.dividerHitWidth.value) }
+    public static var dividerHitWidth: CGFloat { scale(ChromeTunables.dividerHitWidth.value) }
 
     /// Inset around every pane's tab strip and content (`layout.panePadding`;
     /// 0 is edge to edge).
@@ -113,9 +113,9 @@ public struct Metrics {
     /// Half the gap between neighboring tab pills. Each pill leaves the
     /// whole gap at its trailing side, so the first pill starts on the
     /// chrome line.
-    public nonisolated static var tabBackgroundInset: CGFloat { ChromeTunables.tabBackgroundInset.value }
+    public static var tabBackgroundInset: CGFloat { scale(ChromeTunables.tabBackgroundInset.value) }
     /// Inset of a tab's icon from its pill's leading edge.
-    public nonisolated static var tabContentLeadingInset: CGFloat { ChromeTunables.tabContentLeadingInset.value }
+    public static var tabContentLeadingInset: CGFloat { scale(ChromeTunables.tabContentLeadingInset.value) }
     /// The chrome line: tab pills and toolbar button shapes, from the
     /// content border's left edge.
     public static var paneChromeInset: CGFloat { PaneChromeMetrics.pillLeading }
