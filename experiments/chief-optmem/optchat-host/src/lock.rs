@@ -15,7 +15,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,10 +30,12 @@ pub enum LockError {
     Io(io::Error),
 }
 
-/// The held lock. Dropping it closes the socket; the file is left for the
-/// next owner to find stale and take over.
+/// The held lock. Dropping it closes the socket and removes its file (a
+/// crashed owner leaves the file for the next owner to find stale).
 pub struct ChatLock {
     path: PathBuf,
+    /// The bound socket file's (device, inode): drop removes only its own.
+    id: (u64, u64),
     stop: Arc<AtomicBool>,
     acceptor: Option<JoinHandle<()>>,
 }
@@ -90,6 +92,8 @@ impl ChatLock {
     }
 
     fn hold(path: PathBuf, listener: UnixListener) -> Result<ChatLock, LockError> {
+        let meta = fs::symlink_metadata(&path).map_err(LockError::Io)?;
+        let id = (meta.dev(), meta.ino());
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
         // Accept and drop every probe: unaccepted connections fill the listen
@@ -110,6 +114,7 @@ impl ChatLock {
             .map_err(LockError::Io)?;
         Ok(ChatLock {
             path,
+            id,
             stop,
             acceptor: Some(acceptor),
         })
@@ -124,6 +129,21 @@ impl Drop for ChatLock {
         if UnixStream::connect(&self.path).is_ok() {
             if let Some(t) = self.acceptor.take() {
                 let _ = t.join();
+            }
+        }
+        // A process forked while the chat was open keeps a copy of the
+        // listening socket until it execs or exits, and a probe connects to
+        // that copy: the closed chat would look taken. Removing the file
+        // frees the name at once. Under the takeover flock, and only our own
+        // socket file: no acquirer can bind in between.
+        let Some(dir) = self.path.parent() else {
+            return;
+        };
+        if let Ok(_guard) = Guard::take(&dir.join("takeover.flock")) {
+            if let Ok(meta) = fs::symlink_metadata(&self.path) {
+                if (meta.dev(), meta.ino()) == self.id {
+                    let _ = fs::remove_file(&self.path);
+                }
             }
         }
     }

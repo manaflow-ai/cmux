@@ -28,8 +28,9 @@ fn a_second_open_is_refused_while_the_first_lives() {
         first.append(Kind::User, "late"),
         Err(Error::Closed)
     ));
-    // After shutdown the socket file remains but refuses: taken over.
-    assert!(dir.path().join("lock").exists());
+    // After shutdown the socket file is gone (a crash leaves it; see
+    // a_stale_socket_is_taken_over).
+    assert!(!dir.path().join("lock").exists());
     let second = open(dir.path(), 128_000, instant(200));
     assert_eq!(second.append(Kind::User, "now yours").unwrap(), 1);
 }
@@ -51,13 +52,13 @@ fn a_stale_socket_is_taken_over() {
         Err(Error::Locked)
     ));
     drop(chat);
-    // No leftovers from the takeover besides the lock itself.
+    // No leftovers from the takeover; the closed chat removed its lock.
     let names: Vec<String> = std::fs::read_dir(dir.path())
         .unwrap()
         .map(|e| e.unwrap().file_name().into_string().unwrap())
         .filter(|n| n.starts_with("lock"))
         .collect();
-    assert_eq!(names, vec!["lock".to_string()]);
+    assert!(names.is_empty(), "{names:?}");
 }
 
 #[test]
