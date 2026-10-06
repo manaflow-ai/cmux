@@ -299,17 +299,29 @@ fn a_cef_tab_is_driven_through_its_relay_under_the_app_tab_id() {
     assert_eq!(app.attaches("C"), 1);
 }
 
+/// One `tabs.list` shape for every source (driver-protocol.md): the
+/// headless source checks the same contract in tests/chromium.rs.
+#[test]
+fn provider_tabs_list_has_the_protocol_shape() {
+    let (_app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+    for kind in ["webkit", "cef"] {
+        let tabs = engine(&provider, kind).call("tabs.list", &json!({})).unwrap();
+        crate::tab_source::check_tabs_list_shape(&tabs).unwrap();
+        assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+    }
+}
+
 #[test]
 fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
     let webkit = engine(&provider, "webkit");
     let tabs = webkit.call("tabs.list", &json!({})).unwrap();
-    assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1);
-    assert_eq!(tabs["tabs"][0]["targetId"], "W");
+    assert_eq!(tabs.as_array().unwrap().len(), 1);
+    assert_eq!(tabs[0]["targetId"], "W");
     assert_eq!(webkit.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"], "tab.info");
     assert_eq!(app.attaches("W"), 0);
     let cef = engine(&provider, "cef");
-    assert_eq!(cef.call("tabs.list", &json!({})).unwrap()["tabs"][0]["targetId"], "C");
+    assert_eq!(cef.call("tabs.list", &json!({})).unwrap()[0]["targetId"], "C");
 }
 
 #[test]

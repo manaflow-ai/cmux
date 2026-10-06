@@ -105,7 +105,7 @@ struct KeyInterceptionTests {
     @Test func ghosttyKeybindBecomesTheRoutedRegistryAction() throws {
         let services = ActionBindingCoverageTests.boundServices()
         let router = services.keyRouter!
-        // A chord no cmux default binds (Ctrl-Cmd-H/J/K/L resize panes since #17281).
+        // A chord no cmux default binds (Ctrl-Cmd-H/J/K/L focus panes).
         let bind = GhosttyHostKeybind(key: .unicode(UInt32(("b" as Unicode.Scalar).value)), modifiers: [.command, .control],
                                       action: .gotoSplit(.left))
         router.loadGhosttyKeybinds([bind], defaults: [])

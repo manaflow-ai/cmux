@@ -135,11 +135,15 @@ import Testing
     @Test func aBrainSaysSoInItsPairingInfo() {
         var preview: [String: Any] = [
             "code": "7KQ4M2XD", "thumbprint": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo", "country": NSNull(), "expires_at": 1,
-            "info": ["name": "cmux-lawrence", "platform": "macos", "os_version": "26.5", "arch": "aarch64", "cmux_version": "optchat-chief/0.1.0"],
+            "info": ["name": "cmux-lawrence", "platform": "macos", "os_version": "26.5", "arch": "aarch64", "cmux_version": "0.1.0",
+                     "capabilities": ["optchat-chief-brain"]],
         ]
         let team = ServerTeam(id: "team_1", name: "Ada")
         #expect(CloudPairingSource.candidate(from: preview, team: team)?.isChiefBrain == true)
-        preview["info"] = ["name": "mini", "platform": "macos", "os_version": "26.5", "arch": "aarch64", "cmux_version": "0.9.0"]
+        // A version string is never a role: only the explicit capability counts.
+        preview["info"] = ["name": "mini", "platform": "macos", "os_version": "26.5", "arch": "aarch64", "cmux_version": "optchat-chief/0.1.0"]
+        #expect(CloudPairingSource.candidate(from: preview, team: team)?.isChiefBrain == false)
+        preview["info"] = ["name": "mini", "platform": "macos", "os_version": "26.5", "arch": "aarch64", "cmux_version": "0.9.0", "capabilities": ["postgres"]]
         #expect(CloudPairingSource.candidate(from: preview, team: team)?.isChiefBrain == false)
     }
 
