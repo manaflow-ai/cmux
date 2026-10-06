@@ -321,18 +321,21 @@ test("signed out: Gmail's sign-in redirect is reported, not parsed", async () =>
 // button placed first, sends nothing.
 test("googleCalendar.create: the invitation Send is a pinned, read-back press", async () => {
   const created = env.state.calendarCreated.length;
-  for (const tamper of [{ guestOnSave: "eve@evil.test" }, { decoySend: true }]) {
+  const confirm = async (tamper) => {
     env.state.calendarTamper = tamper;
     try {
       const d = await s.value('sites.googleCalendar.create({ title: "Invite", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
-      await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`);
+      return await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`);
     } finally {
       env.state.calendarTamper = null;
     }
-    assert.deepEqual(env.state.calendarCreated.slice(created).filter((e) => /eve@evil\.test/.test(JSON.stringify(e))), [], JSON.stringify(tamper));
-  }
-  assert.equal(env.state.calendarCreated.length, created, "an invitation went out after Save");
-  const ok = await s.value('sites.googleCalendar.create({ title: "Invite", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
-  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(ok.id)}, { confirm: true })`)).status, "saved");
-  assert.equal(env.state.calendarCreated.length, created + 1);
+  };
+  // A guest added when Save opened the dialog: the read-back before Send fails.
+  assert.match(await confirm({ guestOnSave: "eve@evil.test" }), /target_mismatch|object it acts on differs/);
+  assert.equal(env.state.calendarCreated.length, created, "an invitation went out with a guest added after Save");
+  // A page's own Send button first in the document: only the dialog's Send is pressed.
+  await confirm({ decoySend: true });
+  const sent = env.state.calendarCreated.slice(created);
+  assert.deepEqual(sent.filter((e) => /eve@evil\.test/.test(JSON.stringify(e))), [], "the page's own Send button was pressed");
+  assert.deepEqual(sent.map((e) => e.add), ["bob@example.com"]);
 });

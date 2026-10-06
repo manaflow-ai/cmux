@@ -315,9 +315,14 @@
                     async () => ({ ...(await g.observeAccount(t, "googleCalendar.create", page, uid)), ...(await observeForm(page, c.intent, who.email)) }),
                     async (press) => {
                       await press();
+                      // With guests, Save opens the invitation dialog, whose
+                      // Send saves the event and emails them: the one Send
+                      // in the dialog, pinned, after the form (guests
+                      // included) and the account are read back again.
                       if (guests.length) {
-                        const send = page.getByRole("button", { name: /^Send$/ });
-                        await send.first().waitFor({ timeout: 8000 }).then(() => send.first().click(), () => {});
+                        const send = page.locator('[role="dialog"], [role="alertdialog"]').getByRole("button", { name: /^Send$/ });
+                        const shown = await send.first().waitFor({ timeout: 8000 }).then(() => true, () => false);
+                        if (shown) await press.next(send);
                       }
                       await t.waitIn(page, () => !/\/eventedit/.test(location.pathname) || /Event saved|Saved/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleCalendar", timeout: 20000, what: "Calendar to save the event" });
                       return { status: "saved", title: String(e.title), start: start.toISOString(), end: end.toISOString() };
