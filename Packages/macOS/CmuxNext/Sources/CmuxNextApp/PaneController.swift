@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextTabs
 import Observation
 
@@ -106,7 +107,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
-            let untitled = tab.agentSession != nil ? AgentPaneModel.tabTitle
+            // A new tab page is "New Tab" until it becomes a chat (then the chat's title).
+            let untitled = tab.agentSession != nil
+                ? services.agentTabs.pageTabs.ids.contains(tab.id) ? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled)
             if tab.page != nil, let page = services.pages.storeTabItem(tab) {
@@ -120,7 +123,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             if tab.kind == .remoteTerminal {
                 // Its terminal runs on another machine: that machine's name.
                 item.machineBadge = services.remoteTerminals.badge(for: tab)
-                item.icon = .symbol("terminal")
+                item.icon = .icon(.terminal)
             } else if tab.kind != .browser {
                 item.machineBadge = machine
                 item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
@@ -147,7 +150,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let page = services.cache.existingBrowser(local.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
-                                    icon: .symbol("globe"))
+                                    icon: .icon(.browser))
             item.isDormant = services.cache.dormantTabs.contains(local.id)
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
