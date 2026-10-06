@@ -191,11 +191,12 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       await render(value);
       await open();
       if (layout === "cascade") await press(row("Claude Code")!);
-      const claudeRows = rows().filter(
+      const harnessLevel = layout === "cascade" ? menu()!.querySelector('[data-mp-sub="0"]')! : menu()!;
+      const claudeRows = rows(harnessLevel).filter(
         (candidate) => candidate.querySelector(".acpmux-menu-label")?.textContent === "Claude Code",
       );
       expect(claudeRows).toHaveLength(1);
-      const harnessRows = rows().filter((candidate) =>
+      const harnessRows = rows(harnessLevel).filter((candidate) =>
         ["Claude Code", "Codex"].includes(candidate.querySelector(".acpmux-menu-label")?.textContent ?? ""),
       );
       expect(harnessRows.at(-1)?.querySelector(".acpmux-menu-label")?.textContent).toBe("Claude Code");
@@ -208,9 +209,9 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       const sonnet = row("Sonnet")!;
       await enter(sonnet);
       expect(labels().includes("Sonnet 4.6")).toBe(false);
-      await wait(149);
+      await wait(50);
       expect(labels().includes("Sonnet 4.6")).toBe(false);
-      await wait(20);
+      await wait(HOVER_INTENT_MS);
       expect(labels().includes("Sonnet 4.6")).toBe(true);
     });
 

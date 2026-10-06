@@ -341,9 +341,7 @@ export function menuNodes(
         icon: props.harness ? <AgentMark agent={props.harness} size={14} /> : undefined,
         detail: t("picker.harness"),
         children: ordered(
-          data.harnesses
-            .filter((harness) => harness.id !== props.harness)
-            .map((harness) => harnessNode(harness, props, t)),
+          data.harnesses.map((harness) => harnessNode(harness, props, t)),
           order,
         ),
       };
