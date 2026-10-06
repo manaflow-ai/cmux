@@ -374,6 +374,30 @@ test("file chooser: a refused answer keeps the chooser answerable; a confirmed o
   assert.equal(page.fileChooser(), null);
 });
 
+// As Playwright's FileChooser.setFiles, the files are read before the
+// chooser is answered: a path outside the REPL's directories fails with
+// the file error (EACCES, so `denied`) even on an answered chooser, and an
+// answered chooser is refused only for files that could be read.
+test("file chooser: setFiles reports a file it cannot read before an answered chooser", async () => {
+  const listeners = new Map();
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = { call: async () => null, on: (event, handler) => (listeners.set(event, handler), () => {}), capabilities: () => [] };
+  const session = new ns.core.Session({ driver, host });
+  session.files = {
+    read: async (p) => {
+      if (p.startsWith("/nonexistent/")) throw Object.assign(new Error(`EACCES: permission denied, '${p}' is outside the REPL's directories`), { code: "EACCES" });
+      return new Uint8Array([104, 105]);
+    },
+  };
+  const page = session.pageFor("t1");
+  listeners.get("filechooser.opened")({ targetId: "t1", chooserId: "c1", frameId: "main", element: "h1", multiple: false });
+  const chooser = page.fileChooser();
+  await chooser.setFiles("/work/a.txt");
+  assert.equal(page.fileChooser(), null, "the confirmed answer settled the chooser");
+  await assert.rejects(chooser.setFiles("/nonexistent/parity.txt"), (e) => e.code === "EACCES");
+  await assert.rejects(chooser.setFiles("/work/a.txt"), /already answered/);
+});
+
 // cmux replaces a tab's web view when it unloads a hidden page to save
 // memory and later restores it: the new page has new frame ids. Seen live: a
 // call after a forced unload addressed the old main frame and timed out with
