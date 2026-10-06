@@ -586,8 +586,9 @@ jobs:
         run: |
           set -euo pipefail
           # A pull request's merge tree has its base's key unless it changes
-          # cmux-tui (then pull_request_target publishes it and the run check
-          # turns itself off): the base commit is the publisher to watch.
+          # cmux-tui: the base commit is the publisher to watch. When it
+          # changes cmux-tui, the gate pins this merge commit and watches
+          # that run instead (CMUX_TUI_TREE_AUTOPIN).
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             CMUX_TUI_TREE_PUBLISHER_SHA="$(git rev-parse HEAD^1)"
             export CMUX_TUI_TREE_PUBLISHER_SHA

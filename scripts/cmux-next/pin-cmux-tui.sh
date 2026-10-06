@@ -306,8 +306,18 @@ wait_for_tree() {
       echo "note: run check off (CMUX_TUI_TREE_PUBLISHER_SHA needs a 40-hex sha and GH_TOKEN)" >&2
       publisher=""
     elif [[ "$(tree_key "$publisher" 2>/dev/null)" != "$key" ]]; then
-      echo "note: run check off: $publisher does not have tree $key" >&2
-      publisher=""
+      # A pull request that changes cmux-tui: no push builds its merge
+      # tree, and the artifacts workflow's pull_request_target trigger has
+      # never started a run. The gate pins its own checkout and watches it.
+      local own
+      own="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+      if [[ "${CMUX_TUI_TREE_AUTOPIN:-}" == 1 && "$own" =~ ^[0-9a-f]{40}$ ]] && autopin_tree "$key" "$own"; then
+        publisher="$own"
+        pinned=1
+      else
+        echo "note: run check off: $publisher does not have tree $key" >&2
+        publisher=""
+      fi
     fi
   fi
   started="$(date +%s)"
