@@ -1311,6 +1311,268 @@
         }
       }
     },
+    "onboarding.import.findBrowsers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث عن المتصفحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pronađi preglednike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Find browsere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Browsers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar navegadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher les navigateurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trova browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザを探す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកកម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 찾기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finn nettlesere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znajdź przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Procurar navegadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Найти браузеры"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcıları bul"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знайти браузери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找瀏覽器"
+          }
+        }
+      }
+    },
+    "onboarding.import.findBrowsersHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبحث «البحث عن المتصفحات» عن الإشارات المرجعية والسجل وبيانات تسجيل الدخول لنقلها. قد يطلب macOS الإذن أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pronađi preglednike traži oznake, historiju i prijave za prenos. macOS može prvo pitati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Find browsere leder efter bogmærker, historik og logins, der kan flyttes over. macOS spørger måske først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Browser suchen“ sucht Lesezeichen, Verlauf und Anmeldungen zum Übernehmen. macOS fragt eventuell zuerst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Browsers looks for bookmarks, history and sign-ins to bring over. macOS may ask first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar navegadores busca marcadores, historial e inicios de sesión para traer. Es posible que macOS pregunte primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher les navigateurs cherche les signets, l’historique et les connexions à importer. macOS peut d’abord demander l’autorisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trova browser cerca segnalibri, cronologia e accessi da importare. macOS potrebbe chiedere prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ブラウザを探す」で、移行できるブックマーク、履歴、サインイン情報を探します。macOS が先に確認することがあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកកម្មវិធីរុករក រកចំណាំ ប្រវត្តិ និងការចូល ដើម្បីនាំយកមក។ macOS អាចសួរជាមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 찾기는 가져올 북마크, 방문 기록, 로그인 정보를 찾습니다. macOS가 먼저 물어볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finn nettlesere ser etter bokmerker, logg og pålogginger som kan hentes over. macOS kan spørre først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znajdź przeglądarki szuka zakładek, historii i logowań do przeniesienia. macOS może najpierw zapytać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Procurar navegadores busca favoritos, histórico e logins para trazer. O macOS pode perguntar antes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Найти браузеры» ищет закладки, историю и входы для переноса. macOS может сначала спросить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาเบราว์เซอร์จะหาบุ๊กมาร์ก ประวัติ และการลงชื่อเข้าใช้ที่นำเข้าได้ macOS อาจถามก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcıları bul, aktarılacak yer imlerini, geçmişi ve oturum açma bilgilerini arar. macOS önce sorabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Знайти браузери» шукає закладки, історію та входи для перенесення. macOS може спершу запитати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm trình duyệt sẽ tìm dấu trang, lịch sử và thông tin đăng nhập để chuyển sang. macOS có thể hỏi trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“查找浏览器”会查找可导入的书签、历史记录和登录信息。macOS 可能会先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「尋找瀏覽器」會尋找可匯入的書籤、瀏覽記錄與登入資訊。macOS 可能會先詢問。"
+          }
+        }
+      }
+    },
     "onboarding.import.none": {
       "extractionState": "manual",
       "localizations": {

@@ -228,6 +228,30 @@ describe("direct client session state", () => {
     client.close();
   });
 
+  test("never warms an agent in the home folder or a privacy-protected folder", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch")
+        return {
+          sessions: [
+            { sessionId: "home", cwd: "/Users/me", updatedAt: 60 },
+            { sessionId: "docs", cwd: "/Users/me/Documents/app", updatedAt: 50 },
+            { sessionId: "photos", cwd: "/Users/me/pictures/x", updatedAt: 45 },
+            { sessionId: "drive", cwd: "/Volumes/External/x", updatedAt: 40 },
+            { sessionId: "mail", cwd: "/Users/me/Library/Mail/x", updatedAt: 35 },
+            { sessionId: "root", cwd: "/", updatedAt: 30 },
+            { sessionId: "code", cwd: "/Users/me/code/app", updatedAt: 20 },
+          ],
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId }, events: [] };
+      return {};
+    };
+    const client = await connect();
+    await client.warmRecentProjects();
+    const warm = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/warm");
+    expect(warm?.params).toEqual({ sessionIds: ["code"], limit: 3 });
+    client.close();
+  });
+
   test("grouped permissions reconcile on attach, suppress duplicate requests and keep interactive asks", async () => {
     const operations = [
       "_acpmux/permission_groups",

@@ -39,6 +39,11 @@ enum OnboardingStrings {
         String(localized: "onboarding.import.subtitle3", defaultValue: "Each profile becomes a cmux profile. Nothing leaves this Mac.", bundle: .module)
     }
     static var detecting: String { String(localized: "onboarding.import.detecting", defaultValue: "Looking for browsers…", bundle: .module) }
+    static var findBrowsers: String { String(localized: "onboarding.import.findBrowsers", defaultValue: "Find Browsers", bundle: .module) }
+    static var findBrowsersHint: String {
+        String(localized: "onboarding.import.findBrowsersHint",
+               defaultValue: "Find Browsers looks for bookmarks, history and sign-ins to bring over. macOS may ask first.", bundle: .module)
+    }
     static var noBrowsers: String { String(localized: "onboarding.import.none", defaultValue: "No other browsers found on this Mac.", bundle: .module) }
     static func importing(_ profile: String) -> String {
         String(format: String(localized: "onboarding.import.progress", defaultValue: "Importing %@…", bundle: .module), profile)
