@@ -49,6 +49,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
+    /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
+    @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
@@ -287,6 +289,7 @@ public final class AgentPaneModel {
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
             return AgentPaneReply.success()
+        case .paneAction, .tabState: return respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -385,16 +388,5 @@ public final class AgentPaneModel {
         guard checkpointAvailable != available else { return }
         checkpointAvailable = available
         onCheckpointAvailability?(available)
-    }
-}
-
-extension AgentPaneModel {
-    /// The page's reply for a failed git read: the failure's code, origin,
-    /// details and retryable under the localized text.
-    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
-        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
-        return AgentPaneReply.failure(
-            code: failure.code, message: gitFailedMessage, details: details,
-            retryable: failure.retryable, origin: failure.origin.rawValue)
     }
 }

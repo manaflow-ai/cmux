@@ -99,6 +99,9 @@ impl Inner {
         let session = self.session(params)?;
         let deadline = Instant::now() + timeout_of(params);
         let args = print_args(params)?;
+        // Printing changes the page's media while it runs: one capture of
+        // the tab at a time (`capture.rs`).
+        let _turn = self.capture_turn(&session.target_id, deadline)?;
         let printed = self.send_until(&session, "Page.printToPDF", args, deadline)?;
         let data = printed["data"]
             .as_str()

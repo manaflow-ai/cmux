@@ -85,8 +85,10 @@ impl Inner {
 }
 
 /// A new private browser context (its own cookie jar) the driver owns: its
-/// `Storage.*` calls name it, and the browser refuses it the clipboard
-/// permissions like every store.
+/// `Storage.*` calls name it, the browser refuses it the clipboard
+/// permissions like every store, and it starts with a one-way copy of the
+/// profile's cookies (chief, 2026-10-06: a session keeps its sign-in in
+/// every store it makes; nothing is written back).
 pub(super) fn new_context(inner: &Inner, params: Value) -> Result<String, DriverError> {
     let created = inner.conn.call(None, "Target.createBrowserContext", params, INTERNAL_TIMEOUT)?;
     let context = created
@@ -100,7 +102,41 @@ pub(super) fn new_context(inner: &Inner, params: Value) -> Result<String, Driver
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(context.clone());
     super::clipboard::deny_clipboard_permissions(&inner.conn, Some(&context))?;
+    copy_profile_cookies(inner, &context)?;
     Ok(context)
+}
+
+/// Copies the profile's cookies into `context`, one way.
+fn copy_profile_cookies(inner: &Inner, context: &str) -> Result<(), DriverError> {
+    let cookies = inner.conn.call(None, "Storage.getCookies", json!({}), INTERNAL_TIMEOUT)?;
+    let copies: Vec<Value> = cookies["cookies"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|cookie| {
+            let mut copy = serde_json::Map::new();
+            for field in COOKIE_PARAMS {
+                if let Some(value) = cookie.get(*field) {
+                    copy.insert((*field).to_owned(), value.clone());
+                }
+            }
+            if cookie["session"] != json!(true)
+                && let Some(expires) = cookie.get("expires")
+            {
+                copy.insert("expires".into(), expires.clone());
+            }
+            Value::Object(copy)
+        })
+        .collect();
+    if !copies.is_empty() {
+        inner.conn.call(
+            None,
+            "Storage.setCookies",
+            json!({"cookies": copies, "browserContextId": context}),
+            INTERNAL_TIMEOUT,
+        )?;
+    }
+    Ok(())
 }
 
 /// The fields of a `Storage.getCookies` cookie that `Storage.setCookies`
@@ -120,41 +156,9 @@ const COOKIE_PARAMS: &[&str] = &[
 ];
 
 impl super::CdpDriver {
-    /// A private store for a session's permissions (chief, 2026-10-06):
-    /// it starts with a copy of the profile's cookies, one way (nothing is
-    /// ever written back to the profile).
+    /// A private store for a session's permissions (no proxy).
     pub fn create_private_context(&self) -> Result<String, DriverError> {
-        let context = new_context(&self.inner, json!({}))?;
-        let cookies =
-            self.inner.conn.call(None, "Storage.getCookies", json!({}), INTERNAL_TIMEOUT)?;
-        let copies: Vec<Value> = cookies["cookies"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|cookie| {
-                let mut copy = serde_json::Map::new();
-                for field in COOKIE_PARAMS {
-                    if let Some(value) = cookie.get(*field) {
-                        copy.insert((*field).to_owned(), value.clone());
-                    }
-                }
-                if cookie["session"] != json!(true)
-                    && let Some(expires) = cookie.get("expires")
-                {
-                    copy.insert("expires".into(), expires.clone());
-                }
-                Value::Object(copy)
-            })
-            .collect();
-        if !copies.is_empty() {
-            self.inner.conn.call(
-                None,
-                "Storage.setCookies",
-                json!({"cookies": copies, "browserContextId": context}),
-                INTERNAL_TIMEOUT,
-            )?;
-        }
-        Ok(context)
+        new_context(&self.inner, json!({}))
     }
 
     /// Replaces a store's permission grants with `permissions` (CDP

@@ -288,6 +288,7 @@ final class AgentTabStore {
             let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
             _ = actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user))
         }
+        wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }
             return await handler.browseProject()
