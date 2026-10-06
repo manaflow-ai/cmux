@@ -40,9 +40,6 @@ enum OnboardingStrings {
     static func importing(_ profile: String) -> String {
         String(format: String(localized: "onboarding.import.progress", defaultValue: "Importing %@…", bundle: .module), profile)
     }
-    static var keychainNote: String {
-        String(localized: "onboarding.import.keychainNote", defaultValue: "macOS asks before cmux reads each browser's sign-ins.", bundle: .module)
-    }
     static var fullDiskAccessTitle: String { String(localized: "onboarding.import.fda.title", defaultValue: "Safari needs Full Disk Access", bundle: .module) }
     static var fullDiskAccessSubtitle: String { String(localized: "onboarding.import.fda.subtitle", defaultValue: "Needs Full Disk Access", bundle: .module) }
     static var openSystemSettings: String { String(localized: "onboarding.button.openSystemSettings", defaultValue: "Open System Settings", bundle: .module) }
