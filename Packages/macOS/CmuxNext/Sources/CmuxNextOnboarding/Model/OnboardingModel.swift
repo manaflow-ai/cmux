@@ -13,15 +13,18 @@ public final class OnboardingModel {
         case firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts
     }
 
-    /// The first run: agent sign-ins, then browser import. Done lands on the app.
-    static let firstRun: [Step] = [.accounts, .importData]
+    /// The first run: agent sign-ins, classic cmux workspaces and agent
+    /// chats to bring over, then browser import. Done lands on the app.
+    static let firstRun: [Step] = [.accounts, .classicSessions, .chats, .importData]
     /// New Tab's Import and Sync: folders to open, then work to bring into them.
     static let bringWork: [Step] = [.projects, .classicSessions, .chats]
 
     public private(set) var step: Step
     /// The screens of this run: the first run, the group `start` belongs
-    /// to, or `start` alone (each only when the App supplies it).
-    public let steps: [Step]
+    /// to, or `start` alone (each only when the App supplies it). A work
+    /// screen whose scan found nothing drops out, unless it is up.
+    public var steps: [Step] { planned.filter { $0 == step || !foundNothing($0) } }
+    private let planned: [Step]
     public let firstTask: FirstTaskStepModel
     public let projects: ProjectsStepModel
     public let classicSessions: ClassicSessionsStepModel
@@ -56,7 +59,7 @@ public final class OnboardingModel {
             return [Self.firstRun, Self.bringWork].first { $0.contains(start) } ?? [start]
         }
         let steps = group?.filter(available) ?? firstRun
-        self.steps = steps
+        planned = steps
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         firstTask = FirstTaskStepModel(services: services)
         projects = ProjectsStepModel(services: services)
@@ -66,6 +69,14 @@ public final class OnboardingModel {
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
         computerUse = ComputerUseStepModel(source: computerUseSource)
+    }
+
+    private func foundNothing(_ step: Step) -> Bool {
+        switch step {
+        case .classicSessions: classicSessions.scanned && classicSessions.workspaces.isEmpty
+        case .chats: chats.scanned && chats.chats.isEmpty
+        default: false
+        }
     }
 
     public var index: Int { steps.firstIndex(of: step) ?? 0 }
@@ -126,12 +137,11 @@ public final class OnboardingModel {
     /// Starts the step's lazy work (handler state, browser detection, theme files).
     public func stepDidAppear() {
         if step != .computerUse { computerUse.stop() }
+        // Any screen starts the work scans, so their screens are ready (or gone) by the time they come up.
+        if planned.contains(.chats) { chats.scan() }
+        if planned.contains(.classicSessions) { classicSessions.scan() }
         switch step {
-        // Any of these screens starts every scan, so the next one's list is ready.
-        case .projects, .classicSessions, .chats:
-            projects.scan()
-            if steps.contains(.chats) { chats.scan() }
-            if steps.contains(.classicSessions) { classicSessions.scan() }
+        case .projects, .classicSessions, .chats: projects.scan()
         case .defaultBrowser: defaults.refresh()
         // Browser detection reads other apps' data: only Find Browsers starts it.
         case .importData: break
