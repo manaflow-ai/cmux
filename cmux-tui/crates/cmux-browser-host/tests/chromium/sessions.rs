@@ -553,9 +553,8 @@ fn permissions_open_new_tabs_in_a_private_granted_store() {
     page(&person, &plain, "() => { document.cookie = 'profile=1; path=/'; }");
     person.call("tab.keep", &json!({"targetId": plain})).unwrap();
     let s = headless_session(&source, &browsers, "s");
-    let refused = s
-        .call("session.configure", &json!({"permissions": ["clipboard-read"]}))
-        .unwrap_err();
+    let refused =
+        s.call("session.configure", &json!({"permissions": ["clipboard-read"]})).unwrap_err();
     assert_eq!(refused.code, ErrorCode::Forbidden, "{refused:?}");
     s.call("session.configure", &json!({"permissions": ["notifications"]})).unwrap();
     let granted = open(&s, "granted");
