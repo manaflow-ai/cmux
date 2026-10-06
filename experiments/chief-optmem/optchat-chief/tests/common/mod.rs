@@ -282,6 +282,8 @@ pub struct Agents {
     pub answer_delay: Option<Duration>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
+    /// Every permission answer: (session, permission id, option id).
+    pub responses: Vec<(String, String, Option<String>)>,
 }
 
 pub struct FakeAgents {
@@ -471,6 +473,20 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn respond_permission(
+        &self,
+        session: &str,
+        permission: &str,
+        option: Option<&str>,
+    ) -> Result<(), String> {
+        self.inner.lock().unwrap().responses.push((
+            session.to_owned(),
+            permission.to_owned(),
+            option.map(str::to_owned),
+        ));
+        Ok(())
+    }
+
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
     fn cancel(&self, session: &str) -> Result<(), String> {
@@ -514,6 +530,8 @@ pub fn settings(dir: &Path) -> Settings {
         turn_preset: Some(TURN_PRESET.into()),
         chief_id: "h0me".into(),
         system_text: optchat_chief::prompt::claude_md(None),
+        settings_file: dir.join("settings.json"),
+        trace_dir: Some(dir.join("traces")),
     }
 }
 
