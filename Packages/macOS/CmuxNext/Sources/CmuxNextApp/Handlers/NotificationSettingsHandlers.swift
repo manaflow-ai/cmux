@@ -1,15 +1,13 @@
 import CmuxNextActions
 import CmuxNextSettings
-import os
 
 /// Notification preference verbs: mute a workspace, banners on or off, and
 /// the dismissal policy. Each applies to `NotificationCenterService` at once
 /// and writes cmux.json, which owns settings (the watcher reapplies it).
-/// Banners and dismissal are schema keys and go through the validated
-/// `setSetting` path; the muted workspace list has no schema entry.
+/// Every key is a schema key and goes through the validated `setSetting`
+/// path (`AppActionContext.writeSetting`), so a managed key or a run that may
+/// not change it is refused the same way as from Settings or `settings.set`.
 enum NotificationSettingsHandlers {
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let notifications = context.services.notifications
         registry.bind("notifications.toggleWorkspaceMute", run: { invocation in
@@ -20,7 +18,7 @@ enum NotificationSettingsHandlers {
             if muted.remove(workspace.id) == nil { muted.insert(workspace.id) }
             notifications.preferences.mutedWorkspaces = muted
             let list = JSONValue.array(muted.sorted().map(JSONValue.string))
-            write(context, "mute workspace") { try await $0.set(list, at: ["notifications", "mutedWorkspaces"]) }
+            context.writeSetting("mute workspace", ["notifications", "mutedWorkspaces"], list, reloadOnFailure: true)
         })
         registry.bind("notifications.toggleBanners", run: { _ in
             let next: DesktopNotificationMode = notifications.preferences.desktop == .never ? .unlessFocused : .never
@@ -32,17 +30,6 @@ enum NotificationSettingsHandlers {
                 notifications.preferences.dismissal = mode
                 context.writeSetting("set dismissal", ["notifications", "dismissal"], .string(mode.rawValue))
             })
-        }
-    }
-
-    /// Raw write for `notifications.mutedWorkspaces`, which is not a schema setting.
-    private static func write(_ context: AppActionContext, _ label: String,
-                              _ body: @escaping @Sendable (SettingsController) async throws -> Void) {
-        guard let settings = context.services.settings else { return }
-        Task {
-            do { try await body(settings) } catch {
-                logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
         }
     }
 }
