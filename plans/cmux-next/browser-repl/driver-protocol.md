@@ -98,6 +98,20 @@ entries, which only the person (user origin) reads, as `tab.info
 unroutedEvents` (that tab's entries) on a tab they may use. Engine or app
 events named `host.policyLog` are dropped: only the host writes that log.
 
+cmux-next shared headless browser, clipboard (item 19): Copy, Cut and Paste
+never use the browser's clipboard (the system's, or the X11 one of a headful
+browser on Xvfb). The driver records the shortcut's `keydown` (a prevented
+one runs no command), then sends the page a `copy`, `cut` or `paste` event
+with a `DataTransfer` in the focused frame and does the default action
+itself: the selection's text to the tab's clipboard, a cut's deletion, a
+paste's `text/plain` through `Input.insertText` (trusted `input`). These
+clipboard events are untrusted (`isTrusted` false), as the agent's paste is by
+design. A Copy or Cut the page has not finished within 5 s fails with
+`timeout` and its late result is dropped; the tab's web content process is
+not ended, because no clipboard outside the tab can be written (an
+intentional cmux-next difference from WebKit). File choosers on this
+browser are always intercepted (no person's Open panel).
+
 cmux-next shared headless browser, `session.configure` (item 4d): the user
 agent and extra headers are set per tab before its first request (a popup
 starts with its opener's) on the tabs the session created and did not keep;

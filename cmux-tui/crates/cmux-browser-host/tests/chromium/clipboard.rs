@@ -99,10 +99,7 @@ fn a_late_copy_times_out_and_a_users_tab_refuses_the_shortcuts() {
              console.log('user=' + user.join());"
         ),
     );
-    for line in [
-        "late=timeout before",
-        "user=unsupported:true,unsupported:true,unsupported:true",
-    ] {
+    for line in ["late=timeout before", "user=unsupported:true,unsupported:true,unsupported:true"] {
         assert!(out.contains(line), "missing {line:?} in {out}");
     }
 }

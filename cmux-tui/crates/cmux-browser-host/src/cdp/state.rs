@@ -91,6 +91,10 @@ pub struct TabState {
     /// driver resolves the input's agent handle first): input calls wait
     /// for zero, so the event comes before their reply.
     pub pending_choosers: usize,
+    /// The tab's virtual clipboard: `[{ type, base64 }]` (`clipboard.rs`).
+    pub clipboard: Vec<Value>,
+    /// The Copy, Cut or Paste running now: a dialog then is dismissed.
+    pub clipboard_command: Option<&'static str>,
     /// Bumps when the main frame starts a download, so a navigation that
     /// turns into a download fails instead of waiting out its deadline.
     pub download_seq: u64,
@@ -153,6 +157,8 @@ impl TabState {
             crashed: false,
             open_dialogs: 0,
             pending_choosers: 0,
+            clipboard: Vec::new(),
+            clipboard_command: None,
             download_seq: 0,
             hidden: false,
         }
@@ -190,6 +196,8 @@ pub enum FollowUp {
     /// A file chooser opened (`choosers.rs`): resolve its input's agent
     /// handle, then send `filechooser.opened`.
     ChooserOpened { target_id: String, chooser_id: String },
+    /// A dialog opened during a clipboard command: dismiss it at once.
+    DismissDialog { dialog_id: String },
 }
 
 #[derive(Debug, Default)]
@@ -446,6 +454,11 @@ impl State {
                 "defaultValue".into(),
                 params.get("defaultPrompt").cloned().unwrap_or(json!("")),
             );
+            // During Copy, Cut or Paste it cannot hold the command.
+            if let Some(kind) = self.tabs.get(target_id).and_then(|tab| tab.clipboard_command) {
+                payload.insert("dismissedDuring".into(), json!(kind));
+                applied.follow_ups.push(FollowUp::DismissDialog { dialog_id });
+            }
             applied.events.push(event("dialog.opened", target_id, payload));
             return;
         }

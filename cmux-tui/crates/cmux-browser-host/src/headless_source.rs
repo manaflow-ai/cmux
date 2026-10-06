@@ -431,6 +431,17 @@ impl TabSource for SharedHeadless {
                 }
                 self.0.routes().dialog_answered(dialog);
             }
+            // Copy, Cut and Paste run only in tabs a session created
+            // (driver-protocol.md), refused before a key reaches the page.
+            "input.key"
+                if crate::cdp::clipboard::shortcut(call.method, call.params).is_some()
+                    && !self.0.routes().is_creator(call.session, call.target_id) =>
+            {
+                return Err(DriverError::new(
+                    crate::protocol::ErrorCode::Unsupported,
+                    "Copy, Cut and Paste run only in tabs a session created; refused in a user's tab",
+                ));
+            }
             // Only the session a file chooser went to answers it.
             "filechooser.respond" => {
                 let chooser = call.params["chooserId"].as_str().unwrap_or("");

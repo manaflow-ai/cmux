@@ -190,7 +190,7 @@ impl Inner {
     ) -> Result<Value, DriverError> {
         let before = self.lock().next_chooser;
         let reply = call();
-        if self.intercept_choosers
+        if self.owns_browser
             && self.lock().next_chooser == before
             && may_open_chooser(method, params)
         {
