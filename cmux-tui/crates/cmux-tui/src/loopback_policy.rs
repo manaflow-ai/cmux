@@ -13,7 +13,7 @@ pub(crate) fn loopback_forward_policy(
         Err(error) => {
             crate::client_log::stderr_log!(
                 "startup",
-                "cmux-tui: server.loopback_forward is invalid ({error}); loopback forwarding is off"
+                "{BIN}: server.loopback_forward is invalid ({error}); loopback forwarding is off"
             );
             LoopbackForwardPolicy::disabled()
         }
