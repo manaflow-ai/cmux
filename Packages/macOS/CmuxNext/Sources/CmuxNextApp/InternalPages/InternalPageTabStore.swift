@@ -16,6 +16,11 @@ final class InternalPageTabStore {
     /// tabs of a pane closed out of sight close once the tree drops it.
     private var paneStores: [String: DaemonStore] = [:]
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) in a pane:
+    /// the created tab and the event sequence its reply follows. Wired in
+    /// `AppActions`; tests hold it.
+    var createStoreTab: @MainActor (PaneID, DaemonService, String, ClientTransactionID) async throws
+        -> (created: PageTabCreated, sequence: UInt64?) = { _, _, _, _ in throw DaemonError.notConnected }
 
     /// Registers the owner of `provider.page`. A second provider of the
     /// same page replaces the first.
@@ -131,4 +136,10 @@ final class InternalPageTabStore {
             watches.removeValue(forKey: id)?.cancel()
         }
     }
+}
+
+/// The store tab a page tab's `new-conversation-tab` created.
+struct PageTabCreated: Sendable, Equatable {
+    var key: String
+    var surface: SurfaceID
 }
