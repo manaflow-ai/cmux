@@ -121,7 +121,7 @@ extension SidebarListView {
             model.send(.move(ids, toGroup: group))
         case let (.group(group), .position(position)):
             model.send(.reorderGroup(group, index: position.index))
-        case (.group, .intoGroup):
+        case (.group, .intoGroup), (_, .ontoWorkspace):
             break
         }
         // Rows land under the lifted view, stay hidden until it arrives.
