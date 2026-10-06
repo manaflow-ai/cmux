@@ -59,6 +59,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // loginwindow reopens it at the next login (without the agent's
         // environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
+        // cmux.json's appearance goes on the Ghostty overrides before the
+        // runtime's first config load, so the first frame needs no reload.
+        let settingsRead = SettingsController.readAtLaunch(fileURL: settingsFileURL())
+        TerminalThemeSetting.prime(settingsRead.snapshot)
+        DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start()
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
@@ -83,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
-        startSettingsAndControl(registry: services.registry)
+        startSettingsAndControl(registry: services.registry, launch: settingsRead)
         DebugTimings.markLaunch("dfl.settings")
         NSApp.mainMenu = MainMenu.make(registry: services.registry)
         DebugTimings.markLaunch("dfl.menu")
@@ -157,17 +162,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// cmux-next.json settings (density, shortcut overrides) and the tagged
-    /// control socket (`action.list/describe/run`) over the same registry.
-    private func startSettingsAndControl(registry: ActionRegistry) {
-        let fileURL: URL
+    /// cmux.json, created on first launch.
+    private func settingsFileURL() -> URL {
         do {
-            fileURL = try CmuxConfigFile.prepareDefaultURL()
+            return try CmuxConfigFile.prepareDefaultURL()
         } catch {
             logger.error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
-            fileURL = CmuxConfigFile.defaultURL()
+            return CmuxConfigFile.defaultURL()
         }
-        let settings = SettingsController(registry: registry, fileURL: fileURL)
+    }
+
+    /// cmux-next.json settings (density, shortcut overrides) and the tagged
+    /// control socket (`action.list/describe/run`) over the same registry.
+    private func startSettingsAndControl(registry: ActionRegistry, launch: SettingsController.LaunchRead) {
+        let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
