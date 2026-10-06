@@ -107,7 +107,10 @@ jobs:
       attestations: write
       id-token: write
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This gate is a short revision lookup, not a build. Keep it on the
+    # GitHub-hosted runner so a busy paid Linux pool cannot add tens of minutes
+    # before the macOS work is even admitted.
+    runs-on: ubuntu-24.04
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}

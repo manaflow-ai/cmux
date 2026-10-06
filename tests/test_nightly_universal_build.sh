@@ -80,6 +80,16 @@ if ! grep -Fq 'const headSha = context.sha;' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
+if ! awk '
+  /^  decide:/ { in_decide=1; next }
+  in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
+  in_decide && /^    runs-on: ubuntu-24\.04$/ { saw_runner=1 }
+  END { exit !saw_runner }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the short nightly decide gate must stay on the GitHub-hosted Linux runner instead of waiting for the paid pool"
+  exit 1
+fi
+
 if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
   exit 1
