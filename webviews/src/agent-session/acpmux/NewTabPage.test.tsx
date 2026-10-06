@@ -72,6 +72,11 @@ test("Tab cycles the kinds both ways, and recent sessions put the ones waiting o
   expect(cycleKind("terminal", -1)).toBe("agent");
   expect(recentSessions(sessions).map((entry) => entry.sessionId)).toEqual(["ask", "new", "old"]);
   expect(recentSessions(sessions, 1).map((entry) => entry.sessionId)).toEqual(["ask"]);
+  expect(
+    recentSessions([...sessions, { sessionId: "shelved", updatedAt: Date.now(), archived: true }]).map(
+      (entry) => entry.sessionId,
+    ),
+  ).toEqual(["ask", "new", "old"]);
   const at = 1_000;
   expect([
     ageLabel(undefined, at),

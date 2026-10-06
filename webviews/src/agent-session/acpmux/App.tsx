@@ -87,6 +87,7 @@ import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./link
 import { copyText } from "./conversation/clipboard";
 import { sessionLink } from "./links";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { archiveRow } from "./header/archiveRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
@@ -1792,6 +1793,15 @@ function AcpmuxPane() {
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const tabPinned = useRef(false);
+  const archive = archiveRow(
+    {
+      sessionId: snapshot.sessionId,
+      archived: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived),
+      local: localCwd !== undefined,
+    },
+    (archived) => ignoreFailure(callNative("chat.archive", { archived })),
+    t,
+  );
   const readTabState = () =>
     callNative<{ pinned?: boolean }>("pane.tabState").then((state) => {
       tabPinned.current = state?.pinned === true;
@@ -1861,6 +1871,7 @@ function AcpmuxPane() {
         shortcutAction: HEADER_ACTIONS.pin,
         onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
       },
+      ...(archive ? [archive] : []),
       ...(chat.length ? (["separator", ...chat] as ChatMenuItem[]) : []),
       ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : []),
       "separator",

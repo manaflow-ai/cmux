@@ -6,11 +6,11 @@ import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "./shortcuts";
 /** How many chats the palette lists (⌃1 to ⌃9 open them). */
 export const SEARCH_CHAT_LIMIT = 9;
 
-/** Newest chats whose title contains `query` (case-insensitive), at most nine. */
+/** Newest chats whose title contains `query` (case-insensitive), at most nine. An archived chat shows only for a query. */
 export function searchChats(sessions: readonly AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
   const needle = query.trim().toLowerCase();
   return [...sessions]
-    .filter((session) => session.status !== "closed")
+    .filter((session) => session.status !== "closed" && (!session.archived || needle))
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
     .filter((session) => !needle || chatTitle(session).toLowerCase().includes(needle))
     .slice(0, SEARCH_CHAT_LIMIT);
@@ -76,7 +76,7 @@ export function SearchChats({
   const chats: Row[] = searchChats(sessions, query).map((session, index) => ({
     key: session.sessionId,
     label: chatTitle(session),
-    meta: session.cwd ? projectLabel(session.cwd) : undefined,
+    meta: session.archived ? t("search.archived") : session.cwd ? projectLabel(session.cwd) : undefined,
     shortcut: `⌃${index + 1}`,
     run: () => onSelect(session.sessionId),
   }));
