@@ -12,6 +12,16 @@ pub(super) struct ParserSignals {
     pub(super) bell: Arc<AtomicBool>,
 }
 
+/// Runs the parser worker `parse` (production: [`run_host_parser`]) on the
+/// calling thread. `end_process` ends the host process.
+pub(super) fn run_guarded_host_parser(
+    _host: &Arc<HostShared>,
+    parse: impl FnOnce(),
+    _end_process: impl FnOnce(),
+) {
+    parse();
+}
+
 pub(super) fn run_host_parser(
     parser_host: Arc<HostShared>,
     parser_command_receiver: Receiver<ParserCommand>,

@@ -855,7 +855,7 @@ mod unix {
     use clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
-    use host_parser::{ParserSignals, run_host_parser};
+    use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use renderer_grant::ControlRequestUnanswered;
     pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
 
@@ -5009,7 +5009,11 @@ mod unix {
         let parser_host = shared.clone();
         let signals = ParserSignals { pending_responses, title_changed, bell };
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
-            run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
+            let guarded = parser_host.clone();
+            let parse = move || {
+                run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
+            };
+            run_guarded_host_parser(&guarded, parse, || {});
         })?;
 
         let reader_host = shared.clone();
@@ -6181,6 +6185,7 @@ mod unix {
     mod tests {
         mod clipboard_read;
         mod host_fixture;
+        mod parser_failure;
         mod parser_order;
         use super::*;
         use cmux_pty::Child;
