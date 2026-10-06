@@ -182,8 +182,15 @@ class GitHub:
     def graphql(self, query: str, **variables: Any) -> Any:
         args = ["api", "graphql", "-f", f"query={query}"]
         for key, value in variables.items():
-            args += ["-F", f"{key}={value}"]
-        return json.loads(self.gh(*args).stdout)["data"]
+            if value is not None:
+                args += ["-F", f"{key}={value}"]
+        completed = self.gh(*args, check=False)
+        if completed.returncode != 0 and re.search(r"HTTP 5\d\d", completed.stderr):
+            time.sleep(10)  # a gateway timeout on a large query; once
+            completed = self.gh(*args, check=False)
+        if completed.returncode != 0:
+            raise RuntimeError(f"gh api graphql failed: {completed.stderr.strip()[-500:]}")
+        return json.loads(completed.stdout)["data"]
 
     def workflow(self, name: str) -> str:
         """The workflow's numeric id. A file name resolves only on the default
@@ -234,10 +241,15 @@ class PullRequest:
         return f"#{self.number}"
 
 
+# PRs per open_prs page. Each carries files and checks; 100 in one query
+# times out at GitHub (HTTP 504).
+PRS_PAGE = 30
 PRS_QUERY = """
-query($owner: String!, $name: String!, $base: String!) {
+query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
-    pullRequests(states: OPEN, baseRefName: $base, first: 100, orderBy: {field: CREATED_AT, direction: ASC}) {
+    pullRequests(states: OPEN, baseRefName: $base, first: $first, after: $after,
+                 orderBy: {field: CREATED_AT, direction: ASC}) {
+      pageInfo { hasNextPage endCursor }
       nodes {
         number title url isDraft headRefName headRefOid authorAssociation
         author { login }
@@ -261,9 +273,17 @@ query($owner: String!, $name: String!, $base: String!) {
 
 def open_prs(gh: GitHub) -> list[PullRequest]:
     owner, name = gh.repo.split("/")
-    data = gh.graphql(PRS_QUERY, owner=owner, name=name, base=BASE)
+    nodes, after = [], None
+    while True:
+        page = gh.graphql(PRS_QUERY, owner=owner, name=name, base=BASE, first=PRS_PAGE, after=after)
+        connection = page["repository"]["pullRequests"]
+        nodes += connection["nodes"]
+        info = connection.get("pageInfo") or {}
+        if not info.get("hasNextPage"):
+            break
+        after = info["endCursor"]
     prs = []
-    for node in data["repository"]["pullRequests"]["nodes"]:
+    for node in nodes:
         commit = (node["commits"]["nodes"] or [{}])[0].get("commit") or {}
         rollup = (commit.get("statusCheckRollup") or {}).get("contexts", {}).get("nodes", [])
         checks = []
