@@ -10,6 +10,10 @@ import SwiftUI
 /// row edited under a filter (unbound, rebound) stays put with its Restore button.
 @MainActor
 struct ShortcutListStableLazyView: View {
+    /// Keep a burst of keystrokes from rebuilding the virtualized row tree for
+    /// every character. Matching is still immediate when the query is cleared.
+    private static let searchDebounce: Duration = .milliseconds(180)
+
     @Environment(\.controlActiveState) private var controlActiveState
 
     let model: ShortcutListModel
@@ -96,7 +100,7 @@ struct ShortcutListStableLazyView: View {
             searchIndex = index
             let shown = preserveShownOnIndexRefresh ? shownActionsForIndexRefresh : nil
             do {
-                try await Task.sleep(for: .milliseconds(80))
+                try await Task.sleep(for: Self.searchDebounce)
             } catch {
                 return
             }
