@@ -129,7 +129,7 @@ cat > "$TMP/bin/gh" <<'GH'
 printf '%s\n' "$*" >> "$GH_LOG"
 GH
 chmod +x "$TMP/bin/gh"
-autopin_gate() { # <GITHUB_REF>
+autopin_gate() { # <GITHUB_REF> [publisher sha]
   local started
   started=$(date +%s)
   status=0
@@ -137,7 +137,7 @@ autopin_gate() { # <GITHUB_REF>
   out=$(cd "$TMP/src" && env -u CI_JOB_DIR PATH="$TMP/bin:$PATH" GH_LOG="$TMP/gh-log" GITHUB_ACTIONS=true \
     GITHUB_EVENT_NAME=pull_request GITHUB_SHA="$sha" GITHUB_REF="$1" GITHUB_OUTPUT="$TMP/gh-output" \
     GITHUB_REPOSITORY=o/r GITHUB_API_URL="file://$TMP/api" GH_TOKEN=test-token CMUX_TUI_TREE_AUTOPIN=1 \
-    CMUX_TUI_TREE_PUBLISHER_SHA="$sha" CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui \
+    CMUX_TUI_TREE_PUBLISHER_SHA="${2:-$sha}" CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui \
     CMUX_TUI_TREE_WAIT_SECONDS=40 CMUX_TUI_TREE_POLL_SECONDS=1 CMUX_TUI_TREE_RUN_CHECK_SECONDS=1 \
     bash scripts/cmux-next/pin-cmux-tui.sh wait 2>&1) || status=$?
   took=$(( $(date +%s) - started ))
@@ -155,6 +155,22 @@ pinned() { # <case> <GITHUB_REF> <runs json>
 pinned "failed publisher, pull request" refs/pull/1/merge '{"total_count":1,"workflow_runs":[{"id":31,"status":"completed","conclusion":"failure","html_url":"u31"}]}'
 pinned "cancelled publisher, pull request" refs/pull/1/merge "$cancelled_runs"
 pinned "failed publisher, push" refs/heads/feat-cmux-next '{"total_count":1,"workflow_runs":[{"id":32,"status":"completed","conclusion":"failure","html_url":"u32"}]}'
+# A pull request that changes cmux-tui has a tree its base never builds, and
+# no pull_request_target artifacts run has ever started for one (#17622): the
+# gate pins its own checkout at once and watches that run, instead of waiting
+# out the 45 minutes with the run check off.
+git_q -C "$TMP/src" checkout -b base
+echo base > "$TMP/src/cmux-tui/a"
+git_q -C "$TMP/src" commit -am base
+base=$(git -C "$TMP/src" rev-parse HEAD)
+git_q -C "$TMP/src" checkout main
+[[ "$(cd "$TMP/src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$base")" != "$key" ]] || fail "own tree: the base has the same tree"
+set_runs "$cancelled_runs"; autopin_gate refs/pull/1/merge "$base"
+grep -qF "git/refs -f ref=refs/heads/cmux-tui-pin-${key:0:12} -f sha=$sha" "$TMP/gh-log" || fail "own tree: did not pin the checkout"
+grep -qF "workflows/cmux-tui-artifacts.yml/dispatches -f ref=cmux-tui-pin-${key:0:12}" "$TMP/gh-log" || fail "own tree: no dispatch"
+[[ "$(grep -c 'git/refs' "$TMP/gh-log")" == 1 ]] || fail "own tree: pinned more than once"
+(( took < 30 )) || fail "own tree: waited out the clock instead of watching the pinned run"
+[[ "$status" == 1 ]] && grep -qF 'no cmux-tui artifacts run will publish' <<<"$out" || fail "own tree: expected red once the pinned run ended"
 # A superseded push needs no tree: no pin.
 set_runs "$cancelled_runs"; set_head "$newer"; autopin_gate refs/heads/feat-cmux-next
 [[ "$status" == 0 ]] && grep -qxF "superseded=true" "$TMP/gh-output" || fail "autopin superseded: expected superseded"
