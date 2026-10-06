@@ -54,7 +54,7 @@ struct CloudWelcomeView: View {
                 CloudWelcomeMediaCarousel(slides: availableSlides, mediaURL: mediaURL, autoplays: sliderAutoplays, showsFeatureList: sliderShowsFeatureList, listUsesDots: sliderListUsesDots)
                     .padding(.top, 18)
                     .padding(.bottom, 18)
-            } else if !showsMedia {
+            } else {
                 CloudWelcomeHero()
             }
             panel
