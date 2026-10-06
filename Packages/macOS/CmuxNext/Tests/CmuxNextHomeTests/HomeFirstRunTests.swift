@@ -75,6 +75,20 @@ import Testing
         #expect(row.label.frame.maxX <= row.shortcutLabel.frame.minX, "label \(row.label.frame) runs into the shortcut")
     }
 
+    /// Stability rule: a Chief conversation whose history is still loading
+    /// is empty for a moment; the panel waits for the first page instead of
+    /// flashing in and out.
+    @Test func aHeldPanelWaitsForTheFirstPage() {
+        let (window, view) = Self.view()
+        defer { window.close() }
+        view.holdsFirstRun = true
+        view.controller.update(items: [], summary: Self.summary(), typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.firstRun.isHidden)
+        view.holdsFirstRun = false
+        #expect(!view.firstRun.isHidden)
+    }
+
     @Test func theFirstMessageHidesThePanel() {
         let (window, view) = Self.view()
         defer { window.close() }

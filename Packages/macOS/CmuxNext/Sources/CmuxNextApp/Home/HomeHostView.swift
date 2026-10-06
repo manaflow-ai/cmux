@@ -16,6 +16,7 @@ final class HomeHostView: NSView {
     private let binding: HomeStoreBinding
     private let message = NSTextField(labelWithString: "")
     private var availability: Task<Void, Never>?
+    private var firstPage: Task<Void, Never>?
 
     init(services: AppServices, conversation: String) {
         let service = services.home
@@ -41,6 +42,14 @@ final class HomeHostView: NSView {
         transcript.setFirstRunShortcuts(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
                                         agent: registry.shortcutDisplay(for: Self.startAgentAction),
                                         tabs: registry.shortcutDisplay(for: Self.selectTabByNumberAction))
+        // The first-run panel waits for the first page, so a conversation
+        // with history never flashes it (at once when the page is cached).
+        transcript.holdsFirstRun = true
+        // task-owner: lives as long as this view; ends when the first page is in
+        firstPage = Task { [weak self, binding] in
+            await binding.opened()
+            self?.transcript.holdsFirstRun = false
+        }
         wantsLayer = true
         message.alignment = .center
         message.stringValue = HomeStrings.unavailable
@@ -67,6 +76,7 @@ final class HomeHostView: NSView {
 
     isolated deinit {
         availability?.cancel()
+        firstPage?.cancel()
         binding.stop()
     }
 

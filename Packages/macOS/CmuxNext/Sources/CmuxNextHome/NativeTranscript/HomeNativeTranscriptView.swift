@@ -41,6 +41,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
+    /// The host is still loading the conversation's first page: the
+    /// first-run panel waits, so a Chief conversation with history never
+    /// flashes it before its messages arrive (stability rule).
+    public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
     private var observers: [any NSObjectProtocol] = []
 
     static let fieldInset: CGFloat = 16
@@ -174,7 +178,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// The first-run panel shows only in an empty Chief conversation.
     private func updateFirstRun() {
         let me = controller.me
-        firstRun.isHidden = !(controller.isEmpty && controller.conversationSummary?.kind(me: me) == .chief)
+        firstRun.isHidden = holdsFirstRun || !(controller.isEmpty && controller.conversationSummary?.kind(me: me) == .chief)
     }
 
     private func layoutField(send: Bool) {
