@@ -2777,6 +2777,30 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNil(session)
     }
 
+    func testIgnoresForegroundSSHMCPChildWithOptionsAndAbsolutePathCommand() {
+        // Claude Code starts `ssh … host /path/to/server mcp` as an MCP child in the
+        // pane's foreground process group; pasting an image must stay local.
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys011",
+            processes: [
+                .init(pid: 91250, pgid: 91250, tpgid: 91250, tty: "ttys011", executableName: "claude"),
+                .init(pid: 91572, pgid: 91250, tpgid: 91250, tty: "ttys011", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                91572: [
+                    "/usr/bin/ssh",
+                    "-o", "BatchMode=yes",
+                    "-o", "ServerAliveInterval=30",
+                    "studio-local",
+                    "/Users/example/.local/bin/latch",
+                    "mcp",
+                ],
+            ]
+        )
+
+        XCTAssertNil(session)
+    }
+
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
