@@ -46,7 +46,13 @@ final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     override func layout() {
         super.layout()
         layer?.cornerRadius = Metrics.chipCornerRadius(height: bounds.height)
+        // A badge narrowed by the titlebar row shows its glyph alone, never a clipped word.
+        // Alpha, not isHidden: the stack keeps its full fitting width for when room returns.
+        label.alphaValue = label.frame.maxX <= bounds.width - Metrics.space2 + 0.5 ? 1 : 0
     }
+
+    /// Whether the label draws (tests).
+    var showsLabel: Bool { label.alphaValue > 0 }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
