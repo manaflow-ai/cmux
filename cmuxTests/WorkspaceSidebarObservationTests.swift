@@ -136,6 +136,27 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func sidebarImmediateObservationPublisherDeliversDirectTitleChangeSynchronously() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarImmediateObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+        publishCount = 0
+
+        // Remote reconciliation and automatic title ownership can update the
+        // published display title without changing customTitle. The sidebar
+        // snapshot owner must still rebuild the row for that mutation.
+        workspace.title = "Authoritative rename"
+
+        #expect(
+            publishCount == 1,
+            "A direct published workspace-title change must reach the sidebar in the same run-loop turn."
+        )
+    }
+
     @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 
