@@ -4,7 +4,7 @@
 Launch a tagged cmux-next with CMUX_NEXT_TYPING_PROBE=<csv> (see
 TypingLatencyProbe.swift), focus a terminal at a shell prompt, then run:
 
-  scripts/cmux-next/bench-typing.py --pid PID --csv PATH [--samples 60]
+  scripts/cmux-next/bench-typing.py --pid PID --window WINDOW_ID --csv PATH [--samples 60]
 
 Each sample is one real key-down posted to the app by CuaDriver
 (`press_key`, background delivery), paced wider than a round trip so one
@@ -52,14 +52,18 @@ def summarize(values):
             "min": round(values[0], 2), "max": round(values[-1], 2)}
 
 
-def press(driver, pid, key):
-    payload = json.dumps({"pid": pid, "key": key})
-    subprocess.run([driver, "call", "press_key", payload], check=True, capture_output=True, timeout=10)
+def press(driver, pid, window, key):
+    payload = json.dumps({"pid": pid, "window_id": window, "key": key})
+    result = subprocess.run([driver, "call", "press_key", payload], check=True, capture_output=True, text=True, timeout=10)
+    # Without an exact window CuaDriver answers with candidates and posts nothing.
+    if '"candidates"' in result.stdout:
+        sys.exit(f"press_key did not post: {result.stdout[:300]}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pid", type=int, required=True)
+    parser.add_argument("--window", type=int, required=True, help="CuaDriver window_id of the cmux window")
     parser.add_argument("--csv", type=Path, required=True)
     parser.add_argument("--samples", type=int, default=60)
     parser.add_argument("--warmup", type=int, default=5)
@@ -74,10 +78,10 @@ def main():
         if rows_before < 0:
             sys.exit(f"{args.csv} has no header: was the app launched with CMUX_NEXT_TYPING_PROBE?")
         for index in range(args.warmup + args.samples):
-            press(args.driver, args.pid, args.keys[index % len(args.keys)])
+            press(args.driver, args.pid, args.window, args.keys[index % len(args.keys)])
             time.sleep(args.interval)
             if (index + 1) % 40 == 0:
-                press(args.driver, args.pid, "return")
+                press(args.driver, args.pid, args.window, "return")
                 time.sleep(args.interval)
         time.sleep(1)
 
