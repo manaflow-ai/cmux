@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.refusal.homeFlightRecorderOff": {
+      "comment": "Refusal: Save Last 10 Seconds ran while the Home flight recorder is off or no Home conversation is shown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The flight recorder is off, or no Home conversation is open. Turn it on in Debug Settings > Home."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مسجّل الرحلة متوقف، أو لا توجد محادثة مفتوحة في الرئيسية. شغّله من إعدادات التصحيح > الرئيسية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimač leta je isključen ili nijedan razgovor u Početnoj nije otvoren. Uključite ga u Postavke za otklanjanje grešaka > Početna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyskriveren er slået fra, eller ingen samtale i Hjem er åben. Slå den til under Fejlfindingsindstillinger > Hjem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Flugschreiber ist aus, oder keine Unterhaltung in „Home“ ist geöffnet. Schalte ihn unter Debug-Einstellungen > Home ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La grabadora de vuelo está desactivada o no hay ninguna conversación de Inicio abierta. Actívala en Ajustes de depuración > Inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’enregistreur de vol est désactivé ou aucune conversation de l’Accueil n’est ouverte. Activez-le dans Réglages de débogage > Accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il registratore di volo è disattivato o nessuna conversazione di Home è aperta. Attivalo in Impostazioni di debug > Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フライトレコーダーがオフか、ホームの会話が開いていません。デバッグ設定 > ホームでオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍កត់ត្រាជើងហោះហើរត្រូវបានបិទ ឬគ្មានការសន្ទនាក្នុងទំព័រដើមបើកទេ។ បើកវានៅក្នុងការកំណត់បំបាត់កំហុស > ទំព័រដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "플라이트 레코더가 꺼져 있거나 열린 홈 대화가 없습니다. 디버그 설정 > 홈에서 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ferdsskriveren er av, eller ingen samtale i Hjem er åpen. Slå den på i Feilsøkingsinnstillinger > Hjem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rejestrator lotu jest wyłączony lub nie otwarto żadnej rozmowy w Home. Włącz go w Ustawieniach debugowania > Home."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O gravador de voo está desativado ou nenhuma conversa do Início está aberta. Ative-o em Ajustes de depuração > Início."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бортовой самописец выключен или не открыт разговор на главной. Включите его в разделе Настройки отладки > Главная."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องบันทึกการบินปิดอยู่ หรือไม่มีการสนทนาในหน้าหลักเปิดอยู่ เปิดได้ที่การตั้งค่าดีบัก > หน้าหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uçuş kaydedici kapalı veya açık bir Ana Sayfa sohbeti yok. Hata Ayıklama Ayarları > Ana Sayfa’dan açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бортовий самописець вимкнено або не відкрито розмову на головній. Увімкніть його в Налаштуваннях налагодження > Головна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ ghi chuyến bay đang tắt hoặc chưa mở cuộc trò chuyện nào trong Trang chủ. Bật nó trong Cài đặt gỡ lỗi > Trang chủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "飞行记录器已关闭，或没有打开主页中的对话。请在调试设置 > 主页中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "飛行記錄器已關閉，或沒有打開主頁中的對話。請在除錯設定 > 主頁中開啟。"
+          }
+        }
+      }
+    },
     "handlers.refusal.audioMuteUnported": {
       "extractionState": "manual",
       "localizations": {

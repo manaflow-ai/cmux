@@ -1,19 +1,16 @@
 import AppKit
 import CmuxHomeCore
-import CmuxHomeRender
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
-/// native AppKit transcript (lane 16's `HomeNativeTranscriptView` on the
-/// shared render core, home-mac.md) bound to the shared `HomeStore` over the
-/// local conversation owner, or why it cannot show (the local daemon does
-/// not serve conversations).
+/// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
+/// home-mac.md) over the shared `HomeStore` of the local conversation owner,
+/// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
 final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
-    private let binding: HomeStoreBinding
     private let message = NSTextField(labelWithString: "")
     private var availability: Task<Void, Never>?
     private var firstPage: Task<Void, Never>?
@@ -21,14 +18,10 @@ final class HomeHostView: NSView {
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
-        transcript = HomeNativeTranscriptView(conversation: id, me: service.homeSource.me.id)
-        // The binding opens the conversation now and `binding.stop()` in
-        // deinit closes it, however early the tab closes.
-        binding = HomeStoreBinding(store: service.homeStore, controller: transcript.controller)
+        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         super.init(frame: .zero)
-        // Paste, drop and the picker attach files through the store; refusals
-        // and Cancel Upload go through the binding.
-        transcript.connect(binding)
+        // Settings > Home: whether attached photos and videos keep their location.
+        transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
         // The first-run rows run the same registry actions as the sidebar's
         // New Terminal Tab and New Agent Chat, and show their shortcuts.
         let registry = services.registry
@@ -45,8 +38,9 @@ final class HomeHostView: NSView {
         // The first-run panel waits for the first page, so a conversation
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
+        let binding = transcript.binding
         // task-owner: lives as long as this view; ends when the first page is in
-        firstPage = Task { [weak self, binding] in
+        firstPage = Task { [weak self] in
             await binding.opened()
             self?.transcript.holdsFirstRun = false
         }
@@ -77,7 +71,7 @@ final class HomeHostView: NSView {
     isolated deinit {
         availability?.cancel()
         firstPage?.cancel()
-        binding.stop()
+        transcript.stop()
     }
 
     override var wantsUpdateLayer: Bool { true }
