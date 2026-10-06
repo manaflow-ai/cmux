@@ -2,40 +2,36 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPalette
 
-/// Until cmux.editor: `file.open` with the path, in a tab of the pane.
-@MainActor
-final class BrowserTabFileOpener: FileOpening {
-    private let registry: ActionRegistry
-
-    init(registry: ActionRegistry) {
-        self.registry = registry
-    }
-
-    func open(_ file: URL, in pane: PaneController?) -> String? {
-        var invocation = ActionInvocation(arguments: ["path": .string(file.path), "where": .string("tab")])
-        if let pane { invocation.target = ActionTargetRef(kind: .pane, id: pane.paneKey) }
-        let registry = registry
-        return registry.capturingRefusal { _ = registry.perform("file.open", invocation: invocation) }
-    }
-}
-
 /// The viewers' shared parts (R89): the recents store, the cmux picker,
 /// and the seams to the diff host and the code editor.
 @MainActor
 final class ViewerService {
     let recents: ViewerRecents
     let picker: CmuxPicker
-    var diffViewer: any DiffViewerOpening = UnavailableDiffViewer()
+    /// The diff host (S4): R89's open actions and the picker open diffs through it.
+    var diffViewer: any DiffViewerOpening { diffPages }
+    /// The file pages (diff-host S6, S7): markdown files open the markdown page, other files the
+    /// code editor page, images and PDFs the browser tab's preview.
     var fileOpener: any FileOpening
     /// The diff open a picker choice started (one at a time; the next
     /// choice cancels it).
     private(set) var diffOpen: Task<Void, Never>?
     private weak var services: AppServices?
+    /// The owner of the page services below (the app's services outlive the viewers).
+    // crash-allow: AppServices owns this ViewerService for the app's whole life, so it outlives it.
+    private unowned let owner: AppServices
+    /// Diff viewer tabs (plans/cmux-next/diff-host.md S4).
+    private(set) lazy var diffPages = DiffPageService(services: owner)
+    /// Markdown page tabs (diff-host S6).
+    private(set) lazy var markdownPages = FilePageService(services: owner, kind: .markdown)
+    /// Code editor page tabs (diff-host S7).
+    private(set) lazy var editorPages = FilePageService(services: owner, kind: .editor)
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services
+        owner = services
         picker = CmuxPicker(services: services, recents: recents)
-        fileOpener = BrowserTabFileOpener(registry: services.registry)
+        fileOpener = FilePageOpener(services: services)
         self.recents = recents
     }
 
@@ -54,10 +50,10 @@ final class ViewerService {
 
     // MARK: Opening
 
-    /// A diff tab for `directory` in `pane`; the folder joins the recents.
+    /// A diff tab for `directory` in `pane`; the diff host records the
+    /// repository in its recents (`DiffRecents`, `cmux.diff.recents`).
     func openDiff(_ directory: String, in pane: PaneController, focus: Bool) async throws {
         try await diffViewer.openDiff(directory: directory, in: pane, focus: focus)
-        recents.record(URL(fileURLWithPath: directory, isDirectory: true), as: .diff)
     }
 
     /// The picker's folder mode for the diff viewer.
@@ -88,8 +84,8 @@ final class ViewerService {
         }
     }
 
-    /// Opens `file` through ``fileOpener`` (a tab of `pane`). A Markdown
-    /// file opens there too until the Markdown page (S6) lands. False when
+    /// Opens `file` through ``fileOpener`` (a tab of `pane`: the markdown
+    /// page, the code editor page or the browser tab's preview). False when
     /// it did not open (the refusal shows).
     @discardableResult
     func openFile(_ file: URL, in pane: PaneController?, markdown: Bool) -> Bool {
@@ -102,15 +98,7 @@ final class ViewerService {
         return true
     }
 
-    // MARK: Host ops of the webviews empty screens (S4, S6)
-
-    /// `cmux.diff.chooseFolder {start?}`: the picker in folder mode, the
-    /// chosen folder's path or nil (cancel).
-    func chooseFolder(start: String?) async -> String? {
-        let options = CmuxPicker.OpenOptions(choose: .folders, startDirectory: start.map { URL(fileURLWithPath: $0, isDirectory: true) },
-                                             recents: [.diff])
-        return await picker.open(options)?.first?.path
-    }
+    // MARK: Host op of the Markdown empty screen (S6; the diff's is PickerDiffFolderChooser)
 
     /// `cmux.markdown.chooseFile {start?}`: the picker in file mode, Markdown only.
     func chooseMarkdownFile(start: String?) async -> String? {

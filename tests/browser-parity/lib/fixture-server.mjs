@@ -47,6 +47,10 @@ function handler(origins) {
     if (url.pathname === "/echo-cookie") {
       return send(200, "application/json", JSON.stringify({ cookie: req.headers.cookie ?? null }));
     }
+    // One redirect hop to `to` (host fetch scenarios: a hop to the peer origin).
+    if (url.pathname === "/redirect") {
+      return send(302, "text/plain; charset=utf-8", "", { location: url.searchParams.get("to") || "/" });
+    }
     if (url.pathname === "/api/data") {
       return send(200, "application/json", JSON.stringify({ ok: true, q: url.searchParams.get("q") }));
     }

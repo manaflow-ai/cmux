@@ -20,7 +20,7 @@ A user who makes cmux the default browser hits these in the first day.
 | Item | W | C | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | Omnibar opens in new tab (Cmd-Return, modified row click) | fixed (P1) | fixed (P1) | app | was loading in the current tab |
-| Downloads UI (progress, list, reveal, open, cancel, retry) | missing | missing/UNSURE | app (UI), engine (C events) | W saves silently; C has no visible UI (toolbar hidden). Needs a shim download event from engine |
+| Downloads UI (progress, list, reveal, open, cancel, retry) | missing | missing/UNSURE | app (UI), engine (C events) | S2: both engines feed one App list (`BrowserDownloadList`) with progress and end, a notice on finish/failure, one policy (`BrowserDownloadPolicy`: Downloads folder or chosen file, sanitized unique names, quarantine, never open). C through shim download events (`CEFDownloads`). DL2: both engines write a temporary sibling and move into place only on a complete end (`BrowserDownloadPlacement`: reserved names, exclusive rename, Save As replaced only by a complete download, 255-byte names keep the extension, lstat); shim download tokens are unique across profiles; download URLs only http/https/data/blob; an early cancel is held. Later P3 in the lane plan below. The list UI is still missing |
 | New tabs open next to the opener (Chrome order) | broken | broken | app + daemon (crate slot) | daemon appends to strip end |
 | Session restore with back/forward history | URL only | works | engine (W interactionState), app | W history lost on relaunch and Cmd-Shift-T |
 | Passwords: save prompt, fill, generator, manager page | missing | partial | pw | C fills from Chromium store; no save UI |
@@ -44,9 +44,11 @@ A user who makes cmux the default browser hits these in the first day.
 
 | Item | W | C | Owner | Notes |
 | --- | --- | --- | --- | --- |
-| Shift-click / Shift-Return opens a new window | fixing (P5) | engine mapping | app (W, App), engine (C mapping NEW_WINDOW) | C maps NEW_WINDOW to a foreground tab today |
-| Link menu: Open in New Tab (background), New Window, Copy Link, Save Link As | partial | partial | app (W), engine (C) | W "New Tab" was foreground (P6); C drops "Open Link in New Window" |
-| Image menu: Copy Image, Open Image in New Tab, Save Image As | works (WebKit menu) | partial | app, engine | C save goes to downloads with no UI |
+| Shift-click / Shift-Return opens a new window | fixed (P5) | fixed (R123) | app | C: a page's NEW_WINDOW request goes through the link mapping |
+| Modified link clicks match Chrome and are configurable (`browser.links.*`, Settings > Browser > Links) | fixed (R123) | fixed (R123), UNSURE on a build | app | one mapping (`BrowserLinkClickMapping`, `CEFLinkClicks.placement`). C: the last mouse-up on the requesting page (1 s; cmux UI never counts) separates Shift-Cmd-click from plain target=_blank (both NEW_FOREGROUND_TAB); middle-click follows Cmd-click; Option-click always downloads (Blink downloads it directly); Download on any other gesture downloads in the opener (shim StartDownload); a request without a user gesture never follows the mapping (S1) |
+| Link menu: Open in New Tab (background), New Window, New Space, New Workspace, Split Right, Incognito Window, Save Link As, Copy Link, Copy Link Text | fixed (R123 B), UNSURE on a build | fixed (R123 B) | app | one cmux menu for both engines (`BrowserHitMenu`, `browserLink` actions with `url`); W hit from a `contextmenu` script; C Save Link As / Save Image As: cmux save panel, then the shim downloads into the chosen file (S2), from the menu, palette or action.run |
+| Image menu: Open Image in New Tab, Save Image As, Copy Image, Copy Image Address | fixed (R123 B), UNSURE on a build | fixed (R123 B) | app, engine (C save) | Copy Image loads the address without page cookies; C save as above |
+| Selection menu: Copy, Search <engine> for "…", Look Up "…" | fixed (R123 B), UNSURE on a build | fixed (R123 B) | app | outside editable fields; the omnibar's search engine |
 | Drag a URL or link onto the tab strip | missing | missing | app | strip accepts only tab drags |
 | Audio indicator and mute per tab | missing | missing | app (UI), engine (C audible event) | toggleTabAudioMute unported |
 | Media controls / Now Playing | missing | missing | app (W), engine (C) | MPNowPlayingInfoCenter |
@@ -105,6 +107,34 @@ workspace, tab search across every machine.
   input, never incognito), fully configurable search engines per profile,
   default Google, calculator row (local only); Ctrl-J/K and Ctrl-N/P move
   rows while the list is open.
+
+## Downloads lane plan (later P3, not implemented)
+
+After DL2 (shim tokens, temporary-file placement, scheme filter, held
+cancel, shutdown clear, popup match), in this order:
+
+1. Save Link As pick: the shim returns a token from `cmux_shim_download_url`
+   (StartDownload) and matches the download by its GURL spec, with a TTL, so
+   the pick never depends on the URL string cmux sent.
+2. Auto-resume a download once after its first interrupt (network change),
+   then fail.
+3. Quarantine on the DONE path in the shim side too (Chromium's own
+   quarantine call), so a file is never unquarantined between the move and
+   cmux's attribute write.
+4. Downloads that have no cmux tab (a tab closed before the download, a
+   popup panel) still reach the App's list.
+5. A test that checks the Swift copies of the shim event numbers and
+   function prototypes against `cmux_cef_shim.h`.
+
+## CEF pin cmux.19 (API 19) lane plan (no change until the pin moves)
+
+1. `cmux_set_webauthn_keychain_access_group` returns int, not void: 1 before
+   `CefInitialize`, 0 after (a late call is refused). The shim calls it
+   before `CefInitialize`, checks the result, and logs 0 as a startup bug.
+   An old shim that ignores the result still works.
+2. cmux.19 fixes a cmux.18 bug: password export followed a symlink at the
+   chosen path. If cmux exposes password export, the path comes only from a
+   save panel, never from a typed or page-supplied path.
 
 ## Order (app-level items)
 

@@ -84,7 +84,9 @@ extension WebKitTab: PageInfoProviding {
         case .camera: [.camera]
         case .microphone: [.microphone]
         case .cameraAndMicrophone: [.camera, .microphone]
+        case .automaticDownloads: []
         }
+        guard !kinds.isEmpty else { return decisionHandler(.deny) }
         pageInfoActivity.recordRequest(kinds)
         let store = sitePermissions
         Task { [weak self] in
@@ -143,7 +145,7 @@ extension WebKitTab: PageInfoProviding {
         // Evaluation can fetch intermediates or revocation data: never
         // on the main thread (architecture.md 5a).
         let box = ServerTrustBox(trust: trust)
-        let excepted = isCertificateExcepted(challenge.protectionSpace.host)
+        let excepted = engine?.hasCertificateException(challenge.protectionSpace.host, profile: profileID) ?? false
         if !excepted { completionHandler(.performDefaultHandling, nil) }
         Task.detached { [weak self] in
             let result = box.evaluate()

@@ -6,6 +6,7 @@ import Testing
 /// which fields a query matches.
 @Suite struct TabSearchPlanTests {
     let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    let ranker = TabSearchRanker()
 
     var sample: [TabSearchEntry] { MockTabSearchSource.sample(now: now) }
 
@@ -68,7 +69,7 @@ import Testing
 
     @Test func queriesMatchTitleURLFolderAndProcess() {
         func top(_ query: String) -> String? {
-            TabSearchRanker.search(sample, query: query, now: now).first?.row.entry.id
+            ranker.search(sample, query: query, now: now).first?.row.entry.id
         }
         #expect(top("pull requests") == "tab_2")
         #expect(top("github") == "tab_2")
@@ -77,21 +78,21 @@ import Testing
         #expect(top("cargo") == "tab_5")
         #expect(top("mac-mini") == "tab_5")
         // Closed tabs stay below every open match, even a weak one.
-        let htop = TabSearchRanker.search(sample, query: "htop", now: now)
+        let htop = ranker.search(sample, query: "htop", now: now)
         #expect(htop.first { $0.row.entry.isClosed }?.row.entry.id == "local/tab_8")
     }
 
     @Test func closedTabsStayBelowOpenTabsForEveryQuery() {
         // "api" matches the closed htop tab's folder and the open tabs'
         // workspace; open tabs still come first.
-        let matches = TabSearchRanker.search(sample, query: "api", now: now)
+        let matches = ranker.search(sample, query: "api", now: now)
         let firstClosed = matches.firstIndex { $0.row.entry.isClosed } ?? matches.count
         #expect(matches.prefix(firstClosed).allSatisfy { !$0.row.entry.isClosed })
         #expect(matches.suffix(from: firstClosed).allSatisfy { $0.row.entry.isClosed })
         #expect(matches.contains { $0.row.entry.id == "local/tab_8" })
-        let openOnly = TabSearchRanker.search(sample, query: "api", includeClosed: false, now: now)
+        let openOnly = ranker.search(sample, query: "api", includeClosed: false, now: now)
         #expect(!openOnly.contains { $0.row.entry.isClosed })
-        #expect(TabSearchRanker.search(sample, query: "", limit: 3, now: now).count == 3)
+        #expect(ranker.search(sample, query: "", limit: 3, now: now).count == 3)
     }
 
     /// Seeded random tab sets: every open tab is listed exactly once, open
@@ -121,7 +122,7 @@ import Testing
             #expect(rows.suffix(from: firstClosed).allSatisfy { $0.entry.isClosed })
             #expect(rows.filter { $0.entry.isClosed && $0.isVisibleWhenQueryEmpty }.count <= TabSearchPlan.closedListed)
             for query in ["", words[seed % words.count], "example", "src"] {
-                let matches = TabSearchRanker.search(entries, query: query, style: style, now: now)
+                let matches = ranker.search(entries, query: query, style: style, now: now)
                 let split = matches.firstIndex { $0.row.entry.isClosed } ?? matches.count
                 #expect(matches.suffix(from: split).allSatisfy { $0.row.entry.isClosed }, "style \(style) query \(query)")
                 #expect(Set(matches.map(\.row.entry.id)).count == matches.count)

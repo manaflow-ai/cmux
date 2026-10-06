@@ -1,22 +1,30 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
+import {
+  isDefaultChoice,
+  loadResolvedDefaults,
+  modelIdName,
+  rememberResolvedDefault,
+  resolvedModel,
+} from "./defaultChoice";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
-import { useT } from "./i18n";
+import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { registerPicker } from "./pickerOpeners";
+import { useUiAnchor } from "../../ui/anchor";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
-  model: "Model",
-  mode: "Mode",
-  effort: "Effort",
-  plan: "Plan",
-  build: "Build",
-  planHint: "Plan reads and proposes without editing; Build makes the changes",
+  model: "picker.model",
+  mode: "picker.mode",
+  effort: "picker.effort",
+  plan: "picker.plan",
+  build: "picker.build",
+  planHint: "picker.planHint",
   /// `{percent}` is the share of the context window used.
-  context: "{percent}% of context used",
-};
+  context: "picker.context",
+} as const satisfies Record<string, StringKey>;
 
 /// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
 export type Combo = { harness: string; model: string; effort?: string; effortName?: string };
@@ -84,6 +92,8 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
+  /// Mode and Plan live in the composer's + menu in the default pane.
+  showModePlan?: boolean;
 };
 
 /// The composer bar's controls: the
@@ -101,10 +111,14 @@ export function ComposerPickers({
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
+  showModePlan = true,
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
-  const models: Choice[] = sessionModels(snapshot.catalog, summary);
+  // An agent's own default reads "Default", never its "(Claude Code's choice)" phrasing.
+  const models: Choice[] = sessionModels(snapshot.catalog, summary).map((choice) =>
+    isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice,
+  );
   const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
@@ -122,10 +136,10 @@ export function ComposerPickers({
   const effort = summary?.configOptions?.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
-  const efforts: Choice[] = (effort?.options ?? []).map((option) => ({
-    id: option.value,
-    name: option.name || option.value,
-  }));
+  const efforts: Choice[] = (effort?.options ?? []).map((option) => {
+    const choice = { id: option.value, name: option.name || option.value };
+    return isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice;
+  });
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -189,19 +203,32 @@ export function ComposerPickers({
     )
       onEffort(effort.id, pickedEffort);
   };
+  // A default model draws as the model it resolves to: the running session's, else the one this
+  // harness's default last resolved to, else "Default".
+  const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
+  // A harness still starting draws its last session's options, which name no model this chat runs.
+  const resolvedNow = switching ? undefined : resolvedModel(summary);
+  useEffect(() => {
+    if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
+  }, [harness, resolvedNow]);
+  const resolvedId = defaulted ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined)) : undefined;
+  const resolvedName =
+    resolvedId &&
+    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
+  const modelName = defaulted ? (resolvedName ?? t("picker.default")) : (model?.name ?? summary?.model);
   const usage = summary?.usage;
 
   return (
     <div className="acpmux-chips">
-      {modes.length > 0 && (
+      {showModePlan && modes.length > 0 && (
         <Picker
-          label={PICKER_LABELS.mode}
+          label={t(PICKER_LABELS.mode)}
           warnUnrestricted
           className={`acpmux-mode${mode && unrestricted(mode.id) ? " acpmux-unrestricted" : ""}`}
           button={
             <>
               <ShieldIcon />
-              <span>{mode?.name ?? PICKER_LABELS.mode}</span>
+              <span>{mode?.name ?? t(PICKER_LABELS.mode)}</span>
               <ChevronIcon />
             </>
           }
@@ -210,16 +237,16 @@ export function ComposerPickers({
           align="start"
         />
       )}
-      {plan && (
+      {showModePlan && plan && (
         <button
           type="button"
           className="acpmux-plan"
           aria-pressed={planning}
-          title={PICKER_LABELS.planHint}
+          title={t(PICKER_LABELS.planHint)}
           onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
         >
           {planning ? <PlanIcon /> : <BuildIcon />}
-          <span>{planning ? PICKER_LABELS.plan : PICKER_LABELS.build}</span>
+          <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
         </button>
       )}
       <span className="acpmux-chips-spacer" />
@@ -228,7 +255,8 @@ export function ComposerPickers({
           catalog={snapshot.catalog}
           harness={harness}
           model={shown}
-          label={model?.name ?? summary?.model ?? PICKER_LABELS.model}
+          label={modelName ?? t(PICKER_LABELS.model)}
+          resolvedDefault={resolvedName}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
@@ -249,10 +277,10 @@ export function ComposerPickers({
       )}
       {effort && efforts.length > 0 && (
         <EffortPicker
-          label={PICKER_LABELS.effort}
+          label={t(PICKER_LABELS.effort)}
           efforts={efforts}
           current={effort.currentValue}
-          model={model?.name ?? summary?.model}
+          model={modelName}
           chevron={<ChevronIcon />}
           onPick={(value) => {
             // An effort picked by hand wins over one a combo is still waiting to send.
@@ -274,9 +302,10 @@ export function isPlan(modeId: string): boolean {
 
 /// How much of the context window the session has used, as a ring that fills.
 export function ContextRing({ used, size }: { used: number; size: number }) {
+  const t = useT();
   const fraction = Math.min(1, Math.max(0, used / size));
   const percent = Math.round(fraction * 100);
-  const label = PICKER_LABELS.context.replace("{percent}", String(percent));
+  const label = t(PICKER_LABELS.context, { percent });
   const radius = 7;
   const circumference = 2 * Math.PI * radius;
   return (
@@ -344,7 +373,9 @@ export function Picker({
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
@@ -428,6 +459,7 @@ export function Picker({
     <span
       ref={root}
       className={`acpmux-picker ${className}`}
+      style={{ position: "relative" }}
       onBlur={(event) => {
         if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
       }}
@@ -452,7 +484,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div className={`acpmux-menu acpmux-menu-${align}`}>
+        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`}>
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (

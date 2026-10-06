@@ -1448,7 +1448,7 @@ elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
   fi
 fi
 
-# The Home Chief's brain host (experiments/chief-optmem/optchat-chief, see
+# The Home Chief's brain host (Native/OptChat/optchat-chief, see
 # HomeBrainHost.swift). Fleet and CI builds compile it and require it in the
 # bundle; a local reload bundles a cached build when one exists and otherwise
 # builds an app whose Chief does not answer (never Cargo on the developer Mac).
@@ -2076,6 +2076,9 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+# The browser host the bundle phase placed beside bin/cmux (the daemon runs its
+# sibling): present, signed like the daemon, and `version` runs.
+"$PWD/scripts/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" || exit 1
 
 TAG_LAUNCHD_LABEL=""
 TAG_LAUNCHD_DOMAIN=""

@@ -15,4 +15,11 @@ struct HomeRefusalAlert: Equatable {
         }
         message = HomeText.explanation(for: rejection)
     }
+
+    /// An op that ran out of resends with no answer (HomeStoreBinding.onUnanswered):
+    /// it may not have gone through. One line, no refusal reason.
+    init(unanswered intent: HomeIntent) {
+        title = HomeText.unansweredTitle
+        message = ""
+    }
 }

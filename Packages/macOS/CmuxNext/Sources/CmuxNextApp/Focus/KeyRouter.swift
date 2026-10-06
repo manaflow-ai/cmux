@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextTerminal
 
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
@@ -13,11 +14,11 @@ import CmuxNextTerminal
 /// 1. an input method composing (marked text): the key goes to it;
 /// 2. an armed chord (`["ctrl+b", "c"]`, the Cmd-J leader with its which-key
 ///    overlay): the key completes or cancels it;
-/// 3. the binding table (`RegistryKeyBindings.table`: defaults, then
-///    user entries; the last entry whose `when` holds and whose action can
-///    run wins), with the context keys of the window the key goes to; else
-///    the user's Ghostty keybinds for window, tab and split actions when no
-///    terminal has the keyboard;
+/// 3. the binding table (`RegistryKeyBindings.table`: Ghostty fallbacks,
+///    defaults, app entries, the user's terminal Ghostty keybinds, then user
+///    entries; the last entry whose `when` holds and whose action can run
+///    wins), with the context keys of the window the key goes to; a winning
+///    Ghostty keybind goes to a focused terminal, which runs it itself;
 /// 4. the action's tier decides whether it may take the key from this focus
 ///    (system always; navigation unless browser focus mode; content only
 ///    when its content has the keyboard, never a text field): run it;
@@ -38,9 +39,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// A key that is not a Command or Control chord goes on to `window`'s
     /// focused view: the user types into that pane (notification dismissal).
     var onTyping: ((NSWindow?) -> Void)?
-    /// The user's Ghostty host keybinds (`GhosttyRuntime.hostAction`),
-    /// injectable for tests.
-    var ghosttyHostAction: (NSEvent) -> TerminalHostAction? = { GhosttyRuntime.shared.hostAction(forKeyDown: $0) }
+    /// The key-down `debug.key` dispatches (``dispatchingSynthetic(_:_:)``),
+    /// which `NSApp.currentEvent` does not report.
+    var syntheticKeyEvent: NSEvent?
+    /// Notes what happens to the key `debug.key` dispatches (nil otherwise).
+    var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
     var whichKey: WhichKeyController?
     private var resignObserver: (any NSObjectProtocol)?
@@ -151,9 +154,17 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        // Set again only when this key runs an action (debug.key reports it).
+        lastInterception = nil
+        if cancelsMissedModal(event, in: window) { return true }
+        if runsUndoToast(event, in: window) {
+            trace?("undo toast: Cmd-Z ran the toast")
+            return true
+        }
         // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
         if let keyRecorder, keyRecorder(event, window) {
             cancelChord()
+            trace?("recorder: the Keyboard Shortcuts recorder took the key")
             return true
         }
         if closesPopup(event, in: window) {
@@ -168,6 +179,7 @@ final class KeyRouter: BrowserKeyRouting {
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
+            if routesBareKey(event, in: window) { return true }
             if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
             onTyping?(window)
             return false
@@ -195,7 +207,9 @@ final class KeyRouter: BrowserKeyRouting {
             return false
         }
         // 3-5.
-        switch decide(event, focus: focus, context: context) {
+        let decision = decide(event, focus: focus, context: context)
+        trace?("dispatcher: \(decision)")
+        switch decision {
         case .run(let candidate):
             run(candidate, context: context, window: controller.state.id)
             // A refusal (no neighbor) is reported by the registry; the chord
@@ -208,17 +222,30 @@ final class KeyRouter: BrowserKeyRouting {
         }
     }
 
+    /// A bare key in a page that owns bare keys (KeyRouter+BareKeys): a sequence step, else its binding.
+    func dispatchBare(_ event: NSEvent, in window: NSWindow, controller: WindowController, context: KeyContext, facts: Facts) -> Bool {
+        if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
+        guard let winner = bareKeyWinner(event, context: context) else { return false }
+        decided.add(event)
+        run(Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
+                      arguments: winner.arguments), context: context, window: controller.state.id)
+        return true
+    }
+
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {
-        lastInterception = (candidate.id, window)
+        lastInterception = (candidate.id, window, true)
+        let ran: Bool
         switch candidate.source {
         case .registry(let argument):
-            RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
-                                keyContext: context.bits)
+            ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
+                                                    keyContext: context.bits)
         case .ghostty(let arguments):
             var invocation = ActionInvocation(arguments: arguments)
             invocation.keyContext = context.bits
-            registry.perform(candidate.id, invocation: invocation)
+            ran = registry.perform(candidate.id, invocation: invocation)
         }
+        // A refused run (Cmd-W on a top page) is still a cmux shortcut; debug.key says it did not run.
+        lastInterception = (candidate.id, window, ran)
     }
 
     /// A popup panel (or its Chromium page window) has the keyboard: a key
@@ -244,9 +271,15 @@ final class KeyRouter: BrowserKeyRouting {
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).
     var keyRecorder: ((NSEvent, NSWindow?) -> Bool)?
+    /// Ends the topmost sheet on a window as cancelled; returns whether one
+    /// ended. A seam: tests without a window session (no sheets) replace it.
+    var endTopmostSheet: (NSWindow) -> Bool = { SheetDismissal.endTopmost(of: $0) }
+    /// The toasts Cmd-Z may undo (`runsUndoToast`); tests replace it.
+    var undoToasts: CmuxToastCenter = .shared
 
-    /// The last intercepted action and window (for `debug.key`).
-    private(set) var lastInterception: (action: ActionID, window: String)?
+    /// The last intercepted action, its window, and whether it ran (false:
+    /// refused, such as Cmd-W on a top page) (for `debug.key`).
+    private(set) var lastInterception: (action: ActionID, window: String, ran: Bool)?
 
     // MARK: Chords
 
@@ -301,81 +334,13 @@ final class KeyRouter: BrowserKeyRouting {
         case .armed, .dismissed:
             return true
         case .run(let id, let argument, let arguments):
-            lastInterception = (id, controller.state.id)
-            RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
+            lastInterception = (id, controller.state.id, true)
+            let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
+            lastInterception = (id, controller.state.id, ran)
             return true
         case .mismatch:
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }
             return false
         }
-    }
-
-    // MARK: Resolution
-
-    /// A shortcut a key-down resolves to, before the tier check.
-    nonisolated struct Candidate: Equatable, Sendable {
-        enum Source: Equatable, Sendable {
-            /// A binding table entry (catalog default or cmux.json).
-            case registry(argument: String?)
-            /// A Ghostty keybind routed to a registry action.
-            case ghostty(arguments: [String: ActionValue])
-        }
-
-        var id: ActionID
-        var tier: ActionKeyTier
-        var source: Source
-        /// A binding's typed arguments.
-        var arguments: [String: ActionValue] = [:]
-    }
-
-    /// The winning binding for a key-down in `context`: its characters, then
-    /// its unshifted key ("}" or "]" for Shift-]).
-    func resolve(_ event: NSEvent, context: KeyContext) -> KeyBinding? {
-        let table = RegistryKeyBindings(registry).table
-        let bits = context.bits
-        for shortcut in ActionRegistry.shortcuts(for: event) {
-            if let winner = table.resolve([shortcut], in: context, isRunnable: { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) }).winner {
-                return winner
-            }
-        }
-        return nil
-    }
-
-    /// The candidate for a key-down in a window with `focus` (no chord).
-    func candidate(for event: NSEvent, focus: FocusState, facts: Facts = Facts()) -> Candidate? {
-        candidate(for: event, context: keyContext(for: focus, facts: facts), focus: focus)
-    }
-
-    func candidate(for event: NSEvent, context: KeyContext, focus: FocusState) -> Candidate? {
-        if let winner = resolve(event, context: context) {
-            return Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
-                             arguments: winner.arguments)
-        }
-        let isBrowser = BrowserChordTable.isBrowserContext(focus.resolved)
-        // Page Back/Forward chords never fall back to a Ghostty keybind.
-        if !isBrowser, BrowserChordTable.isBrowserOnlyChord(event, registry: registry) { return nil }
-        // Ghostty fallback: never for a browser chord while a page, the
-        // address bar or the find bar has the keyboard (Cmd-[ is Back there,
-        // not Ghostty's `goto_split:previous`); see BrowserChordTable.
-        if isBrowser, BrowserChordTable.isChromeChord(event) { return nil }
-        guard let action = ghosttyHostAction(event), let route = TerminalHostActionRoute.route(action) else { return nil }
-        return Candidate(id: route.id, tier: registry.keyTier(for: route.id), source: .ghostty(arguments: route.arguments))
-    }
-
-    /// A browser-only chord (page Back/Forward) outside a browser context
-    /// does nothing and reaches no view (browser focus mode is a browser
-    /// context, so it never gets here).
-    func consumesBrowserOnlyChord(_ event: NSEvent, focus: FocusState) -> Bool {
-        !BrowserChordTable.isBrowserContext(focus.resolved) && BrowserChordTable.isBrowserOnlyChord(event, registry: registry)
-    }
-
-    /// Whether the app-wide dispatcher runs `candidate` now: tiers 0 and 1
-    /// for a cmux window or a Chromium page window over it (kept for the
-    /// tier tables in tests; ``decide(_:focus:keyWindow:facts:)`` is the
-    /// whole rule).
-    nonisolated static func intercepts(_ candidate: Candidate, focus: FocusState, keyWindow: KeyWindowKind) -> Bool {
-        guard keyWindow == .content, candidate.tier != .content else { return false }
-        if case .ghostty = candidate.source, case .terminal = focus.resolved { return false }
-        return allows(candidate.tier, focus: focus)
     }
 }

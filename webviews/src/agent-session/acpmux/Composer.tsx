@@ -2,52 +2,59 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
+import { terminalConversion } from "./newtab/screenModel";
+import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import {
   ArrowUpIcon,
   AtIcon,
+  BuildIcon,
   PaperclipIcon,
   Picker,
   PlusIcon,
   SearchIcon,
+  PlanIcon,
+  ShieldIcon,
   SlashIcon,
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
-import { useT } from "./i18n";
+import { type StringKey, type Translate, useT } from "./i18n";
+import { remoteComposer } from "./remoteEditing";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
 export const COMPOSER_LABELS = {
-  placeholder: "Do anything",
-  add: "Add",
-  mention: "Mention a file or folder",
-  attach: "Attach files or images",
-  prompt: "Prompt",
-  send: "Send",
-  stop: "Stop",
-  commands: "Commands",
-  noCommands: "No commands",
-  noMatchingCommands: "No matching commands",
-  attachments: "Attachments",
-  removeAttachment: "Remove {name}",
-  dropFiles: "Drop images or text files to attach",
-  tooLarge: "{name} is too large to attach",
-  unsupported: "{name} is not an image or a text file",
-  imagesUnsupported: "This agent does not take images",
-  tooMany: "Up to 10 attachments per message",
-  queue: "Queued prompts",
-  queued: "Queued",
-};
+  placeholder: "composer.placeholder",
+  add: "composer.add",
+  mention: "composer.mention",
+  attach: "composer.attach",
+  prompt: "composer.prompt",
+  send: "composer.send",
+  stop: "composer.stop",
+  commands: "composer.commands",
+  noCommands: "composer.noCommands",
+  noMatchingCommands: "composer.noMatchingCommands",
+  attachments: "composer.attachments",
+  removeAttachment: "composer.removeAttachment",
+  dropFiles: "composer.dropFiles",
+  tooLarge: "composer.tooLarge",
+  unsupported: "composer.unsupported",
+  imagesUnsupported: "composer.imagesUnsupported",
+  tooMany: "composer.tooMany",
+  queue: "composer.queue",
+  queued: "composer.queued",
+} as const satisfies Record<string, StringKey>;
 
-function attachmentErrorText(error: AttachmentError): string {
-  return COMPOSER_LABELS[error.reason].replace("{name}", error.name);
+function attachmentErrorText(error: AttachmentError, t: Translate): string {
+  return t(COMPOSER_LABELS[error.reason], { name: error.name });
 }
 
 /// What the pane can do to the composer from outside it.
@@ -79,7 +86,14 @@ type Props = {
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
-  onProject?(cwd: string): void;
+  onProject?(cwd: string, peer?: string): void;
+  projectChoices?: Project[];
+  onBrowseProject?(): void;
+  /// A direct blank pane chat can become a terminal before its first prompt.
+  onTerminal?(command: string): void;
+  onTerminalTypeAhead?(command: string): void;
+  /// Changes the approval mode from the + menu while keeping the keyboard shortcut path intact.
+  onMode?(modeId: string): void;
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
@@ -104,6 +118,11 @@ export function Composer({
   onAttach,
   searchFiles,
   onProject,
+  projectChoices,
+  onBrowseProject,
+  onTerminal,
+  onTerminalTypeAhead,
+  onMode,
   onOpenInWindow,
   handle,
 }: Props) {
@@ -114,6 +133,7 @@ export function Composer({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
+  const converting = useRef<string | undefined>(undefined);
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -147,7 +167,7 @@ export function Composer({
     if (files.length === 0) return;
     const read = await readAttachments(files, held.current, allowImages);
     setAttachments((current) => [...current, ...read.attachments]);
-    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0]) : undefined);
+    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0], t) : undefined);
   };
   useEffect(() => {
     const over = (event: DragEvent) => {
@@ -222,6 +242,35 @@ export function Composer({
     pendingCaret.current = draft.length;
   }, [draft]);
   const commands = snapshot.commands;
+  const remote = remoteComposer(snapshot);
+  const modeChoices: Choice[] = (snapshot.summary?.modes?.availableModes ?? [])
+    .filter((mode) => !/(^|[-_])plan$/i.test(mode.id))
+    .map((mode) => ({
+      id: `mode:${mode.id}`,
+      name: mode.name || mode.id,
+      description: mode.description,
+      icon: <ShieldIcon />,
+    }));
+  const plan = snapshot.summary?.modes?.availableModes?.find((mode) => /(^|[-_])plan$/i.test(mode.id));
+  const currentModeId = snapshot.summary?.modes?.currentModeId;
+  const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
+  if (lastMode.current.sessionId !== snapshot.summary?.sessionId) {
+    lastMode.current = { sessionId: snapshot.summary?.sessionId };
+  }
+  if (currentModeId && !/(^|[-_])plan$/i.test(currentModeId)) lastMode.current.mode = currentModeId;
+  const planning = plan?.id === currentModeId;
+  const modePlanChoices: Choice[] = [
+    ...modeChoices,
+    ...(plan
+      ? [
+          {
+            id: `plan:${plan.id}`,
+            name: planning ? "Build" : "Plan",
+            icon: planning ? <BuildIcon /> : <PlanIcon />,
+          },
+        ]
+      : []),
+  ];
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
@@ -254,6 +303,8 @@ export function Composer({
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
+    // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
+    if (!remote.canSend) return false;
     const prompt = unwrapped().trim();
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
@@ -371,24 +422,33 @@ export function Composer({
   return (
     <form ref={form} className="acpmux-composer" onSubmit={submit} onBlur={blur}>
       {snapshot.queue.length > 0 && (
-        <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
+        <ol className="acpmux-composer-queue" aria-label={t(COMPOSER_LABELS.queue)}>
           {snapshot.queue.map((entry) => (
             <li className="acpmux-queued" key={entry.id} title={entry.prompt}>
               <span className="acpmux-queued-label" aria-hidden="true">
-                {COMPOSER_LABELS.queued}
+                {t(COMPOSER_LABELS.queued)}
               </span>
               <span className="acpmux-queued-text">{entry.prompt}</span>
             </li>
           ))}
         </ol>
       )}
+      {remote.note && (
+        <p className="acpmux-composer-remote-note" role="note">
+          {t(remote.note)}
+        </p>
+      )}
       <ComposerContext
+        projectChoices={projectChoices}
+        onBrowseProject={onBrowseProject}
         summary={snapshot.summary}
         sessions={snapshot.sessions}
+        peers={snapshot.peers}
+        started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
         onProject={
           onProject &&
-          ((cwd) => {
-            onProject(cwd);
+          ((cwd, peer) => {
+            onProject(cwd, peer);
             field.current?.focus();
           })
         }
@@ -416,13 +476,13 @@ export function Composer({
           <SlashMenu
             matches={matches}
             active={selected}
-            empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
+            empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}
             onHover={setActive}
             onPick={pick}
           />
         )}
         {(attachments.length > 0 || attachError || dropping) && (
-          <fieldset className="acpmux-attachments" aria-label={COMPOSER_LABELS.attachments}>
+          <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
             {attachments.map((attachment) => (
               <AttachmentChip
                 key={attachment.id}
@@ -434,7 +494,7 @@ export function Composer({
               />
             ))}
             {dropping ? (
-              <span className="acpmux-attachment-note">{COMPOSER_LABELS.dropFiles}</span>
+              <span className="acpmux-attachment-note">{t(COMPOSER_LABELS.dropFiles)}</span>
             ) : (
               attachError && <output className="acpmux-attachment-note">{attachError}</output>
             )}
@@ -445,15 +505,28 @@ export function Composer({
           ref={fieldRef}
           className="acpmux-composer-prompt"
           value={text}
-          placeholder={COMPOSER_LABELS.placeholder}
+          placeholder={t(COMPOSER_LABELS.placeholder)}
           attributes={{
             role: "combobox",
-            "aria-label": COMPOSER_LABELS.prompt,
+            "aria-label": t(COMPOSER_LABELS.prompt),
             "aria-multiline": "true",
             "aria-expanded": String(open),
             "aria-controls": open ? "acpmux-slash-menu" : undefined,
             "aria-autocomplete": "list",
             "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
+          }}
+          onBeforeInput={(data, state) => {
+            if (!onTerminal || state.composing) return false;
+            if (converting.current !== undefined) {
+              converting.current += data;
+              onTerminalTypeAhead?.(converting.current);
+              return true;
+            }
+            const conversion = state.empty ? terminalConversion("", data, false) : undefined;
+            if (!conversion) return false;
+            converting.current = conversion.command;
+            onTerminal(conversion.command);
+            return true;
           }}
           onChange={(markdown, at) => edit(markdown, at)}
           onCaret={setCaret}
@@ -467,19 +540,43 @@ export function Composer({
             leading
           ) : (
             <Picker
-              label={COMPOSER_LABELS.add}
+              label={t(COMPOSER_LABELS.add)}
               className="acpmux-composer-plus"
               button={<PlusIcon />}
               align="start"
               returnFocus={false}
               sections={[
+                ...(modePlanChoices.length > 0 && onMode
+                  ? [
+                      {
+                        title: t("picker.mode"),
+                        choices: modePlanChoices,
+                        onPick: (id: string) => {
+                          if (id.startsWith("mode:")) onMode(id.slice("mode:".length));
+                          else if (id.startsWith("plan:"))
+                            onMode(
+                              planning
+                                ? (lastMode.current.mode ?? modeChoices[0]?.id?.slice(5) ?? id.slice(5))
+                                : id.slice(5),
+                            );
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   choices: [
-                    ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
-                    { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
+                    ...(onAttach ? [{ id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> }] : []),
+                    { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
                     ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
-                      ? [{ id: "commands", name: COMPOSER_LABELS.commands, icon: <SlashIcon />, hint: "/" }]
+                      ? [
+                          {
+                            id: "commands",
+                            name: t(COMPOSER_LABELS.commands),
+                            icon: <SlashIcon />,
+                            hint: "/",
+                          },
+                        ]
                       : []),
                   ],
                   onPick: (id) =>
@@ -504,24 +601,24 @@ export function Composer({
                 ref={sendButton}
                 type="button"
                 className="acpmux-send acpmux-cancel"
-                aria-label={COMPOSER_LABELS.stop}
-                title={COMPOSER_LABELS.stop}
+                aria-label={t(COMPOSER_LABELS.stop)}
+                title={t(COMPOSER_LABELS.stop)}
                 onClick={stopTurn}
               >
                 <StopIcon />
               </button>
-            ) : (
+            ) : remote.canSend ? (
               <button
                 key="send"
                 ref={sendButton}
                 type="submit"
                 className={`acpmux-send${text.trim() || attachments.length ? " acpmux-send-ready" : ""}`}
-                aria-label={COMPOSER_LABELS.send}
+                aria-label={t(COMPOSER_LABELS.send)}
                 title={t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
               </button>
-            )}
+            ) : null}
           </span>
         </div>
       </div>
@@ -530,11 +627,12 @@ export function Composer({
 }
 
 function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
+  const t = useT();
   const remove = (
     <button
       type="button"
       className="acpmux-attachment-remove"
-      aria-label={COMPOSER_LABELS.removeAttachment.replace("{name}", attachment.name)}
+      aria-label={t(COMPOSER_LABELS.removeAttachment, { name: attachment.name })}
       onClick={() => onRemove(attachment.id)}
     >
       ×
@@ -568,6 +666,7 @@ function SlashMenu({
   onHover(index: number): void;
   onPick(command: SlashCommand): void;
 }) {
+  const t = useT();
   const list = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
@@ -580,7 +679,7 @@ function SlashMenu({
         id="acpmux-slash-menu"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
-        aria-label={COMPOSER_LABELS.commands}
+        aria-label={t(COMPOSER_LABELS.commands)}
       >
         {empty}
       </div>
@@ -592,7 +691,7 @@ function SlashMenu({
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
-      aria-label={COMPOSER_LABELS.commands}
+      aria-label={t(COMPOSER_LABELS.commands)}
     >
       {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
       {matches.map((match, index) => (

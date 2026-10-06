@@ -4,7 +4,8 @@ public import AppKit
 /// The app calls the provider only from its own event dispatch
 /// (`NSApplication.sendEvent`), which driver input never passes: the WebKit
 /// driver calls the web view directly and CDP input stays in Chromium.
-public enum ProviderUserInput {
+public struct ProviderUserInput {
+    public init() {}
     /// One per press or gesture: key downs (not repeats), mouse downs, and
     /// the start of a scroll gesture (phase began: scrolling changes what
     /// the agent sees). Never releases, drags, moves or magnify, and never

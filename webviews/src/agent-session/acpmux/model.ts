@@ -3,6 +3,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
+import { safeHref } from "./replyHref";
 
 export type AcpmuxRow = {
   id: string;
@@ -82,6 +83,8 @@ export type AcpmuxSnapshot = {
   protocolVersion: number;
   rows: AcpmuxRow[];
   sessions: AcpmuxSessionEntry[];
+  /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
+  peers?: string[];
   summary?: {
     sessionId: string;
     cwd?: string;
@@ -89,12 +92,15 @@ export type AcpmuxSnapshot = {
     /// Context-window tokens used of the session's window, from the agent's last usage update.
     usage?: { used: number; size: number };
     host?: string;
+    peer?: string;
     hostKind?: "local" | "cloud";
     branch?: string;
     worktree?: string;
     title?: string;
     name?: string;
     harness?: string;
+    /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
+    family?: string;
     model?: string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
@@ -103,7 +109,10 @@ export type AcpmuxSnapshot = {
     promptCapabilities?: { image?: boolean };
     status?: string;
     enforcement?: Enforcement;
-    modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string };
+    modes?: {
+      availableModes: { id: string; name?: string; description?: string }[];
+      currentModeId?: string;
+    };
     configOptions?: {
       id: string;
       name?: string;
@@ -113,6 +122,10 @@ export type AcpmuxSnapshot = {
     }[];
   };
   connection: string;
+  /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
+  /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
+  /// acpmux that names none. Unset in a snapshot no client built (fixtures).
+  origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
@@ -274,14 +287,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
-/// A link target the page opens: http and https only.
-export function safeHref(href: string): string | undefined {
-  try {
-    return /^https?:$/i.test(new URL(href, "https://cmux.invalid").protocol) ? href : undefined;
-  } catch {
-    return undefined;
-  }
-}
+/// A link target the page opens: absolute http and https only (replyHref.ts).
+export { safeHref };
 
 /// The text `renderInline` in conversation/Markdown.tsx draws for `tokens`, as the estimator
 /// measures it. Inline code draws in 12px monospace (conversation.css), no wider per character than the prose font's digits,
@@ -481,26 +488,27 @@ import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
 import { DATE, isFoldedCopy, PREVIEW, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
+import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 
 /// The pane header: the agent the session runs (its first prompt already titles the session
 /// picker and opens the transcript), and a status only when it says something to act on.
-export function paneHeader(snapshot: AcpmuxSnapshot): { title: string; status: string } {
+export function paneHeader(snapshot: AcpmuxSnapshot, t: Translate = translate): { title: string; status: string } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
-    : "Agent Chat";
+    : t("header.agentChat");
   // A turn running when the connection dropped never ends, so connection trouble wins over Working.
   const connection = snapshot.connection;
   const status =
     connection === "disconnected"
-      ? "Reconnecting"
+      ? t("header.reconnecting")
       : connection.startsWith("connecting")
-        ? "Connecting"
+        ? t("header.connecting")
         : snapshot.isWorking
-          ? "Working"
+          ? t("header.working")
           : connection === "mock"
-            ? "Mock"
+            ? t("header.mock")
             : "";
   return { title, status };
 }

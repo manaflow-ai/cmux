@@ -104,7 +104,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -254,7 +254,7 @@ jobs:
         run: scripts/cmux-next/check-no-godfiles.sh --only rust "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       # libghostty-vt for cmux-tui comes only from ghostty-next. Fail here,
       # loudly, when that checkout is missing or empty instead of later in
@@ -392,7 +392,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install valgrind
         run: |
@@ -601,10 +601,23 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
+
+      # A verified Zig tarball survives a mirror outage (FLAKE-ZIG-MIRRORS-502):
+      # install-zig-ci.sh uses it only when it matches the pinned SHA-256.
+      - name: Cache the verified Zig tarball
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
 
       - name: Install zig
+        env:
+          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -653,6 +666,15 @@ jobs:
         # (caller_macos.rs); the Linux suites cover only the uid check.
         run: 'cargo test -p cmux-link --lib caller::tests:: -- --test-threads=2'
 
+      - name: Mac browser host provider tests
+        working-directory: cmux-tui
+        # The provider socket's peer pid differs by platform (macOS reports
+        # the last process that used the server end), and the inherited
+        # listeners must close on exec on macOS too.
+        run: |
+          cargo test -p cmux-browser-host --lib server::inherited_listener_tests:: -- --test-threads=1
+          cargo test -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
+
       - name: Mac process and PTY tests
         working-directory: cmux-tui
         run: |
@@ -661,6 +683,11 @@ jobs:
             -- --exact
           cargo test -p cmux-tui-core --lib \
             unix_process_scope::tests::mac_process_scope_runs_the_requested_program \
+            -- --exact
+          # macOS always has /bin/zsh; the Linux runner has none, so this
+          # end-to-end title test only skips there.
+          cargo test -p cmux-tui-core --lib \
+            shell_integration::tests::a_daemon_integrated_zsh_titles_a_long_command_with_every_argument \
             -- --exact
           cargo test -p cmux-remote --lib workspace::process::tests::macos_pty_ \
             -- --test-threads=1
@@ -710,7 +737,7 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -916,7 +943,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -1071,7 +1098,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Install Linux build dependencies
         run: |

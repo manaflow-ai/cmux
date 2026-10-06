@@ -107,17 +107,17 @@ import Testing
                 await typing.settle()
                 typing.bar.debugType("git")
                 await typing.settle()
-                let panel = NSApp.windows.first { $0 is SuggestionWindow && $0.isVisible }
-                try write(typing, panel: panel, to: "\(directory)/suggestions-\(suffix).png")
-                panel?.orderOut(nil)
+                let card = typing.bar.suggestionPanel.isVisible ? typing.bar.suggestionPanel.cardView : nil
+                try write(typing, panel: card, to: "\(directory)/suggestions-\(suffix).png")
+                typing.bar.dismissRows()
             }
         }
         DesignSettings.shared.density = .compact
     }
 
-    /// The top of the chrome, plus the suggestion panel composited where it
-    /// sits on screen (under the bar).
-    private func write(_ h: Harness, panel: NSWindow?, to path: String) throws {
+    /// The top of the chrome, plus the suggestion card composited where it
+    /// sits on the overlay host (window coordinates, under the bar).
+    private func write(_ h: Harness, panel: NSView?, to path: String) throws {
         let windowHeight = h.chrome.bounds.height
         let size = NSSize(width: h.chrome.bounds.width, height: panel == nil ? 60 : 240)
         let offset = size.height - windowHeight
@@ -129,12 +129,11 @@ import Testing
         let chromeRep = try #require(h.chrome.bitmapImageRepForCachingDisplay(in: h.chrome.bounds))
         h.chrome.cacheDisplay(in: h.chrome.bounds, to: chromeRep)
         chromeRep.draw(in: NSRect(x: 0, y: offset, width: size.width, height: windowHeight))
-        if let panel, let content = panel.contentView {
+        if let content = panel {
             let rep = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
             content.cacheDisplay(in: content.bounds, to: rep)
-            let x = panel.frame.minX - h.window.frame.minX
-            let y = panel.frame.minY - h.window.frame.minY + offset
-            rep.draw(in: NSRect(x: x, y: y, width: content.bounds.width, height: content.bounds.height),
+            let frame = content.convert(content.bounds, to: nil)
+            rep.draw(in: NSRect(x: frame.minX, y: frame.minY + offset, width: content.bounds.width, height: content.bounds.height),
                      from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
         }
         image.unlockFocus()

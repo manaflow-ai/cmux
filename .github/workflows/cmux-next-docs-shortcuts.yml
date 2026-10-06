@@ -1,0 +1,46 @@
+name: cmux-next docs shortcuts
+
+# feat-cmux-next takes direct pushes, so ci-web.yml's PR checks never run there.
+# The keyboard shortcuts docs read web/data/cmux-shortcuts.generated.json, a
+# copy of the cmux-next action catalog (DOCS-SHORTCUTS-FROM-CATALOG); this
+# backstop fails when the copy or the page no longer matches the catalog.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "web/data/**"
+      - "web/scripts/export-docs-shortcuts.ts"
+      - "web/tests/docs-shortcuts.test.ts"
+      - "web/app/**/keyboard-shortcuts.tsx"
+      - "plans/cmux-next/action-surfaces.json"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/**/*.xcstrings"
+      - ".github/workflows/cmux-next-docs-shortcuts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-docs-shortcuts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-shortcuts:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The test reads only the catalog export, the string catalogs and its own
+      # copy, so it needs no `bun install`.
+      - name: Keyboard shortcuts docs match the action catalog
+        working-directory: web
+        run: bun test tests/docs-shortcuts.test.ts

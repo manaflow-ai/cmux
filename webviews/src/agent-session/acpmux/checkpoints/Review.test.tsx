@@ -1,7 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { Checkpoint, CheckpointList } from "./protocol";
-import { checkpointStrings as strings } from "./strings";
+import { checkpointStrings } from "./strings";
+
+const strings = checkpointStrings();
 const dom = new JSDOM("<!doctype html><div id=root></div>");
 const values = {
   window: dom.window,

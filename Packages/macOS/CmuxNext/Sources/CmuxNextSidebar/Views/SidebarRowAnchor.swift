@@ -4,7 +4,8 @@ public import AppKit
 /// sidebar (the agent cursor's other-workspace indicator). Computed from the
 /// list layout, so it works for rows that have no view (the list realizes
 /// only rows near its viewport).
-public enum SidebarRowAnchor {
+public struct SidebarRowAnchor {
+    public init() {}
     /// The row of workspace `id` in `sidebar`'s coordinates (flipped). A
     /// workspace in a collapsed group answers its group row; a row scrolled
     /// out of the list is pinned to the nearest edge of the visible list,
@@ -17,6 +18,18 @@ public enum SidebarRowAnchor {
         let visible = list.enclosingScrollView?.contentView.bounds ?? list.bounds
         let rect = clamped(list.frame(for: row), into: visible)
         return list.convert(rect, to: sidebar)
+    }
+
+    /// The row of the sidebar item that stands for `ref` (the Home item for
+    /// the home workspace, which the workspace list leaves out while that
+    /// item shows), in `sidebar`'s coordinates. Nil when no shown item has it.
+    public static func layoutItem(_ ref: LayoutItemRef, in sidebar: SidebarView) -> CGRect? {
+        guard let item = sidebar.model.layout.firstItem(with: ref) else { return nil }
+        for region in [sidebar.aboveRegion, sidebar.belowRegion] {
+            guard let view = region.itemView(item.id), !view.isHiddenOrHasHiddenAncestor, view.bounds.width > 0 else { continue }
+            return view.convert(view.bounds, to: sidebar)
+        }
+        return nil
     }
 
     private static func collapsedGroup(of id: WorkspaceID, in list: SidebarListView) -> GroupID? {

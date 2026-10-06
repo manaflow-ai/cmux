@@ -329,7 +329,7 @@ final class InputWorld {
         for case .ended(let reason) in transition.effects {
             switch reason {
             case .commit, .open, .cancel, .keyword: window.focus.send(.focusPane(pane, source: .keyboard))
-            case .blur: break
+            case .blur, .switchToTab: break
             }
         }
     }

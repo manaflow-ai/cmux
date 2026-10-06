@@ -13,6 +13,7 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/**"
       - "scripts/build-webviews-app.sh"
       - "scripts/cmux-next/build-agent-pane-web.sh"
+      - "scripts/cmux-next/build-palette-ranker.sh"
       - "scripts/cmux-next/build-agent-activity-web.sh"
       - ".github/workflows/cmux-next-web-bundles.yml"
 
@@ -25,7 +26,7 @@ concurrency:
 
 jobs:
   bundles:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -50,6 +51,9 @@ jobs:
       - name: Verify generated cmux-next agent pane
         run: ./scripts/cmux-next/build-agent-pane-web.sh --check
 
+      - name: Verify generated cmux-next palette ranker
+        run: ./scripts/cmux-next/build-palette-ranker.sh --check
+
       - name: Verify generated cmux-next Agent Activity
         run: ./scripts/cmux-next/build-agent-activity-web.sh --check
 
@@ -57,7 +61,7 @@ jobs:
   # webviews test suite. Make them blocking (drop continue-on-error) once both
   # are green on the branch.
   webviews-checks:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     continue-on-error: true
     steps:
@@ -94,7 +98,7 @@ jobs:
   # the step summary and never blocks. It becomes required after 3 days with no flakes (the
   # coordinator's call).
   latency-scoreboard:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     continue-on-error: true
     steps:

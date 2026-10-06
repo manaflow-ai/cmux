@@ -2,8 +2,9 @@ public import CmuxNextDesign
 
 /// Split, new column, docked column and minimum pane size settings
 /// (plans/cmux-next/column-sizing.md), in the General section's Columns group.
-extension SettingsSchema {
-    static var columnLayout: [SettingDescriptor] {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum ColumnLayoutSettingsSchema {
+    static var descriptors: [SettingDescriptor] {
         let columns = SettingsText.keyed("settings.group.columns", "Columns")
         return [
             SettingDescriptor(

@@ -6,12 +6,20 @@
 
 mod browser_pages;
 mod capture;
+mod closed_roots;
 mod connection;
+mod cookies;
+mod cors;
+mod downloads;
 mod driver;
 mod evaluate;
+mod fetch;
+mod fetch_runs;
 mod input;
 pub mod keys;
 mod navigation;
+mod network;
+mod pdf;
 #[cfg(unix)]
 pub mod pipe;
 mod requests;

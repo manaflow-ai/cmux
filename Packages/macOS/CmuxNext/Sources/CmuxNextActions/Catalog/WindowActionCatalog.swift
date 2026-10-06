@@ -34,6 +34,32 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("w", modifiers: [.control, .command]), category: .window,
                 symbol: "xmark.rectangle", surfaces: [.palette, .keyboard], cliName: "app close-window"
             ),
+            // Ghostty's close_all_windows, toggle_maximize and goto_window
+            // route here (GHOSTTY-CONFIG item (c), coordinator A1, B1, E1).
+            ActionDescriptor(
+                id: "closeAllWindows",
+                title: String(localized: "action.closeAllWindows", defaultValue: "Close All Windows", bundle: .module),
+                keywords: ["close", "windows", "all"], category: .window, symbol: "xmark.rectangle.portrait",
+                surfaces: [.palette, .keyboard, .menu], cliName: "app close-all-windows", mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "zoomWindow",
+                title: String(localized: "action.zoomWindow", defaultValue: "Zoom", bundle: .module),
+                keywords: ["maximize", "window", "resize", "fill"], category: .window, symbol: "arrow.up.left.and.arrow.down.right.square",
+                surfaces: [.palette, .keyboard, .menu], cliName: "app zoom-window", mainMenu: .window
+            ),
+            ActionDescriptor(
+                id: "selectNextWindow",
+                title: String(localized: "action.selectNextWindow", defaultValue: "Select Next Window", bundle: .module),
+                keywords: ["cycle", "window", "switch"], category: .window, symbol: "macwindow.and.cursorarrow",
+                surfaces: [.palette, .keyboard], cliName: "app select-next-window"
+            ),
+            ActionDescriptor(
+                id: "selectPreviousWindow",
+                title: String(localized: "action.selectPreviousWindow", defaultValue: "Select Previous Window", bundle: .module),
+                keywords: ["cycle", "window", "switch"], category: .window, symbol: "macwindow.and.cursorarrow",
+                surfaces: [.palette, .keyboard], cliName: "app select-previous-window"
+            ),
             ActionDescriptor(
                 id: "minimizeWindow",
                 title: String(localized: "action.minimizeWindow", defaultValue: "Minimize", bundle: .module),

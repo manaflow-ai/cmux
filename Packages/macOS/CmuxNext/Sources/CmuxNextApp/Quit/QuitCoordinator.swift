@@ -31,9 +31,8 @@ final class QuitCoordinator {
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
-    /// while the dialog asks confirms its default (keep) on the first step
-    /// and does nothing on the confirmation; a quit already completing
-    /// ignores a repeat.
+    /// while the dialog asks confirms its default (keep); a quit already
+    /// completing ignores a repeat.
     func requestQuit(_ origin: QuitOrigin) {
         guard !isQuitting else {
             if origin == .interactive { sheet?.answerDefault() }
@@ -73,15 +72,17 @@ final class QuitCoordinator {
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         Task { @MainActor in
-            // Unsaved documents come first (R96 quit hook): the end choices
-            // are asked only after the edits are safe.
+            // Unsaved documents come first (R96 quit hook). Answering that
+            // question is the quit's one dialog: the sessions are not asked
+            // about after it (#17501).
+            let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
             guard await resolveUnsaved(origin) else {
                 isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
                 return
             }
-            let facts = QuitPolicy.needsFacts(origin) ? await QuitFactsReader.read(services) : .none
-            switch QuitPolicy.decide(origin, behavior: behavior, facts: facts) {
+            let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
+            switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
             case .quit(let choice):
                 await complete(choice, remember: false, sender)
             case .ask(let prompt):

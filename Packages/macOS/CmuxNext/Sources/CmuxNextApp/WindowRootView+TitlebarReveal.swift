@@ -1,29 +1,27 @@
 import AppKit
 import CmuxNextDesign
 
-// R83: every title bar button but the sidebar toggle (Back, Forward) and a
-// glass patch under the traffic lights stay hidden until the pointer is
-// over the top row, then fade in, in place, through the one hover-reveal
-// mechanism (HoverReveal). Shortcuts and the palette reach the same actions
-// while they are hidden; keyboard focus on a hidden button reveals them.
+// Titlebar buttons are stable chrome. The hover seam may paint the traffic-light
+// cue, but controls never disappear or change size as state changes.
 extension WindowRootView {
     func setUpTitlebarReveal() {
-        titlebarReveal.add(toolbarBand.backButton)
-        titlebarReveal.add(toolbarBand.forwardButton)
+        // Back and Forward are stable chrome. Hover may tint the row, but it
+        // never mounts or fades the controls themselves.
+        toolbarBand.backButton.alphaValue = 1
+        toolbarBand.forwardButton.alphaValue = 1
         // The glass patch is a hover cue only: it never shows at rest.
         trafficLightsGlass.alphaValue = 0
         titlebarReveal.onChange = { [weak self] revealed in
             guard let self else { return }
             let glass = trafficLightsGlass
-            Motion.animate(.hover) { glass.animator().alphaValue = revealed && self.titlebarReveal.state.pointerInside ? 1 : 0 }
+            Motion.animate(.hover, in: glass) { glass.animator().alphaValue = revealed && self.titlebarReveal.state.pointerInside ? 1 : 0 }
         }
         applyTitlebarButtonsMode()
     }
 
-    /// `window.titlebarButtons`: hover hides the buttons at rest; always
-    /// shows them.
+    /// `window.titlebarButtons` no longer changes chrome mounting or opacity.
     func applyTitlebarButtonsMode() {
-        titlebarReveal.isEnabled = DesignSettings.shared.titlebarButtons == .hover
+        titlebarReveal.isEnabled = false
     }
 
     /// The region spans the top row; the glass patch covers the traffic

@@ -18,6 +18,19 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     private var opacity = SpringValue(1)
     private var scale = SpringValue(1)
     public var reduceMotion: Bool
+    /// The ghost has a content preview for its card. Without one the card
+    /// stays folded (an empty card is a large grey box): the ghost is the
+    /// compact tab until a preview arrives, then unfolds to the card it was
+    /// asked for.
+    public var hasPreview = true {
+        didSet {
+            guard hasPreview != oldValue else { return }
+            cardness.target = hasPreview ? requestedCardness : 0
+            if reduceMotion { cardness.snap() }
+        }
+    }
+    /// The cardness the last target asked for, preview or not.
+    private var requestedCardness: CGFloat
 
     /// Spring for jumps between targets (`Motion` `.track`; `.settle` for a landing).
     public var rectSpring: SpringParameters
@@ -28,6 +41,7 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
                 rectSpring: SpringParameters = MotionSpring.track.base, morphSpring: SpringParameters = MotionSpring.appear.base) {
         targetRect = rect
         self.cardness = SpringValue(cardness)
+        requestedCardness = cardness
         self.reduceMotion = reduceMotion
         self.rectSpring = rectSpring
         self.morphSpring = morphSpring
@@ -61,7 +75,8 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
             dh.value = presented.height - rect.height
         }
         targetRect = rect
-        self.cardness.target = cardness
+        requestedCardness = cardness
+        self.cardness.target = hasPreview ? cardness : 0
         self.opacity.target = opacity
         self.scale.target = scale
         if reduceMotion { snap() }

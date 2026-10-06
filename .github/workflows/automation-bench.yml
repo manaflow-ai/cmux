@@ -34,3 +34,4 @@ jobs:
         with:
           bun-version: "1.4.2"
       - run: bun test tests/automation-bench
+      - run: python3 tests/automation-bench/cua/test_cua_bench.py

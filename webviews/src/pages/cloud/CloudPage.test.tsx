@@ -410,7 +410,7 @@ describe("CloudPage", () => {
     expect($$(".cloud-size-locked").map((node) => node.textContent)).toEqual(["Not in your plan", "Not in your plan"]);
   });
 
-  test("a typed plan refusal shows a localized sentence, and See plans checks out the named plan", async () => {
+  test("a typed plan refusal shows a localized sentence, and See plans links the public plans page", async () => {
     const provider = new MockCloudProvider();
     provider.planRequired = true;
     await render(provider);
@@ -418,11 +418,17 @@ describe("CloudPage", () => {
     await act(async () => $(".cloud-create-submit")!.click());
     expect($(".cloud-create-sheet .cloud-plan-notice-text")?.textContent).toBe("Cloud machines need a paid plan.");
     expect($(".cloud-error")).toBeNull();
-    await act(async () => $(".cloud-see-plans")!.click());
-    expect(provider.calls.filter((call) => call.op === ACTION_RUN).at(-1)?.params).toMatchObject({
-      action: CloudOps.billingCheckout,
-      args: { plan: "pro" },
-    });
+    // Billing is not built (checkout answers owner.unreachable): "See plans" is a link to the public
+    // plans page, which the host opens outside the page on the person's click (PageNavigation).
+    const link = $(".cloud-see-plans") as HTMLAnchorElement | null;
+    expect(link?.tagName).toBe("A");
+    expect(link?.getAttribute("href")).toBe("https://cmux.com/pricing");
+    const runs = provider.calls.filter((call) => call.op === ACTION_RUN).length;
+    await act(async () => link!.click());
+    expect(provider.calls.filter((call) => call.op === ACTION_RUN).length).toBe(runs);
+    expect(
+      provider.calls.some((call) => (call.params as { action?: string })?.action === CloudOps.billingCheckout),
+    ).toBe(false);
   });
 
   test("a quota refusal outside the sheet shows its numbers in Japanese too", async () => {
@@ -435,5 +441,45 @@ describe("CloudPage", () => {
     expect($(".cloud-plan-notice-text")?.textContent).toBe("プランの上限に達しました（3 中 3 を使用中）。");
     // No plan id is known for a quota refusal: no See plans.
     expect($(".cloud-see-plans")).toBeNull();
+  });
+
+  test("no machine image configured: the create sheet and a restore say so in words", async () => {
+    const provider = new MockCloudProvider();
+    provider.noSnapshotConfigured = true;
+    await render(provider);
+    await act(async () => $(".cloud-create-button")!.click());
+    await act(async () => $(".cloud-create-submit")!.click());
+    const expected = "New machines are not available yet: no machine image is configured for this Cloud.";
+    expect($(".cloud-create-blocked")?.textContent).toBe(expected);
+    expect($(".cloud-error")).toBeNull();
+    expect($(".cloud-see-plans")).toBeNull();
+  });
+
+  test("the backend's machine and size refusals show localized sentences, not the backend text", async () => {
+    const english: Record<string, string> = {
+      "cmux.cloud.not_running": "The machine is not running. Start it first.",
+      "cmux.cloud.not_paused": "The machine is not paused, so it cannot start.",
+      "cmux.cloud.machine_busy": "The machine is busy with another change. Try again in a moment.",
+      "cmux.cloud.size_grow_only": "A machine can only grow. Choose a larger size.",
+      "cmux.cloud.link_install_refused": "This app cannot open a link to a Cloud machine.",
+    };
+    const target = sampleMachines().find((machine) => machine.status === "running" && !machine.classic)!;
+    for (const [code, sentence] of Object.entries(english)) {
+      const provider = new MockCloudProvider();
+      const store = await render(provider);
+      provider.failNext = CloudOps.machinePause;
+      provider.failCode = code;
+      await act(async () => store.pause(target.id));
+      expect($(".cloud-error-detail")?.textContent).toBe(sentence);
+      expect(document.body.textContent).not.toContain("raw backend text");
+    }
+    const provider = new MockCloudProvider();
+    const store = await render(provider, { language: "ja" });
+    provider.failNext = CloudOps.machinePause;
+    provider.failCode = "cmux.cloud.machine_busy";
+    await act(async () => store.pause(target.id));
+    expect($(".cloud-error-detail")?.textContent).toBe(
+      "マシンは別の変更を処理中です。少し待ってからもう一度お試しください。",
+    );
   });
 });

@@ -173,6 +173,7 @@ fn quota_and_plan_errors_map_to_typed_cloud_errors() {
     assert_eq!(quota["details"]["limit"], 5);
     assert_eq!(quota["details"]["used"], 5);
     assert_eq!(quota["upstream_code"], "cloud.quota.exceeded");
+    assert_eq!(quota["details"]["plan"], "max", "the plan that lifts the limit");
 
     let start = err_json(s.handle(&mutation(
         "cloud.machine.start",
@@ -198,6 +199,7 @@ fn quota_and_plan_errors_map_to_typed_cloud_errors() {
         "key-resize-locked",
     )));
     assert_eq!(locked["code"], "cmux.cloud.size_locked", "{locked}");
+    assert_eq!(locked["details"]["plan"], "max", "the plan that unlocks the size");
 
     let snap_quota = err_json(s.handle(&mutation(
         "cloud.snapshot.create",
@@ -206,6 +208,34 @@ fn quota_and_plan_errors_map_to_typed_cloud_errors() {
     )));
     assert_eq!(snap_quota["code"], "cmux.cloud.quota_exceeded", "{snap_quota}");
     assert_eq!(snap_quota["details"]["limit"], 10);
+}
+
+/// A create the backend refuses with `error`, answered on its own key.
+fn refused_create(error: Value, key: &str) -> Value {
+    let mut s = server();
+    let args = json!({ "name": "box", "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 } });
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some(key), error);
+    err_json(s.handle(&mutation("cloud.machine.create", args, key)))
+}
+
+#[test]
+fn no_snapshot_configured_and_rate_limited_are_typed() {
+    let none = refused_create(
+        json!({ "error": { "code": "cloud.no_snapshot_configured",
+            "message": "no machine image is configured", "retryable": false } }),
+        "key-create-no-image",
+    );
+    assert_eq!(none["code"], "cmux.cloud.no_snapshot_configured", "{none}");
+    assert_eq!(none["upstream_code"], "cloud.no_snapshot_configured");
+    assert_eq!(none["retryable"], false);
+    let limited = refused_create(
+        json!({ "error": { "code": "cloud.rate_limited", "message": "slow down",
+            "retryable": true, "details": { "retry_after_ms": 30000 } } }),
+        "key-create-limited",
+    );
+    assert_eq!(limited["code"], "cmux.cloud.rate_limited", "{limited}");
+    assert_eq!(limited["retryable"], true);
+    assert_eq!(limited["details"]["retry_after_ms"], 30000);
 }
 
 #[test]
@@ -386,6 +416,7 @@ fn snapshots_plan_billing_migration_and_upgrade() {
     let plan = plan.unwrap();
     assert_eq!(plan["limits"]["max_active"], 5);
     assert_eq!(plan["usage"]["active"], 2, "usage folds into the plan");
+    assert_eq!(plan["upgrade_plan"], "max", "the plan that lifts the limits (See plans)");
     let checkout =
         s.handle(&mutation("cloud.billing.checkout", json!({ "plan": "pro" }), "key-checkout-1"));
     assert_eq!(
@@ -427,8 +458,9 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
     let doc = wire_common::vectors();
     for case in doc["cases"].as_array().expect("cases") {
         let op = case["op"].as_str().expect("op");
-        // Not served here: shell.open (later slice), link_token (cmux link only).
-        if ["cloud.shell.open", "cloud.machine.link_token"].contains(&op) {
+        // Not served here: shell.open (later slice), link_token (cmux link
+        // only), and the ops a VM calls about itself (cloud.vm.*).
+        if cmux_cloud::ops::canonical_name(op).is_none() {
             continue;
         }
         let mut s = server();

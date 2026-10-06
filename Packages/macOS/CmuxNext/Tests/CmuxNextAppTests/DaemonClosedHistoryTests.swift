@@ -23,10 +23,10 @@ import Testing
         return #"{"closed_id":"\#(params["closed"]?.stringValue ?? "")","kind":"tab","workspace_id":"ws_w","screen_ids":[],"tab_ids":["tab_a"]}"#
     }
 
-    func waitUntil(_ condition: () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let end = clock.now.advanced(by: .seconds(10))
-        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) } // test-only wait
+    /// Waits up to 10 s; a timeout records an Issue at the caller (``waitForCondition``).
+    func waitUntil(_ what: String? = nil, sourceLocation: SourceLocation = #_sourceLocation,
+                   _ condition: () -> Bool) async throws {
+        try await waitForCondition(what, timeout: .seconds(10), sourceLocation: sourceLocation, condition)
     }
 
     /// Bound services whose local daemon serves `daemon`.

@@ -20,6 +20,13 @@ import Testing
             + "img-src 'self' data:; font-src 'self' data:; connect-src ws://127.0.0.1:*; frame-src http://127.0.0.1:*")
     }
 
+    /// A page that ships its script as files turns inline script off; the rest stays as it was.
+    @Test func aPageCanTurnInlineScriptOff() {
+        let files = PageCSP(connect: ["ws://127.0.0.1:*"], script: ["'wasm-unsafe-eval'"], inlineScript: false)
+        #expect(files.header == "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; "
+            + "img-src 'self' data:; font-src 'self' data:; connect-src ws://127.0.0.1:*")
+    }
+
     @Test func anAppPageOrAReservedUnknownIDCannotWidenIt() throws {
         let wide = PageCSP(connect: ["https://evil.example"], script: ["'wasm-unsafe-eval'"])
         #expect(PageDescriptor(id: "com.acme.diff", resource: "d", namespaces: [], csp: wide).csp == .strict)

@@ -10,7 +10,15 @@ import CmuxNextTerminalFind
 extension TerminalHandlers {
     static func bindFind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("find", invoke: { invocation in
+            // A focused internal page with its own search field (Settings,
+            // Keyboard Shortcuts, Passwords) focuses and selects that field.
+            // An untargeted run that may change the view (Cmd-F, the palette); a CLI run names its pane.
+            if invocation.target == nil, invocation.allowsViewChange, let controller = ctx.services.windows.active,
+               let page = ctx.services.keyRouter?.focusedPage(in: controller),
+               page.descriptor.ownsSearchField, page.send(command: "focusSearch") { return }
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
+            if case .page = content, let key = pane.stripModel.selectedID?.rawValue,
+               FilePageHandlers.sendFind("find", key, ctx.services, text: invocation["text"]?.stringValue) { return }
             switch content {
             case .agent, .page, .conversation:
                 return ctx.refuse(RefusalStrings.notATerminal)
@@ -24,27 +32,36 @@ extension TerminalHandlers {
                 let seed = invocation["text"]?.stringValue ?? (find.query.isEmpty ? selection(of: entry) : nil)
                 // A socket or CLI run shows the bar without taking the keyboard.
                 find.open(seed: seed, takeFocus: invocation.allowsViewChange)
-            case .placeholder:
+            case .placeholder, .notice:
                 return
             }
         })
         registry.bind("findNext", invoke: { navigate($0, forward: true, ctx) })
         registry.bind("findPrevious", invoke: { navigate($0, forward: false, ctx) })
         registry.bind("hideFind", invoke: { invocation in
-            guard let (_, content) = ctx.visibleContent(invocation) else { return }
+            guard let (pane, content) = ctx.visibleContent(invocation) else { return }
+            if sendToFilePage("hideFind", pane, content, ctx) { return }
             guard case .terminal(let entry) = content else { return ctx.refuse(RefusalStrings.browserFindClosesWithEscape) }
             // A socket or CLI run leaves focus and the selection alone.
             entry.session.find.close(restoringFocus: invocation.allowsViewChange)
         })
         registry.bind("useSelectionForFind", invoke: { invocation in
+            if let (pane, content) = ctx.visibleContent(invocation), sendToFilePage("useSelectionForFind", pane, content, ctx) { return }
             guard let entry = ctx.terminal(invocation) else { return }
             guard let text = selection(of: entry) ?? ctx.refuse(RefusalStrings.nothingSelected) else { return }
             entry.session.find.open(seed: text, takeFocus: invocation.allowsViewChange)
         })
     }
 
+    /// A code editor page tab takes the shared find actions as its page commands (diff-host S7).
+    private static func sendToFilePage(_ action: String, _ pane: PaneController, _ content: TabContent, _ ctx: AppActionContext) -> Bool {
+        guard case .page = content, let key = pane.stripModel.selectedID?.rawValue else { return false }
+        return FilePageHandlers.sendFind(action, key, ctx.services)
+    }
+
     private static func navigate(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
-        guard let (_, content) = ctx.visibleContent(invocation) else { return }
+        guard let (pane, content) = ctx.visibleContent(invocation) else { return }
+        if sendToFilePage(forward ? "findNext" : "findPrevious", pane, content, ctx) { return }
         switch content {
         case .agent, .page, .conversation:
             return ctx.refuse(RefusalStrings.notATerminal)
@@ -56,7 +73,7 @@ extension TerminalHandlers {
             guard entry.session.find.navigate(direction, takeFocus: invocation.allowsViewChange) else {
                 return ctx.refuse(RefusalStrings.noActiveFind)
             }
-        case .placeholder:
+        case .placeholder, .notice:
             return
         }
     }

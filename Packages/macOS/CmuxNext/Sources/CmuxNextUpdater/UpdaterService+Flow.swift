@@ -9,7 +9,7 @@ public import Foundation
 extension UpdaterService {
     /// The card above Settings, or nil.
     public var card: UpdateCard? {
-        flow.card(preferences: preferences, minuteOfDay: minuteOfDay)
+        flow.card
     }
 
     /// The badge on the Settings item.
@@ -17,12 +17,18 @@ extension UpdaterService {
         flow.showsSettingsBadge(preferences: preferences)
     }
 
-    /// A click on the card: install a staged update, or show a failed
-    /// check's details. The waiting card's own buttons are
-    /// ``installNow()`` and ``installLater()``.
+    /// The Settings row control's label ("Restart to Update"), or nil
+    /// when it does not show.
+    public var settingsBadgeTitle: String? {
+        flow.settingsBadgeTitle(preferences: preferences)
+    }
+
+    /// A click on the card: show a failed check's details. The waiting
+    /// card's own buttons are ``installNow()`` and ``installLater()``; a
+    /// staged update installs from the Settings row control
+    /// (``installClicked()``).
     public func cardClicked() {
         switch card {
-        case .ready, .available: installClicked()
         case .note(_, isError: true): presentUpdateUI?()
         case .checking, .downloading, .waiting, .installing, .note, nil: break
         }
@@ -113,28 +119,6 @@ extension UpdaterService {
                 self?.syncFlowPhase()
             }
         }
-        scheduleQuietBoundary()
-    }
-
-    /// Re-evaluates the card at the next quiet-hours boundary (one-shot
-    /// timer on the injected clock; none without quiet hours).
-    func scheduleQuietBoundary() {
-        quietTimer?.cancel()
-        let date = now()
-        minuteOfDay = Self.minuteOfDay(date)
-        guard let quiet = preferences.quietHours else { return }
-        let second = Calendar.current.component(.second, from: date)
-        let wait = max(1, quiet.minutesToNextBoundary(from: minuteOfDay) * 60 - second)
-        let timer = quietTimer ?? DemandTimer(owner: "updates.quietHours", clock: clock)
-        quietTimer = timer
-        timer.schedule(after: .seconds(wait)) { [weak self] in
-            await self?.scheduleQuietBoundary()
-        }
-    }
-
-    static func minuteOfDay(_ date: Date) -> Int {
-        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
-        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
     }
 }
 

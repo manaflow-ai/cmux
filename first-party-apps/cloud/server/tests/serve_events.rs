@@ -21,6 +21,16 @@ fn link_changed(line: &Value) -> bool {
     line["type"] == "event" && line["event"] == "cloud.link.changed"
 }
 
+/// The daemon broadcasts only a server event's `data` (`apps-server-event
+/// {app, name, data}`, cmux-tui-core apps/servers.rs): every field of an
+/// event line is under `data`, and the line has no other field.
+fn payload(line: &Value) -> &Value {
+    let keys: Vec<&str> = line.as_object().expect("object").keys().map(String::as_str).collect();
+    assert_eq!(keys, ["data", "event", "type"], "only type, event and data: {line}");
+    assert!(line["data"].is_object(), "the fields are under data: {line}");
+    &line["data"]
+}
+
 fn port_changed(line: &Value) -> bool {
     line["type"] == "event" && line["event"] == "cloud.port.changed"
 }
@@ -40,17 +50,18 @@ fn a_link_exit_reaches_the_host_with_no_op_after_it() {
     // in the same pass, so an exit after it cannot ride on the op's drain.
     loop {
         let line = host.next().expect("the up line of the connect");
-        if link_changed(&line) && line["state"] == "up" {
+        if link_changed(&line) && payload(&line)["state"] == "up" {
             break;
         }
     }
     host.spawner.exit("vm-alpha01", 1);
     let line = host.next().expect("a cloud.link.changed line with no op after the link exit");
     assert!(link_changed(&line), "{line}");
-    assert_eq!(line["machine"], "vm-alpha01");
-    assert_eq!(line["state"], "down");
-    assert_eq!(line["generation"], 1);
-    assert_eq!(line["retryable"], true);
+    let data = payload(&line);
+    assert_eq!(data["machine"], "vm-alpha01");
+    assert_eq!(data["state"], "down");
+    assert_eq!(data["generation"], 1);
+    assert_eq!(data["retryable"], true);
 }
 
 #[test]
@@ -75,6 +86,7 @@ fn a_forward_on_a_dead_link_closes_with_no_op_after_the_death() {
         lines.push(line);
     };
     assert!(TcpStream::connect(addr).is_err(), "the listener of a dead link is closed");
+    let down = payload(&down);
     assert_eq!(down["machine"], "vm-alpha01");
     assert_eq!(down["port"], 3000);
     assert_eq!(down["localPort"], forward["localPort"]);
@@ -96,11 +108,11 @@ fn the_events_of_one_link_death_keep_their_order() {
         lines.push(line);
     }
     // The cause first, then each forward it closed, in port order.
-    assert!(link_changed(&lines[0]) && lines[0]["state"] == "down", "{lines:?}");
-    assert!(port_changed(&lines[1]) && lines[1]["port"] == 3000, "{lines:?}");
-    assert_eq!(lines[1]["localPort"], first["localPort"]);
-    assert!(port_changed(&lines[2]) && lines[2]["port"] == 5173, "{lines:?}");
-    assert_eq!(lines[2]["localPort"], second["localPort"]);
+    assert!(link_changed(&lines[0]) && payload(&lines[0])["state"] == "down", "{lines:?}");
+    assert!(port_changed(&lines[1]) && payload(&lines[1])["port"] == 3000, "{lines:?}");
+    assert_eq!(payload(&lines[1])["localPort"], first["localPort"]);
+    assert!(port_changed(&lines[2]) && payload(&lines[2])["port"] == 5173, "{lines:?}");
+    assert_eq!(payload(&lines[2])["localPort"], second["localPort"]);
     // Each change goes out once: an op after it repeats none of them.
     let lines = host.answer_of("3", "cloud.port.list", json!({}));
     assert!(lines.iter().all(|l| !link_changed(l) && !port_changed(l)), "{lines:?}");

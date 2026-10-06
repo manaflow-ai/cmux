@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::remote_relay::participants::{device_id_refused, is_device_id};
 use super::{Mux, MuxEvent, validate_client_transaction};
 use crate::conversation_search::ConversationSearchRejected;
+use crate::conversation_store::attachments::AttachmentRejected;
 use crate::conversation_store::{
     ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES, OpOutcome,
 };
@@ -114,12 +115,16 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
         .or_else(|| {
             error.downcast_ref::<ConversationSearchRejected>().map(|r| r.0.code().to_string())
         })
+        .or_else(|| error.downcast_ref::<AttachmentRejected>().map(|r| r.0.to_string()))
 }
 
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     let rejected = error.downcast_ref::<ConversationRejected>().is_some()
         || error.downcast_ref::<ConversationSearchRejected>().is_some();
+    if error.downcast_ref::<AttachmentRejected>().is_some() {
+        return Some(AttachmentRejected::CODE.to_string());
+    }
     rejected.then(|| ConversationRejected::CODE.to_string())
 }
 
@@ -307,7 +312,7 @@ pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result
     anyhow::ensure!(participant.starts_with("agent_"), "only agent participants bind with a token");
     let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
     anyhow::ensure!(valid, "conversation agent token is not valid for {participant}");
-    mux.bind_conversation_principal(client, participant.clone());
+    mux.bind_conversation_principal(client, participant.clone())?;
     Ok(json!({"participant": participant}))
 }
 
@@ -334,3 +339,7 @@ pub(super) fn agent_token(
 #[cfg(test)]
 #[path = "conversation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "conversation_attachment_tests.rs"]
+mod attachment_tests;

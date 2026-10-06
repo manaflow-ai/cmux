@@ -2,22 +2,19 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextResources
 import Observation
-
 /// Footer slots the App fills (account, cloud, status).
 public enum SidebarAccessorySlot: CaseIterable, Sendable {
     case account
     case cloud
     case status
 }
-
-/// The sidebar's content: the titlebar row (its buttons appear on hover),
+/// The sidebar's content: the titlebar row (its buttons remain mounted),
 /// the workspace list, and footer accessory slots. Workspace search lives in
 /// the command palette (Go to Workspace), not here. Place it in a glass
 /// panel, or use `SidebarContainerView`, which adds the panel, width, and
 /// resize handle.
 public final class SidebarView: NSView {
     public let model: SidebarModel
-
     /// Height reserved at the top for the window's traffic lights (the
     /// toolbar buttons sit in this row, trailing). Nil follows
     /// `Metrics.titlebarHeight`, read at layout time.
@@ -29,7 +26,6 @@ public final class SidebarView: NSView {
     /// sidebar, R109): the accessory then starts at the reserve alone.
     public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { needsLayout = true } } }
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
-
     let list: SidebarListView
     let scrollView = SidebarScrollView()
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
@@ -60,13 +56,13 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
+    let helpButton = SidebarHelpButton()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
     }
     private var observation: Task<Void, Never>?
     private var lastState: RenderState?
-
     public init(model: SidebarModel) {
         self.model = model
         list = SidebarListView(model: model)
@@ -76,27 +72,31 @@ public final class SidebarView: NSView {
         list.reload(animated: false)
         observe()
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-
     isolated deinit {
         observation?.cancel()
     }
-
     override public var isFlipped: Bool { true }
-
     // MARK: Public API
-
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.
     public var onRenameEnded: ((_ byKeyboard: Bool) -> Void)? {
         get { list.inlineRename.onEnded }
         set { list.inlineRename.onEnded = newValue }
     }
-
     /// The update and announcement cards above the spaces dots (R114; the updates lead fills it).
     public var footerCards: NSView?
+    /// Builds the same Help destinations as the app's Help menu when the
+    /// footer button is pressed. The Sidebar package owns the button; the app
+    /// owns the actions and their menu targets.
+    public var helpMenuProvider: (() -> NSMenu?)? {
+        didSet {
+            helpButton.menuProvider = helpMenuProvider
+            helpButton.isEnabled = helpMenuProvider != nil
+            needsLayout = true
+        }
+    }
 
     /// A small view in the titlebar row, after the traffic lights (an
     /// incognito window's badge). Nil removes it.
@@ -197,7 +197,7 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
-        newButton.alphaValue = 0
+        newButton.alphaValue = 1
         addSubview(newButton)
 
         scrollView.drawsBackground = false
@@ -221,6 +221,8 @@ public final class SidebarView: NSView {
 
         addSubview(footer)
         footer.addSubview(profileBar)
+        footer.addSubview(helpButton)
+        helpButton.isHidden = false
     }
 
     @objc private func clipBoundsChanged(_ note: Notification) {
@@ -249,7 +251,7 @@ public final class SidebarView: NSView {
         // The list starts right under the titlebar row: no search field.
         let y = titlebarHeight
 
-        // Titlebar row: buttons trail the traffic lights, shown on hover.
+        // Titlebar row: buttons trail the traffic lights at a stable frame.
         let button = SidebarStyle.toolbarButtonSize
         let rowY = max(Metrics.space2, (titlebarHeight - button) / 2)
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
@@ -265,12 +267,13 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
-        profileBar.isHidden = !showsProfiles
+        let showsProfiles = true
+        profileBar.isHidden = false
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
         let dotsInFooter = spacesPosition == .bottom && showsProfiles
-        let footerHeight: CGFloat = visibleSlots.isEmpty && !dotsInFooter ? 0 : SidebarStyle.footerHeight
+        let showsHelp = !helpButton.isHidden
+        let footerHeight: CGFloat = SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards()
         // From the bottom up (R112/R114): the Settings band, the dots, the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + cardsHeight)
@@ -374,8 +377,10 @@ public final class SidebarView: NSView {
             || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
         let previous = lastState?.sections
         model.showWorkspaceTabs = state.preferences.showWorkspaceTabs
-        // Minimal mode changed: show or hide the chosen bands now.
-        if lastState?.preferences.minimalMode != state.preferences.minimalMode { setChromeRevealed(isChromeRevealed) }
+        // Minimal mode or an item's control changed: show or hide the chosen bands now.
+        if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
+            setChromeRevealed(isChromeRevealed)
+        }
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])

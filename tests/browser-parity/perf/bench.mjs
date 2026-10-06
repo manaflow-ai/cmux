@@ -8,6 +8,11 @@
 //             WebKit (lib/dev-driver.mjs).
 //   cmux      a tagged app through its CLI: PARITY_CMUX_CLI and
 //             CMUX_SOCKET_PATH, as run.mjs --backend cmux.
+//   host-headless  the Rust browser host on headless Chromium:
+//             PARITY_HOST_BIN (default cmux-browser-host) and
+//             CMUX_BROWSER_HOST_CHROMIUM, as run.mjs --backend host-headless.
+//             Each page also records the host's closed-shadow-root walks
+//             (tab.info closedRoots: walks, walkMs, roots, domEvents).
 //
 // Every page gets one program: navigate, take `runs` full snapshots, change
 // one element and take one more (the diff), resolve a ref, and for cmux read
@@ -128,6 +133,7 @@ try {
   }
   const stats = await page.mainFrame()._agent("stats").catch(() => null);
   __out.agentStats = stats;
+  __out.closedRoots = await page._session.call("tab.info", { targetId: page._targetId }).then((i) => i.closedRoots || null, () => null);
 } catch (e) {
   __out.error = String(e && (e.message + " | " + e.stack) || e);
 }
@@ -158,10 +164,10 @@ function parseMarked(text) {
   return JSON.parse(line.slice(MARK.length));
 }
 
-function runProcess(cmd, argv, { input, env, timeoutMs = 600_000 } = {}) {
+function runProcess(cmd, argv, { input, env, cwd, timeoutMs = 600_000 } = {}) {
   return new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env } });
+    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env }, cwd });
     let out = "";
     let err = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
@@ -282,6 +288,54 @@ function cmuxAppBackend() {
   };
 }
 
+// The Rust browser host on headless Chromium, one session per page (as the
+// cmux backend), through `cmux-browser-host eval`.
+function hostHeadlessBackend() {
+  const bin = process.env.PARITY_HOST_BIN || "cmux-browser-host";
+  const env = { CMUX_BROWSER_HOST_ENGINE: "headless" };
+  const workDir = makeTestDir("perf-host-");
+  const call = (code, session) =>
+    runProcess(bin, ["eval", ...(session ? ["--session", session] : []), "--engine", "headless", "--max-output", "0", "-"], { input: code, env, cwd: workDir });
+  const close = (session) => runProcess(bin, ["close", "--session", session], { env, cwd: workDir });
+  return {
+    async page(p) {
+      const session = `perf-${process.pid}-${p.name}`;
+      try {
+        const r = await call(cmuxProgram(p), session);
+        if (!r.out.includes(MARK)) throw new Error(`exit ${r.code} after ${r.ms}ms: ${(r.err || r.out).slice(-600)}`);
+        return parseMarked(r.out);
+      } finally {
+        await close(session);
+      }
+    },
+    async overhead() {
+      const s = `perf-oh-${process.pid}`;
+      await call("1", s);
+      const times = [];
+      for (let i = 0; i < 20; i++) times.push((await call("1", s)).ms);
+      await close(s);
+      return times;
+    },
+    async leak(url) {
+      const s = `perf-leak-${process.pid}`;
+      try {
+        return parseMarked((await call(leakProgram(url), s)).out);
+      } finally {
+        await close(s);
+      }
+    },
+    close: async () => removeTestDir(workDir),
+  };
+}
+
+// A bench page that fails for a recorded reason on a backend
+// (known-failures.json, key "perf:<page>"): its reason, else null.
+function knownBench(backend, page) {
+  const known = JSON.parse(fs.readFileSync(path.join(here, "..", "known-failures.json"), "utf8"));
+  const entry = known[process.platform]?.[backend]?.[`perf:${page}`] ?? known["*"]?.[backend]?.[`perf:${page}`];
+  return entry ? entry.reason : null;
+}
+
 // ---------------------------------------------------------------------------
 
 function summarize(result) {
@@ -307,7 +361,7 @@ function summarize(result) {
 
 async function main() {
   const servers = await startFixtureServers();
-  const make = { "cmux-dev": cmuxDevBackend, cmux: cmuxAppBackend }[backend];
+  const make = { "cmux-dev": cmuxDevBackend, cmux: cmuxAppBackend, "host-headless": hostHeadlessBackend }[backend];
   if (!make) throw new Error(`unknown backend ${backend}`);
   const b = await make();
   const pages = selectPages(servers.origins);
@@ -338,7 +392,10 @@ async function main() {
       const byTool = r && r.tools ? r.tools : { [backend]: r };
       for (const [tool, v] of Object.entries(byTool)) {
         if (v && v !== r) summarize(v);
-        const line = v?.error ? `ERROR ${v.error.split("\n")[0].slice(0, 200)}` : `p50 ${v.p50}ms p95 ${v.p95}ms first ${v.firstMs}ms tree ${v.treeBytes}B ${v.treeTokens}tok printed ${v.printedBytes}B diff ${v.diff?.snapMs}ms/${v.diff?.diffChars}ch locator ${v.locatorMs}ms` + (v.breakdown ? ` [agent ${v.breakdown.agentMs.toFixed(0)} transport ${v.breakdown.transportMs.toFixed(0)} host ${v.breakdown.hostMs.toFixed(0)} diff ${v.breakdown.diffMs.toFixed(0)}]` : "");
+        const cr = v?.closedRoots;
+        const known = v?.error && knownBench(tool, p.name);
+        if (known) v.known = known;
+        const line = known ? `KNOWN ${known.slice(0, 160)}` : v?.error ? `ERROR ${v.error.split("\n")[0].slice(0, 200)}` : `p50 ${v.p50}ms p95 ${v.p95}ms first ${v.firstMs}ms tree ${v.treeBytes}B ${v.treeTokens}tok printed ${v.printedBytes}B diff ${v.diff?.snapMs}ms/${v.diff?.diffChars}ch locator ${v.locatorMs}ms` + (v.breakdown ? ` [agent ${v.breakdown.agentMs.toFixed(0)} transport ${v.breakdown.transportMs.toFixed(0)} host ${v.breakdown.hostMs.toFixed(0)} diff ${v.breakdown.diffMs.toFixed(0)}]` : "") + (cr ? ` closed-roots ${cr.walks} walks ${cr.walkMs.toFixed(0)}ms (${cr.walks ? (cr.walkMs / cr.walks).toFixed(1) : 0}ms each) ${cr.roots} roots ${cr.domEvents} dom-events` : "");
         console.log(`${p.name.padEnd(22)} ${tool.padEnd(10)} ${line} (${Date.now() - t}ms)`);
       }
       results.pages[p.name] = r;

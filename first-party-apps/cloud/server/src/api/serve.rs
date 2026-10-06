@@ -2,8 +2,9 @@
 //! state. It blocks on one inbox that carries the host's lines (from a
 //! reader thread) and wakes from link processes. Each op gets one result
 //! line, then the events it caused; a wake sends the link and forward
-//! events at once, with no op after the change. A connect never blocks the
-//! loop: its result goes out when its link is up or ended. No polling; the
+//! events and the frame links' frames at once, with no op after the
+//! change. A connect never blocks the loop: its result goes out when its
+//! link is up or ended. No polling; the
 //! only timer is the link's ready deadline (`READY_DEADLINE`, crate::clock).
 
 use super::error::CloudError;
@@ -26,6 +27,14 @@ pub fn serve<R: BufRead + Send + 'static, W: Write>(relay: HostRelay<R, W>) -> i
 
 /// The answer of an op its caller cancelled (`op.cancel`).
 pub const OP_CANCELLED: &str = "cmux.op.cancelled";
+
+/// One server event line, `{"type":"event","event","data"}`. The daemon
+/// broadcasts only `data` to apps clients (`apps-server-event {app, name,
+/// data}`, cmux-tui-core apps/servers.rs), so every field of the event goes
+/// in `data`; a field next to it never reaches a client.
+pub(crate) fn event_line(event: &str, data: Value) -> Value {
+    json!({ "type": "event", "event": event, "data": data })
+}
 
 /// [`serve`] with the attach state and the files and ports edge given
 /// (tests pass the fake link spawner and the fake tunnel). The wake applies
@@ -59,6 +68,12 @@ fn answer<R: BufRead, W: Write>(
     server: &mut Server<HostRelay<R, W>>,
     message: Value,
 ) -> Option<Value> {
+    if crate::connector::is_frame_line(&message) {
+        // A frame of a frame link (`data`, `credit`, `end`): it moves bytes,
+        // it gets no line; the pump's own frames go out from `send_events`.
+        server.frame_line(&message);
+        return None;
+    }
     if super::host::is_host_frame(&message) {
         // A host answer or event: it changes state, it gets no line.
         server.host_frame(&message);
@@ -93,6 +108,12 @@ fn answer<R: BufRead, W: Write>(
             }
             return None;
         }
+        // Frame lines overflowed during a relay call (relay::FRAME_OVERFLOW,
+        // queued by this server only): every frame link ends.
+        Some(super::relay::FRAME_OVERFLOW) => {
+            server.frame_overflow();
+            return None;
+        }
         // A relay answer that no call waits for (late or unknown): never
         // answer it, so the host cannot take it for one of its own ops.
         Some(t) if t.starts_with("relay.") => {
@@ -119,7 +140,7 @@ fn send_events<R: BufRead, W: Write>(
     // `data` is the stream item (`{type: upsert|removed, revision, ...}`);
     // it is nested because `type` names the line kind here.
     for event in server.take_events() {
-        let line = json!({ "type": "event", "event": "cloud.machine.watch", "data": event });
+        let line = event_line("cloud.machine.watch", json!(event));
         server.control_plane_mut().send(&line)?;
     }
     // Connects whose link is now up or ended: each result before the link
@@ -130,6 +151,14 @@ fn send_events<R: BufRead, W: Write>(
     // Carrier changes (up, down, revoked) that arrived by now. This pumps
     // the supervisor; the reconcile below reads that same state.
     for line in crate::link::ops::take_event_lines(server) {
+        server.control_plane_mut().send(&line)?;
+    }
+    // Frame links (crate::connector::frames): bytes the carriers and the
+    // host's frames moved, inside the credit, and the `connector.open`
+    // requests of connects (after their result lines). A link that went
+    // down above, or that a new connect replaced, sends its one `end` here,
+    // before the new link's open (else the host answers the old channel).
+    for line in server.take_frame_lines() {
         server.control_plane_mut().send(&line)?;
     }
     // A link that went down (or was replaced) closes its forwards now.
@@ -147,14 +176,14 @@ fn send_events<R: BufRead, W: Write>(
 /// `cloud.port.changed`: a forward (`kind: forward`, with `port`) or a
 /// browser route (`kind: browser`) closed with its link.
 fn edge_line(down: &EdgeDown) -> Value {
-    let mut line = json!({ "type": "event", "event": "cloud.port.changed",
+    let mut data = json!({
         "machine": down.machine, "kind": if down.port.is_some() { "forward" } else { "browser" },
         "host": "127.0.0.1", "localPort": down.local_port, "generation": down.generation,
         "state": "down", "reason": down.reason });
     if let Some(port) = down.port {
-        line["port"] = json!(port);
+        data["port"] = json!(port);
     }
-    line
+    event_line("cloud.port.changed", data)
 }
 
 /// `cloud.file.transfer.changed`: one transfer ended (`done` with
@@ -164,23 +193,23 @@ fn transfer_line(event: &crate::fs::TransferEvent) -> Value {
         crate::fs::Direction::Push => "push",
         crate::fs::Direction::Pull => "pull",
     };
-    let mut line = json!({ "type": "event", "event": "cloud.file.transfer.changed",
+    let mut data = json!({
         "transfer": event.transfer, "machine": event.machine, "direction": direction,
         "path": event.path, "localPath": event.local_path.to_string_lossy() });
     match &event.outcome {
         Ok(bytes) => {
-            line["state"] = json!("done");
-            line["bytes"] = json!(bytes);
+            data["state"] = json!("done");
+            data["bytes"] = json!(bytes);
         }
         Err(error) if error.code == crate::fs::transfer::TRANSFER_CANCELLED => {
-            line["state"] = json!("cancelled");
+            data["state"] = json!("cancelled");
         }
         Err(error) => {
-            line["state"] = json!("failed");
-            line["error"] = json!(error);
+            data["state"] = json!("failed");
+            data["error"] = json!(error);
         }
     }
-    line
+    event_line("cloud.file.transfer.changed", data)
 }
 
 fn result_line(id: Value, outcome: Result<Value, CloudError>) -> Value {

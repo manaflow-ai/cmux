@@ -45,8 +45,9 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
     /// The Ghostty resources directory (`<Resources>/ghostty`).
     public var resourcesDirectory: String?
     /// The bundled Ghostty CLI (`<Resources>/bin/ghostty`). The `ssh-env`
-    /// and `ssh-terminfo` wrappers run `$GHOSTTY_BIN +ssh`; without it they
-    /// stay off, as in Ghostty.
+    /// and `ssh-terminfo` wrappers run `$GHOSTTY_BIN_DIR/ghostty +ssh`;
+    /// without a CLI those features are dropped (`featuresValue`), so plain
+    /// `ssh` runs.
     public var ghosttyBinary: String?
 
     public init(mode: Mode = .detect, features: Features = .ghosttyDefault, cursorBlink: Bool? = nil,
@@ -59,8 +60,11 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
     }
 
     /// `GHOSTTY_SHELL_FEATURES`: enabled names sorted, `cursor` with its
-    /// blink state; nil when none is enabled (`setupFeatures`).
+    /// blink state; nil when none is enabled (`setupFeatures`). The ssh
+    /// features need the Ghostty CLI and are left out without one.
     public var featuresValue: String? {
+        var features = features
+        if (ghosttyBinary ?? "").isEmpty { features.subtract([.sshEnv, .sshTerminfo]) }
         var names: [String] = []
         if features.contains(.cursor) { names.append((cursorBlink ?? true) ? "cursor:blink" : "cursor:steady") }
         if features.contains(.path) { names.append("path") }
@@ -98,7 +102,8 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
         isDirectory: (String) -> Bool = { path in
             var directory: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-        }
+        },
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> [String: String] {
         var env = env
         if let ghosttyBinary, !ghosttyBinary.isEmpty {
@@ -106,7 +111,16 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
             env["GHOSTTY_BIN"] = ghosttyBinary
             env["GHOSTTY_BIN_DIR"] = binDirectory
             let path = env["PATH"] ?? ""
-            if path.isEmpty {
+            let bundledCLI = binDirectory + "/cmux"
+            if isExecutable(bundledCLI) {
+                // This terminal's CMUX_SOCKET_PATH is this app's socket, so
+                // its `cmux` must be this app's CLI: first on PATH, and the
+                // CLI that `CMUX_BUNDLED_CLI_PATH`-aware shims exec. An
+                // inherited value names the app that launched this one.
+                let rest = path.split(separator: ":").filter { $0 != Substring(binDirectory) }
+                env["PATH"] = ([Substring(binDirectory)] + rest).joined(separator: ":")
+                env["CMUX_BUNDLED_CLI_PATH"] = bundledCLI
+            } else if path.isEmpty {
                 env["PATH"] = binDirectory
             } else if !path.split(separator: ":").contains(Substring(binDirectory)) {
                 env["PATH"] = path + ":" + binDirectory

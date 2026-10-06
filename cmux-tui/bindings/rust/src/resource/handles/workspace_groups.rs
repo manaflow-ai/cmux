@@ -32,6 +32,11 @@ pub struct WorkspaceGroupSnapshot {
     pub collapsed: bool,
     /// Position among all groups.
     pub index: u32,
+    /// The index of the personal workspace the group shows right before in
+    /// the sidebar (`personal-mixed-order-v1`), or `None` for after every
+    /// loose workspace. Older daemons omit it.
+    #[serde(default)]
+    pub top_index: Option<u32>,
 }
 
 /// A session-qualified workspace in the personal order.
@@ -107,6 +112,11 @@ pub struct WorkspaceGroupUpdateOptions {
     pub collapsed: Option<bool>,
     /// Moves the group to this room and pins its workspaces there.
     pub room: Option<String>,
+    /// The group's place among the loose workspaces
+    /// (`personal-mixed-order-v1`): `Set(i)` shows it right before the
+    /// personal workspace at index `i`; `Clear` puts it after every loose
+    /// workspace.
+    pub top_index: Update<u32>,
 }
 
 /// Fields of `workspace.place`. `group: Update::Clear` ungroups the
@@ -194,14 +204,16 @@ impl Session {
         options: WorkspaceGroupUpdateOptions,
         mutation: MutationOptions,
     ) -> Result<MutationResult<WorkspaceGroupSnapshot>> {
-        let WorkspaceGroupUpdateOptions { name, color, collapsed, room } = options;
+        let WorkspaceGroupUpdateOptions { name, color, collapsed, room, top_index } = options;
         if name.is_none()
             && matches!(color, Update::Unchanged)
             && collapsed.is_none()
             && room.is_none()
+            && matches!(top_index, Update::Unchanged)
         {
             return Err(Error::InvalidArgument(
-                "workspace group update must change name, color, collapsed, or room".to_string(),
+                "workspace group update must change name, color, collapsed, room, or top_index"
+                    .to_string(),
             ));
         }
         if let Some(room) = &room {
@@ -216,6 +228,11 @@ impl Session {
             Update::Unchanged => params,
             Update::Clear => params.value("color", Value::Null),
             Update::Set(color) => params.string("color", color),
+        };
+        let params = match top_index {
+            Update::Unchanged => params,
+            Update::Clear => params.value("top_index", Value::Null),
+            Update::Set(index) => params.u32("top_index", index),
         };
         mutation_snapshot(
             self.client.mutate(ops::WORKSPACE_GROUP_UPDATE, params, mutation)?,
@@ -313,7 +330,7 @@ impl Workspace {
 }
 
 /// A state id is 1 to 64 characters.
-fn validate_state_id(label: &str, value: &str) -> Result<()> {
+pub(super) fn validate_state_id(label: &str, value: &str) -> Result<()> {
     if value.is_empty() || value.chars().count() > STATE_ID_MAX_LEN {
         return Err(Error::InvalidArgument(format!(
             "{label} id must be 1 to {STATE_ID_MAX_LEN} characters"

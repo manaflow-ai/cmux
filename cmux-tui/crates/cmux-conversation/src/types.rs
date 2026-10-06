@@ -70,6 +70,15 @@ pub enum WorkStatus {
     Waiting,
 }
 
+/// A derived image of an attachment (a video's poster, an image's preview):
+/// JPEG or WebP bytes stored by their SHA-256 next to the attachment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DerivedImage {
+    pub hash: String,
+    pub mime_type: String,
+    pub byte_count: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Part {
@@ -85,6 +94,28 @@ pub enum Part {
         status: WorkStatus,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<String>,
+    },
+    /// A file stored by content hash (attachments.rs). The owner commits it
+    /// only when this conversation holds a record of the hash with the same
+    /// type and size (and the same poster or preview).
+    Attachment {
+        /// SHA-256 of the bytes, 64 lowercase hex characters.
+        hash: String,
+        name: String,
+        mime_type: String,
+        byte_count: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+        /// Video only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        poster: Option<DerivedImage>,
+        /// Image only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preview: Option<DerivedImage>,
     },
 }
 

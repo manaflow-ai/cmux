@@ -8,7 +8,7 @@
 
 use cmux::raw::{
     ConversationCreateResult, ConversationListResult, ConversationOpResult,
-    ConversationSnapshotResult, NewConversationTabResult,
+    ConversationSnapshotResult, NewConversationTabResult, Optional,
 };
 use cmux::{
     CONVERSATION_TABS_CAPABILITY, Config, Error, MutationOptions, Selector, SessionId,
@@ -236,7 +236,23 @@ fn conversation_results_decode_typed() {
         "conversation": {"conversation": "conv_01CHIEF", "owner": "local"}, "replayed": false,
     }))
     .unwrap();
-    assert_eq!((tab.surface, tab.conversation.owner.as_str()), (8, "local"));
+    assert_eq!((tab.surface, tab.conversation.owner.as_deref()), (8, Some("local")));
+    assert!(tab.conversation.agent_session.is_none());
+
+    // An agent tab (`agent-session-tabs-v1`): the agent session source, its
+    // session null until bound.
+    let agent: NewConversationTabResult = serde_json::from_value(json!({
+        "surface": 9, "tab_resource_id": TAB, "content_resource_id": BROWSER,
+        "conversation": {"agent_session":
+            {"host": "install:mac-1", "session": null, "harness": "claude"}},
+        "replayed": false,
+    }))
+    .unwrap();
+    let source = agent.conversation.agent_session.expect("an agent session source");
+    assert_eq!(source.host, "install:mac-1");
+    assert!(source.session.is_null(), "{:?}", source.session);
+    assert_eq!(source.harness, Optional::Value("claude".to_string()));
+    assert_eq!(agent.conversation.conversation, None);
 }
 
 /// A part type, participant kind, reaction kind or change kind this SDK does
@@ -268,4 +284,36 @@ fn unknown_conversation_variants_decode_and_keep_their_fields() {
     .unwrap();
     assert_eq!(pinned.change.kind, "message-pinned");
     assert_eq!(pinned.change.additional["message_id"], "msg_01A");
+}
+
+/// A message with an `attachment` part (`local-attachments-v1`) decodes:
+/// its `preview` is an object `{hash, mime_type, byte_count}`, while a work
+/// part's `preview` is a string. The typed field took only strings, so every
+/// snapshot, history and list holding an image failed to decode (the Chief's
+/// catch-up looped on "invalid type: map, expected a string").
+#[test]
+fn a_snapshot_with_an_image_attachment_part_decodes() {
+    let message = json!({
+        "id": "msg_1", "conversation": "conv_1", "seq": 1, "client_msg_id": "c1",
+        "author": "user_local", "created_at": "2026-10-05T12:00:00.000Z", "reactions": [],
+        "parts": [
+            {"type": "attachment", "hash": "a".repeat(64), "name": "shot.png", "mime_type": "image/png",
+             "byte_count": 10, "width": 4, "height": 3,
+             "preview": {"hash": "b".repeat(64), "mime_type": "image/jpeg", "byte_count": 2}},
+            {"type": "work", "session": "child", "status": "done", "preview": "ok"},
+            {"type": "text", "text": "what does this say?"},
+        ],
+    });
+    let mut conversation = summary();
+    conversation["last_message"] = message.clone();
+    let snapshot: ConversationSnapshotResult =
+        serde_json::from_value(json!({"conversation": conversation, "messages": [message]}))
+            .unwrap();
+    let parts = &snapshot.messages[0].parts;
+    assert_eq!(parts[0].type_, "attachment");
+    assert_eq!(parts[0].preview.as_ref().unwrap()["hash"], "b".repeat(64));
+    assert_eq!(parts[0].additional["hash"], "a".repeat(64));
+    assert_eq!(parts[1].preview.as_ref().unwrap(), "ok");
+    let round_trip = serde_json::to_value(&snapshot.messages[0]).unwrap();
+    assert_eq!(round_trip["parts"], message["parts"]);
 }

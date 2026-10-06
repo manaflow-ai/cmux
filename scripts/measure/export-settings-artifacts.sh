@@ -2,8 +2,6 @@
 set -euo pipefail
 export CMUX_UPDATE_MDM_SCHEMA=1
 export CMUX_UPDATE_ACTION_SURFACES=1
-GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
-scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
 swift test --package-path Packages/macOS/CmuxNext --filter ManagedPreferencesManifestTests
 swift test --package-path Packages/macOS/CmuxNext --filter SettingsSchemaExportTests
 for file in \

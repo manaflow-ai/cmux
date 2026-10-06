@@ -29,6 +29,7 @@ fn group_value(group: &PersonalGroup) -> Value {
         "color": group.color,
         "collapsed": group.collapsed,
         "index": group.index,
+        "top_index": group.top_index,
     })
 }
 
@@ -207,6 +208,14 @@ pub(crate) fn move_group(
     index: usize,
 ) -> anyhow::Result<PersonalGroup> {
     WorkspaceRegistry::move_personal_group_in(tx, id, index).map(|(group, _)| group)
+}
+
+pub(crate) fn set_group_top(
+    tx: &Transaction<'_>,
+    id: &str,
+    top_index: Option<usize>,
+) -> anyhow::Result<PersonalGroup> {
+    WorkspaceRegistry::set_personal_group_top_in(tx, id, top_index).map(|(group, _)| group)
 }
 
 pub(crate) fn place_workspace(

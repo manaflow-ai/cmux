@@ -59,7 +59,7 @@ extension NewTabSubmit {
         case .chat(let prompt, let harness):
             services.newTabKinds.record(.agent, folder: cwd)
             let seed = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd, prompt: prompt, harness: harness))
-            pane.showAgentTab(services.agentTabs.open(in: pane.paneKey, of: pane.daemon.store, seed: seed))
+            pane.openAgentTab(seed: seed)
         }
     }
 }

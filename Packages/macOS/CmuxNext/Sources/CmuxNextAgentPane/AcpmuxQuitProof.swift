@@ -14,7 +14,8 @@ import Synchronization
 /// host lock other than the Home Chief's is held; a lock that cannot be
 /// probed counts as held (unknown is never success). `daemon.pid` is only a
 /// hint for waiting on the exit and for display.
-public nonisolated enum AcpmuxQuitProof {
+public nonisolated struct AcpmuxQuitProof {
+    public nonisolated init() {}
     public enum LockState: Sendable, Equatable {
         case free, held, unknown
     }

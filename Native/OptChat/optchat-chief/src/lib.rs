@@ -1,0 +1,41 @@
+//! An OptChat Chief for cmux-next Home. It keeps the brain-host contract of
+//! `mux/host` (the app starts it through `CMUX_NEXT_MUX_HOST`, it holds the
+//! same kernel lock, talks to the conversation owner as `agent_mux` and to
+//! acpmux), and replaces the long-lived `mux` session with Victor Taelin's
+//! OptChat turn loop: every turn is a fresh acpmux session that reads the
+//! OptChat view, and everything it does is logged into the memory.
+//! Section numbers in comments refer to the OptChat specification.
+
+pub mod acpmux;
+pub mod acpmux_daemon;
+pub mod agents;
+pub mod approval;
+pub mod brain;
+pub mod browse;
+pub mod chief_settings;
+pub mod claude_import;
+pub mod cli;
+pub mod codex_home;
+pub mod compactor;
+pub mod daemon;
+pub mod effort;
+pub mod fold;
+pub mod harness_gate;
+pub mod host;
+pub mod lock;
+pub mod log;
+pub mod mcp;
+pub mod native;
+pub mod paths;
+pub mod persist;
+pub mod prompt;
+pub mod report;
+pub mod rpc;
+pub mod session_dir;
+pub mod state;
+pub mod subagents;
+pub mod tools;
+pub mod trace;
+pub mod turn;
+pub mod wake;
+pub mod workspaces;

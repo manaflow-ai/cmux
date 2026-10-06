@@ -9,7 +9,12 @@ extension Motion {
     /// Animates `NSView.animator()` changes with a spring token, or applies
     /// them at once when movement does not animate. `completion` runs on the
     /// main thread after the change finishes (or on the next turn).
-    public static func animate(_ token: MotionSpring, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)? = nil) {
+    ///
+    /// - Parameter view: The view the change animates. When its window has no
+    ///   screen the change applies at once (``canAnimate(in:)``).
+    public static func animate(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
+                               completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
         let spring = self.spring(token)
         let animation = Animation.spring(response: spring.response, dampingFraction: spring.dampingFraction, blendDuration: 0)
@@ -17,7 +22,9 @@ extension Motion {
     }
 
     /// Animates `NSView.animator()` opacity or color changes with a fade token.
-    public static func animate(_ token: MotionFade, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)? = nil) {
+    public static func animate(_ token: MotionFade, in view: NSView? = nil, _ changes: () -> Void,
+                               completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         guard duration > 0 else { return withoutAnimation(changes, completion: completion) }
         NSAnimationContext.animate(.easeOut(duration: duration), changes: changes, completion: traced("appkit.\(token.rawValue)", completion))
@@ -26,15 +33,60 @@ extension Motion {
     /// Timed animation for animators that do not take SwiftUI springs
     /// (NSWindow frame and alpha, implicit subview layout inside the block):
     /// `token`'s perceived duration with the fade curve.
-    public static func animateTimed(_ token: MotionSpring, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)? = nil) {
+    public static func animateTimed(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
+                                    completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         runTimed(duration, changes, completion: duration > 0 ? traced("timed.\(token.rawValue)", completion) : completion)
     }
 
+    /// An exit: `token`'s duration on a slow-start curve, so a change reversed soon after it
+    /// started (the pointer passing over a hover region) barely moved (no timer, no hold).
+    public static func animateExit(_ token: MotionSpring, in view: NSView? = nil, _ changes: () -> Void,
+                                   completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
+        let duration = self.duration(token)
+        runTimed(duration, changes, completion: duration > 0 ? traced("exit.\(token.rawValue)", completion) : completion,
+                 curve: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.3, 1))
+    }
+
     /// Timed animation with a fade token (NSWindow alpha).
-    public static func animateTimed(_ token: MotionFade, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)? = nil) {
+    public static func animateTimed(_ token: MotionFade, in view: NSView? = nil, _ changes: () -> Void,
+                                    completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
         let duration = self.duration(token)
         runTimed(duration, changes, completion: duration > 0 ? traced("timed.\(token.rawValue)", completion) : completion)
+    }
+
+    /// Whether a change of `view` can animate. A window with no screen (a
+    /// display unplugged or asleep, a screenless host, an offscreen window)
+    /// never advances an AppKit animation, so its final value and its
+    /// completion would wait for an indefinite time; such a change applies
+    /// at once. Decided per animation, from the animated view's window. A
+    /// view outside a window, or no view, animates as before.
+    public static func canAnimate(in view: NSView?) -> Bool {
+        guard let window = view?.window else { return true }
+        return window.screen != nil
+    }
+
+    /// The proxy to set a constraint through inside a Motion animation of
+    /// `view`: its animator, or the constraint itself when `view`'s window
+    /// has no screen. A constraint animator does not apply its value without
+    /// a screen, even in a zero-length group, so the constant must be set
+    /// directly there.
+    public static func animator(_ constraint: NSLayoutConstraint, in view: NSView?) -> NSLayoutConstraint {
+        canAnimate(in: view) ? constraint.animator() : constraint
+    }
+
+    /// Applies `animator()` changes at once and runs `completion` now (no
+    /// display advances an animation group, so its handler cannot be awaited).
+    private static func snap(_ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            changes()
+        }
+        completion?()
     }
 
     /// Opens a `MotionTrace` span now and closes it when `completion` runs.
@@ -47,10 +99,11 @@ extension Motion {
         }
     }
 
-    private static func runTimed(_ duration: TimeInterval, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?) {
+    private static func runTimed(_ duration: TimeInterval, _ changes: () -> Void, completion: (@MainActor @Sendable () -> Void)?,
+                                 curve: CAMediaTimingFunction? = nil) {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration
-            context.timingFunction = fadeCurve
+            context.timingFunction = curve ?? fadeCurve
             context.allowsImplicitAnimation = duration > 0
             changes()
         }, completionHandler: completion.map { done in { @Sendable in MainActor.assumeIsolated { done() } } })

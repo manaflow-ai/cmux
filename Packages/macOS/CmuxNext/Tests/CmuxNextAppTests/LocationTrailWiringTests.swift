@@ -60,6 +60,11 @@ struct LocationTrailWiringTests {
         #expect(trail.trail.entries.map(\.location.key.tab) == [first, second])
         #expect(trail.trail.current?.location.key.tab == first)
         #expect(trail.trail.canGoForward(isAvailable: trail.isAvailable))
+        // Boundary activation is a silent no-op for keyboard and menu callers.
+        #expect(services.registry.perform("focusHistoryForward"))
+        await Self.settle { trail.trail.current?.location.key.tab == second }
+        #expect(services.registry.perform("focusHistoryForward"))
+        #expect(trail.trail.current?.location.key.tab == second)
     }
 
     @Test func aClosedWorkspaceIsListedUnderClosedHistory() async throws {

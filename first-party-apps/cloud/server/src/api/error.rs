@@ -30,9 +30,24 @@ pub mod codes {
     pub const NOT_CLASSIC: &str = "cmux.cloud.not_classic";
     /// `cloud.upgrade.failed`: the classic machine still works.
     pub const UPGRADE_FAILED: &str = "cmux.cloud.upgrade_failed";
+    /// `cloud.machine.not_running`: the op needs a running machine.
+    pub const NOT_RUNNING: &str = "cmux.cloud.not_running";
+    /// `cloud.machine.not_paused`: start needs a paused machine.
+    pub const NOT_PAUSED: &str = "cmux.cloud.not_paused";
+    /// `cloud.machine.busy`: another change of the machine runs; retry
+    /// after it ends.
+    pub const MACHINE_BUSY: &str = "cmux.cloud.machine_busy";
+    /// `cloud.size.grow_only`: a resize only grows.
+    pub const SIZE_GROW_ONLY: &str = "cmux.cloud.size_grow_only";
+    /// `cloud.link.install_refused`: this install kind may not mint link
+    /// tokens (only the cli, Mac and iOS installs may).
+    pub const LINK_INSTALL_REFUSED: &str = "cmux.cloud.link_install_refused";
     /// `mutation.indeterminate`: the backend cannot tell whether the call
     /// acted. Retry with the SAME key; never make a new one.
     pub const INDETERMINATE: &str = "cmux.cloud.indeterminate";
+    /// `cloud.no_snapshot_configured`: no machine image is configured for
+    /// this deployment yet, so create and restore cannot run.
+    pub const NO_SNAPSHOT_CONFIGURED: &str = "cmux.cloud.no_snapshot_configured";
     /// `cloud.rate_limited`: the team's create or delete budget is spent.
     pub const RATE_LIMITED: &str = "cmux.cloud.rate_limited";
     pub const UNSUPPORTED: &str = "cmux.cloud.unsupported";
@@ -79,6 +94,12 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_classic", codes::NOT_CLASSIC),
     ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
     ("cloud.rate_limited", codes::RATE_LIMITED),
+    ("cloud.no_snapshot_configured", codes::NO_SNAPSHOT_CONFIGURED),
+    ("cloud.machine.not_running", codes::NOT_RUNNING),
+    ("cloud.machine.not_paused", codes::NOT_PAUSED),
+    ("cloud.machine.busy", codes::MACHINE_BUSY),
+    ("cloud.size.grow_only", codes::SIZE_GROW_ONLY),
+    ("cloud.link.install_refused", codes::LINK_INSTALL_REFUSED),
 ];
 
 /// A typed op failure.
@@ -127,14 +148,18 @@ impl CloudError {
 
     /// Maps a typed `cmux.wire/1` error. `mutation.indeterminate` is
     /// retryable here (with the same key), whatever the backend says;
-    /// `cloud.provider.unavailable` and `owner.unreachable` are too.
+    /// `cloud.provider.unavailable`, `cloud.machine.busy` and
+    /// `owner.unreachable` are too.
     pub fn from_wire(error: &WireError) -> Self {
         let code = WIRE_CODES
             .iter()
             .find(|(wire, _)| *wire == error.code)
             .map_or(codes::UPSTREAM, |(_, code)| code);
         let retryable = error.retryable
-            || matches!(code, codes::INDETERMINATE | codes::PROVIDER_UNAVAILABLE)
+            || matches!(
+                code,
+                codes::INDETERMINATE | codes::PROVIDER_UNAVAILABLE | codes::MACHINE_BUSY
+            )
             || error.code == "owner.unreachable";
         Self {
             code,

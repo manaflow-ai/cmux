@@ -7,7 +7,8 @@ public import AppKit
 /// `NSScroller.preferredScrollerStyleDidChangeNotification` (one observer,
 /// no polling). Pages read `pageValue` from their host.
 @MainActor
-public enum SystemScrollers {
+public struct SystemScrollers {
+    public init() {}
     /// Tests set the system's answer; nil reads `NSScroller.preferredScrollerStyle`.
     public static var preferredStyleOverride: NSScroller.Style?
 

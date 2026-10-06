@@ -65,14 +65,21 @@ pub(crate) fn start_link_entry(
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
     cloud_fs::install_if_cloud_host();
+    // What a stamp's `check` means is fixed here, at daemon start, from the
+    // config `main` took from the environment (G4); a real verifier is
+    // refused until G1 and G2 hold. The mode is logged once (G3).
+    let choice = cmux_link::token::daemon_verifier_choice();
+    let checks = cmux_link::token::StampChecks::at_daemon_start(choice.config);
+    eprintln!("{}", cmux_link::token::mode_log_line(choice, &checks));
     if !enabled {
         return Ok(None);
     }
+    let checks = checks?;
     let verifier: LinkVerifier = Arc::new(|stream: &std::os::unix::net::UnixStream| {
         cmux_link::caller::verify(stream).map_err(std::io::Error::from)
     });
     let path = cmux_link::entry_path::remote_entry_socket_path(session_socket);
-    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate())?))
+    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
 }
 
 /// The gate of the remote entry: exactly the seven `fs-v1` ops, every

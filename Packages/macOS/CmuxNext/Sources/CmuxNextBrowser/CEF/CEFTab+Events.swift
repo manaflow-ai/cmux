@@ -63,11 +63,7 @@ extension CEFTab {
         case .fullscreen(_, let entering):
             machine.apply(.contentFullscreenChanged(entering))
         case .findResult(_, let count, let active, let isFinal):
-            guard isFinal, let continuation = findContinuation else { return }
-            findContinuation = nil
-            continuation.resume(returning: BrowserFindResult(
-                matchFound: count > 0, matchCount: count, currentIndex: count > 0 ? active : nil
-            ))
+            findRequests.result(count: count, active: active, isFinal: isFinal)
         case .closeRequested:
             emit(.close)
         case .navigationReroute(_, let url, _):
@@ -146,18 +142,14 @@ extension CEFTab {
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
-        findContinuation?.resume(returning: .none)
-        let findID = nextFindID
-        nextFindID += 1
         return await withCheckedContinuation { continuation in
-            findContinuation = continuation
+            let findID = findRequests.begin(continuation)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }
     }
 
     public func clearFind() {
-        findContinuation?.resume(returning: .none)
-        findContinuation = nil
+        findRequests.cancel()
         browserID.map { runtime.shim?.stopFinding($0, 1) }
     }
 
