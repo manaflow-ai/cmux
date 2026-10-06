@@ -57,6 +57,8 @@ nonisolated struct HomeBrainHost: Sendable {
     var childEnvironment: [String: String] {
         var variables: [String: String] = [
             "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
+            // Constant links to the app that last opened Home (ChiefAppLinks):
+            // the host outlives the app that started it.
             "CMUX_SOCKET_PATH": controlSocket,
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,

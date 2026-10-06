@@ -52,6 +52,30 @@ import Testing
         #expect(three.childEnvironment["ACPMUX_SOCKET"] == four.childEnvironment["ACPMUX_SOCKET"])
     }
 
+    /// The host outlives the app that started it: its cmux calls go through
+    /// the Chief home's links to whichever app last opened Home, never to the
+    /// starting app's own sockets (a stale one after it quit).
+    @Test func theHostReachesTheRunningAppThroughConstantLinks() throws {
+        let host = try #require(Self.resolve([:], bin: try Self.binDirectory(withChief: true)))
+        #expect(host.childEnvironment["CMUX_SOCKET_PATH"] == "/Users/someone/.cmux/chief/default/state/app.sock")
+        #expect(host.childEnvironment["CMUX_APP_DAEMON_SOCKET"] == "/Users/someone/.cmux/chief/default/state/app-daemon.sock")
+        #expect(host.childEnvironment["CMUX_SOCKET_PATH"] != "/tmp/c.sock")
+    }
+
+    @Test func theLinksFollowTheLastAppAndAQuitRemovesOnlyItsOwn() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-links-\(UUID().uuidString)", isDirectory: true)
+        let home = ChiefHome(root: root, isolated: false)
+        ChiefAppLinks.publish(home: home, controlSocket: "/tmp/a-control.sock", daemonSocket: "/tmp/a-daemon.sock")
+        ChiefAppLinks.publish(home: home, controlSocket: "/tmp/b-control.sock", daemonSocket: "/tmp/b-daemon.sock")
+        let fm = FileManager.default
+        #expect(try fm.destinationOfSymbolicLink(atPath: ChiefAppLinks.controlLink(home).path) == "/tmp/b-control.sock")
+        #expect(try fm.destinationOfSymbolicLink(atPath: ChiefAppLinks.daemonLink(home).path) == "/tmp/b-daemon.sock")
+        ChiefAppLinks.unpublish(home: home, controlSocket: "/tmp/a-control.sock", daemonSocket: "/tmp/a-daemon.sock")
+        #expect(try fm.destinationOfSymbolicLink(atPath: ChiefAppLinks.controlLink(home).path) == "/tmp/b-control.sock", "A quit; B keeps the Chief")
+        ChiefAppLinks.unpublish(home: home, controlSocket: "/tmp/b-control.sock", daemonSocket: "/tmp/b-daemon.sock")
+        #expect((try? fm.destinationOfSymbolicLink(atPath: ChiefAppLinks.controlLink(home).path)) == nil)
+    }
+
     @Test func theEnvironmentVariableStillOverridesTheBundledChief() throws {
         let bin = try Self.binDirectory(withChief: true)
         let host = try #require(Self.resolve(["CMUX_NEXT_MUX_HOST": "/bin/sh"], bin: bin))

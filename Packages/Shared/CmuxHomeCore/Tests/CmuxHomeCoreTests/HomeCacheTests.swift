@@ -90,6 +90,20 @@ import Testing
         #expect(try #require(cache.load()).drafts[Self.austin] == nil, "a sent or cleared draft leaves the cache")
     }
 
+    /// The app's quit writes the batch at once: a draft typed in the last
+    /// quarter second before Quit was lost (the batch waited 250 ms).
+    @Test func aFlushWritesTheCoalescedBatchAtOnce() async throws {
+        let cache = Self.cache()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .seconds(3_600))
+        store.start()
+        await waitUntil { store.isOnline }
+        store.setDraft("typed just before Quit", for: Self.austin)
+        #expect(cache.load()?.drafts[Self.austin] == nil, "still in the batch")
+        store.flushCache()
+        #expect(try #require(cache.load()).drafts[Self.austin] == "typed just before Quit")
+        #expect(store.isOnline, "a flush does not stop the store")
+    }
+
     @Test func aSendTheOwnerNeverAnsweredSurvivesAndGoesOnceWithItsKey() async throws {
         let cache = Self.cache()
         let key = IdempotencyKey("send-across-relaunch")

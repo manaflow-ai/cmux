@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.services?.crashRecovery.applicationWillTerminate()
+            self?.services?.home.applicationWillTerminate()
             exit(0)
         })
         control.startWatchdog()
@@ -252,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        services?.home.applicationWillTerminate()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }

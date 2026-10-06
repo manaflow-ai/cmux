@@ -27,6 +27,10 @@ final class ChiefConversationOwner {
     private(set) var identity: DaemonIdentity?
     /// Why the owner is not connected, for `debug.home`.
     private(set) var lastError: String?
+    /// Runs once on the first connection, before the connection is
+    /// published (the move of the old per-tag Chiefs). False keeps the owner
+    /// unpublished for this launch.
+    @ObservationIgnored var prepare: ((DaemonConnection) async -> Bool)?
     /// Conversation events (`conversation-changed`, `conversation-typing`).
     @ObservationIgnored var onEvent: ((DaemonEvent) -> Void)?
     @ObservationIgnored private var runTask: Task<Void, Never>?
@@ -77,6 +81,10 @@ final class ChiefConversationOwner {
             }
             guard let (connection, identity) = connected else { return }
             guard let self, !Task.isCancelled else {
+                await connection.close()
+                return
+            }
+            if let prepare = self.prepare, await !prepare(connection) {
                 await connection.close()
                 return
             }

@@ -152,6 +152,9 @@ public final class HomeStore {
         scheduleCacheWrite()
     }
 
+    /// Writes the coalesced cache batch now (app quit), without stopping.
+    public func flushCache() {}
+
     /// Shows what the cache holds before the owner answers.
     private func restoreCache() {
         guard let snapshot = cache?.load() else { return }

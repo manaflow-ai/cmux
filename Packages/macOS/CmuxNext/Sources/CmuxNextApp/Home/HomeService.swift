@@ -17,6 +17,8 @@ import os
 final class HomeService {
     /// Conversations, newest activity first, as the owner reports them.
     private(set) var conversations: [CmuxNextDaemon.ConversationSummary] = []
+    /// Set while older builds' Chiefs block the move into the Chief home.
+    var migrationNotice: String?
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
     /// The owner of every Home conversation: one per Chief home, never per build.
@@ -30,6 +32,11 @@ final class HomeService {
     /// Home opened in a window this launch; the host starts once the Chief
     /// owner is connected, even when Home opened first.
     @ObservationIgnored private var homeWasOpened = false
+    /// Whether Home opened this launch (for the app links).
+    var homeOpened: Bool { homeWasOpened }
+    /// The tagged daemon socket this app last published (ChiefAppLinks).
+    @ObservationIgnored var publishedDaemonSocket: String?
+    @ObservationIgnored var activationObserver: (any NSObjectProtocol)?
     /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
     var homeWorkspaceID: ResourceID?
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
@@ -63,6 +70,7 @@ final class HomeService {
     /// the owner applies each once). The local daemon gets the Home workspace.
     func start() {
         chief.onEvent = { [weak self] event in self?.handle(event) }
+        installChiefMigration()
         chief.start()
         let local = services.machines.local
         let chief = chief
@@ -100,7 +108,11 @@ final class HomeService {
     /// launch. Its lock keeps one host per home, so a host another build
     /// started keeps running and this launch's exits at once.
     func homeDidOpen() {
-        homeWasOpened = true
+        if !homeWasOpened {
+            homeWasOpened = true
+            publishAppLinks()
+            observeActivation()
+        }
         guard !startedBrainHost, let connection else { return }
         // task-owner: reads the endpoint, then spawns the detached host once
         Task { [weak self] in
