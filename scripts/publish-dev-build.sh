@@ -75,6 +75,10 @@ upload() {
 }
 
 upload "$named_archive" "$immutable_prefix/$archive_name" application/zip 1
+# Keep one non-track-specific recovery alias valid for updater failures where
+# the app does not retain its track metadata. The per-track immutable URL
+# remains the canonical link shown on the stable page.
+upload "$named_archive" "cmux-dev/latest.zip" application/zip 0
 upload "$appcast" "cmux-dev/${CMUX_DEV_BUILD_TRACK}/appcast.xml" application/xml 0
 
 metadata="$work_dir/build.json"
