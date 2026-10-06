@@ -52,14 +52,6 @@ extension AgentPaneView {
     /// decision reads event-time state, once, and is never made again later.
     func monitored(_ event: NSEvent) { judge(event, eventWindow: event.window) }
 
-    #if DEBUG
-    /// DEBUG automation only (`debug.key`, `debug.agent_pane click`), for a window that is not
-    /// key: AppKit sends a key to the key window and holds back a first click, so the app
-    /// delivers that event itself, and first runs the handler that the local monitor runs for a
-    /// real event. The gesture rule is the same; Release builds have no such entry.
-    public func debugRunGestureMonitor(_ event: NSEvent) { monitored(event) }
-    #endif
-
     /// A key press with the page focused, or a click on the page: the user's gesture. `eventWindow`
     /// is the event's window (tests pass it: a synthesized event cannot resolve it).
     func judge(_ event: NSEvent, eventWindow: NSWindow?) {
