@@ -156,6 +156,9 @@ pub struct Settings {
     /// `MUX_POLICY` (default approve-all).
     pub policy: String,
     pub model: Option<String>,
+    /// acpmux `effort` of each turn session (`effort::turn_effort`); None:
+    /// the harness's default.
+    pub effort: Option<String>,
     /// The value of the `mux.parent` tag on the Chief's children.
     pub parent: String,
     /// Turn session names are `<turn_prefix>-<first id>`; `optchat-<home id>`,
@@ -252,6 +255,8 @@ pub struct Brain {
     /// their id, removed by name once acpmux is up.
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
+    /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
+    last_agent_send: Option<u64>,
     fatal: Option<String>,
     /// A human message arrived while an acpmux turn ran: that turn is
     /// being stopped, and its end posts nothing.
@@ -290,6 +295,9 @@ impl Brain {
         tx: Sender<Input>,
         log: Log,
     ) -> Brain {
+        // The state lives in the memory database from here on (an old
+        // host.json is imported once).
+        let file = file.attach(chat.clone());
         let mut state = file.load();
         let acpmux = matches!(settings.engine, Engine::Acpmux);
         let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
@@ -317,6 +325,7 @@ impl Brain {
             sessions: HashMap::new(),
             stale_sessions,
             outbox_timer: None,
+            last_agent_send: None,
             fatal: None,
             stop_wanted: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
@@ -523,7 +532,12 @@ impl Brain {
     }
 
     fn save(&self) {
-        if let Err(e) = self.file.save(&self.state) {
+        self.save_with(Vec::new());
+    }
+
+    /// Saves the state and `extra` writes in one transaction.
+    fn save_with(&self, extra: Vec<optchat_host::StateWrite>) {
+        if let Err(e) = self.file.save_with(&self.state, extra) {
             (self.log)(&format!("saving the host state failed: {e}"));
         }
     }
@@ -554,12 +568,12 @@ impl Brain {
 /// owner would refuse or silently replay the reply). The millisecond stamp
 /// of message `first` tells the two apart.
 fn reply_key(chat: &OptChat, first: u64) -> String {
-    let stamp: String = chat
-        .stamp(first)
-        .unwrap_or_default()
-        .chars()
-        .filter(char::is_ascii_digit)
-        .collect();
+    reply_key_at(first, &chat.stamp(first).unwrap_or_default())
+}
+
+/// `reply_key` from message `first`'s stored date `stamp`.
+fn reply_key_at(first: u64, stamp: &str) -> String {
+    let stamp: String = stamp.chars().filter(char::is_ascii_digit).collect();
     format!("turn:optchat:{first}:{stamp}")
 }
 
@@ -589,6 +603,8 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
         },
         rate_retried: false,
         not_before: None,
+        attempted: false,
+        rate_attempts: 0,
     }
 }
 

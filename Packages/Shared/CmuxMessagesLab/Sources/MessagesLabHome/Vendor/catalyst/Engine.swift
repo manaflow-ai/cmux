@@ -49,7 +49,13 @@ enum Action {
     case removeDraftAttachment(ID)
     case typing(ID, Bool)
     case receive(Message)
+    /// Streamed output (an agent): text appended to the message's last text part in place
+    /// (no Edited label, no animation). shared/LONG-MESSAGES.md.
+    case appendText(ID, String)
     case status(ID, DeliveryStatus)
+    /// A link preview's metadata arrived (LinkPreviews): every link part with
+    /// this URL takes the title, site and image (nil keeps the current value).
+    case linkMetadata(url: String, title: String?, site: String?, image: String?)
     case setScroll(offset: CGFloat, pinned: Bool)
     /// Paging: older messages decoded off the main thread.
     case prependPage([Message])
@@ -132,6 +138,18 @@ enum Reducer {
             s.total += 1
         case let .status(id, st):
             if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages[i].status = st }
+        case let .appendText(id, more):
+            guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
+                  let pi = s.conversation.messages[i].parts.lastIndex(where: { if case .text = $0 { return true }; return false }),
+                  case let .text(t, runs) = s.conversation.messages[i].parts[pi] else { break }
+            s.conversation.messages[i].parts[pi] = .text(t + more, runs: runs)
+        case let .linkMetadata(url, title, site, image):
+            for i in s.conversation.messages.indices {
+                for (pi, p) in s.conversation.messages[i].parts.enumerated() {
+                    guard case let .link(u, t, sn, img, theme) = p, u == url else { continue }
+                    s.conversation.messages[i].parts[pi] = .link(url: u, title: title ?? t, siteName: site ?? sn, image: image ?? img, theme: theme)
+                }
+            }
         case let .setScroll(offset, pinned):
             s.ui.scroll = .init(pinnedToBottom: pinned, offset: pinned ? 0 : offset)
         case let .prependPage(page):
@@ -159,22 +177,61 @@ enum Reducer {
     }
 }
 
-/// Text to parts: detected URLs become link runs, and a link balloon (title =
-/// domain, no network fetch) follows. A bare URL becomes only the balloon.
+/// Text to parts, as macOS 27 Messages sends them (lossless takes,
+/// references/real-messages/interactions/link-and-text/): a line that is only
+/// a URL becomes a rich link part (the card), in its place among the lines; the
+/// other lines stay text bubbles, a URL inside a sentence an underlined link
+/// run with no card. "URL, line break, text" is a card followed by a text
+/// bubble; a bare URL is only the card. The card starts pending (Messages'
+/// grey placeholder square, 137.5 x 103.5 pt) until LinkPreviews fills it or,
+/// without metadata, the domain card (title = site = host) replaces it.
 enum TextParts {
     private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-    static func parts(for text: String) -> [Part] {
+    static func host(_ url: URL) -> String {
+        url.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? url.absoluteString
+    }
+    static func linkRuns(_ text: String) -> [TextRun] {
         let ns = text as NSString
-        let matches = detector.matches(in: text, range: NSRange(location: 0, length: ns.length))
-        let runs = matches.compactMap { m -> TextRun? in
+        return detector.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { m in
             guard let url = m.url else { return nil }
             return TextRun(start: m.range.location, length: m.range.length, style: nil, link: url.absoluteString, mention: nil, detected: nil)
         }
-        guard let first = matches.first?.url else { return [.text(text, runs: [])] }
-        let host = first.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 } ?? first.absoluteString
-        let balloon = Part.link(url: first.absoluteString, title: host, siteName: host, image: nil, theme: "dark")
-        if matches.count == 1, matches[0].range.length == ns.length { return [balloon] }
-        return [.text(text, runs: runs), balloon]
+    }
+    /// The URL a line consists of (surrounding spaces allowed), else nil.
+    static func soleURL(_ line: String) -> URL? {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        let ns = t as NSString
+        guard ns.length > 0, let m = detector.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)),
+              m.range.location == 0, m.range.length == ns.length, let url = m.url,
+              url.scheme == "http" || url.scheme == "https" else { return nil }
+        return url
+    }
+    static func parts(for text: String) -> [Part] {
+        // Long text stays one part; its links are detected per visible block (LongText.swift).
+        if LongText.isLong(text) { return [.text(text, runs: [])] }
+        var parts: [Part] = []
+        var pending: [String] = []
+        func flush() {
+            // Blank lines around a card do not make a bubble of their own.
+            while pending.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { pending.removeFirst() }
+            while pending.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { pending.removeLast() }
+            guard !pending.isEmpty else { return }
+            let block = pending.joined(separator: "\n")
+            parts.append(.text(block, runs: linkRuns(block)))
+            pending = []
+        }
+        for line in text.components(separatedBy: "\n") {
+            if let url = soleURL(line) {
+                flush()
+                // Pending (no title, no site): Messages' grey placeholder until the
+                // metadata or the domain fallback arrives (Store.apply).
+                parts.append(.link(url: url.absoluteString, title: nil, siteName: nil, image: nil, theme: "dark"))
+            } else {
+                pending.append(line)
+            }
+        }
+        flush()
+        return parts.isEmpty ? [.text(text, runs: linkRuns(text))] : parts
     }
 }
 
@@ -203,6 +260,8 @@ extension Reducer {
             if let m = s.message(ref.messageId) { w.update(m) }
         case let .edit(id, _), let .unsend(id), let .delete(id):
             if let m = s.message(id) { w.update(m) }
+        case let .linkMetadata(url, _, _, _):
+            for m in s.conversation.messages where m.parts.contains(where: { if case let .link(u, _, _, _, _) = $0 { return u == url }; return false }) { w.update(m) }
         case let .status(id, st):
             // A status can arrive after a jump moved its message out of the window.
             if let m = s.message(id) { w.update(m) } else if var m = w.message(id) { m.status = st; w.update(m) }
@@ -210,6 +269,14 @@ extension Reducer {
             break
         }
     }
+}
+
+/// Link-preview metadata for a URL (LinkPreviews.swift implements it with
+/// LinkPresentation). `done` runs on the main thread once per request.
+struct LinkMetadata: Hashable { var title: String?; var site: String?; var image: String? }
+protocol LinkPreviewFetching: AnyObject {
+    /// `done(nil)`: no metadata (failure, timeout): the caller shows the domain card.
+    func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void)
 }
 
 protocol Responder: AnyObject {
@@ -224,6 +291,9 @@ final class Store {
     private(set) var now: Double = 0
     let baseDate: Date
     var responder: Responder?
+    /// Fetches link-preview metadata for sent and received messages (once per
+    /// URL, never while scrolling or paging); nil: previews keep the domain.
+    var linkPreviews: LinkPreviewFetching?
     /// Receives every message change as it is committed (nil in capture).
     weak var writer: MessageWriter?
     /// (engine time, action) of every applied action, for the animator.
@@ -284,6 +354,21 @@ final class Store {
         if let writer { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
         onChange?(action, t, old, state)
         if let sent { responder?.didSend(sent, self) }
+        let fresh: Message? = { if let sent { return sent }; if case let .receive(m) = action { return m }; return nil }()
+        for p in fresh?.parts ?? [] {
+            guard case let .link(url, title, site, image, _) = p, image == nil, title == nil || title == site else { continue }
+            let host = URL(string: url).map(TextParts.host) ?? url
+            let pending = title == nil && site == nil
+            guard let linkPreviews else {
+                // No fetcher: a pending card becomes the domain card at once.
+                if pending { dispatch(.linkMetadata(url: url, title: host, site: host, image: nil)) }
+                continue
+            }
+            linkPreviews.fetch(url) { [weak self] meta in
+                guard meta != nil || pending else { return }
+                self?.dispatch(.linkMetadata(url: url, title: meta?.title ?? host, site: meta?.site ?? host, image: meta?.image))
+            }
+        }
     }
 }
 

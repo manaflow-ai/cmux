@@ -7,7 +7,9 @@
 //! is one chat with one user (section 1), so this Chief reads only its own
 //! conversation; mentions in other conversations are not answered.
 
-use cmux_chief::rules::{AGENT_MUX, PAGE, message_text, wakes};
+use cmux_chief::rules::{AGENT_MUX, PAGE, message_text};
+
+use crate::wake::chief_wakes;
 use cmux_conversation::{Change, Message, Op, Part};
 
 use super::{Brain, Source};
@@ -170,7 +172,7 @@ impl Brain {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
         if (!text.trim().is_empty() || has_images)
-            && wakes(summary, &message, |id| self.mux_messages.contains(id))
+            && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
         {
             // The turn sees the images; the log keeps their references.
             let images = match self.daemon.as_mut() {

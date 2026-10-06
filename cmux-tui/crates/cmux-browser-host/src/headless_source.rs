@@ -31,7 +31,7 @@ struct SessionFilter {
 }
 
 pub struct HeadlessSource {
-    driver: CdpDriver,
+    pub(crate) driver: CdpDriver,
     profile: String,
     subscribers: Subscribers,
     next_subscriber: AtomicU64,
@@ -45,6 +45,8 @@ pub struct HeadlessSource {
     /// `tab.closed`, per session until its end). When the last one leaves,
     /// the input it left pressed is released.
     driven: Mutex<HashMap<String, HashSet<u64>>>,
+    /// Each session's `session.configure` options (item 4d).
+    pub(crate) configs: Mutex<HashMap<u64, crate::headless_configure::SessionConfig>>,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -96,6 +98,7 @@ impl HeadlessSource {
             routes: Mutex::default(),
             policy_logs: Mutex::default(),
             driven: Mutex::default(),
+            configs: Mutex::default(),
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
@@ -183,6 +186,11 @@ impl HeadlessSource {
             .to_owned()
     }
 
+    /// The open tabs `session` created and did not keep.
+    pub(crate) fn routes_tabs_of(&self, session: u64) -> Vec<String> {
+        self.routes().tabs_of(session)
+    }
+
     fn routes(&self) -> std::sync::MutexGuard<'_, crate::headless_routes::Routes> {
         self.routes.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -199,6 +207,14 @@ impl HeadlessSource {
             && let Some(target) = event.payload.get("targetId").and_then(Value::as_str)
         {
             self.driven.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
+            // A closed tab takes its automation lease with it (as the app's
+            // tab.gone does): the table stays bounded.
+            let gone = LeaseOp::TargetGone { target: target.to_owned() };
+            let _ = self.leases.lock().unwrap_or_else(PoisonError::into_inner).apply(
+                &gone,
+                &LeaseCaller::default(),
+                0,
+            );
         }
         let route = self.routes().route(&event, &attached);
         match route {
@@ -342,7 +358,15 @@ impl TabSource for SharedHeadless {
     }
 
     fn kept(&self, session: u64, target_id: &str) {
+        let created = self.0.routes().is_creator(session, target_id);
+        if created {
+            self.0.configure_kept(session, target_id);
+        }
         self.0.routes().kept(session, target_id);
+    }
+
+    fn open_tab(&self, session: u64, params: &Value) -> Result<Value, DriverError> {
+        self.0.open_configured(session, params)
     }
 
     fn session_call(
@@ -356,6 +380,9 @@ impl TabSource for SharedHeadless {
         let mut params = params.clone();
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
             params["fetchId"] = json!(fetch_id(session, id));
+        }
+        if method == "session.configure" {
+            return Some(self.0.configure(session, &params));
         }
         Some(self.0.driver.call(method, &params))
     }
@@ -432,6 +459,7 @@ impl TabSource for SharedHeadless {
     }
 
     fn session_ended(&self, session: u64) {
+        self.0.configure_ended(session);
         self.0.routes().session_ended(session);
         // The last session left these tabs: release what was left pressed.
         let left: Vec<String> = {

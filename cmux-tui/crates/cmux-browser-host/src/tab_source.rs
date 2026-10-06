@@ -126,6 +126,11 @@ pub trait TabSource: Send + Sync {
     ) -> Option<Result<Value, DriverError>> {
         None
     }
+    /// `tabs.open` for a session (a source applies the session's
+    /// `session.configure` options to the new tab here).
+    fn open_tab(&self, _session: u64, params: &Value) -> Result<Value, DriverError> {
+        self.call("tabs.open", params)
+    }
     /// The session opened `target_id` (`tabs.open`): it drives it.
     fn opened(&self, _session: u64, _target_id: &str) {}
     /// The session kept `target_id` (`tab.keep`): it is the person's now.
