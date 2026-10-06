@@ -17,6 +17,10 @@ nonisolated extension DaemonHomeSource {
             .appendingPathComponent("HomeAttachments", isDirectory: true)
     }
 
+    /// 512 MB: a few hundred photos; the owner keeps every byte, so an
+    /// evicted file costs one more read.
+    static var defaultAttachmentCacheLimit: Int { 512_000_000 }
+
     func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         let stored = try await Self.attachmentCall {
             try await ConversationClient(self.requireConnection())
@@ -48,7 +52,7 @@ nonisolated extension DaemonHomeSource {
             return try await cached(ref, location: location, variant: .preview, mimeType: preview.mimeType)
         case .thumbnail(let maxPixel):
             let target = attachmentCache.appendingPathComponent("\(ref.hash)-thumb-\(maxPixel).jpg")
-            if FileManager.default.fileExists(atPath: target.path) { return target }
+            if FileManager.default.fileExists(atPath: target.path) { return Self.touched(target) }
             let image: URL
             if ref.mimeType.hasPrefix("image/") {
                 image = try await fetch(ref, at: location, variant: .original)
@@ -60,6 +64,7 @@ nonisolated extension DaemonHomeSource {
             let data = try Self.thumbnailJPEG(of: image, maxPixel: maxPixel)
             try Task.checkCancellation()
             try data.write(to: target, options: .atomic)
+            trimAttachmentCache(keeping: target)
             return target
         }
     }
@@ -69,12 +74,39 @@ nonisolated extension DaemonHomeSource {
                         mimeType: String) async throws -> URL {
         let suffix = UTType(mimeType: mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
         let target = attachmentCache.appendingPathComponent("\(ref.hash)-\(variant.rawValue)\(suffix)")
-        if FileManager.default.fileExists(atPath: target.path) { return target }
+        if FileManager.default.fileExists(atPath: target.path) { return Self.touched(target) }
         try await Self.attachmentCall {
             try await ConversationClient(self.requireConnection())
                 .downloadAttachment(conversation: location.conversation.rawValue, hash: ref.hash, variant: variant, to: target)
         }
+        trimAttachmentCache(keeping: target)
         return target
+    }
+
+    /// Marks a cache hit as used now (the eviction order).
+    private static func touched(_ url: URL) -> URL {
+        try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        return url
+    }
+
+    /// Removes the least recently used cache files until the cache is under
+    /// `attachmentCacheLimit`, never `kept` (the file a fetch is returning).
+    /// Partial downloads are hidden files and are left alone.
+    func trimAttachmentCache(keeping kept: URL) {
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: attachmentCache, includingPropertiesForKeys: Array(keys),
+                                                                        options: [.skipsHiddenFiles]) else { return }
+        var entries = files.compactMap { url -> (url: URL, used: Date, size: Int)? in
+            guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true else { return nil }
+            return (url, values.contentModificationDate ?? .distantPast, values.fileSize ?? 0)
+        }
+        var total = entries.reduce(0) { $0 + $1.size }
+        guard total > attachmentCacheLimit else { return }
+        entries.sort { $0.used < $1.used }
+        let keptPath = kept.standardizedFileURL.path
+        for entry in entries where total > attachmentCacheLimit && entry.url.standardizedFileURL.path != keptPath {
+            if (try? FileManager.default.removeItem(at: entry.url)) != nil { total -= entry.size }
+        }
     }
 
     /// `mapped`, plus a local daemon without attachments as a final refusal.

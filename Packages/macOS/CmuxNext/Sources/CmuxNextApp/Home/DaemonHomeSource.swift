@@ -23,10 +23,14 @@ nonisolated final class DaemonHomeSource: HomeSource {
     let me: Participant
     /// Fetched attachment variants, one file per hash and variant.
     let attachmentCache: URL
+    /// Most bytes `attachmentCache` keeps; least recently used files go first.
+    let attachmentCacheLimit: Int
 
-    init(me: Participant, attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache) {
+    init(me: Participant, attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache,
+         attachmentCacheLimit: Int = DaemonHomeSource.defaultAttachmentCacheLimit) {
         self.me = me
         self.attachmentCache = attachmentCache
+        self.attachmentCacheLimit = attachmentCacheLimit
     }
 
     // MARK: Fed by HomeService (main actor)
