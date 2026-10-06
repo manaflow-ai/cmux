@@ -1,0 +1,29 @@
+{
+  "tour": "sidebar-template-gallery-light-tour",
+  "head_sha": "90f604203c1af293525b7bbc2f239e4bbcab8c7f",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "01-failed",
+      "file": "01-failed.png"
+    },
+    {
+      "name": "09-template-gallery-light",
+      "file": "09-template-gallery-light.png"
+    },
+    {
+      "name": "10-failed",
+      "file": "10-failed.png"
+    },
+    {
+      "name": "33-template-kept-light",
+      "file": "33-template-kept-light.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37444961950",
+  "failures": [
+    "DogfoodScenarioUITests.swift:115: failed - Dogfood steps failed:"
+  ],
+  "frames": 21
+}
