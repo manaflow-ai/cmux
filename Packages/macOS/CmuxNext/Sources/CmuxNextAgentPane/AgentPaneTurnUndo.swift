@@ -147,13 +147,16 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         defer { close(descriptor) }
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 64 << 10)
-        while true {
+        // A regular file: each read returns data or EOF, so the bounded loop ends by the cap.
+        for _ in 0...(maximumTextBytes / buffer.count + 1) {
+            // concurrency-allow: only AgentPaneTurnUndo.run (@concurrent) calls this, never the main actor.
             let count = read(descriptor, &buffer, buffer.count)
             if count < 0 { return nil }
             if count == 0 { return data }
             data.append(contentsOf: buffer[0..<count])
             if data.count > maximumTextBytes { return nil }
         }
+        return nil
     }
 
     /// Writes `bytes` to a temporary file in `folder` with the original's permission bits,
@@ -166,6 +169,7 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         let written = bytes.withUnsafeBytes { raw -> Bool in
             var offset = 0
             while offset < raw.count {
+                // concurrency-allow: only AgentPaneTurnUndo.run (@concurrent) calls this, never the main actor.
                 let count = write(descriptor, raw.baseAddress! + offset, raw.count - offset)
                 if count <= 0 { return false }
                 offset += count
