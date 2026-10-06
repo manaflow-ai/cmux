@@ -7,10 +7,8 @@ import Testing
 
 /// The `apps-run` origin of a Cloud connect (P8 landed): a click goes as
 /// `user` from the verified app connection; a connect that is not a user
-/// gesture goes as `script`. The daemon owns the proof (code signature or
-/// install key, which the app cannot see for a signed build), so a connection
-/// it does not verify answers the A2 refusal, and only then the click is sent
-/// again once as `script` with the same key (the refused line ran nothing).
+/// gesture goes as `script`. A refused `user` click is never sent again as
+/// `script`.
 struct CloudAppLinksOriginTests {
     nonisolated final class Sent: Sendable {
         let requests = Mutex<[AppsRunRequest]>([])
@@ -42,13 +40,17 @@ struct CloudAppLinksOriginTests {
         #expect(sent.all.map(\.origin) == [.script])
     }
 
+    /// A refused `user` click is shown as the refusal and never sent again
+    /// as `script`: a resend would turn a click the daemon did not admit as
+    /// the user into a script request, which weakens the user/script split.
     @Test(arguments: ["origin.forbidden", "apps.origin_forbidden"])
-    func anUnverifiedConnectionSendsTheClickAgainOnceAsScript(code: String) async throws {
+    func aRefusedClickIsNotSentAgainAsScript(code: String) async throws {
         let sent = Sent()
-        _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k3", origin: .user,
-                                        send: Self.send(sent, refuseUser: code))
-        #expect(sent.all.map(\.origin) == [.user, .script])
-        #expect(sent.all.map(\.idempotencyKey) == ["k3", "k3"])
+        await #expect(throws: CloudAppOpError(code: code, message: "needs a verified cmux app connection")) {
+            _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k3", origin: .user,
+                                            send: Self.send(sent, refuseUser: code))
+        }
+        #expect(sent.all.map(\.origin) == [.user])
     }
 
     @Test func otherRefusalsAreNotSentAgain() async throws {
