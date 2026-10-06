@@ -73,6 +73,17 @@ extension SidebarRegionView {
         } else {
             SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
+        // Nothing outside the region takes the drop: the card dims and the
+        // region shows its order again, so a release there changes nothing.
+        let outside = !visibleRect.contains(point)
+        drag.lift.setRefused(outside)
+        if outside {
+            if reorderSections != content?.sections {
+                reorderSections = content?.sections
+                relayout(animated: true)
+            }
+            return
+        }
         let card = convert(drag.lift.frame, from: host)
         // The card's middle decides (as the list, nxdog30): what it covers more than half of makes way.
         // Sideways, the card's middle decides too, so a tile makes way when the card covers half of it.

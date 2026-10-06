@@ -41,6 +41,7 @@ import QuartzCore
     /// Flies the card to `destination` (its slot) and removes it.
     static func land(_ lift: DragLiftView, at destination: NSRect?, completion: @escaping () -> Void) {
         lift.setLifted(false, animated: true)
+        lift.setRefused(false)
         Motion.animate(.settle, in: lift, {
             lift.animator().frame = destination ?? lift.frame
         }, completion: {
