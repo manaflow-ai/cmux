@@ -464,9 +464,51 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
           exit 1
 
+  # Waits for this commit's same-tree cmux-tui on a Linux runner, so no macOS
+  # runner idles while the artifacts workflow publishes it. A commit whose
+  # artifacts runs were superseded by a newer branch head (cancelled or
+  # skipped) gets no tree by design: the gate reports superseded=true and the
+  # jobs that need the binary end skipped, not failed. A failed publish or a
+  # timeout fails the gate (pin-cmux-tui.sh --help, wait).
+  same-tree-cmux-tui:
+    needs: [path_route, push-head-preflight]
+    if: ${{ !cancelled() && (needs.path_route.outputs.native == 'true' || needs.path_route.outputs.macos == 'true') && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    name: wait for the same-tree cmux-tui
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # actions: read lets the wait read the artifacts runs; contents: read the
+    # branch head that superseded this commit.
+    permissions:
+      actions: read
+      contents: read
+    timeout-minutes: 50
+    outputs:
+      superseded: ${{ steps.wait.outputs.superseded }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      # A reused runner workspace keeps submodule checkouts from an earlier job,
+      # and pin-cmux-tui.sh refuses a dirty cmux-tui source.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Clean generated layout-reducer FFI lockfile
+        run: rm -f cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+
+      - name: Wait for the same-tree cmux-tui
+        id: wait
+        env:
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
+          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/cmux-next/pin-cmux-tui.sh wait
+
   swift-test:
-    needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    needs: [path_route, macos-placement, push-head-preflight, same-tree-cmux-tui]
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.same-tree-cmux-tui.result == 'success' && needs.same-tree-cmux-tui.outputs.superseded != 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next swift test
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # actions: read lets the same-tree cmux-tui wait read the artifacts runs.
@@ -772,8 +814,8 @@ jobs:
         run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA" -f promote_nightly_next_debounce=true
 
   cmux-scheme-compile:
-    needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    needs: [path_route, macos-placement, push-head-preflight, same-tree-cmux-tui]
+    if: ${{ !cancelled() && needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.same-tree-cmux-tui.result == 'success' && needs.same-tree-cmux-tui.outputs.superseded != 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux app scheme compile (Debug)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # actions: read lets the same-tree cmux-tui wait read the artifacts runs.

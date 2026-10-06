@@ -45,10 +45,30 @@ final class CloseUndoToasts {
     private(set) var recentDaemonItems: [(id: String, pane: String?, tabs: Int, matched: Bool)] = []
     /// The last reopen (`DaemonClosedHistory.reopen`): time to the daemon's
     /// reply and to the store holding the reopened objects (`debug.filepages`).
-    private(set) var lastReopen: (id: String, reply: Duration, applied: Duration?)?
+    private(set) var lastReopen: ReopenTiming?
+    /// Watches the last reopen's tabs arrive in the store; the next reopen cancels it.
+    var reopenWatch: Task<Void, Never>?
 
-    func noteReopen(id: String, reply: Duration, applied: Duration?) {
-        lastReopen = (id, reply, applied)
+    struct ReopenTiming {
+        var id: String
+        var tabs: [String]
+        var reply: Duration
+        var applied: Duration?
+        var tabsInStoreAtApplied: Bool?
+        var tabsArrived: Duration?
+    }
+
+    func noteReopen(id: String, tabs: [String], reply: Duration) {
+        lastReopen = ReopenTiming(id: id, tabs: tabs, reply: reply)
+    }
+
+    func noteReopenApplied(_ applied: Duration, tabsInStore: Bool) {
+        lastReopen?.applied = applied
+        lastReopen?.tabsInStoreAtApplied = tabsInStore
+    }
+
+    func noteReopenTabsArrived(_ arrived: Duration) {
+        lastReopen?.tabsArrived = arrived
     }
     private var observation: Task<Void, Never>?
     static let toastID = "tab-closed"
@@ -65,7 +85,7 @@ final class CloseUndoToasts {
         }
     }
 
-    isolated deinit { observation?.cancel() }
+    isolated deinit { observation?.cancel(); reopenWatch?.cancel() }
 
     private static func daemonItemIDs(_ daemons: [DaemonService]) -> [String] {
         daemons.filter(\.store.servesStateResources).flatMap { $0.store.closedItems.map(\.id) }
