@@ -38,9 +38,16 @@ import Testing
         defer { transport.close() }
         let fd = transport.descriptorForTesting
         #expect(fcntl(fd, F_GETFD) & FD_CLOEXEC != 0)
-        #expect(!Self.childInherits(fd))
+        // The daemon suite runs tests in parallel and other fixtures use raw
+        // descriptors. Probe a private high descriptor so a sibling cannot
+        // close and reuse the transport's low descriptor between spawn and exec.
+        let probe = fcntl(fd, F_DUPFD, 256)
+        try #require(probe >= 0)
+        defer { close(probe) }
+        #expect(fcntl(probe, F_SETFD, FD_CLOEXEC) == 0)
+        #expect(!Self.childInherits(probe))
         // Control: a copy without close-on-exec is inherited, so the probe can see one.
-        let copy = dup(fd)
+        let copy = dup(probe)
         defer { close(copy) }
         #expect(Self.childInherits(copy))
     }
