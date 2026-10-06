@@ -1206,7 +1206,15 @@ when present.
   agent world, so the driver moves them through the DOM. The page world
   registers a one-off capturing listener for a random event type, the agent
   world dispatches that event on each element, and the page world reads the
-  targets, then runs `source`. Detached elements fail with `stale`.
+  targets, then runs `source`. Detached elements fail with `stale`. The
+  page's world belongs to the page: its script can patch the built-ins and
+  DOM prototypes the bridge and `source` use, so it can hand `source` other
+  elements, as it can change what `source` reads or does with the right
+  ones. Nothing the session holds crosses into that world but `source`,
+  `args` and the elements, and the result passes the egress gate, so this
+  gives the page no access it lacks (accepted). Code that must act on the
+  elements the agent world found, unchanged by the page, runs with
+  `world: "agent"`.
 - Evaluation errors carry `{ code, message, errorName }`; page exceptions use
   code `evaluation` unless the thrown value has its own `code`. The page
   chooses all three, so the session's egress gate masks each of them as it
