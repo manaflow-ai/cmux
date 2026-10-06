@@ -907,6 +907,7 @@ when it has no tab; keep off lets it end after the reap grace period.
 
 const BROWSER_HELP: &str = "\
 USAGE
+  cmux browser open <url> | --url <url> [OPTIONS]
   cmux browser list
   cmux browser <selector> show|navigate|back|forward|reload|activate
   cmux browser <selector> key|text [OPTIONS]
