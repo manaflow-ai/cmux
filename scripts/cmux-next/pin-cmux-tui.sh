@@ -263,6 +263,25 @@ fail_unpublishable_tree() {
   exit 1
 }
 
+# Pins <sha> (whose tree is <key>) to cmux-tui-pin-<key12> and dispatches the
+# cmux-tui artifacts workflow there: what a lane did by hand when no run would
+# publish the tree its gate waits for. The branch is per key, so every gate
+# waiting for the same tree reuses it. Needs `gh` and GH_TOKEN with
+# contents: write and actions: write. Returns 1 when either call fails.
+autopin_tree() {
+  local key="$1" sha="$2" branch repo
+  branch="cmux-tui-pin-${key:0:12}"
+  repo="${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+  # An existing branch (another gate pinned the same tree) is fine.
+  gh api -X POST "repos/$repo/git/refs" -f ref="refs/heads/$branch" -f sha="$sha" >/dev/null 2>&1 \
+    || gh api "repos/$repo/git/ref/heads/$branch" >/dev/null 2>&1 \
+    || return 1
+  # A branch made with the workflow token starts no push run: dispatch one.
+  gh api -X POST "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/dispatches" -f ref="$branch" >/dev/null || return 1
+  echo "::notice title=cmux-tui tree pinned::no cmux-tui artifacts run would publish tree $key, so this gate pinned $sha to $branch and dispatched its artifacts run" >&2
+  echo "cmux-tui tree $key: pinned $sha to $branch" >&2
+}
+
 # Downloads the published sha256 file of tree <key> to <file>, waiting up to
 # CMUX_TUI_TREE_WAIT_SECONDS while the artifacts workflow publishes it. With
 # CMUX_TUI_TREE_PUBLISHER_SHA and GH_TOKEN set, it fails fast when two run
@@ -272,7 +291,7 @@ fail_unpublishable_tree() {
 # key that was found and published to its sha256.
 wait_for_tree() {
   local key="$1" out="$2" legacy="${3:-}" sha_url legacy_url wait_seconds poll_seconds started elapsed
-  local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state=""
+  local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state="" pinned=0
   sha_url="$BASE/tree/$key/cmux-tui-$TARGET.sha256"
   legacy_url=""
   [[ -n "$legacy" && "$legacy" != "$key" ]] && legacy_url="$BASE/tree/$legacy/cmux-tui-$TARGET.sha256"
@@ -314,6 +333,13 @@ wait_for_tree() {
         if [[ "${CMUX_TUI_TREE_ALLOW_SUPERSEDED:-}" == 1 ]]; then
           tree_superseded_by="$(superseded_by "$publisher" "$state")"
           [[ -n "$tree_superseded_by" ]] && return 0
+        fi
+        # CMUX_TUI_TREE_AUTOPIN=1 (the cmux-next gate): publish the tree from
+        # a pin branch, once, then keep waiting for that run.
+        if [[ "${CMUX_TUI_TREE_AUTOPIN:-}" == 1 && "$pinned" == 0 ]] && autopin_tree "$key" "$publisher"; then
+          pinned=1
+          ended_checks=0
+          continue
         fi
         fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
       fi

@@ -547,11 +547,13 @@ jobs:
     if: ${{ !cancelled() && (needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.scheme == 'true') && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: wait for the same-tree cmux-tui
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # actions: read lets the wait read the artifacts runs; contents: read the
-    # branch head that superseded this commit.
+    # actions lets the wait read the artifacts runs and dispatch one; contents
+    # reads the branch head that superseded this commit and creates the
+    # cmux-tui-pin-<key12> branch when no run would publish the tree
+    # (CMUX_TUI_TREE_AUTOPIN). A fork's token stays read-only.
     permissions:
-      actions: read
-      contents: read
+      actions: write
+      contents: write
     timeout-minutes: 50
     outputs:
       superseded: ${{ steps.wait.outputs.superseded }}
@@ -575,8 +577,22 @@ jobs:
         env:
           CMUX_TUI_TREE_WAIT_SECONDS: "2700"
           CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
+          # Two run checks two minutes apart before the gate pins the tree.
+          CMUX_TUI_TREE_RUN_CHECK_SECONDS: "120"
+          # Pin and dispatch an unpublished tree instead of a lane doing it
+          # by hand (publisher run 37505519359, 2026-10-06). Not for forks.
+          CMUX_TUI_TREE_AUTOPIN: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '1' || '' }}
           GH_TOKEN: ${{ github.token }}
-        run: scripts/cmux-next/pin-cmux-tui.sh wait
+        run: |
+          set -euo pipefail
+          # A pull request's merge tree has its base's key unless it changes
+          # cmux-tui (then pull_request_target publishes it and the run check
+          # turns itself off): the base commit is the publisher to watch.
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            CMUX_TUI_TREE_PUBLISHER_SHA="$(git rev-parse HEAD^1)"
+            export CMUX_TUI_TREE_PUBLISHER_SHA
+          fi
+          scripts/cmux-next/pin-cmux-tui.sh wait
 
   # The CmuxNext test targets the change reaches: path_route's swift_filter
   # (an empty filter runs every target, as on a push or a full-ci PR). No
