@@ -973,6 +973,50 @@ struct BrowserReplSessionResourceTests {
         #expect(lines.last == "ran", "\(lines)")
     }
 
+    /// r24 native#2: a fetch result was held at its size before masking,
+    /// and masking a secret's value into its longer `<secret:name>` mark
+    /// grew it, unreserved, while it waited for the session's thread. The
+    /// masked result is held at its own size, and one that does not fit
+    /// the session's fetch body limit is refused.
+    @Test("A fetch result is held at its masked size, and refused when that does not fit")
+    func maskedFetchResultsAreHeldAtTheirMaskedSize() async throws {
+        let value = "Zq7Wk2pX"
+        let server = try BrowserReplTestHTTPServer { path, _, _ in
+            let count = path == "/small" ? 4 : 2000
+            return (200, ["Content-Type": "application/octet-stream"], Data(String(repeating: value + " ", count: count).utf8))
+        }
+        try await server.start()
+        defer { server.stop() }
+        let bundle = try browserReplRepositoryBundle()
+        // The raw result of /large (18 KB of body, about 24 KB as Base64)
+        // fits 64 KiB; masked (about 130 KB) it does not.
+        let session = BrowserReplSession(
+            id: "masked-fetch-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: bundle,
+            driver: ScriptedPageDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.fetchBodyBytes, 64 << 10),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let name = String(repeating: "n", count: 40)
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            secrets.set("\(name)", "\(value)", { domains: ["example.com"] });
+            for (const path of ["/small", "/large"]) {
+              const outcome = await fetch("http://127.0.0.1:\(server.port)" + path)
+                .then(async (r) => "ok " + (await r.text()).includes("<secret:\(name)>"), (e) => "refused " + e.message);
+              console.log(path, outcome);
+            }
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(400)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.first == "/small ok true", "\(lines)")
+        #expect(lines.dropFirst().first?.hasPrefix("/large refused") == true && lines.dropFirst().first?.contains("REPL session limit") == true, "\(lines)")
+        #expect(session.ledger.held(.fetchBodyBytes) == 0)
+    }
+
     /// r18 lane e5: one session protects at most its quota of distinct
     /// files with `secrets.load` (512 by default), so one session cannot
     /// fill the app-wide set alone. Past it the load fails with `limit`,
