@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextApps
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextIcons
 import CmuxNextPages
 import Foundation
 import Synchronization
@@ -196,6 +197,7 @@ extension AppsService: InternalPageProvider {
     var page: InternalPageID { .appStore }
     var title: String { AppStoreModel.title }
     var symbol: String { "bag" }
+    var icon: IconName? { .store }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         if let page = PageFactory(services: services).appsWebPage(route: Self.storeRoute(appID: nil, installed: false)) {
