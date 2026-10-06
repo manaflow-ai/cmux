@@ -40,6 +40,7 @@ export function ChatHeaderTools({
   onChanges,
   onTerminal,
   onBrowser,
+  tabTools = true,
   summary,
   menu,
   onMenuOpen,
@@ -52,6 +53,8 @@ export function ChatHeaderTools({
   onChanges: () => void;
   onTerminal: () => void;
   onBrowser: () => void;
+  /// Terminal and Browser split the chat's tab; Quick Chat's panel has none.
+  tabTools?: boolean;
   summary: ReactNode;
   /// The menu's rows, read when it opens.
   menu: () => ChatMenuItem[];
@@ -78,37 +81,50 @@ export function ChatHeaderTools({
         <Icon name="diff.file" size={15} />
         <Counts additions={changes?.additions ?? 0} deletions={changes?.deletions ?? 0} />
       </button>
-      <button
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={t("header.terminal")}
-        title={withShortcut(t("header.terminal"), terminalKey)}
-        onClick={onTerminal}
-      >
-        <Icon name="terminal" size={15} />
-      </button>
-      <button
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={t("header.browser")}
-        title={withShortcut(t("header.browser"), browserKey)}
-        onClick={onBrowser}
-      >
-        <Icon name="browser" size={15} />
-      </button>
+      {tabTools && (
+        <>
+          <button
+            type="button"
+            className="acpmux-header-tool"
+            aria-label={t("header.terminal")}
+            title={withShortcut(t("header.terminal"), terminalKey)}
+            onClick={onTerminal}
+          >
+            <Icon name="terminal" size={15} />
+          </button>
+          <button
+            type="button"
+            className="acpmux-header-tool"
+            aria-label={t("header.browser")}
+            title={withShortcut(t("header.browser"), browserKey)}
+            onClick={onBrowser}
+          >
+            <Icon name="browser" size={15} />
+          </button>
+        </>
+      )}
       {summary}
-      <ChatMenu items={menu} onOpen={onMenuOpen} expand={expand} onExpanded={onExpanded} />
+      <ChatMenu
+        items={menu}
+        disabled={menu().length === 0}
+        onOpen={onMenuOpen}
+        expand={expand}
+        onExpanded={onExpanded}
+      />
     </div>
   );
 }
 
 function ChatMenu({
   items,
+  disabled,
   onOpen,
   expand,
   onExpanded,
 }: {
   items: () => ChatMenuItem[];
+  /// No rows yet (Quick Chat before its session): the button stays, disabled.
+  disabled?: boolean;
   onOpen?: () => Promise<unknown>;
   expand?: string;
   onExpanded?: () => void;
@@ -151,7 +167,7 @@ function ChatMenu({
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={label}>
+      <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
         <Icon name="action.more" size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">

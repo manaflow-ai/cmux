@@ -166,3 +166,27 @@ test("automation opens the chat menu by its label", async () => {
   await unmount();
   expect(openPicker("Chat actions")).toBe(false);
 });
+
+test("Quick Chat has no tab to split, and its menu waits disabled until it has rows", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () =>
+    root.render(
+      createElement(ChatHeaderTools, {
+        changesOpen: false,
+        onChanges: () => undefined,
+        onTerminal: () => undefined,
+        onBrowser: () => undefined,
+        tabTools: false,
+        summary: null,
+        menu: () => [],
+      }),
+    ),
+  );
+  const labels = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-header-tools > button")].map((button) =>
+    button.getAttribute("aria-label"),
+  );
+  expect(labels).toEqual(["Changes", "Chat actions"]);
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Chat actions"]')!.disabled).toBe(true);
+  await act(async () => root.unmount());
+});

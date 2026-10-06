@@ -1720,12 +1720,23 @@ function AcpmuxPane() {
   // The header's tools and "..." menu run app actions on this chat's tab.
   const runHeaderAction = (id: string, cwd?: string) =>
     ignoreFailure(callNative("pane.action", cwd ? { id, cwd } : { id }));
+  // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
+  const summary = snapshot.summary;
+  const localCwd =
+    summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const tabPinned = useRef(false);
   const readTabState = () =>
     callNative<{ pinned?: boolean }>("pane.tabState").then((state) => {
       tabPinned.current = state?.pinned === true;
     });
   const lastForkSeq = [...snapshot.rows].reverse().find((row) => row.seq !== undefined)?.seq;
+  const copyLinkRow = (link: string): ChatMenuItem => ({
+    key: "copyLink",
+    label: t("chatMenu.copyLink"),
+    icon: "link",
+    shortcutAction: SHORTCUT_ACTIONS.copyTabLink,
+    onSelect: () => ignoreFailure(copyText(link)),
+  });
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const chat: ChatMenuItem[] = [
@@ -1765,6 +1776,9 @@ function AcpmuxPane() {
           ]
         : []),
     ];
+    // Quick Chat's panel is not a tab: only the chat's own actions.
+    if (quick)
+      return chat.length ? [...chat, ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : [])] : [];
     return [
       {
         key: "rename",
@@ -1781,18 +1795,7 @@ function AcpmuxPane() {
         onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
       },
       ...(chat.length ? (["separator", ...chat] as ChatMenuItem[]) : []),
-      ...(link
-        ? ([
-            "separator",
-            {
-              key: "copyLink",
-              label: t("chatMenu.copyLink"),
-              icon: "link",
-              shortcutAction: SHORTCUT_ACTIONS.copyTabLink,
-              onSelect: () => ignoreFailure(copyText(link)),
-            },
-          ] as ChatMenuItem[])
-        : []),
+      ...(link ? (["separator", copyLinkRow(link)] as ChatMenuItem[]) : []),
       "separator",
       {
         key: "moveRight",
@@ -2055,7 +2058,8 @@ function AcpmuxPane() {
                       changes={lastChanges}
                       changesOpen={Boolean(diffView && diffOpen)}
                       onChanges={toggleLastChanges}
-                      onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, snapshot.summary?.cwd)}
+                      tabTools={!quick}
+                      onTerminal={() => runHeaderAction(HEADER_ACTIONS.terminal, localCwd)}
                       onBrowser={() => runHeaderAction(HEADER_ACTIONS.browser)}
                       summary={<SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />}
                       menu={chatMenu}
