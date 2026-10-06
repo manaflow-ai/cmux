@@ -130,3 +130,58 @@ fn subscribe_activity_streams_input_agent_actions_and_people() {
     mux.shutdown();
     server::cleanup(&socket);
 }
+
+/// A cmux.protocol/2 request on `stream`; reads lines until the response with `id`.
+fn v2(stream: &mut BufReader<UnixStream>, id: &str, operation: &str, params: Value) -> Value {
+    send(
+        stream,
+        json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": id,
+            "operation": operation,
+            "params": params,
+            "idempotency_key": format!("activity-{id}"),
+        }),
+    );
+    loop {
+        let value = read(stream);
+        if value["id"] == id {
+            return value;
+        }
+    }
+}
+
+#[test]
+fn v2_terminal_input_counts_only_from_a_persons_attached_client() {
+    let mux = Mux::new("activity-v2-input", SurfaceOptions::default());
+    let surface = mux.new_workspace(Some("work".into()), Some((80, 24))).unwrap();
+    let terminal = surface.terminal_public_id().unwrap().to_string();
+    let socket =
+        std::env::temp_dir().join(format!("cmux-activity-v2-{}", std::process::id())).join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let mut watcher = connect(&socket);
+    let first = rpc(&mut watcher, 1, json!({"cmd": "subscribe-activity"}));
+    assert!(first["data"]["activity"]["last_user_input_at_ms"].is_null());
+    let input = |text: &str| json!({"machine": "current", "session": "current", "terminal": terminal, "text": text});
+
+    // An agent's (automation) v2 input never counts: no client info, not attached.
+    let mut agent = connect(&socket);
+    let reply = v2(&mut agent, "a1", "terminal.input.write", input("echo agent\r"));
+    assert_eq!(reply["ok"], true, "{reply}");
+    // Force an activity event and check the user input time stayed empty.
+    rpc(&mut agent, 2, json!({"cmd": "report-agent", "surface": surface.id, "state": "working", "source": "socket", "session": "s1"}));
+    let after_agent = activity_until(&mut watcher, |a| a["live_agents"] == 1);
+    assert!(after_agent["last_user_input_at_ms"].is_null(), "agent v2 input must not count: {after_agent}");
+
+    // A person's attached client's v2 input counts.
+    let mut person = connect(&socket);
+    rpc(&mut person, 1, json!({"cmd": "set-client-info", "name": "phone", "kind": "tui"}));
+    rpc(&mut person, 2, json!({"cmd": "attach-surface", "surface": surface.id}));
+    let reply = v2(&mut person, "p1", "terminal.input.write", input("ls\r"));
+    assert_eq!(reply["ok"], true, "{reply}");
+    activity_until(&mut watcher, |a| a["last_user_input_at_ms"].as_u64().unwrap_or(0) > 0);
+
+    mux.shutdown();
+    server::cleanup(&socket);
+}
