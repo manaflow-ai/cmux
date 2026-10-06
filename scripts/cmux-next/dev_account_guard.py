@@ -24,8 +24,18 @@ class AccountGuardError(RuntimeError):
 
 
 def verdict(status, expected):
-    """Red stub: every status passes."""
-    return "ok"
+    """One `auth.status` reply judged against `expected` (an email, or None
+    for a run that must stay signed out): "ok", "wait" or "refuse"."""
+    status = status or {}
+    if status.get("restoring"):
+        return "wait"
+    email = status.get("email") or ((status.get("user") or {}).get("email"))
+    signed_in = bool(status.get("signed_in"))
+    if not expected:
+        return "refuse" if signed_in else "ok"
+    if not signed_in or not email:
+        return "wait"
+    return "ok" if email.lower() == expected.lower() else "refuse"
 
 
 def require_account(rpc, expected, timeout=90.0, step=0.5, clock=time.monotonic, sleep=time.sleep):
