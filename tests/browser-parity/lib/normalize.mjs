@@ -37,6 +37,9 @@ function normalizeString(s, origins) {
   // Per-run directory names under the temporary directory.
   out = out.replace(/<TMP>\/(cmux-repl-|parity-oracle-|parity-)[A-Za-z0-9]+/g, "<TMP>/$1XXXX");
   out = out.replace(/<TMP>\/cmux-browser-repl\/[^/\s\]]+/g, "<TMP>/cmux-browser-repl/<SESSION>");
+  // The Rust host's session directory (fs_sandbox.rs: <pid>-<encoded cwd>;
+  // host.rs: roots/<session>) is the same per-session directory.
+  out = out.replace(/<TMP>\/cmux-browser-host\/(?:roots\/)?[^/\s\]]+/g, "<TMP>/cmux-browser-repl/<SESSION>");
   return out;
 }
 
