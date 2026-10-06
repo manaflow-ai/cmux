@@ -29,7 +29,9 @@ enum SidebarNavigation {
     static func step(by offset: Int, _ services: AppServices) {
         guard let window = services.windows.active else { return }
         let model = window.sidebar.model
-        guard let item = model.itemOrder.step(from: model.selectedItem, by: offset, settings(services)) else { return }
+        // From the window state (the truth), not the sidebar's mirror of it, which may lag a turn.
+        let current = selectedItem(page: window.state.page, workspace: window.state.workspaceID, layout: model.layout)
+        guard let item = model.itemOrder.step(from: current, by: offset, settings(services)) else { return }
         activate(item, in: window, services)
     }
 
