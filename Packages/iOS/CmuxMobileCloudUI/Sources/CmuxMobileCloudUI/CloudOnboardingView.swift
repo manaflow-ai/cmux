@@ -76,7 +76,13 @@ public struct CloudOnboardingView: View {
                             defaultValue: "Workspaces keep their terminals, browsers, and coding agents running on a Cloud machine."
                         )
                     ) {
-                        CloudWorkspaceTopologyVisual()
+                        CloudOnboardingGraphic(
+                            topic: .workspace,
+                            accessibilityLabel: L10n.string(
+                                "mobile.cloud.onboarding.workspace.visual",
+                                defaultValue: "A Cloud machine with multiple workspaces, terminals, and browsers"
+                            )
+                        )
                     }
                     .tag(0)
                     CloudOnboardingPage(
@@ -87,7 +93,13 @@ public struct CloudOnboardingView: View {
                         )
                     ) {
                         VStack(spacing: 18) {
-                            CloudVPNTopologyVisual()
+                            CloudOnboardingGraphic(
+                                topic: .vpn,
+                                accessibilityLabel: L10n.string(
+                                    "mobile.cloud.onboarding.vpn.visual",
+                                    defaultValue: "Safari reaches a private Cloud service through the System VPN"
+                                )
+                            )
                             if let systemVPN {
                                 CloudOnboardingVPNControl(controller: systemVPN)
                             }
@@ -101,10 +113,13 @@ public struct CloudOnboardingView: View {
                             defaultValue: "cmux keeps this phone's private key in the Keychain. It never leaves the phone."
                         )
                     ) {
-                        Image(systemName: "key.fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .font(.system(size: 96, weight: .medium))
-                            .foregroundStyle(.tint)
+                        CloudOnboardingGraphic(
+                            topic: .key,
+                            accessibilityLabel: L10n.string(
+                                "mobile.cloud.onboarding.key.title",
+                                defaultValue: "A private key keeps it private"
+                            )
+                        )
                     }
                     .tag(2)
                 }
@@ -167,28 +182,31 @@ private struct CloudOnboardingPage<Visual: View>: View {
         Group {
             if usesWideLayout {
                 HStack(alignment: .center, spacing: verticalSizeClass == .compact ? 16 : 48) {
-                    copy(alignment: .leading)
-                        .frame(maxWidth: verticalSizeClass == .compact ? 280 : 390)
+                    copy(alignment: .center)
+                        .frame(
+                            maxWidth: verticalSizeClass == .compact ? 280 : 390,
+                            alignment: .center
+                        )
                         .layoutPriority(1)
                     visual
                 }
                 .padding(.horizontal, verticalSizeClass == .compact ? 16 : 48)
                 .padding(.vertical, verticalSizeClass == .compact ? 4 : 32)
-                .frame(maxWidth: 980, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: 980, maxHeight: .infinity, alignment: .center)
             } else {
                 VStack(spacing: 18) {
                     copy(alignment: .center)
-                        .frame(maxWidth: 560)
+                        .frame(maxWidth: 560, alignment: .center)
                         .layoutPriority(1)
                     visual
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
                 .padding(.bottom, 8)
-                .frame(maxWidth: 620, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: 620, maxHeight: .infinity, alignment: .center)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .accessibilityElement(children: .combine)
     }
 
@@ -214,77 +232,69 @@ private struct CloudOnboardingPage<Visual: View>: View {
 
     private var visual: some View {
         visualContent
-            .frame(maxWidth: 520, maxHeight: 280)
+            .frame(maxWidth: 520, maxHeight: 280, alignment: .center)
             .accessibilityHidden(true)
     }
 }
 
-private struct CloudWorkspaceTopologyVisual: View {
-    var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "cloud.fill")
-                .font(.system(size: 42, weight: .medium))
-                .foregroundStyle(.tint)
+private struct CloudOnboardingGraphic: View {
+    enum Topic: String {
+        case workspace
+        case vpn
+        case key
 
-            HStack(spacing: 10) {
-                workspaceCard
-                workspaceCard
+        var symbolName: String {
+            switch self {
+            case .workspace: "cloud.fill"
+            case .vpn: "lock.shield.fill"
+            case .key: "key.fill"
             }
         }
-        .frame(maxWidth: 360)
-        .accessibilityLabel(L10n.string(
-            "mobile.cloud.onboarding.workspace.visual",
-            defaultValue: "A Cloud machine with multiple workspaces, terminals, and browsers"
-        ))
-    }
 
-    private var workspaceCard: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "square.stack.3d.up.fill")
-                .font(.title3)
-                .foregroundStyle(.tint)
-            HStack(spacing: 8) {
-                Image(systemName: "terminal.fill")
-                Image(systemName: "globe")
-                Image(systemName: "terminal.fill")
+        var tint: Color {
+            switch self {
+            case .workspace: .blue
+            case .vpn: .green
+            case .key: .purple
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(.quaternary, lineWidth: 1)
         }
     }
-}
 
-private struct CloudVPNTopologyVisual: View {
+    let topic: Topic
+    let accessibilityLabel: String
+
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
     var body: some View {
-        HStack(spacing: 12) {
-            topologyIcon("safari.fill", color: .blue)
-            Image(systemName: "arrow.right")
-                .foregroundStyle(.secondary)
-            topologyIcon("shield.lefthalf.filled", color: .green)
-            Image(systemName: "arrow.right")
-                .foregroundStyle(.secondary)
-            topologyIcon("server.rack", color: .orange)
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(topic.tint.opacity(0.14))
+
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(topic.tint.opacity(0.3), lineWidth: 1)
+
+            Image(systemName: topic.symbolName)
+                .symbolRenderingMode(.hierarchical)
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(topic.tint)
         }
-        .font(.system(size: 30, weight: .medium))
-        .frame(maxWidth: 360)
-        .accessibilityLabel(L10n.string(
-            "mobile.cloud.onboarding.vpn.visual",
-            defaultValue: "Safari reaches a private Cloud service through the System VPN"
-        ))
+        .frame(width: dimension, height: dimension)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(.isImage)
+        .accessibilityIdentifier("CloudOnboardingGraphic-\(topic.rawValue)")
     }
 
-    private func topologyIcon(_ name: String, color: Color) -> some View {
-        Image(systemName: name)
-            .foregroundStyle(color)
-            .frame(width: 64, height: 64)
-            .background(.thinMaterial, in: Circle())
+    private var dimension: CGFloat {
+        verticalSizeClass == .compact ? 112 : 176
+    }
+
+    private var iconSize: CGFloat {
+        verticalSizeClass == .compact ? 42 : 68
+    }
+
+    private var cornerRadius: CGFloat {
+        verticalSizeClass == .compact ? 24 : 30
     }
 }
 
