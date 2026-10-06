@@ -78,6 +78,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         collection = MessagesWindowView.useRecycler ? RowRecycler(frame: cvFrame, layout: layout)
             : UICollectionView(frame: cvFrame, collectionViewLayout: layout)
         super.init(frame: CGRect(origin: .zero, size: Fixture.windowSize))
+        LongTextCenter.handler = { [weak self] lineages, apply in if let self { self.applyLongTextHeights(lineages, apply) } else { apply() } }
         backgroundColor = Fixture.background
         layer.cornerRadius = Fixture.windowCornerRadius
         layer.cornerCurve = .continuous
@@ -237,6 +238,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         guard bounds.size != laidOutSize else { return }
         let widthChanged = laidOutSize.width != 0 && bounds.width != laidOutSize.width
         laidOutSize = bounds.size
+        // Pinned to the bottom, a resize keeps the bottom pinned: the last row stays on the
+        // field while the rows above reflow (macOS 27 Messages, narrow, widen and corner
+        // live-resize references, frame by frame: the last bubble's bottom stays at 971 pt
+        // through every width from 628 to 445, and at height - 70 in a corner drag).
+        // Scrolled up, the first visible row keeps its place.
         let anchor = visibleAnchor()
         layoutFrames()
         compose.layoutIfNeeded()
@@ -280,7 +286,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func restore(_ a: (key: String, y: CGFloat)?) {
         collection.contentInset.top = -minOffset
         if let a, let i = model.index[a.key] {
-            setOffset(layout.contentTop(i) + MessagesWindowView.cvTop - a.y)
+            // The anchored row keeps its place, within the scrollable range: when the content
+            // gets shorter (a wider window) the bottom stays pinned (macOS 27 live resize).
+            setOffset(min(max(layout.contentTop(i) + MessagesWindowView.cvTop - a.y, minOffset), pinnedOffset))
         } else {
             setOffset(pinnedOffset)
         }
@@ -369,9 +377,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         var rowsChange = true, paging = false, animate = true
         switch action {
         case .setDraft, .attach, .removeDraftAttachment, .reply, .closeThread: rowsChange = false
+        case .appendText: animate = false
         case .prependPage, .appendPage, .evict, .replaceWindow: paging = true; animate = false
         default: break
         }
+        RowCell.inPaging = paging
+        defer { RowCell.inPaging = false }
         let send: Bool = { if case .send = action { return true }; return false }()
         let el = element(for: action, me: state.me)
 
@@ -457,9 +468,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func deriveRows(_ action: Action, _ state: AppState, _ old: AppState, _ t: Double) -> [RowSpec] {
         let msgs = state.conversation.messages
         let now = store.date(at: t)
-        guard let from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
+        guard var from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
             return RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width)
         }
+        // A deleted message (tombstone) owns no rows: the cut below must start at a message
+        // that does, or it finds nothing and keeps every row (rows doubled: the scrolled-up
+        // send after a delete showed empty bands, self-test coverage step).
+        while from > 0, msgs[from].deletedAt != nil { from -= 1 }
+        guard from > 0 else { return RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width) }
         let firstID = Substring(msgs[from].id)
         let live = model.rows.filter { !$0.ghost }
         // Rows of `firstID` and later messages are at the tail: scan back from
@@ -495,7 +511,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)
-        case let .edit(id, _), let .unsend(id), let .delete(id):
+        case let .edit(id, _), let .unsend(id), let .delete(id), let .appendText(id, _):
             guard let i = index(id) else { return nil }
             idx.append(i)
             if let r = msgs[i].replyTo, let ri = index(r.messageId) { idx.append(ri) }
@@ -681,6 +697,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                     receiptChanges[key] = (ob, orest)
                     ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, Springs.receiptOldOut, begin: begin)
                     ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, Springs.receiptNewIn, begin: begin)
+                }
+                // A link card replacing its loading square fades in while the rows
+                // make room (Messages: the image comes up from dim, link-url-and-text t+2.0-2.3 s).
+                if case let .part(np) = r.spec.kind, case let .link(_, nt, ns, ni, _) = np.part, !Sizing.linkPending(title: nt, site: ns, image: ni),
+                   let oi = oldSnap.index[key], case let .part(op) = oldSnap.rows[oi].spec.kind,
+                   case let .link(_, ot, os, oimg, _) = op.part, Sizing.linkPending(title: ot, site: os, image: oimg) {
+                    ledger.add(key, .content, "opacity", from: 0.35, to: 1, Springs.ghostOut, begin: begin)
                 }
                 continue
             }
@@ -926,6 +949,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let top = collection.contentOffset.y + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - layout.rowsTop
         let r = model.range(top, top + 1)
         return min(model.count - 1, r.first { model.contentTop($0) + model.rows[$0].spec.height > top } ?? r.lowerBound)
+    }
+    /// True when a link card for `url` is in a visible cell (the LinkPresentation
+    /// fallback runs only for rows on screen).
+    func linkOnScreen(_ url: String) -> Bool {
+        for case let cell as RowCell in collection.visibleCells {
+            if case let .part(pr)? = cell.spec?.kind, case let .link(u, _, _, _, _) = pr.part, u == url { return true }
+        }
+        return false
     }
     var firstVisibleKey: String? { model.count > 0 ? model.rows[firstVisibleRow].spec.key : nil }
 
@@ -1215,5 +1246,176 @@ final class ThreadBackdrop {
         if delay > 0 { f.beginTime = CACurrentMediaTime() + delay; f.fillMode = .backwards }
         f.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(f, forKey: "thread.fade")
+    }
+}
+
+// MARK: Long text heights (LongText.swift, shared/LONG-MESSAGES.md)
+
+extension MessagesWindowView {
+    /// A click on a long message's band: "Show all N lines" expands it, "Show less" folds it
+    /// again (true: handled).
+    func longTextBandHit(_ p: CGPoint) -> Bool {
+        for case let cell as RowCell in collection.visibleCells {
+            guard let t = cell.tiled, t.folded || t.lessBand, let spec = cell.spec, case let .part(row) = spec.kind else { continue }
+            let r = cell.convert(t.bandRect, to: self)
+            guard r.insetBy(dx: 0, dy: -4).contains(p) else { continue }
+            setLongTextFolded(!t.folded, id: row.ref.messageId, key: spec.key)
+            return true
+        }
+        return false
+    }
+
+    func expandLongText(_ id: ID, key: String) { setLongTextFolded(false, id: id, key: key) }
+    func collapseLongText(_ id: ID, key: String) { setLongTextFolded(true, id: id, key: key) }
+
+    /// Fold or expand a long message in place, with the band as the anchor (0 pt):
+    /// - expand: the 41st line takes the "Show all" band's window position; the bubble's
+    ///   bottom and the rows below slide down one viewport with the `scroll.bottom` spring,
+    ///   then a hold covers the rest of the distance (off screen, below);
+    /// - fold: the last line keeps its window position (the "Show less" band was under it);
+    ///   the head, the band and the rows above come down from one viewport above.
+    /// Rows below stay laid out during the slide (recycler overscan), never vanish.
+    func setLongTextFolded(_ fold: Bool, id: ID, key: String) {
+        guard let i0 = model.index[key], case let .part(p0) = model.rows[i0].spec.kind, case let .text(t, _) = p0.part else { return }
+        let width = model.rows[i0].spec.width, lh = Fixture.lineHeight, pad = Fixture.bubblePadY
+        let l = LongTextStore.shared.layout(t, width: width)
+        let head = pad + CGFloat(LongTextFold.headLines) * lh
+        let oldAnchor = fold ? pad + CGFloat(l.totalLines) * lh : head
+        let newAnchor = fold ? pad + CGFloat(LongTextFold.headLines + LongTextFold.tailLines) * lh + LongTextFold.bandHeight : head
+        let oldOffset = collection.contentOffset.y
+        let oldTop = layout.contentTop(i0), oldBody = model.rows[i0].spec.height
+        var before: [String: CGFloat] = [:]
+        for case let c as RowCell in collection.visibleCells {
+            if let k = c.spec?.key { before[k] = c.convert(c.bounds, to: self).minY }
+        }
+        if fold { LongTextFold.collapse(id) } else { LongTextFold.expand(id) }
+        let size = LongTextStore.shared.size(t, width: width, message: id)
+        let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
+            guard r.spec.key == key, case var .part(p) = r.spec.kind else { return r.spec }
+            var s = r.spec
+            p.size = size
+            s.kind = .part(p)
+            s.height = size.height
+            return s
+        }
+        let delta = size.height - oldBody                // > 0 expand, < 0 fold
+        let travel = cvHeight, shown = min(abs(delta), travel), hidden = abs(delta) - shown
+        let el = Springs.scrollToBottom
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let recycler = collection as? RowRecycler
+        let overscan = delta > 0 ? abs(delta) + travel : 0
+        if let recycler, overscan > recycler.overscanBottom { recycler.overscanBottom = overscan }
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, let r = self.collection as? RowRecycler, r.overscanBottom == overscan, overscan > 0 else { return }
+            r.overscanBottom = 0
+        }
+        model.set(rows, at: clock(), ghosts: false)
+        let rebase = layout.rebaseIfNeeded()
+        layout.invalidateLayout()
+        guard let i = model.index[key] else { CATransaction.commit(); return }
+        let newOffset = oldOffset + rebase + (layout.contentTop(i) + newAnchor) - (oldTop + oldAnchor + rebase)
+        collection.contentInset.top = -minOffset
+        setOffset(min(max(newOffset, minOffset), pinnedOffset))
+        // At the very bottom the transcript cannot scroll past its end: the rest of the
+        // anchor shift (a fold: the "Show less" band height) slides with the spring instead.
+        let residual = newOffset - collection.contentOffset.y
+        collection.setNeedsLayout(); collection.layoutIfNeeded()
+        refreshVisibleCells()
+        let begin = Animate.now(layer)
+        /// Presented value starts at model - d: the spring covers the visible part; for an
+        /// expansion a hold covers the far part at the end (off screen below).
+        func slide(_ l: CALayer, _ kp: String, _ model: CGFloat, by d: CGFloat, hold: CGFloat) {
+            if hold != 0 {
+                let h = CABasicAnimation(keyPath: kp)
+                h.isAdditive = true
+                h.fromValue = -Double(hold); h.toValue = -Double(hold)
+                h.beginTime = begin; h.duration = el.settleTime; h.fillMode = .backwards
+                l.add(h, forKey: "fold.hold." + kp)
+            }
+            Animate.scalar(l, kp, from: Double(model - d), to: Double(model), el, begin: begin)
+        }
+        for case let c as RowCell in collection.visibleCells {
+            guard let k = c.spec?.key, let idx = model.index[k] else { continue }
+            if abs(residual) > 0.01 { slide(c.layer, "position.y", c.layer.position.y, by: residual, hold: 0) }
+            if k == key, let tb = c.tiled {
+                for l in [tb.shape, tb.container] {
+                    if delta > 0 {
+                        slide(l, "bounds.size.height", l.bounds.height, by: shown, hold: hidden)
+                        slide(l, "position.y", l.position.y, by: shown / 2, hold: hidden / 2)
+                    } else {
+                        slide(l, "bounds.size.height", l.bounds.height, by: -shown, hold: 0)
+                        slide(l, "position.y", l.position.y, by: shown / 2, hold: 0)
+                    }
+                }
+                if delta < 0 { for l in [tb.headClip, tb.band] { slide(l, "position.y", l.position.y, by: shown, hold: 0) } }
+                continue
+            }
+            if delta > 0, idx > i, let old = before[k] {
+                // Below the message: from its old window position down.
+                let d = c.convert(c.bounds, to: self).minY - old
+                if d > 0.5 { slide(c.layer, "position.y", c.layer.position.y, by: min(d, travel), hold: max(0, d - travel)) }
+            } else if delta < 0, idx < i {
+                // Above the message: in from one viewport above.
+                slide(c.layer, "position.y", c.layer.position.y, by: shown, hold: 0)
+            }
+        }
+        updateThumb()
+        CATransaction.commit()
+        userScrolled()
+    }
+
+    /// Measured line counts replace estimates in long text rows, without animation.
+    /// Pinned stays pinned. Scrolled up, the text under the top of the viewport keeps its
+    /// window position: inside a long row the anchor is a text position (block start byte
+    /// and offset), else the first visible row, so corrections move only content outside.
+    func applyLongTextHeights(_ lineages: Set<Int>, _ apply: () -> Void) {
+        guard model.count > 0 else { apply(); return }
+        let pinned = store.state.ui.scroll.pinnedToBottom && store.state.atNewest
+        let oldOffset = collection.contentOffset.y
+        let i0 = firstVisibleRow
+        let key0 = model.rows[i0].spec.key
+        let oldTop = layout.contentTop(i0)
+        var inner: (LongTextLayout, LongTextLayout.Anchor, CGFloat)?
+        let textTop = Fixture.bubblePadY
+        if case let .part(p) = model.rows[i0].spec.kind, case let .text(t, _) = p.part, p.text == nil {
+            let l = LongTextStore.shared.layout(t, width: model.rows[i0].spec.width)
+            let y = oldOffset + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - oldTop - textTop
+            inner = (l, l.anchor(atTextY: y), y)
+        }
+        apply()
+        var changed = false
+        let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
+            guard case var .part(p) = r.spec.kind, case let .text(t, _) = p.part, p.text == nil,
+                  let lin = LongTextStore.shared.lineage(t), lineages.contains(lin) else { return r.spec }
+            let size = LongTextStore.shared.size(t, width: r.spec.width, message: p.ref.messageId)
+            guard size != p.size else { return r.spec }
+            changed = true
+            var s = r.spec
+            p.size = size
+            s.kind = .part(p)
+            s.height = size.height
+            return s
+        }
+        guard changed else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        model.set(rows, at: clock(), ghosts: false)
+        let rebase = layout.rebaseIfNeeded()
+        layout.invalidateLayout()
+        var newOffset = oldOffset + rebase
+        if pinned {
+            newOffset = pinnedOffset
+        } else if let i = model.index[key0] {
+            newOffset += layout.contentTop(i) - (oldTop + rebase)
+            if let (old, a, y) = inner, case let .part(p) = model.rows[i].spec.kind, case let .text(t, _) = p.part {
+                let l = LongTextStore.shared.layout(t, width: model.rows[i].spec.width)
+                newOffset += (l === old ? old.textY(of: a) : l.textY(of: a)) - y
+            }
+        }
+        collection.contentInset.top = -minOffset
+        setOffset(min(max(newOffset, minOffset), pinnedOffset))
+        collection.setNeedsLayout(); collection.layoutIfNeeded()
+        refreshVisibleCells()
+        updateThumb()
+        CATransaction.commit()
     }
 }

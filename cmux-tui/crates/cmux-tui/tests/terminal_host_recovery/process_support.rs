@@ -1,4 +1,5 @@
-//! Process and terminal-host liveness waits shared by the recovery tests.
+//! Process and terminal-host liveness waits shared by the recovery tests,
+//! and the empty-workspace setup most of them start from.
 
 use super::*;
 
@@ -165,4 +166,22 @@ fn process_stopped(pid: libc::pid_t) -> bool {
         .output()
         .ok()
         .is_some_and(|out| String::from_utf8_lossy(&out.stdout).trim_start().starts_with('T'))
+}
+
+/// Creates an empty workspace with `workspace.create` under idempotency key
+/// `key` and returns its id.
+pub(crate) fn create_empty_workspace(socket: &Path, key: &str, name: &str) -> String {
+    let created = resource_request(
+        socket,
+        key,
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":name,
+            "initial_content":"empty",
+        }),
+        Some(key),
+    );
+    created["value"]["workspace_id"].as_str().unwrap().to_string()
 }
