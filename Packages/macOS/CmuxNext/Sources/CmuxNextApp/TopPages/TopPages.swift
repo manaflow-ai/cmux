@@ -1,4 +1,6 @@
 import CmuxNextActions
+import CmuxNextBrowser
+import CmuxNextDaemon
 
 /// The one path that opens a top page (TOP-SECTION-ITEMS-ARE-PAGES): the
 /// sidebar's top items, Cmd-1, `home.show` and `appStore.show` all come
@@ -41,15 +43,45 @@ enum TopPages {
         }
     }
 
-    /// RED stub.
+    /// Leaves the active window's top page for its workspace at once (a
+    /// History or Bookmarks row opens there). True when a page was left.
     @discardableResult
-    static func leave(_ services: AppServices) -> Bool { false }
+    static func leave(_ services: AppServices) -> Bool {
+        guard let controller = services.windows.active, controller.state.page != nil else { return false }
+        controller.state.page = nil
+        services.windows.recordSaver.stateDidChange(controller.state)
+        controller.showWorkspace(requested: controller.state.workspaceID)
+        return true
+    }
 
-    /// RED stub.
-    static func bookmarkProfile(of window: WindowController, services: AppServices) -> String { "" }
+    /// The pages History and Bookmarks show on top (Q3).
+    static func registerProviders(_ services: AppServices) {
+        services.pages.register(HistoryTopPage(services: services))
+        services.pages.register(BookmarksTopPage(services: services))
+    }
 
-    /// RED stub.
-    static func bookmarkTab(of window: WindowController, services: AppServices) -> String? { nil }
+    /// The bookmarks profile of a Bookmarks top page: the browser profile
+    /// of the window's current workspace (its last-focused browser tab),
+    /// else the default profile.
+    static func bookmarkProfile(of window: WindowController, services: AppServices) -> String {
+        guard let tab = bookmarkTab(of: window, services: services) else { return BrowserProfileRecord.defaultID }
+        return services.bookmarks.profile(ofTab: tab)
+    }
+
+    /// The browser tab whose profile the window's workspace uses: the
+    /// selected browser tab of the most recently focused pane, else any
+    /// browser tab of the workspace, most recently focused panes first.
+    static func bookmarkTab(of window: WindowController, services: AppServices) -> String? {
+        guard let id = window.state.workspaceID, let (workspace, _) = services.machines.workspace(id: id) else { return nil }
+        let panes = workspace.screens.flatMap(\.panes)
+        let recent = (window.focus.state.history[id] ?? []).compactMap { key in panes.first { $0.id == key } }
+        let ordered = recent + panes.filter { pane in !recent.contains { $0 === pane } }
+        for pane in ordered {
+            if let selected = window.state.selection.selection(in: pane.id),
+               let tab = pane.tabs.first(where: { $0.id == selected }), tab.kind == .browser { return tab.id }
+        }
+        return ordered.lazy.flatMap(\.tabs).first { $0.kind == .browser }?.id
+    }
 
     /// The provider of internal page `id`: a registered one, else an app's
     /// page registered on first use (CodeRouter, `app:<id>` pages).
