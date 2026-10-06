@@ -1131,7 +1131,7 @@ while no REPL `fs.rename` and no browser file grant runs, and only while
 the temporary entry is still the regular file the copy wrote (same device
 and inode, not followed); a link moved in for it makes the copy fail with
 `EBUSY`, never publishes the link. The temporary file (named
-`.<name>.cmux-copy-<UUID>`) is made with no permissions and gets the
+`.<name>.cmux-copy-<UUID>`) is made write-only (mode 0200) and gets the
 source's mode only after the copy checked that no `secrets.load` protected
 the source meanwhile; no session's `fs` reaches a path through such a name
 (`EACCES` for every op), `readdir` leaves it out and a tab does not load it,

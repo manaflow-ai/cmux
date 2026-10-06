@@ -338,12 +338,14 @@ public struct BrowserReplFileSystem: Sendable {
             // that no secrets.load protected the source meanwhile, the staging
             // file holds bytes no one may read: no session's fs reaches its
             // name (BrowserReplFileSandbox.isCopyStagingName: refused, never
-            // listed, no tab loads it), and it is made with no permissions,
-            // so nothing that opens files by path (a page's file read) can
-            // open it; the write goes through the descriptor opened here.
+            // listed, no tab loads it), and it is made write-only for its
+            // owner (0200: extended attributes need write access at each
+            // call), so nothing that opens files by path for reading (a
+            // page's file read) can open it; the write goes through the
+            // descriptor opened here.
             let staging = BrowserReplFileSandbox.copyStagingName(for: name)
             let (descriptor, number) = try destination.withinRoot(syscall: "copyfile", display: pair) { fd in
-                let opened = openat(fd, staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0)
+                let opened = openat(fd, staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o200)
                 return (opened, errno)
             }
             guard descriptor >= 0 else { throw Self.posixError(number, syscall: "copyfile", display: pair) }
