@@ -4,6 +4,7 @@ public import CoreGraphics
 
 nonisolated enum AppearanceSettingsSchema {
     static var descriptors: [SettingDescriptor] {
+        let uiScale = UIScaleSetting()
         let look = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         let panes = SettingsText.keyed("settings.group.panes", "Panes")
         let ring = SettingsText.keyed("settings.group.focusRing", "Focus Ring")
@@ -105,12 +106,12 @@ nonisolated enum AppearanceSettingsSchema {
                 default: "compact", keywords: ["size", "spacing"]
             ),
             SettingDescriptor(
-                UIScaleSetting.configPath, section: .appearance, group: look,
+                uiScale.configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
                 help: SettingsText.keyed("settings.appearance.uiScale.help",
                                         "Scale cmux chrome and built-in pages together. Terminal text keeps its own size."),
-                kind: .number(SettingNumber(UIScaleSetting.range, step: UIScaleSetting.step, unit: .fraction, placeholder: UIScaleSetting.fallback)),
-                default: .number(UIScaleSetting.fallback),
+                kind: .number(SettingNumber(uiScale.range, step: uiScale.step, unit: .fraction, placeholder: uiScale.fallback)),
+                default: .number(uiScale.fallback),
                 keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
             ),
             SettingDescriptor(

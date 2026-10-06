@@ -5,6 +5,8 @@ import Foundation
 import Testing
 
 @Suite struct UIScaleSettingsTests {
+    private let setting = UIScaleSetting()
+
     private func parse(_ text: String) throws -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
     }
@@ -20,9 +22,9 @@ import Testing
     }
 
     @Test func appearanceSchemaExposesTheScale() {
-        let descriptor = SettingsSchema.descriptor(for: UIScaleSetting.configPath)
-        #expect(descriptor?.kind == .number(SettingNumber(UIScaleSetting.range, step: UIScaleSetting.step, unit: .fraction, placeholder: 1)))
-        #expect(descriptor?.defaultValue == .number(UIScaleSetting.fallback))
+        let descriptor = SettingsSchema.descriptor(for: setting.configPath)
+        #expect(descriptor?.kind == .number(SettingNumber(setting.range, step: setting.step, unit: .fraction, placeholder: 1)))
+        #expect(descriptor?.defaultValue == .number(setting.fallback))
         #expect(SettingsSchema.agentSettableKeys.contains("app.uiScale"))
     }
 

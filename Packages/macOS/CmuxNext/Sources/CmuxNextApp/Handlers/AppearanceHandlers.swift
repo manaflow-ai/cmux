@@ -11,6 +11,7 @@ import CmuxNextSettings
 /// reapplies the same value.
 enum AppearanceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let uiScale = UIScaleSetting()
         // Customize Appearance… opens Settings on Appearance (R82: the floating studio panel went
         // with the Swift Settings UI; the page's sliders preview live in every window).
         registry.bind("appearance.customize", run: { invocation in
@@ -27,8 +28,8 @@ enum AppearanceHandlers {
         }
         registry.bind("appearance.interfaceSize.increase", run: { _ in try stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in try stepInterfaceSize(by: -1, context) })
-        registry.bind("appearance.uiScale.increase", run: { _ in try stepUIScale(by: UIScaleSetting.step, context) })
-        registry.bind("appearance.uiScale.decrease", run: { _ in try stepUIScale(by: -UIScaleSetting.step, context) })
+        registry.bind("appearance.uiScale.increase", run: { _ in try stepUIScale(by: uiScale.step, context) })
+        registry.bind("appearance.uiScale.decrease", run: { _ in try stepUIScale(by: -uiScale.step, context) })
         registry.bind("appearance.uiScale.reset", run: { _ in try resetUIScale(context) })
         registry.bind("appearance.paneBorder.toggle", run: { _ in try togglePaneBorder(context) })
         registry.bind("appearance.panePadding.toggle", run: { _ in try togglePanePadding(context) })
@@ -53,7 +54,7 @@ enum AppearanceHandlers {
     }
 
     private static let fontSizePath = InterfaceSizeSetting().configPath
-    private static let uiScalePath = UIScaleSetting.configPath
+    private static let uiScalePath = UIScaleSetting().configPath
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
         try requireUnmanaged(["appearance", "density"], context)
@@ -164,7 +165,7 @@ enum AppearanceHandlers {
 
     private static func resetUIScale(_ context: AppActionContext) throws {
         try requireUnmanaged(uiScalePath, context)
-        context.design.uiScale = CGFloat(UIScaleSetting.fallback)
+        context.design.uiScale = CGFloat(UIScaleSetting().fallback)
         context.writeSetting("reset interface scale", uiScalePath, nil, reloadOnFailure: true)
     }
 
