@@ -145,6 +145,16 @@ if [ -f "$output" ]; then
 fi
   printf '%s\t%s\tcontinue-at=%s\tresume-offset=%s\tmax-time=%s\n' "$url" "$output" "$continue_at" "$resume_offset" "$max_time" >> "${CURL_LOG:?}"
 
+  if [ "${FAKE_CURL_MODE:-}" = "all-fail" ]; then
+    exit 6
+  fi
+  if [ "${FAKE_CURL_MODE:-}" = "stall" ] && [ -n "${FAKE_CURL_CLOCK_FILE:-}" ] && [[ "$url" != *official.invalid* ]]; then
+    # A mirror that accepts the connection and then stalls uses its whole
+    # time limit before it fails.
+    now="$(cat "$FAKE_CURL_CLOCK_FILE")"
+    printf '%s\n' "$((now + max_time))" > "$FAKE_CURL_CLOCK_FILE"
+    exit 28
+  fi
   if [ -n "${FAKE_CURL_CLOCK_FILE:-}" ]; then
     elapsed=6
     if [ "$max_time" -lt "$elapsed" ]; then
@@ -216,6 +226,7 @@ run_install() {
     ZIG_SECONDARY_MIRROR_URL="https://secondary.invalid/$ZIG_NAME.tar.xz" \
     ZIG_TERTIARY_MIRROR_URL="https://tertiary.invalid/$ZIG_NAME.tar.xz" \
     ZIG_OFFICIAL_URL="https://official.invalid/$ZIG_NAME.tar.xz" \
+    ZIG_TARBALL_CACHE_DIR="${CACHE_DIR:-}" \
     "$SCRIPT" > "$output_file" 2>&1
 }
 
@@ -340,5 +351,40 @@ if [ ! -x "$RUNNER_TEMP/$ZIG_NAME/zig" ]; then
   echo "FAIL: mirror fallback did not install the verified Zig archive" >&2
   exit 1
 fi
+
+# FLAKE-ZIG-MIRRORS-502 (2026-10-06): one stalled mirror used the whole 480 s
+# budget, so the official URL was never tried. Each source gets a fair share
+# of what is left: three stalled mirrors cannot starve the official URL.
+STALL_RUNNER_TEMP="$TMP_DIR/stall-runner-temp"; STALL_OUTPUT="$TMP_DIR/stall-output"; STALL_LOG="$TMP_DIR/stall-curl.log"
+STALL_CLOCK="$TMP_DIR/stall-clock"; CACHE_DIR="$TMP_DIR/zig-tarball-cache"
+printf '0\n' > "$STALL_CLOCK"
+if ! run_install stall "$STALL_RUNNER_TEMP" "$STALL_OUTPUT" "$STALL_LOG" 480 "$STALL_CLOCK"; then
+  cat "$STALL_OUTPUT"; cat "$STALL_LOG" 2>/dev/null || true
+  echo "FAIL: three stalled mirrors starved the official URL" >&2
+  exit 1
+fi
+grep -q 'official.invalid' "$STALL_LOG" || { cat "$STALL_LOG"; echo "FAIL: the official URL was never tried" >&2; exit 1; }
+[ "$(cat "$STALL_CLOCK")" -le 480 ] || { echo "FAIL: the downloads ran past the budget" >&2; exit 1; }
+# The verified tarball is kept in the cache for the next job.
+cmp -s "$ARCHIVE" "$CACHE_DIR/$ZIG_NAME.tar.xz" || { echo "FAIL: the verified tarball was not cached" >&2; exit 1; }
+
+# A verified cached tarball installs without any download, even when every
+# source fails.
+CACHED_RUNNER_TEMP="$TMP_DIR/cached-runner-temp"; CACHED_OUTPUT="$TMP_DIR/cached-output"; CACHED_LOG="$TMP_DIR/cached-curl.log"
+if ! run_install all-fail "$CACHED_RUNNER_TEMP" "$CACHED_OUTPUT" "$CACHED_LOG"; then
+  cat "$CACHED_OUTPUT"; echo "FAIL: a verified cached tarball did not install" >&2; exit 1
+fi
+[ ! -s "$CACHED_LOG" ] || { cat "$CACHED_LOG"; echo "FAIL: a cached tarball was downloaded again" >&2; exit 1; }
+[ -x "$CACHED_RUNNER_TEMP/$ZIG_NAME/zig" ] || { echo "FAIL: the cached tarball was not installed" >&2; exit 1; }
+
+# A cached tarball with the wrong bytes is discarded, never installed.
+printf 'tampered\n' > "$CACHE_DIR/$ZIG_NAME.tar.xz"
+TAMPER_RUNNER_TEMP="$TMP_DIR/tamper-runner-temp"; TAMPER_OUTPUT="$TMP_DIR/tamper-output"; TAMPER_LOG="$TMP_DIR/tamper-curl.log"
+if ! run_install fallback "$TAMPER_RUNNER_TEMP" "$TAMPER_OUTPUT" "$TAMPER_LOG"; then
+  cat "$TAMPER_OUTPUT"; echo "FAIL: a tampered cache stopped the install instead of a fresh download" >&2; exit 1
+fi
+grep -q 'invalid' "$TAMPER_LOG" || { echo "FAIL: a tampered cache was used without a download" >&2; exit 1; }
+cmp -s "$ARCHIVE" "$CACHE_DIR/$ZIG_NAME.tar.xz" || { echo "FAIL: the tampered cache was not replaced by the verified tarball" >&2; exit 1; }
+unset CACHE_DIR
 
 echo "PASS: Zig downloads honor the invocation budget, resume on one mirror, and use isolated partial files for fallback mirrors"
