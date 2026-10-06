@@ -10,20 +10,27 @@ import {
   resolveProPlanStatus,
 } from "../../services/billing/pro";
 import { isGoPlanEnabled } from "../../services/billing/goPlanFlag";
-import { PricingView } from "../components/pricing-checkout";
+import {
+  PricingIntervalProvider,
+  PricingView,
+} from "../components/pricing-checkout";
+import { billingInterval } from "../../services/billing/plans";
 import { AppPricingContent, type AppPlanSnapshot } from "./pricing-content";
 import { AppPricingFallback, unknownPlan } from "./pricing-fallback";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type PricingQuery = Record<string, string | string[] | undefined>;
 
-export default function AppPricingPage({
+export default async function AppPricingPage({
   searchParams,
 }: {
   searchParams: Promise<PricingQuery>;
 }) {
+  const initialInterval = billingInterval(
+    firstParam((await searchParams).interval),
+  );
   return (
-    <PricingView surface="app_pricing">
+    <PricingView surface="app_pricing" interval={initialInterval}>
       <Suspense fallback={<AppPricingFallback />}>
         <RequestPricing searchParams={searchParams} />
       </Suspense>
@@ -61,15 +68,17 @@ async function RequestPricing({
     </Suspense>
   );
   return (
-    <AppPricingContent
-      {...fallback}
-      personalization={{
-        individual: personalize("individual"),
-        team: personalize("team"),
-        comparison: personalize("comparison"),
-        banner: personalize("banner"),
-      }}
-    />
+    <PricingIntervalProvider initialInterval={billingInterval(firstParam(params.interval))}>
+      <AppPricingContent
+        {...fallback}
+        personalization={{
+          individual: personalize("individual"),
+          team: personalize("team"),
+          comparison: personalize("comparison"),
+          banner: personalize("banner"),
+        }}
+      />
+    </PricingIntervalProvider>
   );
 }
 
@@ -172,4 +181,9 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
     billingSource: status.billingSource,
     email: user.primaryEmail,
   };
+}
+
+function firstParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
 }

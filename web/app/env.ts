@@ -292,6 +292,7 @@ export const env = createEnv({
       "STRIPE_PRO_YEARLY_480_PRICE_ID",
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_PRO_YEARLY_550_PRICE_ID: z.string().min(1).optional(),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: z.string().min(1).optional(),
     STRIPE_GO_MONTHLY_10_PRICE_ID: z.string().min(1).optional(),
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
@@ -307,6 +308,7 @@ export const env = createEnv({
       "STRIPE_TEAM_YEARLY_576_PRICE_ID",
     ),
     STRIPE_TEAM_YEARLY_576_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_TEAM_YEARLY_660_PRICE_ID: z.string().min(1).optional(),
     CMUX_APP_PRICING_CHECKOUT_URL: z.string().url().optional(),
     CMUX_APP_PRICING_RELAY_SECRET: z.string().min(32).optional(),
     // App Store Connect API for server-side TestFlight enrollment. Optional:
@@ -523,6 +525,7 @@ export const env = createEnv({
       process.env.STRIPE_PRO_YEARLY_288_PRICE_ID,
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
+    STRIPE_PRO_YEARLY_550_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_550_PRICE_ID),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: trimEnv(process.env.STRIPE_MAX_MONTHLY_200_PRICE_ID),
     STRIPE_GO_MONTHLY_10_PRICE_ID: trimEnv(process.env.STRIPE_GO_MONTHLY_10_PRICE_ID),
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
@@ -532,6 +535,7 @@ export const env = createEnv({
     STRIPE_TEAM_MONTHLY_60_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_60_PRICE_ID),
     STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
     STRIPE_TEAM_YEARLY_576_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_576_PRICE_ID),
+    STRIPE_TEAM_YEARLY_660_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_660_PRICE_ID),
     CMUX_APP_PRICING_CHECKOUT_URL: trimEnv(
       process.env.CMUX_APP_PRICING_CHECKOUT_URL,
     ),

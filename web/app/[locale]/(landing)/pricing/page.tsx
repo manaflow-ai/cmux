@@ -56,6 +56,9 @@ import {
 } from "../../../components/pricing-shared";
 import {
   PricingCheckoutButton,
+  PricingIntervalProvider,
+  PricingIntervalSelector,
+  PricingIntervalValue,
   PricingView,
 } from "../../../components/pricing-checkout";
 import { PricingAudienceSelector } from "../../../components/pricing-audience-selector";
@@ -64,6 +67,7 @@ import {
   GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
+  billingInterval,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
@@ -124,10 +128,11 @@ export default async function PricingPage({
   searchParams?: Promise<PricingQuery>;
 }) {
   const { locale } = await params;
+  const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const fallback = {
     t,
-    query: {},
+    query,
     snapshot: unknownPlan,
     goPlanEnabled: false,
     pending: true,
@@ -142,15 +147,20 @@ export default async function PricingPage({
     </Suspense>
   );
   return (
-    <PricingView surface="public_pricing">
-      <PricingContent
-        {...fallback}
-        personalization={{
-          individual: personalize("individual"),
-          team: personalize("team"),
-          comparison: personalize("comparison"),
-        }}
-      />
+    <PricingView
+      surface="public_pricing"
+      interval={billingInterval(firstParam(query.interval))}
+    >
+      <PricingIntervalProvider initialInterval={billingInterval(firstParam(query.interval))}>
+        <PricingContent
+          {...fallback}
+          personalization={{
+            individual: personalize("individual"),
+            team: personalize("team"),
+            comparison: personalize("comparison"),
+          }}
+        />
+      </PricingIntervalProvider>
     </PricingView>
   );
 }
@@ -249,11 +259,23 @@ function PricingContent({
       : MAX_CHECKOUT_URL,
     attribution,
   );
-  const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
-  const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
+  const proCheckoutHrefs = {
+    month: withCheckoutInterval(proCheckoutURL, "month"),
+    year: withCheckoutInterval(proCheckoutURL, "year"),
+  };
+  const teamCheckoutHrefs = {
+    month: withCheckoutInterval(teamCheckoutURL, "month"),
+    year: withCheckoutInterval(teamCheckoutURL, "year"),
+  };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
+  const proAnnualComparePrice = t("annualComparePrice", {
+    monthly: PRO_PRICING_USD.year.monthlyEquivalent,
+  });
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
     monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
+  });
+  const teamAnnualComparePrice = t("teamAnnualComparePrice", {
+    monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
   });
 
   const freeFeatures = t.raw("free.features") as string[];
@@ -350,8 +372,18 @@ function PricingContent({
       {/* Pro */}
       <PlanCard
         name={t("pro.name")}
-        price={`$${PRO_PRICING_USD.month.billedAmount}`}
-        period={t("perMonth")}
+        price={
+          <PricingIntervalValue
+            monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
+            annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
+          />
+        }
+        period={
+          <PricingIntervalValue
+            monthly={t("perMonth")}
+            annual={t("perMonthBilledYearly")}
+          />
+        }
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
@@ -370,7 +402,7 @@ function PricingContent({
           </SecondaryLink>
         ) : (
           <ProCtaLink
-            checkoutHref={proCheckoutHref}
+            checkoutHrefs={proCheckoutHrefs}
             requiresSignIn={!pending && !snapshot.authenticated}
           >
             {t("pro.cta")}
@@ -431,9 +463,19 @@ function PricingContent({
       prices={{
         free: t("free.price"),
         go: `$${GO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
-        pro: `$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
+        pro: (
+          <PricingIntervalValue
+            monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
+            annual={proAnnualComparePrice}
+          />
+        ),
         max: maxComparePrice,
-        team: teamMonthlyComparePrice,
+        team: (
+          <PricingIntervalValue
+            monthly={teamMonthlyComparePrice}
+            annual={teamAnnualComparePrice}
+          />
+        ),
         enterprise: t("enterprise.price"),
       }}
       actions={{
@@ -450,7 +492,7 @@ function PricingContent({
           </SecondaryLink>
         ) : (
           <ProCtaLink
-            checkoutHref={proCheckoutHref}
+            checkoutHrefs={proCheckoutHrefs}
             requiresSignIn={!pending && !snapshot.authenticated}
             size="compact"
             location="pricing_compare_header"
@@ -477,7 +519,7 @@ function PricingContent({
         ),
         team: (
           <PricingCheckoutButton
-            href={teamCheckoutHref}
+            hrefs={teamCheckoutHrefs}
             requiresSignIn={!pending && !snapshot.authenticated}
             location="pricing_compare_header"
             plan="team"
@@ -505,11 +547,21 @@ function PricingContent({
       {/* Team */}
       <PlanCard
         name={t("team.name")}
-        price={`$${TEAM_PRICING_USD.month.billedAmount}`}
-        period={t("perUserMonth")}
+        price={
+          <PricingIntervalValue
+            monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
+            annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
+          />
+        }
+        period={
+          <PricingIntervalValue
+            monthly={t("perUserMonth")}
+            annual={t("perUserMonthBilledYearly")}
+          />
+        }
       >
         <PricingCheckoutButton
-          href={teamCheckoutHref}
+          hrefs={teamCheckoutHrefs}
           requiresSignIn={!pending && !snapshot.authenticated}
           location="pricing_page"
           plan="team"
@@ -549,6 +601,15 @@ function PricingContent({
         <>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
+          <PricingIntervalSelector
+            billingPeriodLabel={t("billingPeriod")}
+            monthlyLabel={t("monthly")}
+            annualLabel={t("annual")}
+            savingsLabel={t("saveAnnual", {
+              discount: PRO_PRICING_USD.year.discountPercent,
+            })}
+            surface="public_pricing"
+          />
           <PricingAudienceSelector
             individualLabel={t("audience.individual")}
             teamLabel={t("audience.team")}
@@ -681,4 +742,9 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
   };
+}
+
+function firstParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
 }

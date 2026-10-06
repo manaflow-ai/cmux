@@ -8,6 +8,8 @@ export type PlanPrice = {
   lookupKey: string;
 };
 
+type PlanPricing = Record<BillingInterval, PlanPrice>;
+
 /** A plan sold on one billing interval only; `year` is deliberately absent. */
 type MonthlyOnlyPlanPricing = Record<"month", PlanPrice>;
 
@@ -22,7 +24,13 @@ export const PRO_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-pro-monthly-50",
   },
-} as const satisfies MonthlyOnlyPlanPricing;
+  year: {
+    billedAmount: 550,
+    monthlyEquivalent: 45.83,
+    discountPercent: 8.33,
+    lookupKey: "cmux-pro-yearly-550",
+  },
+} as const satisfies PlanPricing;
 
 /** Entry Cloud plan, billed monthly with a small capped VM allowance. */
 export const GO_PRICING_USD = {
@@ -41,7 +49,13 @@ export const TEAM_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-team-monthly-60",
   },
-} as const satisfies MonthlyOnlyPlanPricing;
+  year: {
+    billedAmount: 660,
+    monthlyEquivalent: 55,
+    discountPercent: 8.33,
+    lookupKey: "cmux-team-yearly-660",
+  },
+} as const satisfies PlanPricing;
 
 /**
  * Max is a personal plan above Pro: the same machine count, plus the 16, 24,
@@ -57,7 +71,7 @@ export const MAX_PRICING_USD = {
   },
 } as const satisfies MonthlyOnlyPlanPricing;
 
-/** Every new subscription is monthly. Historical annual subscriptions remain valid. */
+/** New subscriptions default to monthly when no interval is selected. */
 export const CHECKOUT_BILLING_INTERVAL = "month" as const;
 export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];

@@ -40,7 +40,12 @@ import {
   type CompareRow,
   type FaqItem,
 } from "../components/pricing-shared";
-import { PricingCheckoutButton } from "../components/pricing-checkout";
+import {
+  PricingCheckoutButton,
+  PricingIntervalSelector,
+  PricingIntervalValue,
+  type PricingCheckoutHrefs,
+} from "../components/pricing-checkout";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
@@ -115,20 +120,38 @@ export function AppPricingContent({
     [CHECKOUT_CLIENT_PARAM]: appStorePaymentGated ? "ios" : "mac",
     ...checkoutAttributionParamsFrom(params),
   };
-  const proCheckoutHref = appPricingCheckoutURL(
-    "pro",
-    requestOrigin,
-    cmuxScheme,
-    "month",
-    attribution,
-  );
-  const teamCheckoutHref = appPricingCheckoutURL(
-    "team",
-    requestOrigin,
-    cmuxScheme,
-    "month",
-    attribution,
-  );
+  const proCheckoutHrefs: PricingCheckoutHrefs = {
+    month: appPricingCheckoutURL(
+      "pro",
+      requestOrigin,
+      cmuxScheme,
+      "month",
+      attribution,
+    ),
+    year: appPricingCheckoutURL(
+      "pro",
+      requestOrigin,
+      cmuxScheme,
+      "year",
+      attribution,
+    ),
+  };
+  const teamCheckoutHrefs: PricingCheckoutHrefs = {
+    month: appPricingCheckoutURL(
+      "team",
+      requestOrigin,
+      cmuxScheme,
+      "month",
+      attribution,
+    ),
+    year: appPricingCheckoutURL(
+      "team",
+      requestOrigin,
+      cmuxScheme,
+      "year",
+      attribution,
+    ),
+  };
   // Max is monthly only: one checkout link, no interval parameter.
   const maxCheckoutHref =
     snapshot.isPro && !isMax
@@ -170,6 +193,12 @@ export function AppPricingContent({
     pricing.teamMonthlyComparePrice,
     { monthly: TEAM_PRICING_USD.month.monthlyEquivalent },
   );
+  const proAnnualComparePrice = pricingMessage(pricing.annualComparePrice, {
+    monthly: PRO_PRICING_USD.year.monthlyEquivalent,
+  });
+  const teamAnnualComparePrice = pricingMessage(pricing.teamAnnualComparePrice, {
+    monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
+  });
 
   const individual = (
     <PricingCategorySection
@@ -252,8 +281,18 @@ export function AppPricingContent({
 
       <PlanCard
         name={pricing.pro.name}
-        price={`$${PRO_PRICING_USD.month.billedAmount}`}
-        period={pricing.perMonth}
+        price={
+          <PricingIntervalValue
+            monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
+            annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
+          />
+        }
+        period={
+          <PricingIntervalValue
+            monthly={pricing.perMonth}
+            annual={pricing.perMonthBilledYearly}
+          />
+        }
         badge={
           isProCurrent ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
@@ -266,7 +305,7 @@ export function AppPricingContent({
           portalVisible={portalVisible}
           checkout={
             <PricingCheckoutButton
-              href={proCheckoutHref}
+              hrefs={proCheckoutHrefs}
               requiresSignIn={!pending && !snapshot.authenticated}
               location="app_pricing"
             >
@@ -325,9 +364,19 @@ export function AppPricingContent({
       prices={{
         free: pricing.free.price,
         go: `$${GO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
-        pro: `$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
+        pro: (
+          <PricingIntervalValue
+            monthly={`$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`}
+            annual={proAnnualComparePrice}
+          />
+        ),
         max: maxComparePrice,
-        team: teamMonthlyComparePrice,
+        team: (
+          <PricingIntervalValue
+            monthly={teamMonthlyComparePrice}
+            annual={teamAnnualComparePrice}
+          />
+        ),
         enterprise: pricing.enterprise.price,
       }}
     />
@@ -342,14 +391,24 @@ export function AppPricingContent({
     >
       <PlanCard
         name={pricing.team.name}
-        price={`$${TEAM_PRICING_USD.month.billedAmount}`}
-        period={pricing.perUserMonth}
+        price={
+          <PricingIntervalValue
+            monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
+            annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
+          />
+        }
+        period={
+          <PricingIntervalValue
+            monthly={pricing.perUserMonth}
+            annual={pricing.perUserMonthBilledYearly}
+          />
+        }
       >
         {appStorePaymentGated ? (
           <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
         ) : (
           <PricingCheckoutButton
-            href={teamCheckoutHref}
+            hrefs={teamCheckoutHrefs}
             requiresSignIn={!pending && !snapshot.authenticated}
             location="app_pricing"
             plan="team"
@@ -404,6 +463,15 @@ export function AppPricingContent({
             <h1 className="text-2xl font-medium tracking-tight">
               {pricing.title}
             </h1>
+            <PricingIntervalSelector
+              billingPeriodLabel={pricing.billingPeriod}
+              monthlyLabel={pricing.monthly}
+              annualLabel={pricing.annual}
+              savingsLabel={pricingMessage(pricing.saveAnnual, {
+                discount: PRO_PRICING_USD.year.discountPercent,
+              })}
+              surface="app_pricing"
+            />
 
             <PricingAudienceSelector
               individualLabel={pricing.audience.individual}

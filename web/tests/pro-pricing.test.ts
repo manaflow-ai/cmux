@@ -21,24 +21,38 @@ import {
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
-  test("prices Pro at $50/mo without a new annual offer", () => {
-    expect(PRO_PRICING_USD.month).toEqual({
-      billedAmount: 50,
-      monthlyEquivalent: 50,
-      discountPercent: 0,
-      lookupKey: "cmux-pro-monthly-50",
+  test("prices Pro at $50/mo and $550/year (11 months)", () => {
+    expect(PRO_PRICING_USD).toEqual({
+      month: {
+        billedAmount: 50,
+        monthlyEquivalent: 50,
+        discountPercent: 0,
+        lookupKey: "cmux-pro-monthly-50",
+      },
+      year: {
+        billedAmount: 550,
+        monthlyEquivalent: 45.83,
+        discountPercent: 8.33,
+        lookupKey: "cmux-pro-yearly-550",
+      },
     });
-    expect("year" in PRO_PRICING_USD).toBe(false);
   });
 
-  test("prices Team at $60/user/mo without a new annual offer", () => {
-    expect(TEAM_PRICING_USD.month).toEqual({
-      billedAmount: 60,
-      monthlyEquivalent: 60,
-      discountPercent: 0,
-      lookupKey: "cmux-team-monthly-60",
+  test("prices Team at $60/user/mo and $660/user/year (11 months)", () => {
+    expect(TEAM_PRICING_USD).toEqual({
+      month: {
+        billedAmount: 60,
+        monthlyEquivalent: 60,
+        discountPercent: 0,
+        lookupKey: "cmux-team-monthly-60",
+      },
+      year: {
+        billedAmount: 660,
+        monthlyEquivalent: 55,
+        discountPercent: 8.33,
+        lookupKey: "cmux-team-yearly-660",
+      },
     });
-    expect("year" in TEAM_PRICING_USD).toBe(false);
   });
 
   test("prices Max at $200/mo, monthly only", () => {
@@ -57,8 +71,10 @@ describe("pricing plans", () => {
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {
     const current = [
       PRO_PRICING_USD.month,
+      PRO_PRICING_USD.year,
       MAX_PRICING_USD.month,
       TEAM_PRICING_USD.month,
+      TEAM_PRICING_USD.year,
     ];
     for (const price of current) {
       expect(price.lookupKey.endsWith(`-${price.billedAmount}`)).toBe(true);

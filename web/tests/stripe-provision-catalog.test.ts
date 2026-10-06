@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test as bunTest } from "bun:test";
 
-// Every run shells out once per catalog Price (nine, including the
+// Every run shells out once per catalog Price (thirteen, including the
 // grandfathered ones) through a mock curl, so the 5s default is too tight
 // on a loaded machine.
 const PROVISION_TEST_TIMEOUT_MS = 30_000;
@@ -97,8 +97,26 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
+          call.args.includes("lookup_key=cmux-pro-yearly-550") &&
+          call.args.includes("unit_amount=55000"),
+      ),
+    ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("POST") &&
           call.args.includes("lookup_key=cmux-team-yearly-576") &&
           call.args.includes("unit_amount=57600"),
+      ),
+    ).toBe(true);
+    expect(
+      result.calls.some(
+        (call) =>
+          call.args.includes("https://api.stripe.com/v1/prices") &&
+          call.args.includes("POST") &&
+          call.args.includes("lookup_key=cmux-team-yearly-660") &&
+          call.args.includes("unit_amount=66000"),
       ),
     ).toBe(true);
   });
@@ -392,6 +410,12 @@ const prices = {
     interval: "month",
     product: "pro",
   },
+  "cmux-pro-yearly-550": {
+    id: "price_pro_year_550",
+    unit_amount: 55000,
+    interval: "year",
+    product: "pro",
+  },
   "cmux-pro-yearly-480": {
     id: "price_pro_year_480",
     unit_amount: 48000,
@@ -408,6 +432,12 @@ const prices = {
     id: "price_team_month_60",
     unit_amount: 6000,
     interval: "month",
+    product: "team",
+  },
+  "cmux-team-yearly-660": {
+    id: "price_team_year_660",
+    unit_amount: 66000,
+    interval: "year",
     product: "team",
   },
   "cmux-team-yearly-576": {
@@ -455,6 +485,7 @@ if (url.endsWith("/prices") && !isPost) {
       scenario === "unrelated-product" &&
       (
         lookupKey?.startsWith("cmux-pro") ||
+        lookupKey === "cmux-team-yearly-660" ||
         lookupKey === "cmux-team-yearly-336" ||
         lookupKey === "cmux-team-yearly-576"
       )

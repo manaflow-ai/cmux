@@ -1712,10 +1712,16 @@
     },
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
+    "perMonthBilledYearly": "/mo, billed annually",
     "perUserMonth": "/user/mo",
+    "perUserMonthBilledYearly": "/user/mo, billed annually",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",
+    "annual": "Annual",
+    "saveAnnual": "Save {discount}%",
+    "annualComparePrice": "${monthly}/mo",
     "teamMonthlyComparePrice": "${monthly}/user/mo",
+    "teamAnnualComparePrice": "${monthly}/user/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -2001,7 +2007,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Paid plans are billed monthly. Pro is $50/mo, Max is $200/mo, and Team is $60/user/mo. The terminal and local agents stay free."
+          "a": "Paid plans are billed monthly or annually. Pro is $50/mo or $550/year, Max is $200/mo, and Team is $60/user/mo or $660/user/year. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2009,7 +2015,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $60/user/mo with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $60/user/mo or $660/user/year, with centralized billing for your whole team and priority support."
         }
       ]
     },
@@ -2020,7 +2026,7 @@
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
-    "billingAnnualUnavailable": "Annual billing is not available for new subscriptions. Choose a monthly plan below.",
+    "billingAnnualUnavailable": "Annual billing is not available for this plan. Choose a monthly plan below.",
     "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",

@@ -1712,10 +1712,16 @@
     },
     "alreadyPaid": "購入済みですか？Founder's Edition を接続する",
     "perMonth": "/月",
+    "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
+    "perUserMonthBilledYearly": "/ユーザー/月（年払い）",
     "billingPeriod": "請求期間",
     "monthly": "月払い",
+    "annual": "年払い",
+    "saveAnnual": "{discount}%割引",
+    "annualComparePrice": "${monthly}/月",
     "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
+    "teamAnnualComparePrice": "${monthly}/ユーザー/月",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -2001,7 +2007,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "有料プランは月払いです。Pro は月額 $50、Max は月額 $200、Team はユーザーあたり月額 $60 です。ターミナルとローカルエージェントは無料のままです。"
+          "a": "有料プランは月払いまたは年払いです。Pro は月額 $50 または年額 $550、Max は月額 $200、Team はユーザーあたり月額 $60 または年額 $660 です。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -2009,7 +2015,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team はユーザーあたり月額 $60 で、チーム全体の一元請求と優先サポートが含まれます。"
+          "a": "はい。Team はユーザーあたり月額 $60 または年額 $660 で、チーム全体の一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -2020,7 +2026,7 @@
     "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
-    "billingAnnualUnavailable": "新規サブスクリプションでは年払いをご利用いただけません。以下から月払いのプランをお選びください。",
+    "billingAnnualUnavailable": "このプランでは年払いをご利用いただけません。以下から月払いのプランをお選びください。",
     "billingPlanUnavailable": "このプランはまだご利用いただけません。以下から Pro または Max をお選びください。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
     "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",

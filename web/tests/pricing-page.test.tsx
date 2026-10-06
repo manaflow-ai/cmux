@@ -168,15 +168,16 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("shows monthly prices only even for old annual pricing links", async () => {
+  test("shows the 11-month annual prices when annual billing is selected", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
     const html = (await renderSettled(element));
-    expect(html).toContain("$50");
+    expect(html).toContain("$45.83");
+    expect(html).toContain("$55");
     expect(html).toContain("$200");
-    expect(html).not.toContain('role="radiogroup"');
-    expect(html).not.toContain("Save 20%");
-    expect(html).not.toContain("interval=year");
-    expect(html).not.toContain("billed annually");
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain("Save 8.33%");
+    expect(html).toContain("interval=year");
+    expect(html).toContain("billed annually");
   });
 
   test("publishes pricing only in its fully authored English and Japanese catalogs", () => {
@@ -391,31 +392,26 @@ describe("localized pricing page", () => {
     expect(html).toContain("Manage billing");
   });
 
-  test("renders monthly offers for an old annual link", async () => {
+  test("renders annual offers for an annual link", async () => {
     const element = await PricingPage({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({ interval: "year" }),
     });
     const html = (await renderSettled(element));
 
-    expect(html).toContain("$50");
+    expect(html).toContain("$45.83");
     expect(html).toContain("/mo");
-    expect(html).toContain("$50/mo");
-    expect(html).toContain("$60");
+    expect(html).toContain("$45.83/mo");
+    expect(html).toContain("$55");
     expect(html).toContain("/user/mo");
-    expect(html).not.toContain("/mo, billed yearly");
-    expect(html).not.toContain("/user/mo, billed yearly");
-    expect(html).toContain("$60/user/mo");
+    expect(html).toContain("/mo, billed annually");
+    expect(html).toContain("/user/mo, billed annually");
+    expect(html).toContain("$55/user/mo");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
-    expect(html).not.toContain("$24");
-    expect(html).not.toContain("$28");
     expect(html).toContain("plan%253Dpro%2526cmux_external_browser");
     expect(html).toContain("plan%253Dteam%2526cmux_external_browser");
-    expect(html).toContain('role="tablist"');
-    expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"/);
-    expect(html).not.toContain('href="?interval=');
-    expect(html).toContain('data-testid="pricing-controls"');
+    expect(html).toContain('role="radiogroup"');
   });
 
   test("forwards an inbound source and campaign tags to checkout", async () => {

@@ -172,12 +172,43 @@ afterAll(() => {
 });
 
 describe("billing checkout route", () => {
-  test.each(["go", "pro", "max", "team"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
+  test.each(["go", "max"])("refuses a new annual %s checkout without creating Stripe state", async (plan) => {
     stripeConfigured = true;
     const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&interval=year`));
     expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=annual_unavailable");
     expect(createStripeSession).not.toHaveBeenCalled();
     expect(createStripeCustomer).not.toHaveBeenCalled();
+  });
+
+  test("creates an annual Pro checkout with the annual Stripe price", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser];
+
+    await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=pro&interval=year"));
+
+    expect(resolveProPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_year", quantity: 1 }],
+      metadata: { plan: "pro", billingInterval: "year" },
+      subscription_data: { metadata: { plan: "pro", billingInterval: "year" } },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
+    });
+  });
+
+  test("creates an annual Team checkout with the annual Stripe price", async () => {
+    stripeConfigured = true;
+    signedInUser.selectedTeam = teamCustomer;
+    userResponses = [signedInUser];
+
+    await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=team&interval=year"));
+
+    expect(resolveTeamPrice).toHaveBeenCalledWith("year");
+    expect(createdStripeSessions[0]).toMatchObject({
+      line_items: [{ price: "price_team_year", quantity: 2 }],
+      metadata: { plan: "team", billingInterval: "year" },
+      subscription_data: { metadata: { plan: "team", billingInterval: "year" } },
+      cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
+    });
   });
 
   test("CLI checkout rejects cookie-only requests before creating a session", async () => {
