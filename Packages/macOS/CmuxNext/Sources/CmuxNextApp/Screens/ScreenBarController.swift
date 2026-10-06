@@ -155,7 +155,10 @@ final class ScreenBarController {
     /// takes an index inside the group, cmux-tui spec commands.md).
     static func groupIndex(_ displayIndex: Int, moving: StripTabID, group: CmuxNextTabs.TabGroupID,
                             in model: TabStripModel) -> Int {
-        displayIndex
+        let ordered = model.orderedTabs
+        let members = Set(ordered.filter { $0.groupID == group }.map(\.id.rawValue))
+        return TabMoveIndex.groupIndex(display: ordered.map(\.id.rawValue), members: members, moving: moving.rawValue,
+                                       displayIndex: displayIndex)
     }
 
     private func groupRef(_ id: CmuxNextTabs.TabGroupID) -> ScreenGroupRef? {
