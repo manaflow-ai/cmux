@@ -341,6 +341,42 @@ class AttachedViewResizeResult:
 
 
 @dataclass(frozen=True)
+class Bookmark:
+    __cmux_schema_path__: ClassVar[str] = 'types/Bookmark'
+    browser_profile_id: str
+    created_ms: int
+    id: str
+    index: int
+    kind: str
+    parent: str
+    title: str
+    favicon_key: Union[str, MissingType] = field(default=MISSING)
+    last_used_ms: Union[int, MissingType] = field(default=MISSING)
+    source_key: Union[str, MissingType] = field(default=MISSING)
+    url: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class BookmarkChangeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/BookmarkChangeResult'
+    bookmark: Bookmark
+    changed: bool
+    replayed: bool
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class BookmarkImportNode:
+    __cmux_schema_path__: ClassVar[str] = 'types/BookmarkImportNode'
+    kind: str
+    title: str
+    children: Union[List[BookmarkImportNode], MissingType] = field(default=MISSING)
+    created_ms: Union[int, MissingType] = field(default=MISSING)
+    url: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class BrowserFrame:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserFrame'
     data: Base64
@@ -1160,6 +1196,31 @@ class RunResult:
 
 
 @dataclass(frozen=True)
+class SavedTabGroupMember:
+    __cmux_schema_path__: ClassVar[str] = 'types/SavedTabGroupMember'
+    kind: str
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    engine: Union[str, None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
+    title: Union[str, None, MissingType] = field(default=MISSING)
+    url: Union[str, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class SavedTabGroupRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/SavedTabGroupRecord'
+    color: str
+    id: str
+    members: List[SavedTabGroupMember]
+    name: str
+    room: str
+    updated_at_ms: int
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class Screen:
     __cmux_schema_path__: ClassVar[str] = 'types/Screen'
     active: bool
@@ -1428,6 +1489,50 @@ class Tab:
     supports_clear_history_key_fallback: Union[bool, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TabGroupEndedTerminal:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabGroupEndedTerminal'
+    terminal_id: str
+    terminal_incarnation: Union[str, None]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TabGroupOutcome:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabGroupOutcome'
+    pane: Union[Id, None]
+    workspace: Union[Id, None]
+    group: Union[TabGroupRecord, None]
+    surfaces: List[Id]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TabGroupRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabGroupRecord'
+    collapsed: bool
+    color: str
+    id: str
+    name: str
+    saved_id: Union[str, None]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TabGroupRun:
+    __cmux_schema_path__: ClassVar[str] = 'types/TabGroupRun'
+    collapsed: bool
+    color: str
+    count: int
+    id: str
+    name: str
+    saved_id: Union[str, None]
+    start: int
+    surfaces: List[Id]
+    pane: Union[Id, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -1960,6 +2065,15 @@ class CloseTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class CloseTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/close-tab-group/result'
+    closed: List[Id]
+    group: str
+    terminals: Union[List[TabGroupEndedTerminal], MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class CloseTabsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-tabs/request'
     surfaces: List[TabRef]
@@ -2343,6 +2457,14 @@ class DeleteBookmarkRequest:
 
 
 @dataclass(frozen=True)
+class DeleteBookmarkResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-bookmark/result'
+    deleted: List[str]
+    replayed: bool
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class DeleteBrowserProfileRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-browser-profile/request'
     browser_profile: str
@@ -2371,6 +2493,14 @@ class DeleteSavedScreenGroupRequest:
 class DeleteSavedTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-saved-tab-group/request'
     saved: str
+
+
+@dataclass(frozen=True)
+class DeleteSavedTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-saved-tab-group/result'
+    deleted: bool
+    saved: str
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -2469,13 +2599,22 @@ class IdsRequest:
 class ImportBookmarksRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/import-bookmarks/request'
     browser_profile_id: str
-    nodes: List[JsonValue]
+    nodes: List[BookmarkImportNode]
     parent: str
     index: Union[int, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     replace: Union[bool, MissingType] = field(default=MISSING)
     source_key: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ImportBookmarksResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/import-bookmarks/result'
+    count: int
+    replayed: bool
+    root_ids: List[str]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -2512,6 +2651,14 @@ class ListBookmarksRequest:
 
 
 @dataclass(frozen=True)
+class ListBookmarksResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-bookmarks/result'
+    bookmarks: List[Bookmark]
+    bookmarks_revision: int
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class ListClientsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-clients/request'
     pass
@@ -2542,9 +2689,23 @@ class ListSavedTabGroupsRequest:
 
 
 @dataclass(frozen=True)
+class ListSavedTabGroupsResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-saved-tab-groups/result'
+    saved_groups: List[SavedTabGroupRecord]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class ListTabGroupsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-tab-groups/request'
     pass
+
+
+@dataclass(frozen=True)
+class ListTabGroupsResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-tab-groups/result'
+    groups: List[TabGroupRun]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -3084,6 +3245,14 @@ class RemoveTabsFromTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class RemoveTabsFromTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remove-tabs-from-tab-group/result'
+    groups: List[str]
+    surfaces: List[Id]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class RenamePaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/rename-pane/request'
     pane: Id
@@ -3206,6 +3375,14 @@ class SaveScreenGroupRequest:
 class SaveTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/save-tab-group/request'
     group: str
+
+
+@dataclass(frozen=True)
+class SaveTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/save-tab-group/result'
+    group: str
+    saved: str
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -3587,6 +3764,14 @@ class UngroupTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class UngroupTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ungroup-tab-group/result'
+    group: str
+    surfaces: List[Id]
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class UnpinWorkspaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unpin-workspace/request'
     session_id: str
@@ -3609,6 +3794,14 @@ class UnsaveScreenGroupRequest:
 class UnsaveTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unsave-tab-group/request'
     group: str
+
+
+@dataclass(frozen=True)
+class UnsaveTabGroupResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/unsave-tab-group/result'
+    group: str
+    unsaved: bool
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
 
 
 @dataclass(frozen=True)
@@ -4529,6 +4722,9 @@ __all__ = [
     'ApplyLayoutResult',
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
+    'Bookmark',
+    'BookmarkChangeResult',
+    'BookmarkImportNode',
     'BrowserFrame',
     'BrowserHostProviderResult',
     'BrowserProviderSnapshot',
@@ -4614,6 +4810,8 @@ __all__ = [
     'RowHeight',
     'RowMarkerPoint',
     'RunResult',
+    'SavedTabGroupMember',
+    'SavedTabGroupRecord',
     'Screen',
     'ServerStatsConnections',
     'ServerStatsHistogram',
@@ -4641,6 +4839,10 @@ __all__ = [
     'SplitRespawn',
     'SurfaceResult',
     'Tab',
+    'TabGroupEndedTerminal',
+    'TabGroupOutcome',
+    'TabGroupRecord',
+    'TabGroupRun',
     'TerminalClipboardHost',
     'TerminalClipboardReplyResult',
     'TerminalClipboardSubscribeResult',
@@ -4701,6 +4903,7 @@ __all__ = [
     'CloseScreenGroupRequest',
     'CloseSurfaceRequest',
     'CloseTabGroupRequest',
+    'CloseTabGroupResult',
     'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
@@ -4744,11 +4947,13 @@ __all__ = [
     'CreateWorkspaceRequest',
     'CreateWorkspaceGroupRequest',
     'DeleteBookmarkRequest',
+    'DeleteBookmarkResult',
     'DeleteBrowserProfileRequest',
     'DeletePersonalGroupRequest',
     'DeleteProfileRequest',
     'DeleteSavedScreenGroupRequest',
     'DeleteSavedTabGroupRequest',
+    'DeleteSavedTabGroupResult',
     'DeleteWorkspaceGroupRequest',
     'DetachAttachedViewRequest',
     'DetachClientRequest',
@@ -4764,17 +4969,21 @@ __all__ = [
     'IdentifyRequest',
     'IdsRequest',
     'ImportBookmarksRequest',
+    'ImportBookmarksResult',
     'ImportSessionOrganizationRequest',
     'JournalFrontendEventRequest',
     'JournalFrontendEventResult',
     'ListAgentsRequest',
     'ListBookmarksRequest',
+    'ListBookmarksResult',
     'ListClientsRequest',
     'ListNotificationsRequest',
     'ListPersonalRequest',
     'ListSavedScreenGroupsRequest',
     'ListSavedTabGroupsRequest',
+    'ListSavedTabGroupsResult',
     'ListTabGroupsRequest',
+    'ListTabGroupsResult',
     'ListTerminalsRequest',
     'ListWorkspaceGroupsRequest',
     'ListWorkspacesRequest',
@@ -4833,6 +5042,7 @@ __all__ = [
     'ReloadConfigResult',
     'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',
+    'RemoveTabsFromTabGroupResult',
     'RenamePaneRequest',
     'RenameProviderManagedWorkspaceRequest',
     'RenameScreenRequest',
@@ -4848,6 +5058,7 @@ __all__ = [
     'RunRequest',
     'SaveScreenGroupRequest',
     'SaveTabGroupRequest',
+    'SaveTabGroupResult',
     'ScrollSurfaceRequest',
     'SelectScreenRequest',
     'SelectTabRequest',
@@ -4893,10 +5104,12 @@ __all__ = [
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',
+    'UngroupTabGroupResult',
     'UnpinWorkspaceRequest',
     'UnregisterBrowserProviderRequest',
     'UnsaveScreenGroupRequest',
     'UnsaveTabGroupRequest',
+    'UnsaveTabGroupResult',
     'UpdateBookmarkRequest',
     'UpdateBrowserProfileRequest',
     'UpdateFrontendBrowserTabRequest',

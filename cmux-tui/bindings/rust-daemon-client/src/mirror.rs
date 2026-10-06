@@ -10,18 +10,19 @@
 //! so the mirror keeps `frontend_projections` verbatim for a later stage and
 //! models workspaces > screens > panes > tabs (> terminal | browser).
 //!
-//! Personal state: the mirror also keeps the workspace groups and the
-//! personal sidebar order (workspace placements) from the snapshot's
-//! `extra.state` and the `state_upsert` / `state_delete` changes
-//! (`mirror_state`).
+//! State resources: the mirror also keeps the personal workspace groups, the
+//! personal sidebar order (workspace placements), and the session's tab
+//! groups from the snapshot's `extra.state` and the `state_upsert` /
+//! `state_delete` changes (`mirror_state`).
 
 use crate::mirror_state::{self, StateChange};
 use cmux::{
     BrowserId, BrowserSnapshot, ClientSnapshot, ConnectedClientId, Cursor, FrontendProjectionId,
     FrontendProjectionSnapshot, PaneId, PaneSnapshot, ResourceChange, ResourceEntitySnapshot,
     ResourceKind, ResourceReference, ResourceSnapshot, ScreenId, ScreenSnapshot, SessionDeltaEvent,
-    SessionEvent, SessionSnapshot, TabId, TabSnapshot, TerminalId, TerminalSnapshot,
-    WorkspaceGroupSnapshot, WorkspaceId, WorkspacePlacementSnapshot, WorkspaceSnapshot,
+    SessionEvent, SessionSnapshot, TabGroupSnapshot, TabId, TabSnapshot, TerminalId,
+    TerminalSnapshot, WorkspaceGroupSnapshot, WorkspaceId, WorkspacePlacementSnapshot,
+    WorkspaceSnapshot,
 };
 use std::collections::BTreeMap;
 use std::fmt;
@@ -51,8 +52,10 @@ pub enum MirrorChange {
     /// A workspace's place in the personal sidebar order, by placement id
     /// (`<session registry id>/<workspace ref>`).
     WorkspacePlacement(Change<String>),
-    /// A state resource the mirror does not keep (tab group, room, closed
-    /// item, window record, ...), by its `resource` name.
+    /// A tab group, by its state id (`tgrp_…`).
+    TabGroup(Change<String>),
+    /// A state resource the mirror does not keep (saved tab group, room,
+    /// closed item, window record, ...), by its `resource` name.
     IgnoredState(String),
     /// A resource the mirror does not keep (machine, notification, agent,
     /// pairing request, sidebar view) or an unknown change kind.
@@ -123,6 +126,9 @@ pub struct Mirror {
     /// The personal sidebar order by placement id. It can name workspaces
     /// of other sessions (`workspace.workspace_id` is `None` for those).
     pub workspace_placements: BTreeMap<String, WorkspacePlacementSnapshot>,
+    /// The session's live tab groups by state id. Membership is also on
+    /// each member tab's `extra.tab_group_id`.
+    pub tab_groups: BTreeMap<String, TabGroupSnapshot>,
 }
 
 fn keyed<I: Ord, T>(items: Vec<T>, id: impl Fn(&T) -> I) -> BTreeMap<I, T> {
@@ -149,7 +155,7 @@ impl Mirror {
 
     /// Replaces everything with `snapshot`.
     pub fn reset(&mut self, snapshot: ResourceSnapshot) {
-        let (workspace_groups, workspace_placements) = mirror_state::from_extra(&snapshot.extra);
+        let state = mirror_state::from_extra(&snapshot.extra);
         *self = Self {
             cursor: Some(snapshot.cursor),
             session: Some(snapshot.session),
@@ -161,8 +167,9 @@ impl Mirror {
             browsers: keyed(snapshot.browsers, |b| b.id.clone()),
             clients: keyed(snapshot.clients, |c| c.id.clone()),
             frontend_projections: keyed(snapshot.frontend_projections, |p| p.id.clone()),
-            workspace_groups,
-            workspace_placements,
+            workspace_groups: state.workspace_groups,
+            workspace_placements: state.workspace_placements,
+            tab_groups: state.tab_groups,
         };
     }
 
@@ -306,6 +313,13 @@ impl Mirror {
                     || MirrorChange::IgnoredState(mirror_state::WORKSPACE_PLACEMENT.to_string()),
                     MirrorChange::WorkspacePlacement,
                 ),
+            StateChange::TabGroupUpsert(id, group) => {
+                MirrorChange::TabGroup(upsert(&mut self.tab_groups, id, group))
+            }
+            StateChange::TabGroupDelete(id) => remove(&mut self.tab_groups, &id).map_or_else(
+                || MirrorChange::IgnoredState(mirror_state::TAB_GROUP.to_string()),
+                MirrorChange::TabGroup,
+            ),
             StateChange::Other(resource) => MirrorChange::IgnoredState(resource),
         }
     }
@@ -396,6 +410,17 @@ impl Mirror {
     pub fn tabs_of(&self, pane: &PaneId) -> Vec<&TabSnapshot> {
         let mut out: Vec<_> = self.tabs.values().filter(|t| &t.pane_id == pane).collect();
         out.sort_by(|a, b| a.index.cmp(&b.index).then_with(|| a.id.cmp(&b.id)));
+        out
+    }
+
+    /// The tab groups of `pane` in strip order (by their first member's tab
+    /// index; a group whose members the mirror lacks sorts last).
+    pub fn tab_groups_of(&self, pane: &PaneId) -> Vec<&TabGroupSnapshot> {
+        let first = |group: &TabGroupSnapshot| {
+            group.tab_ids.iter().filter_map(|id| self.tabs.get(id)).map(|t| t.index).min()
+        };
+        let mut out: Vec<_> = self.tab_groups.values().filter(|g| &g.pane_id == pane).collect();
+        out.sort_by_key(|g| (first(g).unwrap_or(u32::MAX), g.id.clone()));
         out
     }
 

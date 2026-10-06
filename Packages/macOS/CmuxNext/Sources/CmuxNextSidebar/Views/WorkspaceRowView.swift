@@ -110,9 +110,8 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
-        // Only live status earns a second line; the cwd is in the hover card.
-        subtitle.stringValue = ws.liveDetail ?? ""
-        hasSubtitle = ws.liveDetail != nil
+        subtitle.stringValue = ws.rowDetail ?? ""
+        hasSubtitle = ws.rowDetail != nil
         activity.configure(ws.activity, style: ws.activityStyle)
         activityState = ws.activity
         agentMarkVariant = content.agentMark
@@ -134,8 +133,7 @@ final class WorkspaceRowView: SidebarRowView {
 
     private func accessibilityText(_ ws: SidebarWorkspace) -> String {
         var parts = [ws.title]
-        if let s = ws.liveDetail { parts.append(s) }
-        if let s = ws.subtitle, !s.isEmpty { parts.append(s) }
+        if let s = ws.rowDetail { parts.append(s) }
         if let value = ws.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         switch ws.unread {
         case let .count(n) where n > 0: parts.append(Strings.unreadCount(n))
@@ -269,10 +267,10 @@ final class WorkspaceRowView: SidebarRowView {
         let titleWidth = max(0, textW - 2 * inset)
         if hasSubtitle {
             let sh = ceil(subtitle.intrinsicContentSize.height)
-            let total = th + sh
+            let total = th + Metrics.space1 + sh
             let top = (b.height - total) / 2
             title.frame = NSRect(x: textX + inset, y: top, width: titleWidth, height: th)
-            subtitle.frame = NSRect(x: textX, y: top + th, width: textW, height: sh)
+            subtitle.frame = NSRect(x: textX, y: top + th + Metrics.space1, width: textW, height: sh)
             subtitle.isHidden = false
         } else {
             title.frame = NSRect(x: textX + inset, y: (b.height - th) / 2, width: titleWidth, height: th)

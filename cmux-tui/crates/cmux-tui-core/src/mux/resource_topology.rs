@@ -939,7 +939,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_resource_mutation_plan(
+        let commit = self.commit_resource_mutation_plan(
             mutation,
             "tab.rename",
             fingerprint,
@@ -956,6 +956,7 @@ impl Mux {
                     .map_err(anyhow::Error::new)?;
                 let surface = resolved.tab.context("tab selector has no live surface")?;
                 let tab_id = resolved.path.tab.context("tab selector has no public id")?;
+                Self::ensure_tab_renamable(state, registry, surface, &tab_id)?;
                 let topology = registry.resource_topology_snapshot()?;
                 let mut durable = topology_tab(&topology, &tab_id)?.clone();
                 authority.apply(
@@ -973,15 +974,15 @@ impl Mux {
                     result,
                     deltas,
                     move |state| {
-                        state
-                            .surfaces
-                            .get(&surface)
-                            .expect("planned tab remains live")
-                            .set_name(apply_name);
+                        if let Some(surface) = state.surfaces.get(&surface) {
+                            surface.set_name(apply_name);
+                        }
                     },
                 ))
             },
-        )
+        )?;
+        self.reload_kept_tab_name(commit.result["tab"].as_str())?;
+        Ok(commit)
     }
 
     fn resource_focus_screen(

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "46474e014bc77adc5dda52ee7c0bb874a425d39dcee7ddaf0006cbfba11beb05";
+pub const ir_sha256 = "e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -123,6 +123,57 @@ pub const AttachedViewResizeResult = struct {
 };
 
 pub const Base64 = []const u8;
+
+pub const Bookmark = struct {
+    browser_profile_id: []const u8,
+    created_ms: u64,
+    favicon_key: ?[]const u8 = null,
+    /// `bm_` and 32 lowercase hex digits.
+    id: []const u8,
+    /// Dense 0-based position among the node's siblings.
+    index: u64,
+    /// Known values: url, folder. Other values are future kinds.
+    kind: []const u8,
+    last_used_ms: ?u64 = null,
+    /// `bar`, `other`, or a folder's id.
+    parent: []const u8,
+    /// Folders only.
+    source_key: ?[]const u8 = null,
+    title: []const u8,
+    /// url nodes.
+    url: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "favicon_key",
+        "last_used_ms",
+        "source_key",
+        "url",
+    };
+};
+
+pub const BookmarkChangeResult = struct {
+    bookmark: Bookmark,
+    changed: bool,
+    replayed: bool,
+};
+
+pub const BookmarkImportNode = struct {
+    /// A folder's nodes.
+    children: ?[]const BookmarkImportNode = null,
+    /// Defaults to now.
+    created_ms: ?u64 = null,
+    /// url or folder.
+    kind: []const u8,
+    title: []const u8,
+    /// Required for a url node; refused for a folder.
+    url: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "children",
+        "created_ms",
+        "url",
+    };
+};
 
 pub const BrowserFrame = struct {
     data: Base64,
@@ -1336,6 +1387,37 @@ pub const RunResult = struct {
     workspace: wire.Nullable(Id),
 };
 
+pub const SavedTabGroupMember = struct {
+    /// kind terminal.
+    cwd: wire.Field([]const u8) = .absent,
+    /// kind browser. Known values: webkit, cef.
+    engine: wire.Field([]const u8) = .absent,
+    /// Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties.
+    kind: []const u8,
+    /// kind browser.
+    profile_id: wire.Field([]const u8) = .absent,
+    /// kind terminal.
+    terminal_id: wire.Field([]const u8) = .absent,
+    title: wire.Field([]const u8) = .absent,
+    /// kind browser.
+    url: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "url",
+    };
+};
+
+pub const SavedTabGroupRecord = struct {
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    color: []const u8,
+    id: []const u8,
+    members: []const SavedTabGroupMember,
+    name: []const u8,
+    /// The room whose bar shows the saved group (`default` for groups saved by these commands).
+    room: []const u8,
+    updated_at_ms: u64,
+};
+
 pub const Screen = struct {
     active: bool,
     active_pane: Id,
@@ -1783,6 +1865,50 @@ pub const Tab = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "short_id",
         "supports_clear_history_key_fallback",
+    };
+};
+
+pub const TabGroupEndedTerminal = struct {
+    terminal_id: []const u8,
+    terminal_incarnation: wire.Nullable([]const u8),
+};
+
+pub const TabGroupOutcome = struct {
+    /// Null when the command left no group.
+    group: wire.Nullable(TabGroupRecord),
+    pane: wire.Nullable(Id),
+    /// Members in strip order.
+    surfaces: []const Id,
+    /// The workspace of the group's pane.
+    workspace: wire.Nullable(Id),
+};
+
+pub const TabGroupRecord = struct {
+    collapsed: bool,
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    color: []const u8,
+    id: []const u8,
+    /// May be empty: the group shows only its color.
+    name: []const u8,
+    /// The linked saved group.
+    saved_id: wire.Nullable([]const u8),
+};
+
+pub const TabGroupRun = struct {
+    collapsed: bool,
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    color: []const u8,
+    count: u64,
+    id: []const u8,
+    name: []const u8,
+    pane: ?Id = null,
+    saved_id: wire.Nullable([]const u8),
+    /// Strip index of the first member.
+    start: u64,
+    surfaces: []const Id,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane",
     };
 };
 
@@ -2580,7 +2706,7 @@ pub const AddTabsToTabGroupRequest = struct {
     transaction: wire.Field([]const u8) = .absent,
 };
 
-pub const AddTabsToTabGroupResult = JsonValue;
+pub const AddTabsToTabGroupResult = TabGroupOutcome;
 
 pub fn addTabsToTabGroup(client: anytype, request: AddTabsToTabGroupRequest) !wire.Decoded(AddTabsToTabGroupResult) {
     return client.callTyped(
@@ -3251,7 +3377,16 @@ pub const CloseTabGroupRequest = struct {
     };
 };
 
-pub const CloseTabGroupResult = JsonValue;
+pub const CloseTabGroupResult = struct {
+    closed: []const Id,
+    group: []const u8,
+    /// With end_terminals: the member terminals the close ended.
+    terminals: ?[]const TabGroupEndedTerminal = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "terminals",
+    };
+};
 
 pub fn closeTabGroup(client: anytype, request: CloseTabGroupRequest) !wire.Decoded(CloseTabGroupResult) {
     return client.callTyped(
@@ -3842,7 +3977,7 @@ pub const CreateBookmarkRequest = struct {
     url: wire.Field([]const u8) = .absent,
 };
 
-pub const CreateBookmarkResult = JsonValue;
+pub const CreateBookmarkResult = BookmarkChangeResult;
 
 pub fn createBookmark(client: anytype, request: CreateBookmarkRequest) !wire.Decoded(CreateBookmarkResult) {
     return client.callTyped(
@@ -4005,7 +4140,7 @@ pub const CreateTabGroupRequest = struct {
     transaction: wire.Field([]const u8) = .absent,
 };
 
-pub const CreateTabGroupResult = JsonValue;
+pub const CreateTabGroupResult = TabGroupOutcome;
 
 pub fn createTabGroup(client: anytype, request: CreateTabGroupRequest) !wire.Decoded(CreateTabGroupResult) {
     return client.callTyped(
@@ -4121,7 +4256,11 @@ pub const DeleteBookmarkRequest = struct {
     origin: wire.Field([]const u8) = .absent,
 };
 
-pub const DeleteBookmarkResult = JsonValue;
+pub const DeleteBookmarkResult = struct {
+    /// The deleted node's id first, then its descendants.
+    deleted: []const []const u8,
+    replayed: bool,
+};
 
 pub fn deleteBookmark(client: anytype, request: DeleteBookmarkRequest) !wire.Decoded(DeleteBookmarkResult) {
     return client.callTyped(
@@ -4217,7 +4356,10 @@ pub const DeleteSavedTabGroupRequest = struct {
     saved: []const u8,
 };
 
-pub const DeleteSavedTabGroupResult = JsonValue;
+pub const DeleteSavedTabGroupResult = struct {
+    deleted: bool,
+    saved: []const u8,
+};
 
 pub fn deleteSavedTabGroup(client: anytype, request: DeleteSavedTabGroupRequest) !wire.Decoded(DeleteSavedTabGroupResult) {
     return client.callTyped(
@@ -4527,7 +4669,7 @@ pub const ImportBookmarksRequest = struct {
     browser_profile_id: []const u8,
     index: wire.Field(u64) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
-    nodes: []const JsonValue,
+    nodes: []const BookmarkImportNode,
     origin: wire.Field([]const u8) = .absent,
     parent: []const u8,
     replace: ?bool = null,
@@ -4538,7 +4680,13 @@ pub const ImportBookmarksRequest = struct {
     };
 };
 
-pub const ImportBookmarksResult = JsonValue;
+pub const ImportBookmarksResult = struct {
+    /// Nodes in the request, descendants included.
+    count: u64,
+    replayed: bool,
+    /// Top-level nodes written; in replace mode the kept folder first.
+    root_ids: []const []const u8,
+};
 
 pub fn importBookmarks(client: anytype, request: ImportBookmarksRequest) !wire.Decoded(ImportBookmarksResult) {
     return client.callTyped(
@@ -4622,7 +4770,11 @@ pub const ListBookmarksRequest = struct {
     browser_profile_id: []const u8,
 };
 
-pub const ListBookmarksResult = JsonValue;
+pub const ListBookmarksResult = struct {
+    /// The whole tree in depth-first pre-order: the bar tree, then the other tree.
+    bookmarks: []const Bookmark,
+    bookmarks_revision: u64,
+};
 
 pub fn listBookmarks(client: anytype, request: ListBookmarksRequest) !wire.Decoded(ListBookmarksResult) {
     return client.callTyped(
@@ -4709,7 +4861,9 @@ pub fn listSavedScreenGroups(client: anytype, request: ListSavedScreenGroupsRequ
 
 pub const ListSavedTabGroupsRequest = struct {};
 
-pub const ListSavedTabGroupsResult = JsonValue;
+pub const ListSavedTabGroupsResult = struct {
+    saved_groups: []const SavedTabGroupRecord,
+};
 
 pub fn listSavedTabGroups(client: anytype, request: ListSavedTabGroupsRequest) !wire.Decoded(ListSavedTabGroupsResult) {
     return client.callTyped(
@@ -4726,7 +4880,9 @@ pub fn listSavedTabGroups(client: anytype, request: ListSavedTabGroupsRequest) !
 
 pub const ListTabGroupsRequest = struct {};
 
-pub const ListTabGroupsResult = JsonValue;
+pub const ListTabGroupsResult = struct {
+    groups: []const TabGroupRun,
+};
 
 pub fn listTabGroups(client: anytype, request: ListTabGroupsRequest) !wire.Decoded(ListTabGroupsResult) {
     return client.callTyped(
@@ -4893,7 +5049,7 @@ pub const MoveBookmarkRequest = struct {
     parent: []const u8,
 };
 
-pub const MoveBookmarkResult = JsonValue;
+pub const MoveBookmarkResult = BookmarkChangeResult;
 
 pub fn moveBookmark(client: anytype, request: MoveBookmarkRequest) !wire.Decoded(MoveBookmarkResult) {
     return client.callTyped(
@@ -5052,7 +5208,7 @@ pub const MoveTabGroupRequest = struct {
     transaction: wire.Field([]const u8) = .absent,
 };
 
-pub const MoveTabGroupResult = JsonValue;
+pub const MoveTabGroupResult = TabGroupOutcome;
 
 pub fn moveTabGroup(client: anytype, request: MoveTabGroupRequest) !wire.Decoded(MoveTabGroupResult) {
     return client.callTyped(
@@ -5076,7 +5232,7 @@ pub const MoveTabGroupToColumnRequest = struct {
     width: wire.Field(f32) = .absent,
 };
 
-pub const MoveTabGroupToColumnResult = JsonValue;
+pub const MoveTabGroupToColumnResult = TabGroupOutcome;
 
 pub fn moveTabGroupToColumn(client: anytype, request: MoveTabGroupToColumnRequest) !wire.Decoded(MoveTabGroupToColumnResult) {
     return client.callTyped(
@@ -5098,7 +5254,7 @@ pub const MoveTabGroupToNewWorkspaceRequest = struct {
     workspace_group: wire.Field([]const u8) = .absent,
 };
 
-pub const MoveTabGroupToNewWorkspaceResult = JsonValue;
+pub const MoveTabGroupToNewWorkspaceResult = TabGroupOutcome;
 
 pub fn moveTabGroupToNewWorkspace(client: anytype, request: MoveTabGroupToNewWorkspaceRequest) !wire.Decoded(MoveTabGroupToNewWorkspaceResult) {
     return client.callTyped(
@@ -5121,7 +5277,7 @@ pub const MoveTabGroupToSplitRequest = struct {
     transaction: wire.Field([]const u8) = .absent,
 };
 
-pub const MoveTabGroupToSplitResult = JsonValue;
+pub const MoveTabGroupToSplitResult = TabGroupOutcome;
 
 pub fn moveTabGroupToSplit(client: anytype, request: MoveTabGroupToSplitRequest) !wire.Decoded(MoveTabGroupToSplitResult) {
     return client.callTyped(
@@ -6028,7 +6184,11 @@ pub const RemoveTabsFromTabGroupRequest = struct {
     transaction: wire.Field([]const u8) = .absent,
 };
 
-pub const RemoveTabsFromTabGroupResult = JsonValue;
+pub const RemoveTabsFromTabGroupResult = struct {
+    /// Ids of the groups the tabs left.
+    groups: []const []const u8,
+    surfaces: []const Id,
+};
 
 pub fn removeTabsFromTabGroup(client: anytype, request: RemoveTabsFromTabGroupRequest) !wire.Decoded(RemoveTabsFromTabGroupResult) {
     return client.callTyped(
@@ -6183,7 +6343,7 @@ pub const ReopenSavedTabGroupRequest = struct {
     transaction: wire.Field([]const u8) = .absent,
 };
 
-pub const ReopenSavedTabGroupResult = JsonValue;
+pub const ReopenSavedTabGroupResult = TabGroupOutcome;
 
 pub fn reopenSavedTabGroup(client: anytype, request: ReopenSavedTabGroupRequest) !wire.Decoded(ReopenSavedTabGroupResult) {
     return client.callTyped(
@@ -6358,7 +6518,10 @@ pub const SaveTabGroupRequest = struct {
     group: []const u8,
 };
 
-pub const SaveTabGroupResult = JsonValue;
+pub const SaveTabGroupResult = struct {
+    group: []const u8,
+    saved: []const u8,
+};
 
 pub fn saveTabGroup(client: anytype, request: SaveTabGroupRequest) !wire.Decoded(SaveTabGroupResult) {
     return client.callTyped(
@@ -7394,7 +7557,10 @@ pub const UngroupTabGroupRequest = struct {
     group: []const u8,
 };
 
-pub const UngroupTabGroupResult = JsonValue;
+pub const UngroupTabGroupResult = struct {
+    group: []const u8,
+    surfaces: []const Id,
+};
 
 pub fn ungroupTabGroup(client: anytype, request: UngroupTabGroupRequest) !wire.Decoded(UngroupTabGroupResult) {
     return client.callTyped(
@@ -7469,7 +7635,10 @@ pub const UnsaveTabGroupRequest = struct {
     group: []const u8,
 };
 
-pub const UnsaveTabGroupResult = JsonValue;
+pub const UnsaveTabGroupResult = struct {
+    group: []const u8,
+    unsaved: bool,
+};
 
 pub fn unsaveTabGroup(client: anytype, request: UnsaveTabGroupRequest) !wire.Decoded(UnsaveTabGroupResult) {
     return client.callTyped(
@@ -7494,7 +7663,7 @@ pub const UpdateBookmarkRequest = struct {
     url: wire.Field([]const u8) = .absent,
 };
 
-pub const UpdateBookmarkResult = JsonValue;
+pub const UpdateBookmarkResult = BookmarkChangeResult;
 
 pub fn updateBookmark(client: anytype, request: UpdateBookmarkRequest) !wire.Decoded(UpdateBookmarkResult) {
     return client.callTyped(
@@ -7632,7 +7801,7 @@ pub const UpdateTabGroupRequest = struct {
     name: wire.Field([]const u8) = .absent,
 };
 
-pub const UpdateTabGroupResult = JsonValue;
+pub const UpdateTabGroupResult = TabGroupOutcome;
 
 pub fn updateTabGroup(client: anytype, request: UpdateTabGroupRequest) !wire.Decoded(UpdateTabGroupResult) {
     return client.callTyped(

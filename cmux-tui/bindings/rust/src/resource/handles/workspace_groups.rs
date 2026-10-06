@@ -313,7 +313,7 @@ impl Workspace {
 }
 
 /// A state id is 1 to 64 characters.
-fn validate_state_id(label: &str, value: &str) -> Result<()> {
+pub(super) fn validate_state_id(label: &str, value: &str) -> Result<()> {
     if value.is_empty() || value.chars().count() > STATE_ID_MAX_LEN {
         return Err(Error::InvalidArgument(format!(
             "{label} id must be 1 to {STATE_ID_MAX_LEN} characters"

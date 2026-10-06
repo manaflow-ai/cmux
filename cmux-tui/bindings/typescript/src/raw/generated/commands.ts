@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 46474e014bc77adc5dda52ee7c0bb874a425d39dcee7ddaf0006cbfba11beb05. */
+/* cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326. */
 
 
 import type * as T from "./types.js";
@@ -46,7 +46,7 @@ export interface AddTabsToTabGroupRequest extends CmuxRequestBase {
   "surfaces": Array<T.TabRef>;
   "transaction"?: (string) | null;
 }
-export type AddTabsToTabGroupResult = T.JsonValue;
+export type AddTabsToTabGroupResult = T.TabGroupOutcome;
 
 /** Protocol v6; authority: control. */
 export interface ApplyLayoutRequest extends CmuxRequestBase {
@@ -289,7 +289,13 @@ export interface CloseTabGroupRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "group": string;
 }
-export type CloseTabGroupResult = T.JsonValue;
+export type CloseTabGroupResult = {
+  "closed": Array<T.Id>;
+  "group": string;
+  /** With end_terminals: the member terminals the close ended. */
+  "terminals"?: Array<T.TabGroupEndedTerminal>;
+  [key: string]: unknown;
+};
 
 /** Protocol v12; authority: control. */
 export interface CloseTabsRequest extends CmuxRequestBase {
@@ -535,7 +541,7 @@ export interface CreateBookmarkRequest extends CmuxRequestBase {
   "title": string;
   "url"?: (string) | null;
 }
-export type CreateBookmarkResult = T.JsonValue;
+export type CreateBookmarkResult = T.BookmarkChangeResult;
 
 /** Protocol v12; authority: control. */
 export interface CreateBrowserProfileRequest extends CmuxRequestBase {
@@ -615,7 +621,7 @@ export interface CreateTabGroupRequest extends CmuxRequestBase {
   "surfaces": Array<T.TabRef>;
   "transaction"?: (string) | null;
 }
-export type CreateTabGroupResult = T.JsonValue;
+export type CreateTabGroupResult = T.TabGroupOutcome;
 
 /** Protocol v7; authority: control. */
 export interface CreateTerminalRequest extends CmuxRequestBase {
@@ -669,7 +675,12 @@ export interface DeleteBookmarkRequest extends CmuxRequestBase {
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
 }
-export type DeleteBookmarkResult = T.JsonValue;
+export type DeleteBookmarkResult = {
+  /** The deleted node's id first, then its descendants. */
+  "deleted": Array<string>;
+  "replayed": boolean;
+  [key: string]: unknown;
+};
 
 /** Protocol v12; authority: control. */
 export interface DeleteBrowserProfileRequest extends CmuxRequestBase {
@@ -705,7 +716,11 @@ export interface DeleteSavedTabGroupRequest extends CmuxRequestBase {
   cmd: "delete-saved-tab-group";
   "saved": string;
 }
-export type DeleteSavedTabGroupResult = T.JsonValue;
+export type DeleteSavedTabGroupResult = {
+  "deleted": boolean;
+  "saved": string;
+  [key: string]: unknown;
+};
 
 /** Protocol v12; authority: control. */
 export interface DeleteWorkspaceGroupRequest extends CmuxRequestBase {
@@ -810,13 +825,20 @@ export interface ImportBookmarksRequest extends CmuxRequestBase {
   "browser_profile_id": string;
   "index"?: (bigint) | null;
   "mutation_id"?: (string) | null;
-  "nodes": Array<T.JsonValue>;
+  "nodes": Array<T.BookmarkImportNode>;
   "origin"?: (string) | null;
   "parent": string;
   "replace"?: boolean;
   "source_key"?: (string) | null;
 }
-export type ImportBookmarksResult = T.JsonValue;
+export type ImportBookmarksResult = {
+  /** Nodes in the request, descendants included. */
+  "count": bigint;
+  "replayed": boolean;
+  /** Top-level nodes written; in replace mode the kept folder first. */
+  "root_ids": Array<string>;
+  [key: string]: unknown;
+};
 
 /** Protocol v12; authority: control. */
 export interface ImportSessionOrganizationRequest extends CmuxRequestBase {
@@ -848,7 +870,12 @@ export interface ListBookmarksRequest extends CmuxRequestBase {
   cmd: "list-bookmarks";
   "browser_profile_id": string;
 }
-export type ListBookmarksResult = T.JsonValue;
+export type ListBookmarksResult = {
+  /** The whole tree in depth-first pre-order: the bar tree, then the other tree. */
+  "bookmarks": Array<T.Bookmark>;
+  "bookmarks_revision": bigint;
+  [key: string]: unknown;
+};
 
 /** Protocol v6; authority: control. */
 export interface ListClientsRequest extends CmuxRequestBase {
@@ -879,13 +906,19 @@ export type ListSavedScreenGroupsResult = T.JsonValue;
 export interface ListSavedTabGroupsRequest extends CmuxRequestBase {
   cmd: "list-saved-tab-groups";
 }
-export type ListSavedTabGroupsResult = T.JsonValue;
+export type ListSavedTabGroupsResult = {
+  "saved_groups": Array<T.SavedTabGroupRecord>;
+  [key: string]: unknown;
+};
 
 /** Protocol v12; authority: control. */
 export interface ListTabGroupsRequest extends CmuxRequestBase {
   cmd: "list-tab-groups";
 }
-export type ListTabGroupsResult = T.JsonValue;
+export type ListTabGroupsResult = {
+  "groups": Array<T.TabGroupRun>;
+  [key: string]: unknown;
+};
 
 /** Protocol v9; authority: control. */
 export interface ListTerminalsRequest extends CmuxRequestBase {
@@ -945,7 +978,7 @@ export interface MoveBookmarkRequest extends CmuxRequestBase {
   "origin"?: (string) | null;
   "parent": string;
 }
-export type MoveBookmarkResult = T.JsonValue;
+export type MoveBookmarkResult = T.BookmarkChangeResult;
 
 /** Protocol v12; authority: control. */
 export interface MoveBrowserProfileRequest extends CmuxRequestBase {
@@ -1009,7 +1042,7 @@ export interface MoveTabGroupRequest extends CmuxRequestBase {
   "pane"?: (T.PaneRef) | null;
   "transaction"?: (string) | null;
 }
-export type MoveTabGroupResult = T.JsonValue;
+export type MoveTabGroupResult = T.TabGroupOutcome;
 
 /** Protocol v12; authority: control. */
 export interface MoveTabGroupToColumnRequest extends CmuxRequestBase {
@@ -1021,7 +1054,7 @@ export interface MoveTabGroupToColumnRequest extends CmuxRequestBase {
   "transaction"?: (string) | null;
   "width"?: (number) | null;
 }
-export type MoveTabGroupToColumnResult = T.JsonValue;
+export type MoveTabGroupToColumnResult = T.TabGroupOutcome;
 
 /** Protocol v12; authority: control. */
 export interface MoveTabGroupToNewWorkspaceRequest extends CmuxRequestBase {
@@ -1031,7 +1064,7 @@ export interface MoveTabGroupToNewWorkspaceRequest extends CmuxRequestBase {
   "transaction"?: (string) | null;
   "workspace_group"?: (string) | null;
 }
-export type MoveTabGroupToNewWorkspaceResult = T.JsonValue;
+export type MoveTabGroupToNewWorkspaceResult = T.TabGroupOutcome;
 
 /** Protocol v12; authority: control. */
 export interface MoveTabGroupToSplitRequest extends CmuxRequestBase {
@@ -1042,7 +1075,7 @@ export interface MoveTabGroupToSplitRequest extends CmuxRequestBase {
   "ratio"?: (number) | null;
   "transaction"?: (string) | null;
 }
-export type MoveTabGroupToSplitResult = T.JsonValue;
+export type MoveTabGroupToSplitResult = T.TabGroupOutcome;
 
 /** Protocol v12; authority: control. */
 export interface MoveTabToColumnRequest extends CmuxRequestBase {
@@ -1447,7 +1480,12 @@ export interface RemoveTabsFromTabGroupRequest extends CmuxRequestBase {
   "surfaces": Array<T.TabRef>;
   "transaction"?: (string) | null;
 }
-export type RemoveTabsFromTabGroupResult = T.JsonValue;
+export type RemoveTabsFromTabGroupResult = {
+  /** Ids of the groups the tabs left. */
+  "groups": Array<string>;
+  "surfaces": Array<T.Id>;
+  [key: string]: unknown;
+};
 
 /** Protocol v5; authority: control. */
 export interface RenamePaneRequest extends CmuxRequestBase {
@@ -1511,7 +1549,7 @@ export interface ReopenSavedTabGroupRequest extends CmuxRequestBase {
   "saved": string;
   "transaction"?: (string) | null;
 }
-export type ReopenSavedTabGroupResult = T.JsonValue;
+export type ReopenSavedTabGroupResult = T.TabGroupOutcome;
 
 /** Protocol v6; authority: control. */
 export interface ReportAgentRequest extends CmuxRequestBase {
@@ -1583,7 +1621,11 @@ export interface SaveTabGroupRequest extends CmuxRequestBase {
   cmd: "save-tab-group";
   "group": string;
 }
-export type SaveTabGroupResult = T.JsonValue;
+export type SaveTabGroupResult = {
+  "group": string;
+  "saved": string;
+  [key: string]: unknown;
+};
 
 /** Protocol v5; authority: control. */
 export interface ScrollSurfaceRequest extends CmuxRequestBase {
@@ -1991,7 +2033,11 @@ export interface UngroupTabGroupRequest extends CmuxRequestBase {
   cmd: "ungroup-tab-group";
   "group": string;
 }
-export type UngroupTabGroupResult = T.JsonValue;
+export type UngroupTabGroupResult = {
+  "group": string;
+  "surfaces": Array<T.Id>;
+  [key: string]: unknown;
+};
 
 /** Protocol v12; authority: control. */
 export interface UnpinWorkspaceRequest extends CmuxRequestBase {
@@ -2019,7 +2065,11 @@ export interface UnsaveTabGroupRequest extends CmuxRequestBase {
   cmd: "unsave-tab-group";
   "group": string;
 }
-export type UnsaveTabGroupResult = T.JsonValue;
+export type UnsaveTabGroupResult = {
+  "group": string;
+  "unsaved": boolean;
+  [key: string]: unknown;
+};
 
 /** Protocol v12; authority: control. */
 export interface UpdateBookmarkRequest extends CmuxRequestBase {
@@ -2032,7 +2082,7 @@ export interface UpdateBookmarkRequest extends CmuxRequestBase {
   "title"?: (string) | null;
   "url"?: (string) | null;
 }
-export type UpdateBookmarkResult = T.JsonValue;
+export type UpdateBookmarkResult = T.BookmarkChangeResult;
 
 /** Protocol v12; authority: control. */
 export interface UpdateBrowserProfileRequest extends CmuxRequestBase {
@@ -2098,7 +2148,7 @@ export interface UpdateTabGroupRequest extends CmuxRequestBase {
   "group": string;
   "name"?: (string) | null;
 }
-export type UpdateTabGroupResult = T.JsonValue;
+export type UpdateTabGroupResult = T.TabGroupOutcome;
 
 /** Protocol v12; authority: control. */
 export interface UpdateWorkspaceGroupRequest extends CmuxRequestBase {

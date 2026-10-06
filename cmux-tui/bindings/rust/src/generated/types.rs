@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 46474e014bc77adc5dda52ee7c0bb874a425d39dcee7ddaf0006cbfba11beb05.
+// cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -112,6 +112,61 @@ pub struct AttachedViewResizeResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub participant: Option<String>,
     pub reservation_id: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Bookmark {
+    pub browser_profile_id: String,
+    pub created_ms: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub favicon_key: Option<String>,
+    /// \`bm_\` and 32 lowercase hex digits.
+    pub id: String,
+    /// Dense 0-based position among the node's siblings.
+    pub index: u64,
+    /// Known values: url, folder. Other values are future kinds.
+    pub kind: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub last_used_ms: Option<u64>,
+    /// \`bar\`, \`other\`, or a folder's id.
+    pub parent: String,
+    /// Folders only.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<String>,
+    pub title: String,
+    /// url nodes.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BookmarkChangeResult {
+    pub bookmark: Bookmark,
+    pub changed: bool,
+    pub replayed: bool,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BookmarkImportNode {
+    /// A folder's nodes.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<Box<BookmarkImportNode>>>,
+    /// Defaults to now.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub created_ms: Option<u64>,
+    /// url or folder.
+    pub kind: String,
+    pub title: String,
+    /// Required for a url node; refused for a folder.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -1208,6 +1263,47 @@ pub struct RunResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedTabGroupMember {
+    /// kind terminal.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    /// kind browser. Known values: webkit, cef.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub engine: Optional<String>,
+    /// Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties.
+    pub kind: String,
+    /// kind browser.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub profile_id: Optional<String>,
+    /// kind terminal.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+    /// kind browser.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedTabGroupRecord {
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    pub color: String,
+    pub id: String,
+    pub members: Vec<SavedTabGroupMember>,
+    pub name: String,
+    /// The room whose bar shows the saved group (\`default\` for groups saved by these commands).
+    pub room: String,
+    pub updated_at_ms: u64,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Screen {
     pub active: bool,
     pub active_pane: Id,
@@ -1628,6 +1724,63 @@ pub struct Tab {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_resource_id: Optional<String>,
     pub title: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabGroupEndedTerminal {
+    pub terminal_id: String,
+    pub terminal_incarnation: Nullable<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabGroupOutcome {
+    /// Null when the command left no group.
+    pub group: Nullable<TabGroupRecord>,
+    pub pane: Nullable<Id>,
+    /// Members in strip order.
+    pub surfaces: Vec<Id>,
+    /// The workspace of the group's pane.
+    pub workspace: Nullable<Id>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabGroupRecord {
+    pub collapsed: bool,
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    pub color: String,
+    pub id: String,
+    /// May be empty: the group shows only its color.
+    pub name: String,
+    /// The linked saved group.
+    pub saved_id: Nullable<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabGroupRun {
+    pub collapsed: bool,
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    pub color: String,
+    pub count: u64,
+    pub id: String,
+    pub name: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pane: Option<Id>,
+    pub saved_id: Nullable<String>,
+    /// Strip index of the first member.
+    pub start: u64,
+    pub surfaces: Vec<Id>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
 }
 
 #[rustfmt::skip]
