@@ -11,8 +11,8 @@ documentation. This overview does not introduce a response-time guarantee.
 
 ## From report to recovery
 
-1. **Receive and assess.** A maintainer acknowledges the report, establishes a
-   private way to follow up, and assesses affected versions, services, data,
+1. **Receive and assess.** Maintainers aim to acknowledge the report, establish a
+   private way to follow up, and assess affected versions, services, data,
    attacker prerequisites, and evidence of exploitation. A suspected active
    compromise needs incident handling even before the root cause is known.
 2. **Contain.** Responders limit further exposure while preserving evidence.

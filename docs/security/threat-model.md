@@ -45,7 +45,8 @@ flowchart LR
     Socket --> App
     App --> Shell[Shells and agents with user authority]
     App <-->|SSH and scoped remote commands| Remote[Remote host and daemon]
-    Clients[Mac, iOS and dashboard clients] -->|Authenticated requests| Control[cmux control service]
+    Clients[Native Mac and iOS clients] -->|Authenticated requests| Control[cmux control service]
+    Dashboard[Browser dashboard] -->|Authenticated HTTPS and WebSocket requests| Control
     Control -->|Discovery and access decisions| Host[Host admission checks]
     Clients <-->|Direct or relayed encrypted peer traffic| Host
     Control -->|Tenant and resource authorization| VM[Cloud VM and publications]
