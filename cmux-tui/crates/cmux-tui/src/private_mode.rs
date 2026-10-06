@@ -1,8 +1,8 @@
 //! Private argv modes that run before the daemon's startup and stay out of
 //! public help.
 
-use crate::client_log;
 use crate::cli::BIN;
+use crate::client_log;
 
 /// Runs the private mode `args` names and returns its exit code; nil for
 /// every other invocation.

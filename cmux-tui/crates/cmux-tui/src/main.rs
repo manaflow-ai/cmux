@@ -10,7 +10,6 @@
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
-mod private_mode;
 mod agent_hook_install;
 mod app;
 #[cfg(unix)]
@@ -26,6 +25,7 @@ mod cloud_conversations_backend;
 mod coderouter_usage;
 mod config;
 mod headless;
+mod private_mode;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
