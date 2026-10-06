@@ -127,8 +127,9 @@ beforeAll(async () => {
   root = client.createRoot(dom.window.document.getElementById("root")!);
 });
 
-afterAll(() => {
-  root?.unmount();
+afterAll(async () => {
+  await act(async () => root?.unmount());
+  await new Promise((resolve) => setTimeout(resolve, 20));
   dom?.window.close();
   for (const [name, value] of savedGlobals) {
     if (value === undefined) delete (globalThis as Record<string, unknown>)[name];
