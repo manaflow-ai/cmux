@@ -1057,7 +1057,9 @@ class Controller:
             if self.args.dry_run or self.args.no_land:
                 landed.append((pr, "validated; landing disabled for this run"))
                 continue
-            if red_format_checks(current):
+            # Formatting pushes go only to batch authors' branches; another
+            # author's opted-in PR keeps its branch to itself.
+            if red_format_checks(current) and current.author in batch_authors():
                 try:
                     if self.format_pr(current, validation.branch):
                         self.comment_once(pr, "formatted", (
