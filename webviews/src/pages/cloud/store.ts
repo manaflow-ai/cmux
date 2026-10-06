@@ -56,6 +56,8 @@ export interface CreateDraft {
   snapshots?: CloudSnapshot[];
   submitting: boolean;
   error?: string;
+  /** The server code of `error`, when it had one: the page shows its own sentence for known codes. */
+  errorCode?: string;
   /** The backend refused the create for the plan (contract 1.5): a sentence and "See plans". */
   refusal?: PlanRefusal;
   /** The backend cannot create machines yet (no machine image configured): its own sentence. */
@@ -84,6 +86,8 @@ export interface CloudState {
   detail?: MachineDetail;
   create?: CreateDraft;
   error?: string;
+  /** The server code of `error`, when it had one: the page shows its own sentence for known codes. */
+  errorCode?: string;
   layout: MachineLayout;
   /** Ops (and native actions) the owner answered as not served yet: the page shows "Not available yet". */
   unavailable: string[];
@@ -345,7 +349,7 @@ export class CloudStore {
         ? { refusal }
         : blocked
           ? { blocked: "no_snapshot_configured" as const }
-          : { error: message(error) };
+          : { error: message(error), errorCode: codeOf(error) };
       if (this.state.create?.key === draft.key) this.set({ create: { ...draft, submitting: false, ...outcome } });
       if (session === this.session && !refusal && !blocked) this.set(failure(error, false));
     }
@@ -677,13 +681,17 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function codeOf(error: unknown): string | undefined {
+  return isPageError(error) ? error.code : undefined;
+}
+
 /**
  * A transport failure means the owner is unreachable: the page shows disconnected. The page shows one
  * alert at a time, so an error banner replaces the no-image banner.
  */
 export function failure(error: unknown, withMessage = true): Partial<CloudState> {
   if (isPageError(error) && error.code === "cmux.protocol.transport") {
-    return { connection: "disconnected", error: message(error), blocked: undefined };
+    return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
   }
-  return withMessage ? { error: message(error), blocked: undefined } : {};
+  return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};
 }
