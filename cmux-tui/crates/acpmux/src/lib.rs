@@ -31,6 +31,8 @@ pub mod schema;
 pub mod server;
 pub mod session_name;
 pub mod sha256;
+#[cfg(test)]
+mod source_date_epoch;
 pub mod store;
 pub mod transcript;
 pub mod trust;
