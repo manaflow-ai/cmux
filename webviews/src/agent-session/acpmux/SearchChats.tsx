@@ -1,16 +1,16 @@
 import React, { useState } from "react";
-import { projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
+import { listed, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { useT } from "./i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "./shortcuts";
 
 /** How many chats the palette lists (⌃1 to ⌃9 open them). */
 export const SEARCH_CHAT_LIMIT = 9;
 
-/** Newest chats whose title contains `query` (case-insensitive), at most nine. An archived chat shows only for a query. */
+/** Newest chats whose title contains `query` (case-insensitive), at most nine. An archived or side chat shows only for a query. */
 export function searchChats(sessions: readonly AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
   const needle = query.trim().toLowerCase();
   return [...sessions]
-    .filter((session) => session.status !== "closed" && (!session.archived || needle))
+    .filter((session) => session.status !== "closed" && (listed(session) || needle))
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
     .filter((session) => !needle || chatTitle(session).toLowerCase().includes(needle))
     .slice(0, SEARCH_CHAT_LIMIT);

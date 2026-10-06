@@ -88,6 +88,7 @@ import { copyText } from "./conversation/clipboard";
 import { sessionLink } from "./links";
 import { ChatHeaderTools, HEADER_ACTIONS, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { archiveRow } from "./header/archiveRow";
+import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
@@ -1590,6 +1591,10 @@ function AcpmuxPane() {
             harnessSwitch.cancel();
             return persistSession(await client.fork(Number(throughSeq)));
           },
+          "chat.side": async ({ throughSeq }) => {
+            const sessionId = await client.forkAside(Number(throughSeq));
+            if (sessionId) await postNative("chat.sideChat", { sessionId });
+          },
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
             return persistSession(await client.continueIn(String(harness)));
@@ -1752,6 +1757,12 @@ function AcpmuxPane() {
       tabPinned.current = state?.pinned === true;
     });
   const lastForkSeq = [...snapshot.rows].reverse().find((row) => row.seq !== undefined)?.seq;
+  const sideChat = sideChatRow(
+    // Quick Chat's panel is not a tab: there is no split to open beside it.
+    { canFork: forkable, throughSeq: lastForkSeq, local: localCwd !== undefined && !quick },
+    (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
+    t,
+  );
   const copyLinkRow = (link: string): ChatMenuItem => ({
     key: "copyLink",
     label: t("chatMenu.copyLink"),
@@ -1772,6 +1783,7 @@ function AcpmuxPane() {
             },
           ]
         : []),
+      ...(sideChat ? [sideChat] : []),
       ...(snapshot.canHandoff && handoffTargets.length > 0
         ? [
             {

@@ -66,6 +66,10 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
             return (record: record, store: services.machines.daemon(forTab: tab).store)
         }
+        tabs.locate = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
+            return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
+        }
         tabs.listTabs = { [weak services] in
             guard let services else { return [] }
             return services.machines.allWorkspaces.flatMap { workspace, _ in

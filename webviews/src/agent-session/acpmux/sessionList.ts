@@ -28,6 +28,8 @@ export type AcpmuxSessionEntry = {
   pinned?: boolean;
   /** Tagged `archived` through `_acpmux/tag` (the chat menu's Archive): off every list, found only by search. */
   archived?: boolean;
+  /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
+  side?: boolean;
   pullRequest?: SessionPullRequest;
   /** A line of the session's latest reply, for previews. */
   preview?: string;
@@ -61,6 +63,11 @@ export type SessionGroup = {
 export const PINNED_TAG = "pinned";
 /** The tag the chat menu's Archive sets. */
 export const ARCHIVED_TAG = "archived";
+/** The tag New side chat sets on its fork (the value is the chat's session). */
+export const SIDE_TAG = "side";
+
+/** Whether a session belongs in the sidebar, Home and recents: neither archived nor a side chat. */
+export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side;
 
 /** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
 function tagged(tags: unknown, tag: string): boolean {
@@ -96,6 +103,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     worktree: text(session.worktree),
     pinned: session.pinned === true || tagged(session.tags, PINNED_TAG),
     archived: session.archived === true || tagged(session.tags, ARCHIVED_TAG),
+    side: session.side === true || tagged(session.tags, SIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
   };
@@ -226,7 +234,7 @@ export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): A
   });
 }
 
-/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. Archived sessions are in neither. */
+/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. Archived sessions and side chats are in neither. */
 export function sidebarSections(
   all: AcpmuxSessionEntry[],
   query = "",
@@ -234,7 +242,7 @@ export function sidebarSections(
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
 } {
-  const sessions = all.filter((session) => !session.archived);
+  const sessions = all.filter(listed);
   const pinned = byRecency(
     filterSessions(
       sessions.filter((session) => session.pinned),

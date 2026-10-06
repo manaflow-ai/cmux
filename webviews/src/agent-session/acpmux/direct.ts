@@ -1592,6 +1592,18 @@ export class AcpmuxDirectClient {
       this.forking = false;
     }
   }
+  /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
+  /// host opens beside this chat. One fork at a time, as `fork`.
+  async forkAside(throughSeq: number): Promise<string | undefined> {
+    if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
+    this.forking = true;
+    try {
+      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
+      return result?.sessionId ? String(result.sessionId) : undefined;
+    } finally {
+      this.forking = false;
+    }
+  }
   async setModel(modelId: string): Promise<void> {
     if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });
   }
