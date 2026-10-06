@@ -159,6 +159,38 @@ test("gmail.send reply: a new message in the thread after the preview fails the 
   }
 });
 
+test("linkedin.post: the draft names who it posts as and its audience; a composer that posts as a page, to another audience, or does not say, posts nothing", async () => {
+  try {
+    await run(`
+      const laD = await sites.linkedin.post("Audience bound.");
+      const lcD = await sites.linkedin.post({ text: "Connections only.", audience: "connections" });`);
+    const d = await s.value("laD.preview");
+    assert.equal(d.postAs, "Ada Lovelace");
+    assert.equal(d.audience, "Anyone");
+    assert.equal((await s.value("lcD.preview")).audience, "Connections only");
+    const before = env.state.linkedinPosts.length;
+    // The composer now posts as a company page the member admins.
+    env.state.linkedinComposer = { postAs: "Acme Corp" };
+    assert.match(await s.error("sites.linkedin.post(laD.id, { confirm: true })"), /target_mismatch|postAs is "Acme Corp"/);
+    await run('var laD2 = await sites.linkedin.post("Audience bound.")');
+    // LinkedIn remembers another audience than the draft's.
+    env.state.linkedinComposer = { audience: "Connections only" };
+    assert.match(await s.error("sites.linkedin.post(laD2.id, { confirm: true })"), /target_mismatch|audience is "Connections only"/);
+    await run('var laD3 = await sites.linkedin.post("Audience bound.")');
+    // A composer whose header cannot be read fails closed.
+    env.state.linkedinComposer = { settings: false };
+    assert.match(await s.error("sites.linkedin.post(laD3.id, { confirm: true })"), /target_unverified/);
+    assert.equal(env.state.linkedinPosts.length, before, "a post went out to an audience or as an identity the draft did not show");
+    // The composer matches the connections-only draft: it posts.
+    env.state.linkedinComposer = { audience: "Connections only" };
+    await s.value("sites.linkedin.post(lcD.id, { confirm: true })");
+    assert.deepEqual(env.state.linkedinPosts.at(-1), { text: "Connections only.", settings: "Ada LovelacePost to Connections only" });
+    assert.match(await s.error('sites.linkedin.post({ text: "x", audience: "everyone" })'), /invalid|audience/);
+  } finally {
+    env.state.linkedinComposer = null;
+  }
+});
+
 test("linkedin.post and x.post: the draft pins the signed-in account; another account at confirmation fails and posts nothing", async () => {
   try {
     await run(`
