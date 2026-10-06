@@ -42,12 +42,23 @@ enum WorkspaceMerge {
     }
 
     /// Whether `ids` may merge into `window`'s shown workspace: one
-    /// workspace, not Home, not the shown one, on the same machine.
+    /// workspace (any number of tabs, even one), not a fixed one, not the
+    /// shown one, on the same machine.
     static func allowed(_ ids: [String], group: String?, into window: WindowController, services: AppServices) -> Bool {
         guard group == nil, ids.count == 1, let id = ids.first, let source = services.workspace(id: id),
-              !EmptyWorkspaceRepair.isHome(source), let shown = window.content?.workspace, shown.id != id else { return false }
+              !staysPut(kind: source.kind), let shown = window.content?.workspace, shown.id != id else { return false }
         return services.machines.daemon(forWorkspace: id) === services.machines.daemon(forWorkspace: shown.id)
     }
+
+    /// Whether a workspace of `kind` never merges away (Lawrence
+    /// 2026-10-07): the sidebar's top two never disappear. Home is the only
+    /// one that is a workspace; the App Store is a page item, never dragged
+    /// out of the sidebar. Its panes just do not highlight.
+    static func staysPut(kind: String?) -> Bool {
+        fixedKinds.contains(kind ?? "")
+    }
+
+    private static let fixedKinds: Set<String> = ["home"]
 
     /// The tab move a merge drop on `kind` makes for the workspace's first
     /// tab; nil for targets a workspace never takes.

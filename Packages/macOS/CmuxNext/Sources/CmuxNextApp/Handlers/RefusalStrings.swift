@@ -51,7 +51,6 @@ nonisolated enum RefusalStrings {
     static var notEnoughRoomToSplit: String { text("handlers.refusal.notEnoughRoomToSplit", "not enough room to split this pane") }
     static var focusedPaneHasNoTab: String { text("handlers.refusal.focusedPaneHasNoTab", "the focused pane has no tab") }
     static func noTab(_ id: String) -> String { format("handlers.refusal.noTab", "no tab %@", id) }
-    static func sessionLocalTab(_ id: String) -> String { format("handlers.refusal.sessionLocalTab", "tab %@ is session-local, not a daemon tab", id) }
     static func noPaneID(_ id: String) -> String { format("handlers.refusal.noPaneID", "no pane %@", id) }
     static var workspaceArgumentRequired: String { text("handlers.refusal.workspaceArgumentRequired", "a workspace argument is required") }
     static func noWorkspace(_ id: String) -> String { format("handlers.refusal.noWorkspace", "no workspace %@", id) }
