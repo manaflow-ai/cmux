@@ -47,7 +47,7 @@ struct SecondaryWindowCloseButtonTests {
         let services = MockOnboardingServices()
         services.accountsView = NSView()
         services.firstTaskView = NSView()
-        let controller = OnboardingWindowController(model: OnboardingModel(services: services, start: .role))
+        let controller = OnboardingWindowController(model: OnboardingModel(services: services, start: .accounts))
         Self.expectCloseButton(controller.window, "Onboarding")
     }
 
