@@ -58,3 +58,29 @@ import Testing
         #expect(held.releaseAll(heldBy: "staying") == [a])
     }
 }
+
+/// Keys and buttons a session holds are held in the web view that got the
+/// press. When the tab's web view is replaced (a restore, a crash
+/// recovery) before an ending session's release lands, the release is
+/// forgotten: it never reaches the replacement's page as a trusted event.
+@MainActor
+@Suite struct BrowserReplInputTargetTests {
+    final class View {}
+
+    @Test func aReleaseReachesOnlyTheWebViewThatGotThePress() {
+        let pressed = View()
+        let replacement = View()
+        let target = BrowserReplInputTarget(pressed)
+        #expect(target.deliverable(to: pressed) === pressed)
+        #expect(target.deliverable(to: replacement) == nil, "a release went to the replacement web view")
+        #expect(target.deliverable(to: nil) == nil)
+    }
+
+    @Test func aReleaseOfAWebViewThatIsGoneReachesNothing() {
+        var pressed: View? = View()
+        let target = BrowserReplInputTarget(pressed)
+        pressed = nil
+        #expect(target.deliverable(to: View()) == nil)
+        #expect(BrowserReplInputTarget<View>(nil).deliverable(to: View()) == nil)
+    }
+}
