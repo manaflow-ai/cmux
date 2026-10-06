@@ -91,7 +91,7 @@ extension WindowState {
     func adopt(_ record: WindowRecord) {
         id = record.id
         workspaceID = record.workspaceKey?.rawValue
-        _ = record.page // RED stub: the page is not restored yet
+        page = record.page.flatMap(TopPageRoute.init(rawValue:))
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth

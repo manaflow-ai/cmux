@@ -19,7 +19,7 @@ public nonisolated struct SidebarNumbering: Hashable, Sendable {
     public let order: [Target]
 
     public init(firstTopItem: LayoutItemID?, workspaces: [String]) {
-        order = workspaces.map(Target.workspace) // RED stub: the top item is not numbered yet
+        order = (firstTopItem.map { [Target.topItem($0)] } ?? []) + workspaces.map(Target.workspace)
     }
 
     /// The target number `number` (1…9) selects: 9 and numbers past the end

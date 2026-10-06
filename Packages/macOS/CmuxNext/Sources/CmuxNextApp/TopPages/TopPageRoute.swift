@@ -48,7 +48,6 @@ extension TopPageRoute {
 
     /// The page `ref` stands for in any section (the active-item check).
     static func route(for ref: LayoutItemRef) -> TopPageRoute? {
-        if ref.kind != "" { return nil } // RED stub: no item opens a page yet
         if ref.kind == LayoutItemRef.appKind {
             switch ref.value {
             case homeAppID: return .home

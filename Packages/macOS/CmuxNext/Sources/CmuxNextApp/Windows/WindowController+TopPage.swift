@@ -8,7 +8,7 @@ extension WindowController {
     /// serves the route (the window then shows its workspace).
     @discardableResult
     func showTopPage(_ route: TopPageRoute) -> Bool {
-        guard route.rawValue.isEmpty, let view = topPages.view(for: route, in: self) else { return false } // RED stub
+        guard let view = topPages.view(for: route, in: self) else { return false }
         if root.content === view { return true }
         parkContentForPage()
         root.show(view)
