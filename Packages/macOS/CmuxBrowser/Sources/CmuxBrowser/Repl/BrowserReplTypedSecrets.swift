@@ -17,10 +17,12 @@ import Foundation
 /// typing session leaves, its records mask for every session, including a
 /// later session with the same name.
 ///
-/// A record is kept per tab, typing session and secret name, so sessions
-/// whose secrets share a name, or one session typing a name into several
-/// tabs, never replace each other's values; a session that types the same
-/// name into the same tab again replaces its earlier value. Each value is
+/// A record is kept per tab and distinct value, so sessions whose secrets
+/// share a name, one session typing a name into several tabs, or typing a
+/// name into a tab again with a new value never drop an earlier value: the
+/// page may keep it (another field, its history, a hidden copy) until the
+/// tab closes. The same value typed into the same tab again is one record.
+/// Each value is
 /// masked as typed, a literal under an internal key shown as
 /// `<secret:name>`: a TOTP secret's typed value is its code, so no TOTP
 /// rule (`totp`, or a name ending in `bu_2fa_code`) applies.
@@ -61,14 +63,14 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
     /// ``BrowserReplSecretStore/maximumValueBytes``): past that the value is
     /// refused (`invalid`) and must not be typed, since a record is never
     /// dropped while its tab may still show the value. A record replaces
-    /// the typist's earlier one for `name` in `tab`, and one of a session
-    /// that left for the same name and value (a kept tab a later session of
-    /// the same task types into again).
+    /// only one of the same value under `name` in `tab`, typed by `typist`
+    /// or by a session that left (a kept tab a later session of the same
+    /// task types into again); a new value never replaces an earlier one.
     public func record(tab: String, name: String, value: String, domains: [BrowserReplDomainPattern], typist: String) throws {
         try BrowserReplSecretStore.checkTypedValue(value, domains: domains)
         try lock.withLock {
             let replaced = { (entry: Typed) in
-                entry.tab == tab && entry.name == name && (entry.typist == typist || (entry.typist == nil && entry.value == value))
+                entry.tab == tab && entry.name == name && entry.value == value && (entry.typist == typist || entry.typist == nil)
             }
             if !entries.contains(where: replaced), entries.count >= BrowserReplSecretStore.maximumTypedValues {
                 throw BrowserReplSecretStore.tooManyTypedValues
