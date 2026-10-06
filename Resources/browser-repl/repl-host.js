@@ -477,10 +477,17 @@
     // these frozen copies, whose prototype is Object.prototype, so a
     // cancelled cell cannot call a raw capability around the check
     // (Object.getPrototypeOf on a wrapper finds nothing callable).
+    // Members come from the raw object and its own prototypes (a wrapped
+    // host inherits its base's), each bound to the raw object as a call
+    // through the old wrapper resolved them.
     const ownSurface = (raw, overrides) => {
       const descriptors = {};
-      for (const [name, d] of Object.entries(Object.getOwnPropertyDescriptors(raw))) {
-        descriptors[name] = d.get ? { get: () => d.get.call(raw), enumerable: d.enumerable } : { value: d.value, enumerable: d.enumerable };
+      for (let o = raw; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+        for (const [name, d] of Object.entries(Object.getOwnPropertyDescriptors(o))) {
+          if (name in descriptors || name === "constructor") continue;
+          if (d.get || d.set) descriptors[name] = { get: d.get ? () => d.get.call(raw) : undefined, enumerable: d.enumerable };
+          else descriptors[name] = { value: typeof d.value === "function" ? d.value.bind(raw) : d.value, enumerable: d.enumerable };
+        }
       }
       return Object.freeze(Object.defineProperties({}, { ...descriptors, ...overrides }));
     };
