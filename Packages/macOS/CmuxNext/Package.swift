@@ -616,7 +616,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextBridgeTests",
-            dependencies: ["CmuxNextBridge", "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs"],
+            dependencies: ["CmuxNextBridge", "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons"],
             resources: [
                 .copy("Fixtures"),
             ],
@@ -768,7 +768,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextTabsTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextTabs", "CmuxNextResources"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextTabs", "CmuxNextResources", "CmuxNextIcons"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -781,7 +781,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources", "CmuxNextIcons", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextSidebar", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
