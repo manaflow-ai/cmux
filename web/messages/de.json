@@ -1357,6 +1357,7 @@
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",
           "warnBeforeClosingTabXButton": "Vor dem Schließen eines Tabs über die Tab-Schließen-Schaltfläche eine Bestätigung anzeigen.",
           "hideTabCloseButton": "Tab-Schließen-Schaltflächen in der Pane-Tableiste ausblenden.",
+          "tabBarVisibility": "Legt fest, wann ein Pane seine Tableiste zeichnet. \"always\" zeichnet sie auch für ein Pane mit nur einem Tab; \"multiple-tabs\" blendet sie aus, solange ein Pane einen Tab hat, und zeichnet sie, sobald ein zweiter Tab geöffnet wird. Der minimale Modus (app.minimalMode) zeichnet sie immer, weil dort die Tableiste des obersten Pane zugleich die Titelleiste des Fensters ist.",
           "forkConversationDefaultDestination": "Standardziel für die primäre Fork Conversation-Aktion im Tab-Kontextmenü. Das Untermenü zeigt weiterhin alle Ziele.",
           "globalFontMagnification": "Prozentualer Zoom für alles, was cmux selbst zeichnet: Terminaltext, Tab-Titel, Seitenleisten, Settings, Overlays und Fensterrahmen. Webseiten in Browser-Surfaces behalten ihre eigene Größe."
         },
@@ -1395,6 +1396,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "compactAgentStatus": "Jeden Workspace in einer Zeile anzeigen: Ein farbiges Symbol vor dem Titel zeigt Agenten-, Ungelesen- und Pull-Request-Status und ersetzt die Status-Zeilen von Agenten (zum Beispiel „Wird ausgeführt“ oder „Eingabe erforderlich“), die Branch- und Verzeichniszeile sowie die Pull-Request-Zeilen, deren Details in den Tooltip des Symbols wandern. Andere Statuseinträge behalten ihre eigenen Zeilen.",
+          "compactStatusIcons": "SF-Symbol-Namen, die das compactAgentStatus-Symbol je Zustand ersetzen, zum Beispiel {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Nicht gesetzte Zustände behalten das eingebaute Symbol, und ein Name, der nicht darstellbar ist, fällt darauf zurück.",
           "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },

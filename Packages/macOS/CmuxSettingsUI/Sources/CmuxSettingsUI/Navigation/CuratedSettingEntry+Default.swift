@@ -88,7 +88,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "terminal-config", title: String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), synonyms: "Terminal Config ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
             .init(section: .app, id: "global-font-magnification", title: String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), synonyms: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome bigger smaller accessibility"),
             .init(section: .app, id: "imessage-mode", title: String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"), synonyms: "iMessage Mode app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
-            .init(section: .app, id: "reorder-notification", title: String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"), synonyms: "Reorder on Notification app.reorderOnNotification notification reorder move workspace top unread sort"),
+            .init(section: .app, id: "reorder-notification", title: String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"), synonyms: "Reorder on Notification app.reorderOnNotification notification reorder move workspace top unread sort agent activity agents prompt turn finished needs input"),
             .init(section: .app, id: "menu-bar-only", title: String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), synonyms: "Menu Bar Only app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
             .init(section: .app, id: "telemetry", title: String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), synonyms: "Send anonymous telemetry app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
@@ -213,17 +213,17 @@ extension Array where Element == CuratedSettingEntry {
                 section: .terminal,
                 id: "agent-turn-control",
                 title: String(localized: "settings.agentActions.turnControl", defaultValue: "Agent Stop Button"),
-                detailText: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc."),
+                detailText: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working, and Compact and Resume in the Turns popover. Stop interrupts the turn, like pressing Esc."),
                 paths: ["agentActions.turnControl"],
-                synonyms: "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click"
+                synonyms: "agentActions.turnControl agent actions turn control stop button interrupt cancel escape esc claude code codex running turn click compact resume context summarize continue"
             ),
             .init(
                 section: .terminal,
                 id: "agent-prompt-editing",
-                title: String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Edit Queued Button"),
-                detailText: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows an Edit Queued button over a terminal while Claude Code has prompts waiting in its queue. Clicking it moves them back into the input, like pressing Up."),
+                title: String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Prompt Editing"),
+                detailText: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows a Turns button over agent terminals to edit a past prompt or fork from it, and Edit Queued while Claude Code has prompts waiting, which moves them back into the input like pressing Up."),
                 paths: ["agentActions.promptEditing"],
-                synonyms: "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code click"
+                synonyms: "agentActions.promptEditing agent actions prompt editing edit queued queue message prompt up arrow claude code codex click turns turn history timeline past prompt resend fork"
             ),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(
@@ -327,6 +327,14 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
             ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), synonyms: "Show Custom Metadata in Sidebar sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+            .init(
+                section: .sidebarAppearance,
+                id: "compact-agent-status",
+                title: String(localized: "settings.app.compactAgentStatus", defaultValue: "Compact Agent Status"),
+                detailText: String(localized: "settings.app.compactAgentStatus.subtitle", defaultValue: "Show each workspace on one line, with one colored icon before the title for agent, unread, and pull request state. Hover the icon for details."),
+                paths: ["sidebar.compactAgentStatus"],
+                synonyms: "sidebar.compactAgentStatus compact agent status running needs input glyph icon title line dense claude codex"
+            ),
             .init(section: .sidebarAppearance, id: "right-max-width", title: String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), synonyms: "Dock Max Width sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile

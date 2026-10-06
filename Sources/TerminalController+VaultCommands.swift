@@ -256,14 +256,10 @@ extension TerminalController {
                 data: nil
             ))
         }
-        let ampSessionRepository = AmpHookSessionRepository()
-        let quick = await SessionIndexStore.loadInitialEntries(
-            ampSessionRepository: ampSessionRepository
-        )
-        if let entry = quick.first(where: { $0.agent.rawValue == agentID && $0.sessionId == sessionID }) {
+        if let entry = await vaultEntry(agentID: agentID, sessionID: sessionID) {
             return .success(entry)
         }
-        guard let agent = SessionAgent(rawValue: agentID) else {
+        guard SessionAgent(rawValue: agentID) != nil else {
             return .failure(.err(
                 code: "not_found",
                 message: String(localized: "socket.vault.unknownAgent",
@@ -271,6 +267,26 @@ extension TerminalController {
                 data: nil
             ))
         }
+        return .failure(.err(
+            code: "not_found",
+            message: String(localized: "socket.vault.sessionNotFound",
+                            defaultValue: "No Vault session matched."),
+            data: nil
+        ))
+    }
+
+    /// Looks up (agent, session id) in the index: the fast top-N scan first,
+    /// then one deeper bounded per-agent listing. Shared by the socket verbs
+    /// and the per-pane Turns popover.
+    nonisolated static func vaultEntry(agentID: String, sessionID: String) async -> SessionEntry? {
+        let ampSessionRepository = AmpHookSessionRepository()
+        let quick = await SessionIndexStore.loadInitialEntries(
+            ampSessionRepository: ampSessionRepository
+        )
+        if let entry = quick.first(where: { $0.agent.rawValue == agentID && $0.sessionId == sessionID }) {
+            return entry
+        }
+        guard let agent = SessionAgent(rawValue: agentID) else { return nil }
         let registry = await SessionIndexStore.vaultAgentRegistry(workingDirectory: nil)
         let deep = await SessionIndexStore.searchAgent(
             needle: "",
@@ -282,15 +298,7 @@ extension TerminalController {
             registry: registry,
             ampSessionRepository: ampSessionRepository
         )
-        if let entry = deep.first(where: { $0.sessionId == sessionID }) {
-            return .success(entry)
-        }
-        return .failure(.err(
-            code: "not_found",
-            message: String(localized: "socket.vault.sessionNotFound",
-                            defaultValue: "No Vault session matched."),
-            data: nil
-        ))
+        return deep.first(where: { $0.sessionId == sessionID })
     }
 
     nonisolated static func vaultLiveSessionKeys() async -> Set<String> {

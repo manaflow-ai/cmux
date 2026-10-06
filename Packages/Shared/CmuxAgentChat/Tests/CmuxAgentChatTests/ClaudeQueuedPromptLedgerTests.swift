@@ -72,4 +72,3 @@ struct ClaudeQueuedPromptLedgerTests {
         #expect(ledger.count == ClaudeQueuedPromptLedger.maximumTrackedPrompts)
     }
 }
-

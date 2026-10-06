@@ -63,6 +63,9 @@ extension FeedCoordinator {
         case .sessionStart, .sessionEnd, .userPromptSubmit, .subagentStart, .subagentStop, .postToolUse:
             notificationJournal.observeFeed(AgentFeedSemanticInput(event: event,
                 agentKey: Self.lifecycleStatusKey(forSource: event.source)))
+        case .postCompact:
+            // Compact and resume waits on this to send its continue prompt.
+            AgentCompactionReport(event: event)?.post()
         default:
             break
         }

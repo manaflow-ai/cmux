@@ -527,6 +527,17 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
         return trimmed
     }
 
+    /// The prompt as the user typed it, for editing and sending it again: a
+    /// slash command comes back as `/name args`, without Claude's
+    /// `command-message` status text.
+    static func claudeEditablePrompt(from raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isClaudeSyntheticEnvelope(trimmed) else { return nil }
+        guard let commandName = claudeTagValue("command-name", in: trimmed) else { return trimmed }
+        guard let args = claudeTagValue("command-args", in: trimmed) else { return commandName }
+        return commandName + " " + args
+    }
+
     private static func claudeSlashCommandTitle(from raw: String) -> String? {
         let commandName = claudeTagValue("command-name", in: raw)
         let commandMessage = claudeTagValue("command-message", in: raw)

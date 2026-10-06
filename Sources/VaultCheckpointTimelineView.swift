@@ -19,6 +19,9 @@ struct VaultCheckpointTimelineView: View {
     /// results through the exact same path as row resume.
     let onResume: ((SessionEntry) -> Void)?
     let onDismiss: () -> Void
+    /// Puts a past prompt into the live agent's input for editing. Only the
+    /// per-pane Turns popover passes this; the Vault has no live input.
+    var onEditPrompt: ((String) -> Void)? = nil
 
     @State private var derivation: VaultSessionCheckpoints.Derivation?
     @State private var manualCheckpoints: [VaultSessionCheckpoint] = []
@@ -94,7 +97,7 @@ struct VaultCheckpointTimelineView: View {
                         checkpointNotice(
                             systemImage: "exclamationmark.triangle",
                             text: String(localized: "sessionIndex.checkpoints.truncated",
-                                         defaultValue: "Long transcript — earliest turns not shown")
+                                         defaultValue: "Long transcript: the latest turns are not shown")
                         )
                     }
                     ForEach(mergedCheckpoints) { checkpoint in
@@ -102,7 +105,10 @@ struct VaultCheckpointTimelineView: View {
                             checkpoint: checkpoint,
                             isForkEnabled: !isForking && supportsFork,
                             showsForkButton: supportsFork,
-                            onFork: { fork(checkpoint) }
+                            onFork: { fork(checkpoint) },
+                            onEdit: onEditPrompt.flatMap { edit in
+                                checkpoint.promptText.map { text in { edit(text) } }
+                            }
                         )
                         .equatable()
                     }
@@ -335,12 +341,14 @@ private struct VaultCheckpointRow: View, Equatable {
     let isForkEnabled: Bool
     let showsForkButton: Bool
     let onFork: () -> Void
+    var onEdit: (() -> Void)? = nil
     @State private var isHovered = false
 
     static func == (lhs: VaultCheckpointRow, rhs: VaultCheckpointRow) -> Bool {
         lhs.checkpoint == rhs.checkpoint
             && lhs.isForkEnabled == rhs.isForkEnabled
             && lhs.showsForkButton == rhs.showsForkButton
+            && (lhs.onEdit == nil) == (rhs.onEdit == nil)
     }
 
     var body: some View {
@@ -375,6 +383,9 @@ private struct VaultCheckpointRow: View, Equatable {
             // Always present (not hover-gated) so keyboard and VoiceOver
             // users can reach the timeline's primary action; hover only
             // raises its prominence.
+            if let onEdit {
+                editButton(onEdit)
+            }
             if showsForkButton {
                 forkButton
             }
@@ -403,6 +414,23 @@ private struct VaultCheckpointRow: View, Equatable {
                        height: checkpoint.source == .manual ? 9 : 7)
         }
         .frame(width: 14, height: 18, alignment: .top)
+    }
+
+    private func editButton(_ onEdit: @escaping () -> Void) -> some View {
+        Button(action: onEdit) {
+            Label(
+                String(localized: "sessionIndex.checkpoints.editPrompt", defaultValue: "Edit"),
+                systemImage: "square.and.pencil"
+            )
+            .cmuxFont(size: 10, weight: .semibold)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+        }
+        .buttonStyle(.borderless)
+        .help(String(localized: "sessionIndex.checkpoints.editPromptHelp",
+                     defaultValue: "Put this prompt in the agent's input to edit and send again"))
+        .accessibilityIdentifier("VaultCheckpointEditPromptButton")
     }
 
     private var forkButton: some View {

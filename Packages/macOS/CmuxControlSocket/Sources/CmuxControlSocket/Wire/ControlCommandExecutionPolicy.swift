@@ -148,6 +148,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "vault.checkpoints",
         "vault.checkpoint",
         "vault.fork",
+        // `agent.compact_resume` reads the pane's hook session store and the
+        // tail of its transcript to build the focus note, then takes main
+        // actor hops only to resolve the pane and start the run.
+        "agent.compact_resume",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop

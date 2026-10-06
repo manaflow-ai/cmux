@@ -13,14 +13,24 @@ final class TerminalAgentTurnControlView: NSView {
     var onInterrupt: ((AgentTurnInterruptTarget) -> Void)?
     /// Called when the user clicks Edit Queued.
     var onEditQueued: (() -> Void)?
+    /// Called with the Turns button when the user clicks it.
+    var onShowTurns: ((NSView) -> Void)?
     /// Called when either agent action setting changes while an agent runs.
     var onSettingsChange: (() -> Void)?
 
     private let backdrop = NSVisualEffectView(frame: .zero)
     private let stopButton = TerminalAgentTurnControlButton(frame: .zero)
     private let editQueuedButton = TerminalAgentTurnControlButton(frame: .zero)
+    private let turnsButton = TerminalAgentTurnControlButton(frame: .zero)
+    /// Compact-and-resume progress, or why it stopped.
+    private let statusLabel = NSTextField(labelWithString: "")
+    private var statusGeneration: UInt64 = 0
+    /// How long a stopped run's reason stays in the pill.
+    static let statusErrorInterval: TimeInterval = 6
     private let buttonStack = NSStackView(frame: .zero)
     private(set) var target: AgentTurnInterruptTarget?
+    /// The supported agent with a session in this pane, running or not.
+    private(set) var presentAgent: AgentTurnInterruptTarget?
     /// How long Stop stays disabled after a click.
     static let stopHoldInterval: TimeInterval = 1.5
     private var stopHoldGeneration: UInt64 = 0
@@ -36,7 +46,7 @@ final class TerminalAgentTurnControlView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, let hit = super.hitTest(point) else { return nil }
-        let isButton = [stopButton, editQueuedButton].contains { hit === $0 || hit.isDescendant(of: $0) }
+        let isButton = [stopButton, editQueuedButton, turnsButton].contains { hit === $0 || hit.isDescendant(of: $0) }
         return isButton ? hit : nil
     }
 
@@ -67,6 +77,18 @@ final class TerminalAgentTurnControlView: NSView {
             title: String(localized: "terminal.agentTurnControl.editQueued", defaultValue: "Edit Queued"),
             action: #selector(handleEditQueued)
         )
+        configure(
+            turnsButton,
+            symbol: "clock.arrow.circlepath",
+            title: String(localized: "terminal.agentTurnControl.turns", defaultValue: "Turns"),
+            action: #selector(handleShowTurns)
+        )
+        let turnsHelp = String(
+            localized: "terminal.agentTurnControl.turns.help",
+            defaultValue: "Show this session's prompts: edit one again or fork from it"
+        )
+        turnsButton.toolTip = turnsHelp
+        turnsButton.setAccessibilityLabel(turnsHelp)
         let editQueuedHelp = String(
             localized: "terminal.agentTurnControl.editQueued.help",
             defaultValue: "Move queued prompts back into Claude's input (Up)"
@@ -78,6 +100,13 @@ final class TerminalAgentTurnControlView: NSView {
         buttonStack.orientation = .horizontal
         buttonStack.alignment = .centerY
         buttonStack.spacing = 10
+        statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.isHidden = true
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        buttonStack.addArrangedSubview(statusLabel)
+        buttonStack.addArrangedSubview(turnsButton)
         buttonStack.addArrangedSubview(editQueuedButton)
         buttonStack.addArrangedSubview(stopButton)
 
@@ -126,12 +155,20 @@ final class TerminalAgentTurnControlView: NSView {
         render()
     }
 
+    /// Applies the agent currently running in this pane (`target`) and the
+    /// agent with a session here at all (`present`), or `nil` for none.
+    func setAgents(running target: AgentTurnInterruptTarget?, present: AgentTurnInterruptTarget?) {
+        presentAgent = present ?? target
+        setRunningTarget(target)
+    }
+
     /// Applies the agent currently running in this pane, or `nil` when none is.
     func setRunningTarget(_ target: AgentTurnInterruptTarget?) {
-        if target != nil, self.target == nil {
+        let isActive = target != nil || presentAgent != nil
+        if isActive, settingsObserver == nil {
             reloadSetting()
         }
-        observeSetting(target != nil)
+        observeSetting(isActive)
         if target != self.target {
             stopHoldGeneration &+= 1
             stopButton.isEnabled = true
@@ -171,25 +208,48 @@ final class TerminalAgentTurnControlView: NSView {
         }
     }
 
-    private func render() {
-        guard let target else {
-            isHidden = true
-            return
+    /// Whether Compact and Resume is offered (`agentActions.turnControl`).
+    var isCompactResumeEnabled: Bool { isEnabledBySetting }
+
+    /// Shows compact-and-resume progress in the pill, or clears it with
+    /// `nil`. An error clears itself after ``statusErrorInterval``.
+    func setCompactResumeStatus(_ text: String?, isError: Bool) {
+        statusGeneration &+= 1
+        statusLabel.stringValue = text ?? ""
+        statusLabel.toolTip = text
+        statusLabel.textColor = isError ? .systemOrange : .secondaryLabelColor
+        statusLabel.isHidden = text == nil
+        render()
+        guard isError, text != nil else { return }
+        let generation = statusGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.statusErrorInterval) { [weak self] in
+            guard let self, self.statusGeneration == generation else { return }
+            self.setCompactResumeStatus(nil, isError: false)
         }
-        let showsStop = isEnabledBySetting
+    }
+
+    /// The compact-and-resume status the pill shows, for tests.
+    var compactResumeStatus: String? { statusLabel.isHidden ? nil : statusLabel.stringValue }
+
+    private func render() {
+        let showsStop = target != nil && isEnabledBySetting
         let showsEditQueued = isPromptEditingEnabled && target == .claudeCode && queuedPromptCount > 0
+        let showsTurns = isPromptEditingEnabled && presentAgent != nil
         stopButton.isHidden = !showsStop
         editQueuedButton.isHidden = !showsEditQueued
-        guard showsStop || showsEditQueued else {
+        turnsButton.isHidden = !showsTurns
+        guard showsStop || showsEditQueued || showsTurns || !statusLabel.isHidden else {
             isHidden = true
             return
         }
-        let help = String(
-            localized: "terminal.agentTurnControl.stop.help",
-            defaultValue: "Interrupt \(target.displayName) (Esc)"
-        )
-        stopButton.toolTip = help
-        stopButton.setAccessibilityLabel(help)
+        if let target {
+            let help = String(
+                localized: "terminal.agentTurnControl.stop.help",
+                defaultValue: "Interrupt \(target.displayName) (Esc)"
+            )
+            stopButton.toolTip = help
+            stopButton.setAccessibilityLabel(help)
+        }
         isHidden = false
     }
 
@@ -218,6 +278,14 @@ final class TerminalAgentTurnControlView: NSView {
         }
         onInterrupt?(target)
     }
+
+    @objc private func handleShowTurns() {
+        guard presentAgent != nil, isPromptEditingEnabled else { return }
+        onShowTurns?(turnsButton)
+    }
+
+    /// Whether the Turns button is showing, for tests.
+    var isTurnsVisible: Bool { !isHidden && !turnsButton.isHidden }
 
     @objc private func handleEditQueued() {
         guard target == .claudeCode, isPromptEditingEnabled, queuedPromptCount > 0,

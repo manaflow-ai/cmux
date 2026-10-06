@@ -47,6 +47,7 @@ extension TerminalController {
             "vault.checkpoints",
             "vault.checkpoint",
             "vault.fork",
+            "agent.compact_resume",
             "caffeine.status",
             "caffeine.set",
             "comments.list",

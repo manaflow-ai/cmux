@@ -656,7 +656,7 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json("app.reorderOnNotification"),
                 String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
-                subtitle: String(localized: "settings.app.reorderOnNotification.modeSubtitle", defaultValue: "Move workspaces to the top when they receive a notification. Agent Activity also moves them when an agent finishes a turn, needs input, or fails, but never while you point at the sidebar. Off keeps shortcut positions stable."),
+                subtitle: String(localized: "settings.app.reorderOnNotification.modeSubtitle", defaultValue: "Move workspaces to the top when they receive a notification. Agent Activity also moves them when you send a prompt or an agent finishes a turn, needs input, or fails, but never while you point at the sidebar. Off keeps shortcut positions stable."),
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(get: { reorder.current }, set: { reorder.set($0) })) {

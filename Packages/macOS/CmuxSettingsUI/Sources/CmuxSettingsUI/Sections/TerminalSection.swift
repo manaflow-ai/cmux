@@ -496,7 +496,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("agentActions.turnControl"),
                 String(localized: "settings.agentActions.turnControl", defaultValue: "Agent Stop Button"),
-                subtitle: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working. Clicking it interrupts the turn, like pressing Esc.")
+                subtitle: String(localized: "settings.agentActions.turnControl.subtitle", defaultValue: "Shows a Stop button over a terminal while Claude Code or Codex is working, and Compact and Resume in the Turns popover. Stop interrupts the turn, like pressing Esc.")
             ) {
                 Toggle("", isOn: Binding(get: { agentTurnControl.current }, set: { agentTurnControl.set($0) }))
                     .labelsHidden()
@@ -506,8 +506,8 @@ public struct TerminalSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("agentActions.promptEditing"),
-                String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Edit Queued Button"),
-                subtitle: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows an Edit Queued button over a terminal while Claude Code has prompts waiting in its queue. Clicking it moves them back into the input, like pressing Up.")
+                String(localized: "settings.agentActions.promptEditing", defaultValue: "Agent Prompt Editing"),
+                subtitle: String(localized: "settings.agentActions.promptEditing.subtitle", defaultValue: "Shows a Turns button over agent terminals to edit a past prompt or fork from it, and Edit Queued while Claude Code has prompts waiting, which moves them back into the input like pressing Up.")
             ) {
                 Toggle("", isOn: Binding(get: { agentPromptEditing.current }, set: { agentPromptEditing.set($0) }))
                     .labelsHidden()
@@ -529,7 +529,7 @@ public struct TerminalSection: View {
             SettingsCardRow(
                 configurationReview: .json("terminal.agentHibernation.enabled"),
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
-                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under critical memory pressure.")
+                subtitle: String(localized: "settings.terminal.agentHibernation.subtitle", defaultValue: "Hibernates idle background agent terminals above the live terminal limit. Even when this is off, cmux may hibernate them under memory pressure.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()
