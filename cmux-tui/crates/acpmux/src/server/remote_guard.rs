@@ -28,6 +28,9 @@
 //!   the dashboard falls back to typed paths, which `session/new` checks).
 //!   LocalApp keeps both: the daemon cannot see user gestures, and the
 //!   native relay enforces a fresh gesture for LocalApp before it sends one.
+//! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
+//!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
+//!   prompts until the user answers it in the app or the CLI.
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -154,6 +157,15 @@ pub(super) async fn check(
             }
             params["additionalDirectories"] = Value::Array(out);
         }
+    }
+    // The folder-trust question is the user's: a remote browser cannot answer
+    // it for itself (`trust_gate.rs`). After the folder checks, so a bad path
+    // is still refused as one.
+    if m == method::ACP_TRUST_SET && control_of(origin, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "trust.remote: the folder's trust is answered only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "trust.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {

@@ -1,5 +1,7 @@
-//! The folder-trust gate: no prompt from the app's agent pane (`Origin::LocalApp`)
-//! reaches an agent while the session's folder has no trust answer.
+//! The folder-trust gate: no prompt from the app's agent pane
+//! (`Origin::LocalApp`) or a remote browser (`Origin::Web`, and a peer that
+//! forwards for its own Web client) reaches an agent while the session's
+//! folder has no trust answer.
 //!
 //! The pane asks "Trust / Don't trust" for a folder whose level is unknown
 //! (`crate::trust`). Until the user answers Trust, a `session/prompt` (and the
@@ -9,10 +11,17 @@
 //! - `trust.untrusted`: the user answered Don't trust.
 //!
 //! The level is `trust::session_level`: acpmux's decision, else the session's
-//! own agent's level. The check is here, in the daemon, so a page cannot get
-//! around it. The unix socket (CLI, TUI) and Web connections are not gated:
-//! they never show the question. A session on a peer is the peer's to judge.
-//! The gate is on only when the daemon set its paths (`Hub::set_trust_gate`).
+//! own agent's level. A record that cannot be read is no answer. The check is
+//! here, in the daemon, so a page cannot get around it.
+//!
+//! A Web client cannot answer the question (`acp.trust.set` is refused for it
+//! in `remote_guard.rs`), so its prompts wait for the user's answer in the
+//! app or the CLI. The unix socket (the user's own CLI and TUI) is not gated:
+//! it never shows the question, and the user who types there is the one who
+//! answers it. A peer's own request (not marked `via: web`) is not gated: a
+//! session on a peer is the peer's to judge, and that peer gates its own
+//! LocalApp and Web clients. The gate is on only when the daemon set its paths
+//! (`Hub::set_trust_gate`).
 
 use std::sync::Arc;
 
@@ -29,7 +38,9 @@ pub(super) async fn check(
     m: &str,
     params: &Value,
 ) -> Result<(), RpcError> {
-    if origin != Origin::LocalApp {
+    let gated = origin == Origin::LocalApp
+        || super::remote_guard::control_of(origin, params) == crate::hub::Control::Web;
+    if !gated {
         return Ok(());
     }
     let Some(paths) = hub.trust_gate() else { return Ok(()) };
