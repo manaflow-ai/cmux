@@ -25,6 +25,13 @@ extension RemoteTmuxController {
         return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
+    /// How long a socket caller waits for an attach before giving up on the app. Longer than the
+    /// longest an attach can take before it reports for itself, so the caller always gets the
+    /// attach's own answer and this only fires when the app is not answering at all.
+    nonisolated static var attachSocketTimeoutSeconds: TimeInterval {
+        RemoteTmuxAttachProgress.QuietLimits.standard.longest.asSeconds + 30
+    }
+
     /// A stable per-install owner id for cmux's hidden view sessions, persisted in
     /// UserDefaults so the same cmux reattaches its own views across relaunch and
     /// never collides with another install's.
@@ -134,7 +141,7 @@ extension RemoteTmuxController {
             guard let view = multiplexedViewsByHost[host.connectionHash] else {
                 throw RemoteTmuxError.unreachable("already attaching \(host.destination)")
             }
-            _ = await view.awaitFirstWorkspaces(timeout: 30)
+            _ = await view.awaitFirstWorkspaces()
             let existingMirrorWindowID = existingMirrorManager(for: host)
                 .flatMap { appDelegate.windowId(for: $0) }
             let activeWindowID = appDelegate.tabManager
@@ -252,15 +259,15 @@ extension RemoteTmuxController {
 
         // The first reconcile lands asynchronously once the stream reports
         // `%enter`; await its publication signal so the caller gets real
-        // workspace ids and the CLI's summary isn't a lie. Event-driven with a
-        // generous deadline as a last resort only — a session-less host's
-        // bootstrap legitimately needs several round trips, and a premature
-        // timeout here would tear down a connection that was about to succeed.
+        // workspace ids and the CLI's summary isn't a lie. The wait has no total
+        // time limit: it ends when the stream publishes, ends, parks for a login,
+        // or goes quiet for longer than its phase allows. Giving up on a fixed
+        // clock tore down logins that were still working.
         // Held across the wait: the teardown can clear the dictionary entry while we are suspended,
         // and the failure path still needs something to ask.
         let heldView = multiplexedViewsByHost[host.connectionHash]
         if !hostHasLiveMirror(host), let view = heldView {
-            _ = await view.awaitFirstWorkspaces(timeout: 30)
+            _ = await view.awaitFirstWorkspaces()
             // The wait also ends when the stream stops for a login, with nothing published. Applying
             // that empty list would read as "no sessions left" and stop the stream the failure path
             // below keeps for the retry after the login.
@@ -361,7 +368,10 @@ extension RemoteTmuxController {
                 + "hasConn=\(live?.connection != nil)")
         #endif
         return RemoteTmuxController.mirrorFailure(
-            destination: host.destination, awaitingCredentials: awaited)
+            destination: host.destination,
+            awaitingCredentials: awaited,
+            stall: live?.lastAttachStall,
+            transportDetail: live?.connection?.transportStartDetail ?? live?.lastTransportStartDetail)
     }
 
     /// Brings up the host's single shared view connection and wires its reconcile to
@@ -372,6 +382,7 @@ extension RemoteTmuxController {
     /// the hidden view session, now rides its own control stream.
     func startMultiplexedHost(host: RemoteTmuxHost, manager: TabManager) async throws {
         let view = RemoteTmuxViewConnection(host: host, ownerId: Self.multiplexerOwnerId)
+        view.attachQuietLimits = attachQuietLimits
         view.onWorkspacesChanged = { [weak self, weak manager, weak view] in
             guard let self, let view, let shared = view.connection else { return }
             // Teardown needs no TabManager, so it has to run ahead of the lookup

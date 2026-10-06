@@ -208,8 +208,34 @@ extension RemoteTmuxController {
     /// A transport that authenticates itself produces no error — it prints a prompt and waits — so
     /// without this the deadline expires first and the user is told the host is unreachable, which
     /// sends them to the network instead of their second factor. The host answered.
-    static func mirrorFailure(destination: String, awaitingCredentials: Bool) -> RemoteTmuxError {
+    ///
+    /// Otherwise the message says which of the things that can be known happened: the attach
+    /// went quiet (`stall`, with the phase it was in), or the transport ended and left a reason
+    /// (`transportDetail`). The sentence with neither is what is left when the stream ended
+    /// without saying anything.
+    static func mirrorFailure(
+        destination: String,
+        awaitingCredentials: Bool,
+        stall: RemoteTmuxAttachProgress? = nil,
+        transportDetail: String? = nil
+    ) -> RemoteTmuxError {
         if awaitingCredentials { return .authenticationRequired(destination) }
+        if let stall {
+            let seconds = Int(stall.quietFor.components.seconds)
+            switch stall.phase {
+            case .loggingIn:
+                return .unreachable(
+                    "the connection to \(destination) was still starting after \(seconds) seconds "
+                        + "of silence, before tmux answered; cmux stopped it")
+            case .inTmux:
+                return .unreachable(
+                    "tmux on \(destination) answered and then sent nothing for \(seconds) seconds")
+            }
+        }
+        if let transportDetail, !transportDetail.isEmpty {
+            return .unreachable(
+                "the connection to \(destination) ended before tmux answered: \(transportDetail)")
+        }
         return .unreachable("could not mirror any tmux session on \(destination)")
     }
 

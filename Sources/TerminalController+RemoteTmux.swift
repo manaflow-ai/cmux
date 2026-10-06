@@ -255,7 +255,7 @@ extension TerminalController {
         let activate = Self.remoteTmuxActivate(from: params)
         let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
         let routing = remoteTmuxRouting(from: params)
-        return v2VmCall(id: id, timeoutSeconds: 60) {
+        return v2VmCall(id: id, timeoutSeconds: RemoteTmuxController.attachSocketTimeoutSeconds) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
@@ -305,7 +305,7 @@ extension TerminalController {
         }
         let activate = Self.remoteTmuxActivate(from: params)
         let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
-        return v2VmCall(id: id, timeoutSeconds: 60) {
+        return v2VmCall(id: id, timeoutSeconds: RemoteTmuxController.attachSocketTimeoutSeconds) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
                 throw RemoteTmuxError.unreachable("app not ready")

@@ -12259,9 +12259,10 @@ struct CMUXCLI {
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
         }
-        // BatchMode discovery can take a couple of seconds; show progress.
+        // A login can take a while, and cmux waits for it as long as the connection is still
+        // working, so say that the wait is deliberate and how to end it.
         if !jsonOutput {
-            print("Connecting to \(destination)…")
+            print("Connecting to \(destination)… (waits while the login is in progress; Ctrl-C to stop)")
         }
 
         // Retry interactive authentication once; never spin on auth-required.
@@ -12271,7 +12272,9 @@ struct CMUXCLI {
             let result = try client.sendV2(
                 method: method,
                 params: params,
-                responseTimeout: 75  // > the app-side 60s timeout, so the app's result/error always arrives first
+                // Longer than the app's own limit for an attach (RemoteTmuxController
+                // .attachSocketTimeoutSeconds, 360 s), so the app's result or error always arrives first.
+                responseTimeout: 375
             )
             if (result["mirrored"] as? Bool) == true {
                 if jsonOutput {

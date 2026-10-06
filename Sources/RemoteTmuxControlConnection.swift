@@ -331,6 +331,9 @@ final class RemoteTmuxControlConnection {
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
     private var preControlOutputBuffer = ""
+    /// When the current spawn last produced anything on stdout or stderr, or when it was
+    /// started if it has produced nothing. Read by ``attachProgress(now:)``.
+    private var lastTransportOutputAt: ContinuousClock.Instant?
     /// Set the first time the pre-control region looks like an unanswered prompt, and never unset for
     /// this process.
     ///
@@ -351,6 +354,28 @@ final class RemoteTmuxControlConnection {
         return flat.count <= 200 ? flat : String(flat.suffix(200))
     }
 #endif
+
+    /// Where this connection's attach stands, or nil when there is nothing left to wait for: it
+    /// was never started, it ended, or it is parked until someone logs in.
+    func attachProgress(now: ContinuousClock.Instant = .now) -> RemoteTmuxAttachProgress? {
+        guard started, connectionState != .ended, !awaitingInteractiveAuth,
+              let lastTransportOutputAt else { return nil }
+        return RemoteTmuxAttachProgress(
+            phase: enterReceived ? .inTmux : .loggingIn,
+            quietFor: lastTransportOutputAt.duration(to: now))
+    }
+
+    /// What the transport itself last said before control mode: the last non-empty line of its
+    /// stderr, or of what it printed on stdout. Nil when it said nothing.
+    var transportStartDetail: String? {
+        for text in [stderrBuffer, preControlOutputBuffer + parser.unterminatedTail] {
+            let line = text.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .last(where: { !$0.isEmpty })
+            if let line { return line }
+        }
+        return nil
+    }
 
     var isAwaitingCredentials: Bool {
         guard !enterReceived else { return false }
@@ -677,6 +702,7 @@ final class RemoteTmuxControlConnection {
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
+        lastTransportOutputAt = .now
         sawUnansweredCredentialPrompt = false
         enterReceived = false
         controlModeEnteredAt = nil
@@ -840,6 +866,7 @@ final class RemoteTmuxControlConnection {
     /// can't grow it without limit. Keeps the tail (the most recent, where the
     /// failure reason is).
     private func appendStderr(_ text: String) {
+        lastTransportOutputAt = .now
         stderrBuffer += text
         if stderrBuffer.utf8.count > Self.maxStderrBytes {
             stderrBuffer = String(decoding: Array(stderrBuffer.utf8.suffix(Self.maxStderrBytes)), as: UTF8.self)
@@ -1256,6 +1283,7 @@ final class RemoteTmuxControlConnection {
     /// check reads the parser's unterminated tail, and a test that brings its own parser would not
     /// exercise it.
     func ingest(_ data: Data) {
+        lastTransportOutputAt = .now
         for message in parser.feed(data) {
             handle(message)
         }

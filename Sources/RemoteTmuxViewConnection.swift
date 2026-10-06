@@ -1,5 +1,50 @@
 import Foundation
 
+/// Where an attach that has published nothing yet stands, read off the stream's own state.
+///
+/// An attach used to get a fixed number of seconds in total. A login that needs a tap, or
+/// that queues behind another connection to the same host, can take longer than any fixed
+/// number while working the whole time, and the attach gave up on it and killed it. What can
+/// be known is whether the transport is still running and how long it has been quiet, so the
+/// wait is decided on those.
+struct RemoteTmuxAttachProgress: Equatable {
+    enum Phase: Equatable {
+        /// The transport process is running and tmux has not answered yet: it is connecting or
+        /// logging in. A person may be part of this, so it is allowed to be quiet for a long time.
+        case loggingIn
+        /// tmux answered. What remains is cmux's own exchange with it, which is quick.
+        case inTmux
+    }
+
+    /// How long each phase may stay quiet before the attach is called stalled.
+    struct QuietLimits: Equatable {
+        var loggingIn: Duration
+        var inTmux: Duration
+
+        static let standard = QuietLimits(loggingIn: .seconds(300), inTmux: .seconds(30))
+
+        /// The longest an attach can take before it reports, for a caller that has to bound
+        /// its own wait on one.
+        var longest: Duration { loggingIn + inTmux }
+    }
+
+    enum Verdict: Equatable {
+        /// Still within its limit. Nothing needs looking at again before `recheckIn` passes
+        /// unless the stream produces something, which moves the limit out.
+        case wait(recheckIn: Duration)
+        case stalled
+    }
+
+    var phase: Phase
+    /// Time since the transport last produced anything, or since it started if it has produced nothing.
+    var quietFor: Duration
+
+    func verdict(limits: QuietLimits) -> Verdict {
+        let limit = phase == .loggingIn ? limits.loggingIn : limits.inTmux
+        return quietFor >= limit ? .stalled : .wait(recheckIn: limit - quietFor)
+    }
+}
+
 /// A one-shot, cancellation-aware pause for retry backoff.
 ///
 /// `Task.sleep` is the obvious spelling, but shipped code here routes even a plain
@@ -97,6 +142,13 @@ final class RemoteTmuxViewConnection {
     /// already nil, so asking it what happened returns nothing. Measured — an earlier version of this
     /// check read through the live connection and found `conn=nil` every time.
     private(set) var lastStreamAwaitedCredentials = false
+    /// Where the attach stood when a wait for first workspaces gave up on it, or nil if none has.
+    private(set) var lastAttachStall: RemoteTmuxAttachProgress?
+    /// What the transport last said before control mode, latched for the same reason as the
+    /// credential verdict: the connection is gone by the time the failure is reported.
+    private(set) var lastTransportStartDetail: String?
+    /// How long an attach may stay quiet in each phase. A test shortens these.
+    var attachQuietLimits = RemoteTmuxAttachProgress.QuietLimits.standard
     /// Fires after `workspaces` changes (the controller rebuilds cmux workspaces).
     var onWorkspacesChanged: (() -> Void)?
     /// Fires when the view connection permanently ends.
@@ -259,12 +311,18 @@ final class RemoteTmuxViewConnection {
     }
 
     /// Suspends until the view publishes its first non-empty workspace set
-    /// (resolving immediately when one already exists), the view ends, or
-    /// `timeout` elapses — event-driven, so a successful attach never pays a
-    /// polling tick, and a slow-but-healthy host isn't misclassified as dead.
-    func awaitFirstWorkspaces(timeout: Double) async -> Bool {
+    /// (resolving immediately when one already exists), the view ends or parks for
+    /// a login, or the attach stalls.
+    ///
+    /// There is no total time limit. A stall is the transport staying quiet for longer
+    /// than its phase allows (``RemoteTmuxAttachProgress``): anything it prints moves
+    /// the limit out, and a transport that exits ends the wait at once through the
+    /// view's own end, with its reason. So a login that is slow but working is waited
+    /// for, and one that has died is reported when it dies.
+    func awaitFirstWorkspaces() async -> Bool {
         if isStopped { return false }
         if !workspaces.isEmpty { return true }
+        lastAttachStall = nil
         let token = UUID()
         return await withCheckedContinuation { continuation in
             if isStopped {
@@ -277,9 +335,27 @@ final class RemoteTmuxViewConnection {
             }
             firstWorkspacesWaiters[token] = continuation
             firstWorkspacesTimeoutTasks[token] = Task { @MainActor [weak self] in
-                await RemoteTmuxRetryDelay.wait(milliseconds: Int(timeout * 1_000))
-                if Task.isCancelled { return }
-                self?.resolveFirstWorkspaceWaiter(token, published: false)
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    // Nothing left to wait for: the stream ended or parked for a login. Both
+                    // resolve the waiters themselves; this covers a waiter that arrived after.
+                    guard let progress = self.connection?.attachProgress() else {
+                        self.resolveFirstWorkspaceWaiter(token, published: false)
+                        return
+                    }
+                    switch progress.verdict(limits: self.attachQuietLimits) {
+                    case .stalled:
+                        self.lastAttachStall = progress
+                        self.connection?.record(
+                            "attach-stalled phase=\(progress.phase) quiet=\(progress.quietFor)")
+                        self.resolveFirstWorkspaceWaiter(token, published: false)
+                        return
+                    case let .wait(recheckIn):
+                        let (seconds, attoseconds) = recheckIn.components
+                        let milliseconds = Int(seconds) * 1_000 + Int(attoseconds / 1_000_000_000_000_000)
+                        await RemoteTmuxRetryDelay.wait(milliseconds: max(1, milliseconds))
+                    }
+                }
             }
         }
     }
@@ -723,6 +799,9 @@ final class RemoteTmuxViewConnection {
     /// be asked. Only ever latches true: a later teardown must not erase the reason for the first one.
     private func latchCredentialVerdict() {
         guard let connection else { return }
+        if let detail = connection.transportStartDetail, !connection.everReachedControlMode {
+            lastTransportStartDetail = detail
+        }
         #if DEBUG
         cmuxDebugLog(
             "remote-tmux: latch-check host=\(host.destination) "
