@@ -66,6 +66,10 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     case fileBytesWritten
     /// Entries the session's fs created, made, renamed or removed over its life.
     case fileEntryChanges
+    /// Distinct files the session's `secrets.load` protected from every
+    /// tab over its life (``BrowserReplSecretSources``); the protection
+    /// outlasts the session, so a reset does not give them back.
+    case secretSourceFiles
     /// Everything the session holds in memory together: the sum of the
     /// resources that are memory (``isMemory``), each also within its own limit.
     case sessionMemoryBytes
@@ -83,7 +87,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var scope: Scope {
         switch self {
         case .retainedOutputBytes, .spilledOutputBytes: .perCell
-        case .fileBytesWritten, .fileEntryChanges: .lifetime
+        case .fileBytesWritten, .fileEntryChanges, .secretSourceFiles: .lifetime
         default: .atOnce
         }
     }
@@ -147,6 +151,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .fsPathBytes: "an fs path"
         case .fileBytesWritten: "bytes the session's fs writes"
         case .fileEntryChanges: "file changes (files created, directories made, entries renamed or removed)"
+        case .secretSourceFiles: "files secrets.load read and protects from every tab"
         case .sessionMemoryBytes: "memory the session holds in all"
         }
     }
@@ -170,6 +175,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .fsPathBytes: "use a shorter path"
         case .fileBytesWritten: "reset the session (cmux browser repl reset NAME) to write more"
         case .fileEntryChanges: "reset the session (cmux browser repl reset NAME) to make more"
+        case .secretSourceFiles: "load secrets from fewer files (one file holds many), or set them with secrets.set"
         case .sessionMemoryBytes: "await results and let cells finish before starting more"
         }
     }
@@ -238,6 +244,9 @@ public struct BrowserReplResourceLimits: Sendable, Equatable {
             .scriptHeapBytes: 384 << 20,
             .fileBytesWritten: 2 << 30,
             .fileEntryChanges: 100_000,
+            // Decided 2026-10-06 (r18 e5): 512 of the app's 4,096
+            // (BrowserReplSecretSources), so one session cannot fill it.
+            .secretSourceFiles: 512,
             // Decided 2026-10-04 (C9): the per-holder limits above add up
             // to more, so this bounds them together.
             .sessionMemoryBytes: 512 << 20,

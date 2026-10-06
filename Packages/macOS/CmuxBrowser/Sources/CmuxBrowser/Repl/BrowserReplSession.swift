@@ -124,6 +124,11 @@ public final class BrowserReplSession: @unchecked Sendable {
     private let privateStorageRoots: [String]
     /// What the session's fs, and its output spill files, may still write.
     private let writeBudget: BrowserReplWriteBudget
+    /// The files this session's `secrets.load` protected
+    /// (``BrowserReplSecretSources``), each counted once against its
+    /// ``BrowserReplResource/secretSourceFiles`` quota. Used only on the
+    /// session's thread, inside the file navigation lock.
+    private var protectedSecretSources: Set<BrowserReplFileIdentity> = []
 
     // JS-thread state.
     private var context: JSContext?
@@ -1749,6 +1754,12 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self.refuseCall(Int(callID), refusal.driverError(methodName), method: methodName)
                 return
             }
+            // So is one whose JSON no call may hold, which the parse below
+            // and the driver's could not stop.
+            if let reason = JSONSerialization.browserReplCallStructureRefusal(raw) {
+                self.refuseCall(Int(callID), BrowserReplDriverError(code: "invalid", message: "\(methodName): \(reason)"), method: methodName)
+                return
+            }
             let boundary = self.boundary
             let paramsJSON: String
             switch boundary.prepare(method: methodName, paramsJSON: raw) {
@@ -1840,9 +1851,20 @@ public final class BrowserReplSession: @unchecked Sendable {
             if op == "load", let path = args["path"] as? String {
                 // The file, under any name, never loads in a tab
                 // (BrowserReplSecretSources): a tab would show its values
-                // as pixels no mask covers. Protected once opened, before
-                // its values are known to be readable.
-                let opened: (BrowserReplFileIdentity) -> Void = { BrowserReplSecretSources.shared.protect($0) }
+                // as pixels no mask covers. Protected in the same hold of
+                // the file navigation lock as the open, before its values
+                // are known to be readable.
+                // A file new to the session takes one of its quota first
+                // (a lifetime count, so a refusal of the app-wide set still
+                // takes it), and is never protected past the quota.
+                let opened: (BrowserReplFileIdentity) throws -> Void = { identity in
+                    guard !self.protectedSecretSources.contains(identity) else { return }
+                    if let refusal = self.ledger.reserve(1, of: .secretSourceFiles) {
+                        throw BrowserReplFileSystemError(code: "limit", message: refusal.message)
+                    }
+                    try BrowserReplSecretSources.shared.protect(identity)
+                    self.protectedSecretSources.insert(identity)
+                }
                 switch self.fileSystem.perform("readFile", arguments: ["path": path], copyContents: nil, opened: opened) {
                 case .failure(let error):
                     return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))))
@@ -1910,7 +1932,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// before they are copied out of JavaScript, parsed or decoded, and
     /// released when it returns; one past its limit
     /// (``hostCallLimit(isFileSystem:)``) or the session's memory is
-    /// refused with nothing parsed.
+    /// refused with nothing parsed, and so are arguments whose JSON holds
+    /// more elements or nests deeper than one call may
+    /// (``JSONSerialization/browserReplCallStructureRefusal(_:)``).
     private func hostFunction(
         _ name: String,
         isFileSystem: Bool = false,
@@ -1941,6 +1965,14 @@ public final class BrowserReplSession: @unchecked Sendable {
             let bytes = op.utf8.count + raw.utf8.count
             if let refusal = self.ledger.reserve(bytes, of: .hostCallBytes, each: limit) { return refuse(refusal) }
             defer { self.ledger.release(bytes, of: .hostCallBytes) }
+            // Arguments whose JSON no call may hold are refused before the
+            // parse, which no timeout interrupts.
+            if let reason = JSONSerialization.browserReplCallStructureRefusal(raw) {
+                if isFileSystem {
+                    return self.boundary.egress(.fs(op: "", .failure(BrowserReplFileSystemError(code: "E2BIG", message: "E2BIG: \(reason)")))).text
+                }
+                return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "\(name): \(reason)")))).text
+            }
             return body(op, raw)?.text ?? #"{"error":{"code":"closed","message":"closed"}}"#
         }
     }

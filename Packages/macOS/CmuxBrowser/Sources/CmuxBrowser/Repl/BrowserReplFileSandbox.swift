@@ -393,23 +393,54 @@ public struct BrowserReplFileRoot: Sendable, Equatable {
 /// The files any session's `secrets.load` read, by identity
 /// (``BrowserReplFileIdentity``): no session's tab loads one from then on
 /// (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``), under any name,
-/// for the app's life. Value masking covers what `fs` reads back, but a tab
-/// renders the file as pixels no mask covers, and its page scripts read it.
+/// while the file exists. Value masking covers what `fs` reads back, but a
+/// tab renders the file as pixels no mask covers, and its page scripts
+/// read it.
+///
+/// The set is shared by every session for the app's life, so it holds at
+/// most ``maximumSources`` files. A protection ends only when its file is
+/// gone under every name (no tab can load it then); not when the session
+/// that loaded it ends, since a value it typed stays masked in text after
+/// that but a capture masks it only on the secret's domains, never in a
+/// `file:` page. Past the bound, once the files that are gone are dropped,
+/// a new protection is refused and `secrets.load` fails with nothing read.
 final class BrowserReplSecretSources: @unchecked Sendable {
     static let shared = BrowserReplSecretSources()
 
+    /// The most files protected at once (4,096 for the app).
+    let maximumSources: Int
     private let lock = NSLock()
     private var identities: Set<BrowserReplFileIdentity> = []
 
-    /// Protects `identity` under ``BrowserReplFileSandbox/pathChangeLock``,
-    /// which a file navigation holds from its check until its load started
-    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``), so the
-    /// protection lands before a navigation's check or after its load
-    /// began, never between. `secrets.load` calls it once the file is open
-    /// and before any of it is read. The caller must not hold that lock.
-    func protect(_ identity: BrowserReplFileIdentity) {
-        BrowserReplFileSandbox.pathChangeLock.withLock {
-            _ = lock.withLock { identities.insert(identity) }
+    init(maximumSources: Int = 4096) {
+        self.maximumSources = maximumSources
+    }
+
+    /// Protects `identity`. The caller holds
+    /// ``BrowserReplFileSandbox/pathChangeLock``, which a file navigation
+    /// holds from its check until its load started
+    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``), and has
+    /// held it since it opened the file: `secrets.load`'s read tells it
+    /// the identity in the same hold as the open
+    /// (``BrowserReplFileSystem``'s `readFile` with `opened`), so a
+    /// navigation runs wholly before the open or after the protection,
+    /// never between them.
+    ///
+    /// - Throws: `invalid` when ``maximumSources`` files that still exist
+    ///   are protected and `identity` is not one of them.
+    func protect(_ identity: BrowserReplFileIdentity) throws {
+        try lock.withLock {
+            guard !identities.contains(identity) else { return }
+            if identities.count >= maximumSources {
+                identities = identities.filter(\.exists)
+            }
+            guard identities.count < maximumSources else {
+                throw BrowserReplFileSystemError(
+                    code: "invalid",
+                    message: "cmux protects at most \(maximumSources) files that secrets.load read, for every session together, and that many still exist; remove secrets files that are no longer needed, or set the secrets with secrets.set"
+                )
+            }
+            identities.insert(identity)
         }
     }
 
@@ -436,5 +467,16 @@ struct BrowserReplFileIdentity: Hashable, Sendable {
         var info = stat()
         guard stat(path, &info) == 0 else { return nil }
         self.init(info)
+    }
+
+    /// Whether the file may still exist: false only when its volume says
+    /// no object has this identity (`fsgetpath` fails with `ENOENT`, as for
+    /// a file removed under every name). A volume that cannot tell counts
+    /// as yes.
+    var exists: Bool {
+        var volume = fsid_t(val: (Int32(truncatingIfNeeded: Int64(bitPattern: device)), 0))
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let length = buffer.withUnsafeMutableBufferPointer { fsgetpath($0.baseAddress, $0.count, &volume, inode) }
+        return length >= 0 || errno != ENOENT
     }
 }

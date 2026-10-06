@@ -21,7 +21,8 @@ import Foundation
 /// share a name, one session typing a name into several tabs, or typing a
 /// name into a tab again with a new value never drop an earlier value: the
 /// page may keep it (another field, its history, a hidden copy) until the
-/// tab closes. The same value typed into the same tab again is one record.
+/// tab closes. The same value typed into the same tab again is one record,
+/// masked on every domain it was typed for.
 /// Each value is
 /// masked as typed, a literal under an internal key shown as
 /// `<secret:name>`: a TOTP secret's typed value is its code, so no TOTP
@@ -65,20 +66,14 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
     /// dropped while its tab may still show the value. A record replaces
     /// only one of the same value under `name` in `tab`, typed by `typist`
     /// or by a session that left (a kept tab a later session of the same
-    /// task types into again); a new value never replaces an earlier one.
+    /// task types into again), and keeps that one's domains as well as its
+    /// own; a new value never replaces an earlier one.
     public func record(tab: String, name: String, value: String, domains: [BrowserReplDomainPattern], typist: String) throws {
         try BrowserReplSecretStore.checkTypedValue(value, domains: domains)
         try lock.withLock {
-            let replaced = { (entry: Typed) in
+            try appendLocked(Typed(key: 0, tab: tab, name: name, value: value, domains: domains, typist: typist)) { entry in
                 entry.tab == tab && entry.name == name && entry.value == value && (entry.typist == typist || entry.typist == nil)
             }
-            if !entries.contains(where: replaced), entries.count >= BrowserReplSecretStore.maximumTypedValues {
-                throw BrowserReplSecretStore.tooManyTypedValues
-            }
-            entries.removeAll(where: replaced)
-            nextKey += 1
-            entries.append(Typed(key: nextKey, tab: tab, name: name, value: value, domains: domains, typist: typist))
-            stores.removeAll()
         }
     }
 
@@ -94,15 +89,39 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
         try BrowserReplSecretStore.checkTypedValue(value, domains: domains)
         let name = "browserAuth.\(field)"
         try lock.withLock {
-            let same = { (entry: Typed) in entry.tab == tab && entry.name == name && entry.value == value && entry.typist == nil }
-            if !entries.contains(where: same), entries.count >= BrowserReplSecretStore.maximumTypedValues {
-                throw BrowserReplSecretStore.tooManyTypedValues
+            try appendLocked(Typed(key: 0, tab: tab, name: name, value: value, domains: domains, typist: nil)) { entry in
+                entry.tab == tab && entry.name == name && entry.value == value && entry.typist == nil
             }
-            entries.removeAll(where: same)
-            nextKey += 1
-            entries.append(Typed(key: nextKey, tab: tab, name: name, value: value, domains: domains, typist: nil))
-            stores.removeAll()
         }
+    }
+
+    /// Adds `record` under a new key in place of the records `same` matches
+    /// (the same value in the same tab under the same name), whose domains
+    /// it takes on as well: an older frame of an earlier domain may still
+    /// show the value, so its capture masks keep every domain it was typed
+    /// for until the tab closes. A record whose domains would pass
+    /// ``BrowserReplSecretStore/maximumDomainsPerValue`` together with the
+    /// new ones is kept beside it instead, so a record never drops a domain
+    /// and stays within the bound. A new record past
+    /// ``BrowserReplSecretStore/maximumTypedValues`` is refused.
+    private func appendLocked(_ record: Typed, same: (Typed) -> Bool) throws {
+        var domains = record.domains
+        var raws = Set(domains.map(\.raw))
+        var replaced = Set<Int>()
+        for (index, entry) in entries.enumerated() where same(entry) {
+            let added = entry.domains.filter { !raws.contains($0.raw) }
+            guard domains.count + added.count <= BrowserReplSecretStore.maximumDomainsPerValue else { continue }
+            domains += added
+            raws.formUnion(added.map(\.raw))
+            replaced.insert(index)
+        }
+        if replaced.isEmpty, entries.count >= BrowserReplSecretStore.maximumTypedValues {
+            throw BrowserReplSecretStore.tooManyTypedValues
+        }
+        if !replaced.isEmpty { entries = entries.indices.filter { !replaced.contains($0) }.map { entries[$0] } }
+        nextKey += 1
+        entries.append(Typed(key: nextKey, tab: record.tab, name: record.name, value: record.value, domains: domains, typist: record.typist))
+        stores.removeAll()
     }
 
     /// `sessionID` ended: what it typed masks for every session from now on.

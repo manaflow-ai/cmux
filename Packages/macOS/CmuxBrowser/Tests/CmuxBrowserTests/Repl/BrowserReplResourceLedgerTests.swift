@@ -194,8 +194,10 @@ struct BrowserReplResourceLedgerTests {
         Task { _ = await session.evaluate(code: "console.log('waited');") }
         #expect(await browserReplEventually { ledger.held(.waitingCells) == 1 }, "the second cell never waited")
 
-        // Held events need callbacks in debt between cells; their bound has its own test.
-        let unused = BrowserReplResource.allCases.filter { $0 != .heldEvents && ledger.peak($0) == 0 }
+        // Held events need callbacks in debt between cells, and secrets
+        // file protections a secrets file in the working directory; their
+        // bounds have their own tests (secretSourceFilesAreBoundedPerSession).
+        let unused = BrowserReplResource.allCases.filter { $0 != .heldEvents && $0 != .secretSourceFiles && ledger.peak($0) == 0 }
         #expect(unused.isEmpty, "no holder reserved \(unused)")
 
         session.close()
