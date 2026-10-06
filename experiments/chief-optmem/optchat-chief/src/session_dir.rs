@@ -176,13 +176,19 @@ pub fn isolation_env(paths: &Paths) -> BTreeMap<String, String> {
 pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::create_dir_all(paths.session.join(".claude"))?;
     std::fs::create_dir_all(&paths.bin)?;
-    let text = system_text(setup.instructions.as_deref(), &setup.tools);
-    let (keep, drop) = match setup.tools {
-        Tools::Mcp => ("CLAUDE.md", "AGENTS.md"),
-        Tools::Cli(_) => ("AGENTS.md", "CLAUDE.md"),
-    };
-    write_if_changed(&paths.session.join(keep), text.as_bytes())?;
-    remove_if_present(&paths.session.join(drop))?;
+    // AGENTS.md always (a turn may swap to codex or another harness between
+    // turns, engine.rs); Claude Code reads only CLAUDE.md, which only the
+    // old layout of a Claude harness keeps.
+    let chief = paths.bin.join("chief").display().to_string();
+    let agents = system_text(setup.instructions.as_deref(), &Tools::Cli(chief));
+    write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
+    match setup.tools {
+        Tools::Mcp => {
+            let text = system_text(setup.instructions.as_deref(), &Tools::Mcp);
+            write_if_changed(&paths.session.join("CLAUDE.md"), text.as_bytes())?;
+        }
+        Tools::Cli(_) => remove_if_present(&paths.session.join("CLAUDE.md"))?,
+    }
     let pretty = |v: &Value| format!("{}\n", serde_json::to_string_pretty(v).expect("json"));
     write_if_changed(
         &paths.session.join(".mcp.json"),

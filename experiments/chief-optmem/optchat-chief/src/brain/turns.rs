@@ -199,9 +199,16 @@ impl Brain {
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // The engine of this turn, read now (engine.rs): a change applies
+        // from this turn on and is logged as a note after its messages.
+        let engine = self.turn_engine_choice();
+        let family = self.family_of(&engine.harness);
+        self.note_engine(&engine);
+        let default_family = self.family_of(&self.settings.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let cached = matches!(self.settings.engine, Engine::Acpmux)
+        let cached = (matches!(self.settings.engine, Engine::Acpmux)
+            && family == crate::acpmux::Family::Claude)
             .then_some(self.settings.turn_preset.as_deref())
             .flatten()
             .filter(|preset| self.agents.system_prompt(preset));
@@ -215,9 +222,20 @@ impl Brain {
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
-            None => (turn_blocks(&view.text, &texts), None, None),
+            None => {
+                // The family's own preset when the turn left the default
+                // harness's family (the port falls back to the default's).
+                let preset = match family {
+                    crate::acpmux::Family::Codex => self.settings.codex_preset.clone(),
+                    crate::acpmux::Family::Claude if default_family != family => {
+                        self.settings.turn_preset.clone()
+                    }
+                    _ => None,
+                };
+                (turn_blocks(&view.text, &texts), None, preset)
+            }
         };
-        if self.settings.turn_preset.is_some() {
+        if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
             let text = system_prompt
@@ -240,10 +258,10 @@ impl Brain {
             session: SessionSpec {
                 name: format!("{}-{first}", self.settings.turn_prefix),
                 cwd: self.settings.session_dir.clone(),
-                harness: self.settings.harness.clone(),
+                harness: engine.harness.clone(),
                 policy: self.settings.policy.clone(),
-                model: self.settings.model.clone(),
-                effort: None,
+                model: engine.model.clone(),
+                effort: engine.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
             },
@@ -384,7 +402,9 @@ impl Brain {
                 "turn": key,
                 "first": first,
                 "engine": match self.settings.engine { Engine::Acpmux => "acpmux", Engine::Native(_) => "native" },
-                "harness": self.settings.harness,
+                "harness": self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()),
+                "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
+                "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "settle_ms": settle_ms,
                 "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 "sources": sources,
@@ -400,6 +420,63 @@ impl Brain {
             }),
         );
         self.prev_view = Some(view.to_owned());
+    }
+
+    /// This turn's engine: engine.json over the defaults. A harness acpmux
+    /// does not know keeps the default harness, and says so.
+    fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
+        let s = &self.settings;
+        let choice = s
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .unwrap_or_default();
+        let mut engine =
+            crate::engine::resolve(&choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
+        if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
+            (self.log)(&format!(
+                "engine.json names harness {}, which acpmux does not have; this turn runs on {}",
+                engine.harness, s.harness
+            ));
+            engine.harness = s.harness.clone();
+        }
+        self.turn_engine = Some(engine.clone());
+        engine
+    }
+
+    /// A harness's family (the default harness is Claude in a brain made
+    /// without acpmux's metadata when it has a turn preset).
+    fn family_of(&self, harness: &str) -> crate::acpmux::Family {
+        match self.settings.families.get(harness) {
+            Some(f) => *f,
+            None if self.settings.families.is_empty() && self.settings.turn_preset.is_some() => {
+                crate::acpmux::Family::Claude
+            }
+            None => crate::acpmux::Family::Other,
+        }
+    }
+
+    /// Logs an engine change as a note (after the turn's messages, so the
+    /// pending turn's positions stay right) and into the trace.
+    fn note_engine(&mut self, engine: &crate::engine::TurnEngine) {
+        let now = engine.describe();
+        let before = self.state.engine.clone();
+        if before.as_deref() == Some(now.as_str()) {
+            return;
+        }
+        if let Some(before) = &before {
+            let text = format!("engine changed to {now} (was {before})");
+            if let Err(e) = self.chat.append(Kind::Note, &text) {
+                (self.log)(&format!("logging the engine change failed: {e}"));
+            }
+            (self.log)(&text);
+        }
+        self.trace.emit(
+            "engine",
+            serde_json::json!({"harness": engine.harness, "model": engine.model, "effort": engine.effort, "was": before}),
+        );
+        self.state.engine = Some(now);
+        self.save();
     }
 
     /// The trace's `turn.end`.
@@ -427,6 +504,9 @@ impl Brain {
                 "turn": key,
                 "ms": ms,
                 "status": status,
+                "harness": self.turn_engine.as_ref().map(|e| e.harness.clone()),
+                "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
+                "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "error": outcome.error.as_deref().map(|e| self.trace.text(e)),
                 "reply": outcome.reply.as_deref().map(|r| self.trace.text(r)),
                 "first_usage": s.first.as_ref().map(crate::trace::usage),

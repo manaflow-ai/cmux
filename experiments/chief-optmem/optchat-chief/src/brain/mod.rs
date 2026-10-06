@@ -169,6 +169,17 @@ pub struct Settings {
     /// cached layout's system prompt, and the session directory's CLAUDE.md
     /// in the old layout.
     pub system_text: String,
+    /// `$MUX_HOME/optchat/engine.json` (engine.rs), read at each turn start:
+    /// harness, model and effort swap between turns. None: the fields above.
+    pub engine_file: Option<PathBuf>,
+    /// The default reasoning effort (acpmux `effort`); None: the harness's.
+    pub effort: Option<String>,
+    /// Every acpmux harness's family (`_acpmux/harnesses` at host start).
+    /// Empty: the default harness is Claude when `turn_preset` is set.
+    pub families: std::collections::BTreeMap<String, crate::acpmux::Family>,
+    /// The codex turn preset (`optchat-chief-codex-<home id>`), when a codex
+    /// harness exists: a turn on codex starts with it.
+    pub codex_preset: Option<String>,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -266,6 +277,8 @@ pub struct Brain {
     /// When the current settle wait and turn began.
     settle_clock: Option<Instant>,
     turn_clock: Option<Instant>,
+    /// The running turn's engine (engine.rs), for the trace.
+    turn_engine: Option<crate::engine::TurnEngine>,
 }
 
 impl Brain {
@@ -316,6 +329,7 @@ impl Brain {
             prev_view: None,
             settle_clock: None,
             turn_clock: None,
+            turn_engine: None,
         };
         brain.save();
         brain

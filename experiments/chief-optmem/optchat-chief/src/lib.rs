@@ -14,6 +14,7 @@ pub mod browse;
 pub mod cli;
 pub mod compactor;
 pub mod daemon;
+pub mod engine;
 pub mod fold;
 pub mod host;
 pub mod lock;

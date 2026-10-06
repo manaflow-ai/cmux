@@ -40,6 +40,10 @@ pub struct HostState {
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,
+    /// The engine the last turn ran on (`TurnEngine::describe`): a change
+    /// is logged as a note.
+    #[serde(default)]
+    pub engine: Option<String>,
 }
 
 /// One `spawn(tasks)` call (section 9): its subagents report together.

@@ -95,12 +95,22 @@ pub fn turn_preset(
         );
     }
     (isolate || family != Family::Other).then(|| Preset {
-        name: format!("optchat-chief-{}", crate::paths::home_id(home)),
+        name: turn_preset_name(home, family),
         harness: harness.to_owned(),
         env,
         args: Vec::new(),
         system_prompt: (family == Family::Claude).then(|| system_text.to_owned()),
     })
+}
+
+/// The turn preset's name: `optchat-chief-<home id>`, and
+/// `optchat-chief-codex-<home id>` for codex, so both can be installed and
+/// a turn can swap harness families (engine.rs).
+pub fn turn_preset_name(home: &std::path::Path, family: Family) -> String {
+    match family {
+        Family::Codex => format!("optchat-chief-codex-{}", crate::paths::home_id(home)),
+        _ => format!("optchat-chief-{}", crate::paths::home_id(home)),
+    }
 }
 
 /// The families of the turn and the compactor harness, from acpmux's own
@@ -199,10 +209,14 @@ fn start(
     );
     let instructions = crate::prompt::user_instructions(&paths.instructions);
     // One setting picks the harness of turns and compactor alike.
+    // engine.json's compactor fields apply at host start (engine.rs).
+    let engine_choice_file = crate::engine::load(&crate::engine::path(home));
     let (harness, compactor_harness) = harness_choice(
         env("OPTCHAT_CHIEF_HARNESS").as_deref(),
         env("MUX_HARNESS").as_deref(),
-        env("OPTCHAT_COMPACTOR_HARNESS").as_deref(),
+        env("OPTCHAT_COMPACTOR_HARNESS")
+            .or_else(|| engine_choice_file.compactor_harness.clone())
+            .as_deref(),
     );
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
     // Section 9's subagents run on this harness (default the Chief's).
@@ -232,9 +246,21 @@ fn start(
     // command), never its name. Only the native engine with the API
     // compactor runs without acpmux.
     let uses_acpmux = !(engine_choice.as_deref() == Some("native") && route == CompactRoute::Api);
+    let mut families = BTreeMap::new();
     let (family, compactor_family, sub_family) = if uses_acpmux {
         let answer = crate::acpmux::query_harnesses(&acpmux_socket, &|line: &str| log(line))
             .map_err(|e| format!("reading acpmux's harnesses: {e}"))?;
+        // Every harness's family, for a turn that swaps harness (engine.rs).
+        for name in answer
+            .get("harnesses")
+            .and_then(serde_json::Value::as_object)
+            .into_iter()
+            .flat_map(|m| m.keys())
+        {
+            if let Ok(f) = crate::acpmux::harness_family(&answer, name) {
+                families.insert(name.clone(), f);
+            }
+        }
         let (family, compactor_family) = harness_families(&answer, &harness, &compactor_harness)?;
         (
             family,
@@ -243,6 +269,17 @@ fn start(
         )
     } else {
         (Family::Other, Family::Other, Family::Other)
+    };
+    // The first harness of a family (the default harness when it is one):
+    // the other family's turn preset names it.
+    let first_of = |f: Family| -> Option<String> {
+        if family == f {
+            return Some(harness.clone());
+        }
+        families
+            .iter()
+            .find(|(_, v)| **v == f)
+            .map(|(k, _)| k.clone())
     };
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
@@ -253,7 +290,6 @@ fn start(
     } else {
         crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
     };
-    let system_text = crate::prompt::system_text(instructions.as_deref(), &tools);
     let setup = SessionSetup {
         exe: exe.display().to_string(),
         cmux_mcp: env("CMUX_MCP_COMMAND"),
@@ -288,8 +324,24 @@ fn start(
     // a Claude harness the preset also carries each turn's system prompt
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
-    let preset = turn_preset(paths, home, &harness, family, isolate, &system_text);
-    let turn_preset_name = format!("optchat-chief-{}", crate::paths::home_id(home));
+    // The Claude turn preset carries the Claude system text (MCP tools).
+    let claude_text =
+        crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
+    let preset = turn_preset(paths, home, &harness, family, isolate, &claude_text);
+    let claude_preset_name = turn_preset_name(home, Family::Claude);
+    // The other family's turn preset, for a swap between turns.
+    let other_family = if family == Family::Codex {
+        Family::Claude
+    } else {
+        Family::Codex
+    };
+    let other_preset = first_of(other_family)
+        .and_then(|h| turn_preset(paths, home, &h, other_family, isolate, &claude_text));
+    let claude_installed =
+        family == Family::Claude || (other_family == Family::Claude && other_preset.is_some());
+    let codex_preset = (family == Family::Codex
+        || (other_family == Family::Codex && other_preset.is_some()))
+    .then(|| turn_preset_name(home, Family::Codex));
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
     // run the user's hooks, MCP servers and auto-memory on the chat's text.
@@ -327,6 +379,9 @@ fn start(
             args: Vec::new(),
             system_prompt: (sub_family == Family::Claude).then(|| sub_text.clone()),
         });
+    }
+    if let Some(other) = other_preset {
+        required.push(other);
     }
     let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
     let first_link = Arc::new((Mutex::new(false), Condvar::new()));
@@ -368,6 +423,7 @@ fn start(
             // and has no refusal fallback model.
             let compactor_claude = compactor_family == Family::Claude;
             let compactor_model = env("OPTCHAT_COMPACTOR_MODEL")
+                .or_else(|| engine_choice_file.compactor_model.clone())
                 .or_else(|| compactor_claude.then(|| config.model.clone()));
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
             let port: Arc<dyn AgentPort> = agents.clone();
@@ -552,9 +608,13 @@ fn start(
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
         engine,
-        turn_preset: claude.then_some(turn_preset_name),
+        turn_preset: claude_installed.then_some(claude_preset_name),
         chief_id: crate::paths::home_id(home),
-        system_text,
+        system_text: claude_text,
+        engine_file: Some(crate::engine::path(home)),
+        effort: env("OPTCHAT_CHIEF_EFFORT"),
+        families,
+        codex_preset,
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

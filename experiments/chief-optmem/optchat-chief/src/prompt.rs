@@ -70,6 +70,9 @@ cmux Home, and your final reply of each turn is posted there.
   When all of one spawn's subagents finish, their reports reach you as ONE
   message, \"[id] report\" each. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
+- Your engine: `chief engine show` prints your harness, model and effort
+  and the last turn's stats; `chief engine set --harness H --model M
+  --effort E` changes them from the next turn (only when the user asks).
 - The tools `zoom` and `date` (MCP server `optchat`) read your memory.";
 
 /// The system prompt (the session's CLAUDE.md): MASTER, VIEW_DOC, the cmux
@@ -126,6 +129,9 @@ cmux Home, and your final reply of each turn is posted there.
   and report. When all of one spawn's subagents finish, their reports reach
   you as ONE message, \"[id] report\" each. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
+- Your engine: `{chief} engine show` prints your harness, model and effort
+  and the last turn's stats; `{chief} engine set --harness H --model M
+  --effort E` changes them from the next turn (only when the user asks).
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell."
     )

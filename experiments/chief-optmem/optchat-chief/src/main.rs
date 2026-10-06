@@ -12,6 +12,7 @@ optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server wi
 optchat-chief zoom ID N | date ID [--socket PATH | --mux-home DIR]  the memory tools as commands (harnesses without MCP)
 optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9's subagent tools as commands
 optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline
+optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
 optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
@@ -101,6 +102,16 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("optchat-chief {verb}: {e}");
+                1
+            }
+        },
+        Some("engine") => match optchat_chief::engine::run(&flags) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief engine: {e}");
                 1
             }
         },
