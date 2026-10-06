@@ -18,6 +18,8 @@ public nonisolated struct TabDragGhostMotion: Sendable, Equatable {
     private var opacity = SpringValue(1)
     private var scale = SpringValue(1)
     public var reduceMotion: Bool
+    /// The ghost has a content preview to show in its card.
+    public var hasPreview = true
 
     /// Spring for jumps between targets (`Motion` `.track`; `.settle` for a landing).
     public var rectSpring: SpringParameters
