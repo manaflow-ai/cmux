@@ -146,7 +146,7 @@ import Testing
 
     /// DEV build: step 1 is not yet proved; the step 2 value counts.
     @Test func theProofReplyDecides() async throws {
-        let start = #"{"connection_id":"7","nonce":"\#(nonce)","user_origin_allowed":false}"#
+        let start = #"{"connection_id":"7","nonce":"\#(Self.nonce)","user_origin_allowed":false}"#
         #expect(try await Self.allowed(installKey: FrontendInstallKeyTests.key, start: start,
                                        proved: #"{"verified":true,"install_id":"inst_test-01","connection_id":"7","user_origin_allowed":true}"#))
         #expect(try await !Self.allowed(installKey: FrontendInstallKeyTests.key, start: start, proved: nil))
@@ -162,7 +162,7 @@ import Testing
     @Test func aMissingFieldIsFalse() async throws {
         #expect(try await !Self.allowed(installKey: nil, start: #"{"connection_id":"7"}"#, proved: nil))
         #expect(try await !Self.allowed(installKey: FrontendInstallKeyTests.key,
-                                        start: #"{"connection_id":"7","nonce":"\#(nonce)"}"#,
+                                        start: #"{"connection_id":"7","nonce":"\#(Self.nonce)"}"#,
                                         proved: #"{"verified":true,"install_id":"inst_test-01","connection_id":"7"}"#))
     }
 }
