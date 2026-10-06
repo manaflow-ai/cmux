@@ -81,7 +81,15 @@ events keep the browser's own UI and are not sent, except an event named in
 the session's last `tab.handleEvents` for that tab, which is sent to the
 sessions instead. The runtime sends `tab.handleEvents` whenever a page's
 `dialog`, `filechooser` or `download` listeners change, and its next call on
-the tab waits for it. A download keeps the route it started with. A
+the tab waits for it. A download keeps the route it started with: the
+driver records who started it (the session whose input started its
+navigation; a redirect keeps that navigation's starter, whoever's input
+is in flight when WebKit reports it) and where it goes once, when WebKit
+picks its destination, on the download itself. Its later redirects and
+its end read that record, never the tab's sessions or attachment at that
+time; a download routed to a session whose session is gone by then
+(it left, was reset, or the tab's REPL state is gone) is cancelled and
+its file removed, never saved to the user's download location. A
 download reaches a session only when the session's domain policy allows
 every address its request went through (the navigation's URL and its
 redirects, the download's own redirects, the response's URL; a `data:` or

@@ -410,7 +410,11 @@ arrives), is on a domain the policy blocks. The sheet lasts only as long as
 the call that asked: when that call is cancelled (its cell is cancelled or
 times out, the session is reset, closes or idles out), the sheet goes away
 with what was typed in it and the request ends `cancelled`, and after Fill
-nothing is filled unless the session still runs and drives the tab.
+nothing is filled unless the session still runs and is the live creator of
+the tab, whose REPL state and web view are the ones the request was made
+for. The app checks that in the same main-thread turn that hands WebKit the
+fill script, so a detach or reset before that turn fills nothing
+(`cancelled`).
 
 ## Decisions for the user
 
