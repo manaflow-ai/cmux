@@ -56,6 +56,20 @@ class GraphCoversThePackage(unittest.TestCase):
                 self.assertLessEqual(set(target["packages"]), set(GRAPH["packages"]))
 
 
+class GraphGenerator(unittest.TestCase):
+    def test_a_literal_too_long_for_a_path_is_not_a_read(self):
+        """macOS stat fails with ENAMETOOLONG on a base64 certificate in a test (run 37411671734)."""
+        import importlib.util
+        import tempfile
+        spec = importlib.util.spec_from_file_location("ci_target_graph", ROOT / "scripts/cmux-next/ci-target-graph.py")
+        generator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(generator)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "CertTests.swift"
+            source.write_text('let pem = "MIIC' + "A/b" * 300 + '"\nlet plan = "plans/cmux-next/actions.md"\n', encoding="utf-8")
+            self.assertEqual(generator.literal_reads(Path(directory)), ["plans/cmux-next/actions.md"])
+
+
 class PullRequestTiers(unittest.TestCase):
     def test_ui_pr_runs_its_own_tests_without_the_daemon(self):
         result = tiers(PR_17470)
