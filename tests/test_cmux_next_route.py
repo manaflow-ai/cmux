@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
-from cmux_next_push_attribution import failed_jobs, last_green  # noqa: E402
+from cmux_next_push_attribution import MAX_COMMENTED_PRS, failed_jobs, last_green, should_comment  # noqa: E402
 from cmux_next_route import outputs, route  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
@@ -216,6 +216,12 @@ class PushAttribution(unittest.TestCase):
 
     def test_no_pass_means_no_range(self):
         self.assertIsNone(last_green(["cmux-next swift test"], [("c1", {"cmux-next swift test": "failure"})]))
+
+    def test_a_long_red_range_comments_on_nobody(self):
+        """The first push on ae20394 would have named 22 PRs for one known crash."""
+        self.assertTrue(should_comment(list(range(MAX_COMMENTED_PRS))))
+        self.assertFalse(should_comment(list(range(22))))
+        self.assertFalse(should_comment([]))
 
     def test_reporting_jobs_are_not_culprits(self):
         self.assertEqual(failed_jobs({"cmux-next swift test": "failure", "cmux-next push attribution": "failure",
