@@ -12,9 +12,11 @@ public import Foundation
 ///
 /// Folders are grouped and ranked by recency and session count. The home
 /// folder, temporary folders and folders that are gone are left out. A
-/// folder under Desktop, Documents, Downloads or iCloud Drive is kept
-/// without being looked at, since looking would raise a macOS privacy
-/// prompt mid-scan. Reading the agents' own folders raises none.
+/// folder in a privacy-protected location (`PrivacyFolder`), by its spelling
+/// or through a symlink, is kept without being looked at, since looking
+/// would raise a macOS privacy prompt (LAUNCH-NO-TCC-PROMPTS). Reading the
+/// agents' own folders raises none. Every probe outside the agents' folders
+/// goes through `fileSystem`, so a test can prove which paths a scan touches.
 public nonisolated struct AgentProjectScan: Sendable {
     public var home: URL
     public var claude: URL
@@ -23,6 +25,8 @@ public nonisolated struct AgentProjectScan: Sendable {
     public var opencode: URL
     /// The newest session files read per app; older ones add nothing a user would pick.
     public var filesPerApp = 2000
+    /// The probes of project folders (existence, listing, symlinks).
+    public var fileSystem = ScanFileSystem.live
 
     public init(home: URL) {
         self.home = home
@@ -65,7 +69,7 @@ public nonisolated struct AgentProjectScan: Sendable {
         for folder in gitRepositories() {
             let path = folder.standardizedFileURL.path
             if byFolder[path] == nil {
-                byFolder[path] = AgentProject(folder: folder, sessions: 0, lastActive: Self.modified(folder), apps: [])
+                byFolder[path] = AgentProject(folder: folder, sessions: 0, lastActive: fileSystem.modified(path), apps: [])
             }
         }
         return byFolder.values
@@ -78,25 +82,33 @@ public nonisolated struct AgentProjectScan: Sendable {
             }
     }
 
-    /// Finds git repositories below the user's Projects-style roots without
-    /// walking arbitrary home directories or privacy-protected locations.
+    /// Finds git repositories below the user's Projects-style roots, at
+    /// most `maxRepositoryDepth` folders down, without following a symlink
+    /// or entering a privacy-protected location.
     private func gitRepositories() -> [URL] {
         let roots = [home.appending(path: "Projects"), home.appending(path: "projects")]
-        let manager = FileManager.default
         var found: [URL] = []
-        for root in roots where manager.fileExists(atPath: root.path) {
-            guard let enumerator = manager.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: []) else { continue }
-            for case let url as URL in enumerator {
-                guard url.lastPathComponent == ".git" else { continue }
-                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
-                let repository = url.deletingLastPathComponent().standardizedFileURL
-                if !found.contains(repository) { found.append(repository) }
-                enumerator.skipDescendants()
-                if found.count >= 200 { break }
+        var seen = Set<String>()
+        var queue: [(URL, Int)] = roots.map { ($0.standardizedFileURL, 0) }
+        while !queue.isEmpty, found.count < 200 {
+            let (directory, depth) = queue.removeFirst()
+            // `~/Projects` and `~/projects` are one folder on a disk that ignores case.
+            guard seen.insert(directory.path.lowercased()).inserted, isLookable(directory),
+                  fileSystem.isDirectory(directory.path) else { continue }
+            if fileSystem.exists(directory.appending(path: ".git").path) {
+                found.append(directory)
+                continue
+            }
+            guard depth < Self.maxRepositoryDepth else { continue }
+            for entry in fileSystem.subdirectories(directory) {
+                queue.append((directory.appending(path: entry, directoryHint: .isDirectory), depth + 1))
             }
         }
         return found
     }
+
+    /// How deep below a Projects root a repository is looked for.
+    static let maxRepositoryDepth = 3
 
     /// Recency first, with session count as weight: a project used daily
     /// outranks one used heavily months ago.
@@ -105,15 +117,23 @@ public nonisolated struct AgentProjectScan: Sendable {
         return log2(1 + Double(project.sessions)) - days / 14
     }
 
-    /// The privacy-protected folder `folder` sits in, if any.
+    /// The privacy-protected folder `folder` sits in by its spelling, if any.
     public func privacyFolder(of folder: URL) -> PrivacyFolder? {
-        // The Mac's disk ignores case, so `~/desktop/x` is on the Desktop too.
-        let path = folder.standardizedFileURL.path.lowercased()
-        return PrivacyFolder.allCases.first { kind in
-            let root = kind.root(home: home).lowercased()
-            return path == root || path.hasPrefix(root + "/")
-        }
+        PrivacyFolder.of(path: folder.standardizedFileURL.path, home: home)
     }
+
+    /// The privacy-protected folder `folder` reaches, by its spelling or
+    /// through a symlink on its way. Resolving reads only link entries
+    /// (`lstat`, `readlink`), which raise no prompt.
+    public func protectedFolder(of folder: URL) -> PrivacyFolder? {
+        if let kind = privacyFolder(of: folder) { return kind }
+        let resolved = fileSystem.resolve(folder.standardizedFileURL.path)
+        return PrivacyFolder.of(path: resolved, home: home)
+    }
+
+    /// True when a scan may look at `folder`: it is not, and does not lead
+    /// into, a privacy-protected location.
+    func isLookable(_ folder: URL) -> Bool { protectedFolder(of: folder) == nil }
 
     private func keeps(_ project: AgentProject) -> Bool { keeps(folder: project.folder) }
 
@@ -131,9 +151,8 @@ public nonisolated struct AgentProjectScan: Sendable {
         for agentHome in [claude, codex, pi, opencode] where path.hasPrefix(agentHome.standardizedFileURL.path + "/") {
             return false
         }
-        if privacyFolder(of: folder) != nil { return true }
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+        if protectedFolder(of: folder) != nil { return true }
+        return fileSystem.isDirectory(path)
     }
 
     /// Each session of `app`: its recorded cwd and when it was last written.
@@ -268,7 +287,7 @@ public struct RecentProjectScan: Sendable {
 
         for folder in gitRepositories() where projects.keeps(folder: folder) {
             let id = folder.path
-            let modified = AgentProjectScan.modified(folder)
+            let modified = projects.fileSystem.modified(folder.path)
             if var existing = byPath[id] {
                 existing.lastActive = max(existing.lastActive, modified)
                 byPath[id] = existing
@@ -326,38 +345,27 @@ public struct RecentProjectScan: Sendable {
     /// entries are capped to keep the new-tab request bounded on large homes.
     private nonisolated func gitRepositories() -> [URL] {
         var found: [URL] = []
-        let manager = FileManager.default
-        // Never inspect a caller-supplied root inside a protected location.
-        // Hints may name such a folder, but repository discovery does not need
-        // to walk it and must not be the source of a privacy prompt.
+        let fileSystem = projects.fileSystem
+        // Never inspect a root inside a protected location, by its spelling
+        // or through a symlink. Hints may name such a folder, but repository
+        // discovery does not need to walk it and must not raise a privacy prompt.
         var queue = roots.prefix(maxEntriesPerDirectory)
             .map { $0.standardizedFileURL }
-            .filter { projects.privacyFolder(of: $0) == nil }
             .map { ($0, 0) }
         while !queue.isEmpty {
             let (directory, depth) = queue.removeFirst()
-            guard isDirectory(directory, manager: manager) else { continue }
-            if manager.fileExists(atPath: directory.appending(path: ".git").path) {
+            guard projects.isLookable(directory), fileSystem.isDirectory(directory.path) else { continue }
+            if fileSystem.exists(directory.appending(path: ".git").path) {
                 found.append(directory)
                 continue
             }
             guard depth < maxDepth else { continue }
-            let entries = (try? manager.contentsOfDirectory(at: directory,
-                                                             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-                                                             options: [.skipsHiddenFiles])) ?? []
-            for entry in entries.prefix(maxEntriesPerDirectory) where isDirectory(entry, manager: manager) {
-                // Directory enumeration may canonicalize an ancestor (/var
-                // to /private/var). Keep the caller's root spelling so these
-                // repositories merge with session and history cwd hints.
-                queue.append((directory.appending(path: entry.lastPathComponent, directoryHint: .isDirectory), depth + 1))
+            for entry in fileSystem.subdirectories(directory).prefix(maxEntriesPerDirectory) {
+                // Keep the caller's root spelling (not /var to /private/var)
+                // so these repositories merge with session and history cwd hints.
+                queue.append((directory.appending(path: entry, directoryHint: .isDirectory), depth + 1))
             }
         }
         return found
-    }
-
-    private nonisolated func isDirectory(_ url: URL, manager: FileManager) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
-              values.isDirectory == true, values.isSymbolicLink != true else { return false }
-        return true
     }
 }

@@ -62,6 +62,12 @@ enum NotificationConfigParser {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "notifications.mutedWorkspaces", message: "expected an array of workspace ids"))
             return []
         }
-        return Set(items.compactMap(\.stringValue))
+        // A bad item is dropped with a diagnostic; the valid ids still apply.
+        let ids = items.compactMap { $0.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
+        if ids.count != items.count {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "notifications.mutedWorkspaces",
+                                                  message: "expected workspace ids (non-empty strings)"))
+        }
+        return Set(ids)
     }
 }

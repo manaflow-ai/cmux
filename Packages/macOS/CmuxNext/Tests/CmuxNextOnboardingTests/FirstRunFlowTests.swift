@@ -17,13 +17,17 @@ import Testing
         return services
     }
 
-    @Test func theFirstRunIsSignInsThenImport() {
+    @Test func theFirstRunIsSignInsThenImport() async {
         let services = everything()
         let model = OnboardingModel(services: services)
         #expect(model.steps == [.accounts, .importData])
         #expect(model.step == .accounts)
         model.next()
         #expect(model.step == .importData && model.isLast)
+        // Browser detection reads other apps' data, so a person starts it (LAUNCH-NO-TCC-PROMPTS).
+        #expect(model.primaryTitle == OnboardingStrings.findBrowsers)
+        model.next()
+        for _ in 0..<200 where model.importer.phase != .ready { await Task.yield() }
         #expect(model.primaryTitle == OnboardingStrings.done)
         model.next()
         #expect(services.ended == true)

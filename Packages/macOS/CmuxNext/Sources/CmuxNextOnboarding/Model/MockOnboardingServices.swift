@@ -63,7 +63,12 @@ public final class MockOnboardingServices: OnboardingServices {
         self.density = density
     }
 
-    public func detectBrowsers() async -> [BrowserSource] { sources }
+    /// How many times browsers were detected (each one reads other apps' data).
+    public private(set) var detections = 0
+    public func detectBrowsers() async -> [BrowserSource] {
+        detections += 1
+        return sources
+    }
 
     public func scanAgentProjects() async -> [AgentProject] { agentProjects }
     public func chooseFolder() async -> URL? { chosenFolder }

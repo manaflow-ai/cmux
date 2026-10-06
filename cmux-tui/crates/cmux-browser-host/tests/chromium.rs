@@ -25,6 +25,25 @@ const AGENT: &str = r#"(() => {
   }});
 })();"#;
 
+/// Long-poll gates of the fixture server: `/hold?<key>` answers only after
+/// the test calls `release(key)` (or after 30 s), so a page acts at a moment
+/// the test chooses instead of after a timer.
+static HOLDS: (Mutex<Vec<String>>, std::sync::Condvar) =
+    (Mutex::new(Vec::new()), std::sync::Condvar::new());
+
+fn release(key: &str) {
+    HOLDS.0.lock().unwrap().push(key.to_owned());
+    HOLDS.1.notify_all();
+}
+
+fn wait_released(key: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut released = HOLDS.0.lock().unwrap();
+    while !released.iter().any(|k| k == key) && Instant::now() < deadline {
+        released = HOLDS.1.wait_timeout(released, deadline - Instant::now()).unwrap().0;
+    }
+}
+
 fn serve() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture server");
     let port = listener.local_addr().unwrap().port();
@@ -69,6 +88,10 @@ fn serve() -> u16 {
                     return;
                 }
                 let body = match path.split('?').next().unwrap_or("") {
+                    "/hold" => {
+                        wait_released(path.split_once('?').map_or("", |(_, key)| key));
+                        "released".to_owned()
+                    }
                     "/echo" => format!(
                         "<!doctype html><title>Echo</title><pre id=h>{}|{}</pre>",
                         header("user-agent"),
@@ -1114,3 +1137,7 @@ use files::files_page;
 // The tab clipboard on the shared headless browser (item 19).
 #[path = "chromium/clipboard.rs"]
 mod clipboard;
+
+// HTML5 drag and drop (input.drag, parity 05).
+#[path = "chromium/drag.rs"]
+mod drag;
