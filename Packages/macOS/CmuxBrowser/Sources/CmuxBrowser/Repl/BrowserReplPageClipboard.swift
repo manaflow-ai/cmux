@@ -240,10 +240,11 @@ public struct BrowserReplPageClipboard {
             guard let item = entry as? [String: Any],
                   let type = item["type"] as? String,
                   isClipboardType(type),
-                  let base64 = item["base64"] as? String,
-                  Data(base64Encoded: base64) != nil else { return nil }
+                  let base64 = item["base64"] as? String else { return nil }
+            // The page chose the text: its length (which bounds what it
+            // decodes to) is checked before it is decoded.
             total += base64.utf8.count
-            guard total <= maximumBase64Characters else { return nil }
+            guard total <= maximumBase64Characters, Data(base64Encoded: base64) != nil else { return nil }
             items.append(["type": type, "base64": base64])
         }
         return items

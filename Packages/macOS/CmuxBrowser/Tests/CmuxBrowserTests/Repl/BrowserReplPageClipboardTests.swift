@@ -424,3 +424,18 @@ extension BrowserReplPasteboardTests {
         }
     }
 }
+
+/// A page-clipboard message's items are judged by their length before
+/// their Base64 is decoded: the page chose the text (r24 tabs clipboard).
+@MainActor
+@Suite("Browser REPL page clipboard message limits")
+struct BrowserReplPageClipboardMessageLimitTests {
+    @Test("Items within the limits are kept; past the length limit or not Base64, the message is refused")
+    func messageItemsAreJudgedWithinTheirLimits() {
+        let kept = BrowserReplPageClipboard.items(from: ["items": [["type": "text/plain", "base64": "aGk="]]])
+        #expect(kept?.count == 1)
+        #expect(BrowserReplPageClipboard.items(from: ["items": [["type": "text/plain", "base64": "not base64!"]]]) == nil)
+        let half = String(repeating: "A", count: BrowserReplPageClipboard.maximumBase64Characters / 2 + 4)
+        #expect(BrowserReplPageClipboard.items(from: ["items": [["type": "text/plain", "base64": half], ["type": "text/html", "base64": half]]]) == nil)
+    }
+}
