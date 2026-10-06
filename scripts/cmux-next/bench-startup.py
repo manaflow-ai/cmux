@@ -498,6 +498,8 @@ def main():
     parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
+    parser.add_argument("--budget", action="append", default=[], metavar="MARK=MS",
+                        help="exit 1 when a mark's median (any tag, mode) is over MS or never arrives")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
@@ -548,6 +550,26 @@ def main():
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
+    over = check_budgets(results, args.budget)
+    for line in over:
+        print(f"over budget: {line}", file=sys.stderr)
+    if over:
+        sys.exit(1)
+
+
+def check_budgets(results, budgets):
+    """Every `MARK=MS` whose median is over MS (or missing) in some tag and mode."""
+    over = []
+    for budget in budgets:
+        mark, _, limit = budget.partition("=")
+        for tag, modes in results.items():
+            for mode, runs in modes.items():
+                values = [run[mark] for run in runs if mark in run]
+                if len(values) < len(runs):
+                    over.append(f"{tag} {mode}: {mark} missing in {len(runs) - len(values)} of {len(runs)} runs")
+                elif values and statistics.median(values) > float(limit):
+                    over.append(f"{tag} {mode}: {mark} median {statistics.median(values):.0f} ms > {limit} ms")
+    return over
 
 
 if __name__ == "__main__":

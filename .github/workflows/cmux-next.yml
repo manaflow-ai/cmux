@@ -1244,6 +1244,24 @@ jobs:
           # three personality routines (decision 2026-10-05).
           scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"
 
+      # Launch-time budget (#17587): warm launches of this build, on a copy
+      # named for a tag of its own (its own socket, daemon and state), from an
+      # empty profile. Budgets are about 4x a capture Mac's medians, so this
+      # catches a launch that blocks (a daemon wait on the main path, a sync
+      # read), not run-to-run noise.
+      - name: Launch-time budget
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          tag="ci-launch-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          app="$RUNNER_TEMP/launch-budget/cmux DEV ${tag}.app"
+          mkdir -p "$RUNNER_TEMP/launch-budget"
+          /bin/cp -R "$built" "$app"
+          trap 'pkill -f "$RUNNER_TEMP/launch-budget/" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/tags/$tag" "$HOME/.cmux/mux/tags/$tag" "$RUNNER_TEMP/launch-budget"' EXIT
+          python3 scripts/cmux-next/bench-startup.py --app "$app" --profile empty --mode warm --runs 3 --timeout 6 \
+            --budget did_finish_launching_end=800 --budget first_window_frame_committed=1000 --budget sidebar_rows_shown=1000
+
       # The default-branch publisher consumes the exact app produced by this
       # job.  Keep the upload limited to same-repository member PRs carrying
       # the existing dev-build label; the publisher repeats this trust check
