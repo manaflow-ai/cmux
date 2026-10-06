@@ -2,11 +2,24 @@
 //! table, what config.json adds, and the modes that never ask
 //! (plans/cmux-next/acp-remote-guard.md). One table serves the remote guard
 //! (what a Web request may set or start from) and the hub (Web control of a
-//! session ends when its mode leaves the table).
+//! session ends when its mode leaves the table). Codex and opencode are
+//! refused families: the Web never drives them, whatever config.json says.
 
+use crate::config::{Config, HarnessProfile};
 use crate::store::SessionMeta;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Harness families a remote (Web) connection never drives (D10,
+/// 2026-10-06): neither has a mode that asks before every edit and every
+/// command. codex-acp 1.10.0 runs every mode with `on-request` approval,
+/// where the model decides when to ask, and a workspace-write sandbox (or
+/// none); opencode 1.18.33 starts every agent from `"*": "allow"` and merges
+/// the user's rules last, which acpmux cannot see. No config entry, preset or
+/// default adds them back; a harness that gains a verifiable mode that asks
+/// before each change goes back into `ASKING_MODES` after a review
+/// (plans/cmux-next/acp-remote-guard.md).
+pub(crate) const REFUSED_FAMILIES: &[&str] = &["codex", "opencode"];
 
 /// Per harness family, the exact mode ids that ask before they act; the
 /// first is the asking default a new Web session is moved to. An unknown
@@ -18,13 +31,7 @@ pub(crate) const ASKING_MODES: &[(&str, &[&str])] = &[
     // not modify files or execute commands"
     // (https://docs.anthropic.com/en/docs/claude-code/iam#permission-modes).
     ("claude", &["default", "plan"]),
-    // Codex (codex-acp 1.10.0, dist/index.js `_AgentMode`): "read-only" is
-    // "Ask for approval" ("Always ask to edit external files and use the
-    // internet"; approval on-request, reviewer user).
-    ("codex", &["read-only"]),
-    // opencode: the "plan" agent sets file edits and bash to "ask"
-    // (https://opencode.ai/docs/agents/#plan).
-    ("opencode", &["plan"]),
+    // Codex and opencode have no row: `REFUSED_FAMILIES`.
 ];
 
 /// Modes the reviewed sources name as NOT asking. A config.json
@@ -34,11 +41,13 @@ pub(crate) const NON_ASKING_MODES: &[(&str, &[&str])] = &[
     // Claude (claude-agent-acp 0.74.0, dist/permissions/modes.js): edits,
     // everything, a classifier, or no check at all, without asking.
     ("claude", &["acceptEdits", "dontAsk", "auto", "bypassPermissions"]),
-    // Codex (codex-acp 1.10.0, dist/index.js `_AgentMode`): "agent" ("Approve
-    // for me", auto_review, its default) and "agent-full-access".
-    ("codex", &["agent", "agent-full-access"]),
-    // opencode: "build", its default, follows the default permissions, which
-    // allow without asking (https://opencode.ai/docs/permissions/).
+    // Codex (codex-acp 1.10.0, dist/index.js `AgentMode`): "read-only" (on
+    // request, workspace-write: edits and commands in the workspace without
+    // asking), "agent" (the same, auto_review, its default) and
+    // "agent-full-access".
+    ("codex", &["read-only", "agent", "agent-full-access"]),
+    // opencode 1.18.33: "build", its default, allows everything; "plan"
+    // (allows bash) is not listed here because Claude's "plan" asks.
     ("opencode", &["build"]),
 ];
 
@@ -65,24 +74,71 @@ fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
 }
 
+/// `REFUSED_FAMILIES` plus `extra` (families whose profile runs one).
+pub(crate) fn refused_families_for(extra: impl IntoIterator<Item = String>) -> BTreeSet<String> {
+    REFUSED_FAMILIES.iter().map(|f| f.to_string()).chain(extra).collect()
+}
+
+/// The refused families for `cfg`: `REFUSED_FAMILIES`, and the family of
+/// every profile whose command line runs one of them, so an explicit
+/// `family` (`{"argv": ["codex-acp"], "family": "mine"}`) cannot rename
+/// Codex into a family that config.json opens.
+pub(crate) fn refused_families(cfg: &Config) -> BTreeSet<String> {
+    let runs_refused = |name: &str, p: &HarnessProfile| {
+        let unnamed = HarnessProfile { family: None, ..p.clone() };
+        REFUSED_FAMILIES.contains(&crate::config::derive_family(name, &unnamed).as_str())
+    };
+    refused_families_for(
+        cfg.harnesses
+            .iter()
+            .filter(|(name, p)| runs_refused(name, p))
+            .map(|(name, p)| crate::config::derive_family(name, p)),
+    )
+}
+
 /// The merged table: the reviewed rows, then config.json's additions minus
-/// any mode the reviewed sources name as non-asking.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// any mode the reviewed sources name as non-asking and any refused family.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebModeTable {
     by_family: BTreeMap<String, Vec<String>>,
+    refused: BTreeSet<String>,
+}
+
+/// The reviewed rows alone, with `REFUSED_FAMILIES`: never a table that
+/// forgets the refusal.
+impl Default for WebModeTable {
+    fn default() -> Self {
+        Self::build(&BTreeMap::new()).0
+    }
 }
 
 impl WebModeTable {
-    /// Build from config.json's `webAskingModes`; also returns one warning
-    /// per ignored entry.
+    /// Build from config.json's `webAskingModes`, refusing
+    /// `REFUSED_FAMILIES`; also returns one warning per ignored entry.
     pub fn build(extra: &BTreeMap<String, Vec<String>>) -> (Self, Vec<String>) {
+        Self::build_refusing(extra, &refused_families_for([]))
+    }
+
+    /// `build`, refusing `refused` (a superset of `REFUSED_FAMILIES`).
+    pub fn build_refusing(
+        extra: &BTreeMap<String, Vec<String>>,
+        refused: &BTreeSet<String>,
+    ) -> (Self, Vec<String>) {
+        let refused = refused_families_for(refused.iter().cloned());
         let mut by_family: BTreeMap<String, Vec<String>> = ASKING_MODES
             .iter()
+            .filter(|(f, _)| !refused.contains(*f))
             .map(|(f, m)| (f.to_string(), m.iter().map(|s| s.to_string()).collect()))
             .collect();
         let mut warnings = Vec::new();
         for (family, modes) in extra {
             for mode in modes {
+                if refused.contains(family) {
+                    warnings.push(format!(
+                        "webAskingModes: ignoring {mode:?} for {family:?}: a remote connection never drives this harness (it has no mode that asks before each change)"
+                    ));
+                    continue;
+                }
                 if non_asking(mode) {
                     warnings.push(format!(
                         "webAskingModes: ignoring {mode:?} for {family:?}: the reviewed table names it a mode that does not ask"
@@ -95,16 +151,29 @@ impl WebModeTable {
                 }
             }
         }
-        (Self { by_family }, warnings)
+        (Self { by_family, refused }, warnings)
     }
 
-    /// The asking modes of `family`, the asking default first.
+    /// The asking modes of `family`, the asking default first; none for a
+    /// refused family.
     pub fn modes(&self, family: &str) -> &[String] {
+        if self.refused.contains(family) {
+            return &[];
+        }
         self.by_family.get(family).map(Vec::as_slice).unwrap_or(&[])
     }
 
-    /// Whether a session's mode asks: none reported, or listed for its family.
+    /// The families the Web never drives.
+    pub fn refused(&self) -> &BTreeSet<String> {
+        &self.refused
+    }
+
+    /// Whether a session's mode asks: never for a refused family; else none
+    /// reported, or listed for its family.
     pub fn session_asks(&self, m: &SessionMeta) -> bool {
+        if self.refused.contains(&family_of(m)) {
+            return false;
+        }
         match mode_of(m) {
             None => true,
             Some(mode) => self.modes(&family_of(m)).contains(&mode),
@@ -126,6 +195,9 @@ impl WebModeTable {
         config_id: Option<&str>,
         value: Option<&str>,
     ) -> bool {
+        if self.refused.contains(family) {
+            return false;
+        }
         if config_id.is_some_and(|i| FREE_CONFIG_IDS.contains(&i)) {
             return true;
         }
@@ -136,11 +208,15 @@ impl WebModeTable {
         mode.is_some_and(|v| self.modes(family).iter().any(|a| a == v))
     }
 
-    /// One line for the log: `claude=[default,plan] codex=[read-only] ...`.
+    /// One line for the log: `claude=[default,plan] ... refused=[codex,opencode]`.
     pub fn summary(&self) -> String {
         self.by_family
             .iter()
             .map(|(f, m)| format!("{f}=[{}]", m.join(",")))
+            .chain(std::iter::once(format!(
+                "refused=[{}]",
+                self.refused.iter().cloned().collect::<Vec<_>>().join(",")
+            )))
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -175,11 +251,28 @@ mod tests {
             ("myharness".to_owned(), vec!["ask".to_owned(), "bypassPermissions".to_owned()]),
         ]);
         let (table, warnings) = WebModeTable::build(&extra);
-        assert_eq!(table.modes("codex"), ["read-only"]);
+        assert!(table.modes("codex").is_empty(), "{:?}", table.modes("codex"));
         assert_eq!(table.modes("myharness"), ["ask"]);
         assert_eq!(warnings.len(), 2, "{warnings:?}");
         assert!(warnings[0].contains("\"agent\""), "{warnings:?}");
-        assert!(table.summary().contains("codex=[read-only]"), "{}", table.summary());
+        assert!(!table.summary().contains("codex="), "{}", table.summary());
+    }
+
+    // D10: no config entry opens Codex or opencode to the Web.
+    #[test]
+    fn a_config_entry_for_codex_or_opencode_is_ignored_with_a_warning() {
+        let extra = BTreeMap::from([
+            ("codex".to_owned(), vec!["read-only".to_owned(), "agent".to_owned()]),
+            ("opencode".to_owned(), vec!["plan".to_owned(), "build".to_owned()]),
+            ("mine".to_owned(), vec!["careful".to_owned()]),
+        ]);
+        let (table, warnings) = WebModeTable::build(&extra);
+        assert!(table.modes("codex").is_empty(), "{:?}", table.modes("codex"));
+        assert!(table.modes("opencode").is_empty(), "{:?}", table.modes("opencode"));
+        assert_eq!(table.modes("mine"), ["careful"]);
+        assert_eq!(warnings.len(), 4, "{warnings:?}");
+        assert!(!table.summary().contains("codex="), "{}", table.summary());
+        assert!(!table.summary().contains("opencode="), "{}", table.summary());
     }
 
     #[test]

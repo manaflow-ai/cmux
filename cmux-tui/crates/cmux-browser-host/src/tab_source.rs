@@ -119,6 +119,8 @@ pub trait TabSource: Send + Sync {
     }
     /// The session opened `target_id` (`tabs.open`): it drives it.
     fn opened(&self, _session: u64, _target_id: &str) {}
+    /// The session kept `target_id` (`tab.keep`): it is the person's now.
+    fn kept(&self, _session: u64, _target_id: &str) {}
     /// Installs (or with `None` removes) a session's request filter; false
     /// when the engine cannot filter (the gate then fails closed).
     fn set_request_filter(&self, session: u64, engine: &str, filter: Option<RequestFilter>)

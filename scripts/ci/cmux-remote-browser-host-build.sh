@@ -29,9 +29,10 @@ export CARGO_TARGET_DIR="$root/.build/cmux-remote-browser-host-target"
 cd "$crate"
 echo "rust toolchain: $(rustup show active-toolchain 2>/dev/null || echo unknown)"
 echo "CEF_PATH=$CEF_PATH"
-# Lib, bin, integration and doc tests (the fleet toolchain has rustdoc since
-# hq PR 1406, worker build 62193f7e).
-cargo test --locked
+# --all-targets runs the lib, bin and integration tests; no doctests until the
+# fleet toolchain ships rustdoc with a self-test (hq PR 1406 was reverted by
+# hq PR 1411: its cargo symlink ran rustup).
+cargo test --locked --all-targets
 cargo build --release --locked
 mkdir -p "$root/.build/artifacts"
 cp "$CARGO_TARGET_DIR/release/cmux-remote-browser-host" "$root/.build/artifacts/cmux-remote-browser-host"
