@@ -74,4 +74,46 @@ fetch 4
 if [[ "$status" != 1 ]] || ! grep -qF 'is not published after' <<<"$out"; then fail "unreadable API: expected the bounded wait"; fi
 grep -qF 'no cmux-tui artifacts run will publish' <<<"$out" && fail "unreadable API: failed fast"
 
+# `wait` (the cmux-next gate job): a commit whose artifacts runs were cancelled
+# or skipped while the branch moved on was superseded. That is not a test
+# failure: the gate reports superseded=true and the macOS jobs are skipped.
+# A real publish failure, a cancelled run of the current head, or a head that
+# cannot be read stays red.
+head_dir="$TMP/api/repos/o/r/git/ref/heads"
+mkdir -p "$head_dir"
+set_head() { printf '{"object":{"sha":"%s"}}\n' "$1" > "$head_dir/feat-cmux-next"; }
+newer=$(printf 'f%.0s' {1..40})
+gate() {
+  local started
+  started=$(date +%s)
+  status=0
+  : > "$TMP/gh-output"
+  out=$(cd "$TMP/src" && env -u CI_JOB_DIR GITHUB_ACTIONS=true GITHUB_EVENT_NAME=push GITHUB_SHA="$sha" \
+    GITHUB_REF=refs/heads/feat-cmux-next GITHUB_OUTPUT="$TMP/gh-output" \
+    GITHUB_REPOSITORY=o/r GITHUB_API_URL="file://$TMP/api" GH_TOKEN=test-token \
+    CMUX_TUI_TREE_PUBLISHER_SHA="$sha" CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui \
+    CMUX_TUI_TREE_WAIT_SECONDS=40 CMUX_TUI_TREE_POLL_SECONDS=1 CMUX_TUI_TREE_RUN_CHECK_SECONDS=1 \
+    bash scripts/cmux-next/pin-cmux-tui.sh wait 2>&1) || status=$?
+  took=$(( $(date +%s) - started ))
+}
+superseded() { # <case> <runs json>
+  set_runs "$2"; set_head "$newer"; gate
+  [[ "$status" == 0 ]] || fail "$1: a superseded commit failed the gate"
+  (( took < 30 )) || fail "$1: the gate waited instead of deciding"
+  grep -qxF "superseded=true" "$TMP/gh-output" || fail "$1: no superseded=true output"
+  grep -qF "superseded by $newer" <<<"$out" || fail "$1: no superseded notice naming the new head"
+}
+red() { # <case> <runs json> <head or "">
+  set_runs "$2"; if [[ -n "$3" ]]; then set_head "$3"; else rm -f "$head_dir/feat-cmux-next"; fi; gate
+  [[ "$status" == 1 ]] || fail "$1: expected a red gate"
+  grep -qxF "superseded=true" "$TMP/gh-output" && fail "$1: reported superseded"
+  grep -qF 'no cmux-tui artifacts run will publish' <<<"$out" || fail "$1: no reason"
+}
+cancelled_runs='{"total_count":1,"workflow_runs":[{"id":21,"status":"completed","conclusion":"cancelled","html_url":"u21"}]}'
+superseded "cancelled run, branch moved" "$cancelled_runs"
+superseded "skipped run, branch moved" '{"total_count":1,"workflow_runs":[{"id":22,"status":"completed","conclusion":"success","html_url":"u22"}]}'
+red "failed run, branch moved" '{"total_count":1,"workflow_runs":[{"id":23,"status":"completed","conclusion":"failure","html_url":"u23"}]}' "$newer"
+red "cancelled run of the current head" "$cancelled_runs" "$sha"
+red "unreadable branch head" "$cancelled_runs" ""
+
 printf 'pin-cmux-tui run-check tests: ok\n'
