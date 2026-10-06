@@ -1,12 +1,13 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
+import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
-/// title, the model under it, and a stepped slider with one stop per level the agent offers.
+/// title, the model under it (a default level says "Reasoning" on the chip), and a stepped slider with one stop per level the agent offers.
 /// The slider is EffortTrack. Picking sends chat.effort through `onPick`.
 export function EffortPicker({
   label,
@@ -36,6 +37,9 @@ export function EffortPicker({
     efforts.findIndex((choice) => choice.id === current),
   );
   const name = efforts[level]?.name ?? t("effort.title");
+  // The agent's default level names no level: the chip says "Reasoning" beside the model chip
+  // rather than a second "Default"; the popover title says "Default".
+  const chip = efforts[level] && isDefaultChoice(efforts[level]) ? t("picker.reasoning") : name;
   // Automation opens the popover by its label as a click does (see pickerOpeners.ts).
   // Already open, it only puts the focus back on the slider.
   useEffect(
@@ -77,7 +81,7 @@ export function EffortPicker({
         aria-controls={open ? id : undefined}
         onClick={() => setOpen(!open)}
       >
-        <span>{name}</span>
+        <span>{chip}</span>
         {chevron}
       </button>
       {open && (
