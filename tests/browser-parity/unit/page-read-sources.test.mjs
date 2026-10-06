@@ -99,3 +99,35 @@ test("accessible names: elementAt and snapshot names never run the name computat
     assert.equal(p.snap, "Go", "the snapshot computed the name over 30,000 characters of generated content");
   });
 });
+
+test("agent-tools reads: extract, dropdownOptions, searchText and markdown main detection cut page text before they normalize it", async () => {
+  await withRepl(async (run) => {
+    const extract = await run(`${prepare(`document.body.innerHTML = '<p id="big"></p>'; document.getElementById("big").textContent = "A ".repeat(BIG / 2);`)}
+      await page.extract({ t: "#big" });
+      console.log("@@" + JSON.stringify(${longest}));`);
+    const e = JSON.parse(extract.value);
+    assert.ok((e.innerText || 0) <= READ_SIZE, `extract read a ${e.innerText}-character innerText`);
+    assert.ok((e.replace || 0) <= READ_SIZE + 100, `extract normalized a ${e.replace}-character string`);
+
+    const drop = await run(`${prepare(`document.body.innerHTML = '<div role="listbox" id="lb"><div role="option" id="o"></div></div>'; document.getElementById("o").textContent = "A ".repeat(BIG / 2);`)}
+      await page.dropdownOptions("#lb");
+      console.log("@@" + JSON.stringify(${longest}));`);
+    const d = JSON.parse(drop.value);
+    assert.ok((d.innerText || 0) <= READ_SIZE, `dropdownOptions read a ${d.innerText}-character innerText`);
+    assert.ok((d.replace || 0) <= READ_SIZE + 100, `dropdownOptions normalized a ${d.replace}-character string`);
+
+    const search = await run(`${prepare(`document.body.innerHTML = '<p id="big"></p>'; document.getElementById("big").textContent = "A ".repeat(BIG);`)}
+      await page.searchText("A", { limit: 1 });
+      console.log("@@" + JSON.stringify(${longest}));`);
+    const s = JSON.parse(search.value);
+    assert.ok((s.replace || 0) <= READ_SIZE + 100, `searchText normalized a ${s.replace}-character text node`);
+
+    // Where checkVisibility is missing, <main> detection fell back to the
+    // whole innerText of each candidate.
+    const main = await run(`${prepare(`document.body.innerHTML = '<main id="m"></main>'; document.getElementById("m").textContent = "A ".repeat(BIG / 2); delete Element.prototype.checkVisibility;`)}
+      await page.markdown({ main: true });
+      console.log("@@" + JSON.stringify(${longest}));`);
+    const m = JSON.parse(main.value);
+    assert.ok((m.innerText || 0) <= READ_SIZE, `markdown main detection read a ${m.innerText}-character innerText`);
+  });
+});
