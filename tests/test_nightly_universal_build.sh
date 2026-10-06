@@ -43,7 +43,9 @@ if ! awk '
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
   in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
-  in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  # The warmer keys by the tip it builds; the app build by the resolved build_sha it builds.
+  job == "refresh" && in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  job == "build" && in_cache && /needs\.resolve-nightly-cmux-tui-client\.outputs\.build_sha/ { saw_head_sha[job]=1 }
   in_cache && /restore-keys:/ { saw_restore[job]=1 }
   END {
     exit !(saw_path["refresh"] && saw_key["refresh"] && saw_toolchain["refresh"] && saw_head_sha["refresh"] && saw_restore["refresh"] &&
@@ -628,11 +630,13 @@ job_if() {
   ' "$WORKFLOW_FILE"
 }
 PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
-if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
-  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE" ]; then
+# A resolved build commit that is already published builds nothing.
+NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'"
+if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED" != "$(job_if build-nightly-app)" ] \
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
