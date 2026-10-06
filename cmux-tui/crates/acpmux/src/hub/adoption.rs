@@ -91,8 +91,13 @@ pub(super) fn session_cwd(
         }
         (Some(given), _) => given,
         (None, Some(recorded)) => recorded,
+        // Never the home folder by default: an agent there reads every
+        // privacy-protected folder in it (LAUNCH-NO-TCC-PROMPTS). The app
+        // gives a folder (the workspace's, or agent-home).
         (None, None) => {
-            dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+            return Err(RpcError::invalid_params(
+                "no folder for this session: pass a cwd (the workspace folder or an agent-home folder)",
+            ));
         }
     };
     let cwd =

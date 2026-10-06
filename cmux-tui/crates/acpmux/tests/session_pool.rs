@@ -548,3 +548,27 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
     assert_eq!(reply["error"]["data"]["reason"], "remote.mode_not_asking", "{reply}");
     assert_eq!(reply["error"]["data"]["mode"], "bypassPermissions", "{reply}");
 }
+
+/// LAUNCH-NO-TCC-PROMPTS: an agent nobody asked for (a prewarm, a warm) never
+/// starts without a folder or in `/`, and a session without a folder is
+/// refused instead of running in the home folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_agent_starts_unasked_in_root_or_without_a_folder() {
+    let daemon = Daemon::new("guard", 0);
+    let mut rpc = daemon.rpc().await;
+    let none = rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "wait": true})).await;
+    assert_eq!(none["accepted"], false, "{none}");
+    let root =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": "/", "wait": true})).await;
+    assert_eq!(root["accepted"], false, "{root}");
+    assert!(daemon.pool_records().is_empty(), "nothing was pooled");
+
+    let refused = rpc.call_err("session/new", json!({"mcpServers": []})).await;
+    assert!(refused.contains("no folder"), "{refused}");
+
+    // A person may name `/`; a later warm still leaves it alone.
+    let made = rpc.call("session/new", json!({"cwd": "/", "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let warmed = rpc.call("_acpmux/warm", json!({"sessionIds": [id], "limit": 3})).await;
+    assert_eq!(warmed["warmed"], json!([]), "{warmed}");
+}
