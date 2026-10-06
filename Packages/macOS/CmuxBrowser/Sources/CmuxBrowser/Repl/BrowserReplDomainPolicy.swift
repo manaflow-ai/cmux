@@ -683,6 +683,13 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         return rules
     }
 
+    /// The content rules a session's tabs carry: this policy's and the
+    /// local-file rules of the session's directories `roots`
+    /// (``BrowserReplFileSandbox/contentRules(roots:subresourcesInsideRoots:)``).
+    public func contentRules(fileRoots roots: [String], subresourcesInsideRoots: Bool) -> [[String: Any]] {
+        BrowserReplFileSandbox.contentRules(roots: roots, subresourcesInsideRoots: subresourcesInsideRoots) + contentRules
+    }
+
     private static func escape(_ text: String) -> String {
         var out = ""
         for character in text {

@@ -108,6 +108,70 @@ struct BrowserReplFileContentRuleTests {
         #expect(leaked != "secret bytes", "a protected file, renamed after the load, ran as a script")
     }
 
+    /// r24 native#1: a policy pattern with a wildcard scheme
+    /// (`*://localhost`) became a content-rule filter that matched
+    /// `file://localhost/...` too, and the policy's rules came after the
+    /// local-file rules, so its allow rule undid their block: a local page
+    /// loaded files outside the session's directories as subresources.
+    /// WebKit spells `file://localhost/p` as `file:///p`, but keeps another
+    /// host (`file://a.test/p`) and loads the local file `/p`.
+    @Test("A domain policy pattern does not let a page load local files outside the session's directories")
+    func aPolicyPatternDoesNotReopenLocalFiles() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>"#
+        try Data(svg.utf8).write(to: URL(fileURLWithPath: scratch.outside + "/dot.svg"))
+        let outside = URL(fileURLWithPath: scratch.outside + "/dot.svg").absoluteString
+        let viaLocalhost = "file://localhost" + outside.dropFirst("file://".count)
+        let viaHost = "file://a.test" + outside.dropFirst("file://".count)
+        try Data("""
+            <p>main</p>
+            <img id=localhost src="\(viaLocalhost)"><img id=plain src="\(outside)"><img id=host src="\(viaHost)">
+            """.utf8).write(to: URL(fileURLWithPath: scratch.root + "/page.html"))
+
+        for pattern in ["*://localhost", "*://*", "f*://localhost", "*://a.test"] {
+            var policy = BrowserReplDomainPolicy()
+            policy.allowed = [try BrowserReplDomainPattern.parse(pattern, title: "t")]
+            policy.prohibited = [try BrowserReplDomainPattern.parse("evil.test", title: "t")]
+            let configuration = WKWebViewConfiguration()
+            configuration.userContentController.add(try await Self.compile(
+                policy.contentRules(fileRoots: [scratch.root], subresourcesInsideRoots: true)
+            ))
+            let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+            let waiter = FileLoadWaiter()
+            webView.navigationDelegate = waiter
+            // Read access wider than the session's root, as a web process
+            // that holds an earlier grant has.
+            webView.loadFileURL(URL(fileURLWithPath: scratch.root + "/page.html"), allowingReadAccessTo: URL(fileURLWithPath: scratch.base))
+            await waiter.wait()
+            let widths = try await webView.evaluateJavaScript(
+                "['localhost', 'plain', 'host'].map((id) => document.getElementById(id).naturalWidth)"
+            ) as? [Int]
+            #expect(widths == [0, 0, 0], "under allowedDomains \(pattern), a file outside the root loaded: \(String(describing: widths))")
+        }
+    }
+
+    /// The filters a policy pattern compiles to match web URLs only, so no
+    /// policy rule can match a local file whatever its scheme spelling.
+    @Test("A policy pattern's content-rule filters match only web schemes", arguments: ["*://localhost", "*://*", "f*://localhost", "*://localhost:443", "*://*.localhost"])
+    func policyFiltersMatchOnlyWebSchemes(pattern: String) throws {
+        let filters = BrowserReplDomainPolicy.filters(try BrowserReplDomainPattern.parse(pattern, title: "t"))
+        func matches(_ filter: String, _ url: String) throws -> Bool {
+            let regex = try NSRegularExpression(pattern: filter, options: [.caseInsensitive])
+            return regex.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil
+        }
+        if pattern == "*://localhost" {
+            for url in ["http://localhost/", "https://localhost/", "ws://localhost/", "wss://localhost/", "blob:https://localhost/x"] {
+                #expect(try filters.contains { try matches($0, url) }, "\(pattern) no longer matches \(url)")
+            }
+        }
+        for filter in filters {
+            for url in ["file://localhost/etc/passwd", "file://localhost:443/etc/passwd", "file:///etc/passwd", "ftp://localhost/x", "blob:file://localhost/x"] {
+                #expect(try !matches(filter, url), "\(pattern) compiled to \(filter), which matches \(url)")
+            }
+        }
+    }
+
     static func compile(_ rules: [[String: Any]]) async throws -> WKContentRuleList {
         // An empty list stands for no rules.
         let list = rules.isEmpty ? [["trigger": ["url-filter": "^cmux-never:"], "action": ["type": "block"]]] : rules
