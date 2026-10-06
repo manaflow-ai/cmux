@@ -266,7 +266,16 @@ fn default_args(profile_dir: &std::path::Path) -> Vec<String> {
 }
 
 /// Features the host always turns off.
-const DISABLED_FEATURES: &str = "PaintHolding";
+///
+/// HappyEyeballsV3 (Chromium 143's HttpStreamPool, a connection-speed
+/// experiment, not a security feature): about 1 in 5 cold browsers left a
+/// navigation without a stream. The browser opened a preconnect socket to
+/// the origin and never wrote the request on it; the network service then
+/// sat idle until the 30 s navigation timeout. On a Testbox, 0 stalls in 46
+/// suite rounds with it off against about 41 in 198 with it on (net-log and
+/// strace evidence in the commit). Re-test at each Chromium upgrade and drop
+/// it once the stall-count run is clean with it on.
+const DISABLED_FEATURES: &str = "PaintHolding,HappyEyeballsV3";
 
 /// Folds every `--disable-features=` switch into the first one (Chromium
 /// reads only the last occurrence of a switch).
@@ -404,7 +413,11 @@ mod launch_args_tests {
         let args = launch_args(&options, std::path::Path::new("/tmp/p")).unwrap();
         let switches: Vec<&String> =
             args.iter().filter(|a| a.starts_with("--disable-features=")).collect();
-        assert_eq!(switches, vec!["--disable-features=PaintHolding,Translate"], "{args:?}");
+        assert_eq!(
+            switches,
+            vec!["--disable-features=PaintHolding,HappyEyeballsV3,Translate"],
+            "{args:?}"
+        );
         assert_eq!(args.last().map(String::as_str), Some("about:blank"));
     }
 }
