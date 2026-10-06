@@ -46,6 +46,12 @@ const UPLOAD_TTL: Duration = Duration::from_secs(15 * 60);
 const UNREFERENCED_GRACE_MS: u64 = 24 * 3_600_000;
 /// Records swept per upload begin (bounded work on the request path).
 const SWEEP_BATCH: i64 = 64;
+/// Most bytes the store keeps across every conversation, uploads in flight
+/// included (decimal, like the cloud owner's per-user stored-bytes quota).
+/// When a new upload does not fit, the oldest records no message references
+/// go first; when only referenced bytes are left the upload is refused with
+/// `storage_full`.
+pub(crate) const DEFAULT_STORAGE_CAP: u64 = 10_000_000_000;
 
 /// An attachment command the owner refused. The control socket reports it
 /// with `error_code` [`AttachmentRejected::CODE`] and the reason as the text.
@@ -201,6 +207,8 @@ struct Upload {
 pub(crate) struct Attachments {
     blobs: Blobs,
     uploads: HashMap<String, Upload>,
+    /// Total bytes the store may hold (`DEFAULT_STORAGE_CAP`).
+    storage_cap: u64,
 }
 
 impl Attachments {
@@ -222,7 +230,7 @@ impl Attachments {
             }
             None => Blobs::Memory(HashMap::new()),
         };
-        Ok(Self { blobs, uploads: HashMap::new() })
+        Ok(Self { blobs, uploads: HashMap::new(), storage_cap: DEFAULT_STORAGE_CAP })
     }
 
     fn has_blob(&self, hash: &str) -> bool {
@@ -582,6 +590,11 @@ impl ConversationStore {
         if self.attachments.uploads.len() >= MAX_UPLOADS {
             return Err(refused("too_many_uploads"));
         }
+        let needed = declaration.byte_count
+            + derived
+                .as_ref()
+                .map_or(0, |(_, image): &(DerivedVariant, DerivedImage)| image.byte_count);
+        self.make_room(needed)?;
         let id = new_upload_id()?;
         let mut record = StoredAttachment {
             hash: declaration.sha256.clone(),
@@ -822,23 +835,85 @@ impl ConversationStore {
             .collect::<Result<Vec<_>, _>>()?;
         drop(statement);
         for (conversation, hash, derived) in stale {
-            self.connection.execute(
-                "DELETE FROM attachment_record WHERE conversation = ?1 AND hash = ?2",
-                params![conversation, hash],
+            self.drop_record(&conversation, &hash, derived)?;
+        }
+        Ok(())
+    }
+
+    /// Deletes one record, then the bytes no record names any more.
+    fn drop_record(
+        &mut self,
+        conversation: &str,
+        hash: &str,
+        derived: Option<String>,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM attachment_record WHERE conversation = ?1 AND hash = ?2",
+            params![conversation, hash],
+        )?;
+        for blob in std::iter::once(hash.to_string()).chain(derived) {
+            let named: bool = self.connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM attachment_record WHERE hash = ?1)
+                     OR EXISTS(SELECT 1 FROM attachment_record WHERE derived_hash = ?1)",
+                params![blob],
+                |row| row.get(0),
             )?;
-            for blob in std::iter::once(hash).chain(derived) {
-                let named: bool = self.connection.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM attachment_record WHERE hash = ?1)
-                         OR EXISTS(SELECT 1 FROM attachment_record WHERE derived_hash = ?1)",
-                    params![blob],
-                    |row| row.get(0),
-                )?;
-                if !named {
-                    self.attachments.remove_blob(&blob);
-                }
+            if !named {
+                self.attachments.remove_blob(&blob);
             }
         }
         Ok(())
+    }
+
+    /// Bytes the records name (each hash once) plus the uploads in flight.
+    fn used_bytes(&self) -> anyhow::Result<u64> {
+        let stored: i64 = self.connection.query_row(
+            "SELECT COALESCE(SUM(n), 0) FROM (
+               SELECT hash AS h, MAX(byte_count) AS n FROM attachment_record GROUP BY hash
+               UNION
+               SELECT derived_hash, MAX(derived_byte_count) FROM attachment_record
+               WHERE derived_hash IS NOT NULL GROUP BY derived_hash)",
+            [],
+            |row| row.get(0),
+        )?;
+        let in_flight: u64 = self
+            .attachments
+            .uploads
+            .values()
+            .flat_map(|upload| upload.pieces.iter().map(|piece| piece.byte_count))
+            .sum();
+        Ok(u64::try_from(stored).unwrap_or(0) + in_flight)
+    }
+
+    /// Room for `needed` more bytes under the cap: evicts the oldest records
+    /// no message references (an upload never sent), one at a time, and
+    /// refuses with `storage_full` when only referenced bytes are left.
+    fn make_room(&mut self, needed: u64) -> anyhow::Result<()> {
+        while self.used_bytes()?.saturating_add(needed) > self.attachments.storage_cap {
+            let oldest: Option<(String, String, Option<String>)> = self
+                .connection
+                .query_row(
+                    "SELECT conversation, hash, derived_hash FROM attachment_record AS record
+                     WHERE NOT EXISTS (
+                       SELECT 1 FROM attachment_ref AS ref
+                       WHERE ref.conversation = record.conversation AND ref.hash = record.hash)
+                     ORDER BY created_at_ms, conversation, hash LIMIT 1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            let Some((conversation, hash, derived)) = oldest else {
+                return Err(refused("storage_full"));
+            };
+            self.drop_record(&conversation, &hash, derived)?;
+        }
+        Ok(())
+    }
+
+    /// Sets the store's total byte cap (tests).
+    #[cfg(test)]
+    pub(crate) fn set_attachment_storage_cap(&mut self, cap: u64) {
+        self.attachments.storage_cap = cap;
     }
 }
 
