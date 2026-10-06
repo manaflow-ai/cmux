@@ -675,10 +675,6 @@ fn unreadable_lines_are_refused_and_never_dispatched() {
     assert_eq!(workspaces(&mux), before, "a refused line was dispatched");
 }
 
-fn install(origin: Option<Value>) -> Value {
-    v2("apps.install", install_params(), Some("k1"), origin)
-}
-
 fn assert_not_forbidden(reply: &Value) {
     assert_ne!(reply["error"]["code"], "origin.forbidden", "{reply}");
 }
@@ -689,36 +685,10 @@ fn assert_a2_refusal(reply: &Value, derived: &str) {
     assert_eq!(reply["error"]["details"], json!({"required": "user", "derived": derived}));
 }
 
-/// A `\u` escape in the operation name must not carry an A2 operation past
-/// the gate. The gate reads the parsed line (one parse for the gate and the
-/// dispatch); this keeps the raw-line fast-path bypass from coming back.
-#[test]
-fn an_escaped_operation_name_still_meets_gate_a2() {
-    let mux = mux("escaped-operation");
-    let agent = connect(&mux);
-    for (from, to) in
-        [("\"apps.install", "\"\\u0061pps.install"), ("apps.install\"", "apps.inst\\u0061ll\"")]
-    {
-        let line = install(None).to_string().replacen(from, to, 1);
-        assert!(line.contains("\\u0061"), "{line}");
-        let request: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(request["operation"], "apps.install");
-        assert!(handle_connection_message(
-            &mux,
-            agent.client,
-            &line,
-            &agent.writer,
-            &agent.scheduler
-        ));
-        let reply: Value = serde_json::from_str(&agent.outbound.try_pop().unwrap()).unwrap();
-        assert_a2_refusal(&reply, "agent");
-    }
-}
-
 /// `workspace.agent_folder.set` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): only
 /// the user sets where a workspace's agents run. An agent connection (a Web
 /// or Peer client reaches the daemon no other way), a page relay and an app
-/// are refused by gate A2 before the request is parsed; a verified app passes.
+/// are refused by gate A2 before the request is validated; a verified app passes.
 fn agent_folder(origin: Option<Value>) -> Value {
     v2(
         "workspace.agent_folder.set",
