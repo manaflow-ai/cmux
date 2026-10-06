@@ -347,7 +347,9 @@ rule network events use), also where another field of the same payload (a
 refusal's reason) repeats it. A URL that holds its document rather than
 naming where it is reaches every other session as its scheme alone: a
 `data:`, `blob:` or `javascript:` URL as `data:…` (and so on), an `about:`
-URL as its name without a query or fragment (`about:srcdoc`). An event
+URL as its name without a query or fragment (`about:srcdoc`). A diff
+viewer's URL reaches it without its capability token (`cmux-diff-viewer://redacted/...`,
+`http://127.0.0.1:<port>/redacted/...`). An event
 `url` the driver did not type that way reaches every session in that form.
 A frame the session's domain policy blocks lists in that form even for the
 tab's creator, and an error that names a frame (a `blocked` refusal, a

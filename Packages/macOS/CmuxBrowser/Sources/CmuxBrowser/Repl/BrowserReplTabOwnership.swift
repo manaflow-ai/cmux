@@ -97,7 +97,7 @@ extension String {
     /// `about:`) keeps only what names no content.
     public func redactingBrowserReplURLCredentials() -> String {
         if let opaque = browserReplOpaqueURLForm { return opaque }
-        var rest = Substring(self)
+        var rest = Substring(browserReplAppServedTokenFree ?? self)
         var result = ""
         // The scheme and authority: drop a userinfo.
         if let schemeEnd = rest.range(of: "://") {
