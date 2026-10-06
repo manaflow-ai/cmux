@@ -1660,9 +1660,9 @@ final class SessionPersistenceTests: XCTestCase {
             agentProcessPresence: { _ in .absent }
         )
 
-        XCTAssertEqual(
+        XCTAssertNotEqual(
             wasRunning,
-            false,
+            true,
             "A queued restore is not live evidence and must not keep Running in the next snapshot"
         )
     }
