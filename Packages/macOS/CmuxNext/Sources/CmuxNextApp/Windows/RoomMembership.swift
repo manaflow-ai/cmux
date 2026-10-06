@@ -29,6 +29,13 @@ struct RoomMembership: Equatable, Sendable {
         rooms(of: workspace).contains(room)
     }
 
+    /// Whether Delete Space on `room` closes `workspace`
+    /// (SPACE-DELETE-CLOSES-ITS-WORKSPACES). Today a delete keeps every
+    /// workspace open.
+    func closes(_ workspace: Workspace, deleting room: ProfileID) -> Bool {
+        false
+    }
+
     /// Pins `workspace` to `room` (Move Workspace to Room), replacing any
     /// other pin.
     mutating func pin(_ workspace: Workspace, to room: ProfileID) {
