@@ -20,16 +20,36 @@ public struct HomeScrollAnchor: Hashable, Sendable, Codable {
 public struct HomeCachedSend: Hashable, Sendable, Codable {
     public var key: IdempotencyKey
     public var conversation: ConversationID
-    public var text: String
+    /// Text parts only (with their mentions).
+    public var parts: [MessagePart]
     public var issuedAt: Date
     public var failed: Bool
 
-    public init(key: IdempotencyKey, conversation: ConversationID, text: String, issuedAt: Date, failed: Bool) {
+    public init(key: IdempotencyKey, conversation: ConversationID, parts: [MessagePart], issuedAt: Date, failed: Bool) {
         self.key = key
         self.conversation = conversation
-        self.text = text
+        self.parts = parts
         self.issuedAt = issuedAt
         self.failed = failed
+    }
+
+    public init(key: IdempotencyKey, conversation: ConversationID, text: String, issuedAt: Date, failed: Bool) {
+        self.init(key: key, conversation: conversation, parts: [.text(text)], issuedAt: issuedAt, failed: failed)
+    }
+
+    /// The cached form of a logged send, nil for one the cache does not keep
+    /// (acknowledged, still uploading, or with a non-text part).
+    init?(_ entry: PendingIntent) {
+        guard case .sendMessage(let conversation, let parts) = entry.intent.op, !entry.isUploading,
+              parts.allSatisfy({ if case .text = $0 { true } else { false } }) else { return nil }
+        if case .acknowledged = entry.state { return nil }
+        let failed = if case .failed = entry.state { true } else { false }
+        self.init(key: entry.intent.key, conversation: conversation, parts: parts, issuedAt: entry.intent.issuedAt, failed: failed)
+    }
+
+    /// The intent this send restores into the log.
+    var intent: HomeIntent {
+        HomeIntent(key: key, op: .sendMessage(conversation: conversation, parts: parts), issuedAt: issuedAt)
     }
 }
 

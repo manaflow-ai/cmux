@@ -36,7 +36,11 @@ final class HomeService {
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
-    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeSource)
+    /// Its durable copy is keyed by the Chief owner (one per Chief home), so
+    /// a relaunch or another build shows the same history before the owner
+    /// answers (home-state-ownership.md section 4).
+    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeSource,
+                                                                   cache: HomeCache.standard(owner: chief.home.session))
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")

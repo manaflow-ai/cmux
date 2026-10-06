@@ -126,10 +126,75 @@ public final class HomeStore {
         self.cacheWriteDelay = cacheWriteDelay
     }
 
-    public func draft(for id: ConversationID) -> String? { nil }
-    public func setDraft(_ text: String, for id: ConversationID) {}
-    public func scrollAnchor(for id: ConversationID) -> HomeScrollAnchor? { nil }
-    public func setScrollAnchor(_ anchor: HomeScrollAnchor?, for id: ConversationID) {}
+    /// Client view state the cache keeps (never synced, never sent).
+    @ObservationIgnored private var drafts: [ConversationID: String] = [:]
+    @ObservationIgnored private var scrollAnchors: [ConversationID: HomeScrollAnchor] = [:]
+    @ObservationIgnored private var cacheWrite: Task<Void, Never>?
+    @ObservationIgnored private var restoringCache = false
+
+    /// The unsent text of a conversation's compose field.
+    public func draft(for id: ConversationID) -> String? { drafts[id] }
+
+    /// Keeps the compose field's text; empty text clears it.
+    public func setDraft(_ text: String, for id: ConversationID) {
+        let value: String? = text.isEmpty ? nil : text
+        guard drafts[id] != value else { return }
+        drafts[id] = value
+        scheduleCacheWrite()
+    }
+
+    public func scrollAnchor(for id: ConversationID) -> HomeScrollAnchor? { scrollAnchors[id] }
+
+    /// Where the reader is; nil when at the bottom.
+    public func setScrollAnchor(_ anchor: HomeScrollAnchor?, for id: ConversationID) {
+        guard scrollAnchors[id] != anchor else { return }
+        scrollAnchors[id] = anchor
+        scheduleCacheWrite()
+    }
+
+    /// Shows what the cache holds before the owner answers.
+    private func restoreCache() {
+        guard let snapshot = cache?.load() else { return }
+        restoringCache = true
+        defer { restoringCache = false }
+        mirror.seed(snapshot)
+        me = mirror.me
+        drafts = snapshot.drafts
+        scrollAnchors = snapshot.scroll
+        for send in snapshot.sends { log.restore(send.intent, failed: send.failed) }
+        rebuildRows()
+        for id in Set(snapshot.windows.keys).union(snapshot.sends.map(\.conversation)) { bumpTranscript(id) }
+    }
+
+    /// Writes the cache soon (coalesced), or at once with no delay.
+    private func scheduleCacheWrite() {
+        guard cache != nil, !restoringCache else { return }
+        guard cacheWriteDelay > .zero else { return writeCache() }
+        guard cacheWrite == nil else { return }
+        let clock = clock
+        let delay = cacheWriteDelay
+        // task-owner: one coalesced cache write; cancelled by stop, which writes at once
+        cacheWrite = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            self?.cacheWrite = nil
+            self?.writeCache()
+        }
+    }
+
+    /// The owner's state as the mirror has it, plus the client's own state.
+    private func writeCache() {
+        guard let cache else { return }
+        var snapshot = HomeCacheSnapshot()
+        snapshot.me = me ?? mirror.me
+        snapshot.conversations = mirror.conversations.values.sorted { $0.id.rawValue < $1.id.rawValue }
+        snapshot.windows = mirror.windows.compactMapValues { window in
+            window.messages.isEmpty ? nil : Array(window.messages.suffix(HomeCache.windowLimit))
+        }
+        snapshot.sends = log.entries.compactMap(HomeCachedSend.init)
+        snapshot.drafts = drafts
+        snapshot.scroll = scrollAnchors
+        try? cache.save(snapshot)
+    }
 
     /// `Caches/cmux-home-blobs`.
     public nonisolated static var defaultBlobCacheDirectory: URL {
@@ -141,6 +206,7 @@ public final class HomeStore {
     /// Starts consuming owner events. Idempotent.
     public func start() {
         guard eventTask == nil, !stopped else { return }
+        restoreCache()
         let clock = self.clock
         let interval = Self.blobCachePruneInterval
         pruneLoop = Task { [weak self] in
@@ -162,6 +228,9 @@ public final class HomeStore {
 
     /// Ends this store (sign-out, account switch). Every later op is refused.
     public func stop() {
+        cacheWrite?.cancel()
+        cacheWrite = nil
+        writeCache()
         stopped = true
         eventTask?.cancel()
         eventTask = nil
@@ -1148,6 +1217,7 @@ public final class HomeStore {
 
     private func bumpTranscript(_ id: ConversationID) {
         transcriptVersion[id, default: 0] += 1
+        scheduleCacheWrite()
     }
 
     private struct UploadJob {
@@ -1176,5 +1246,6 @@ public final class HomeStore {
 
     private func rebuildRows() {
         rows = mirror.inboxRows(log: log, typing: Set(typing.keys))
+        scheduleCacheWrite()
     }
 }

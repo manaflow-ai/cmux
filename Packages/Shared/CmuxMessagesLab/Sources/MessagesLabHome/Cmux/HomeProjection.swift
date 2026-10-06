@@ -119,6 +119,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func apply(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder newHasOlder: Bool) {
         if controller.store == nil {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
+            restoreDraft()
             return
         }
         let typingChanged = Set(controller.store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
@@ -200,6 +201,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard !text.isEmpty || !attachments.isEmpty, store.state.atNewest else { return }
         let key = IdempotencyKey.make()
         controller.dispatch(.send)
+        homeStore.setDraft("", for: conversation)
         guard core.recordSend(key, in: controller.store.state) else { return }
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
@@ -305,7 +307,18 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
-    func draftChanged() { onDraftTextChange() }
+    func draftChanged() {
+        homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
+        onDraftTextChange()
+    }
+
+    /// The field's text from the last launch (HomeStore's cache,
+    /// home-state-ownership.md section 4), once, into an empty field.
+    private func restoreDraft() {
+        guard let store = controller.store, store.state.ui.draft.text.isEmpty,
+              let text = homeStore.draft(for: conversation), !text.isEmpty else { return }
+        controller.dispatch(.setDraft(text))
+    }
 
     /// lane 16's rule (HomeController.cancellableSend): my pending send while
     /// it uploads, or a failed one.
