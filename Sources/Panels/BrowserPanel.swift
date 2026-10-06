@@ -5763,12 +5763,33 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             clearTrustedLocalFileDocumentIfNeeded(for: originalURL)
         }
-        let startedNavigation = browserLoadRequest(
-            effectiveRequest,
-            in: webView,
-            trustedInternalNavigation: trustedInternalNavigation,
-            fileReadAccessURL: fileReadAccessURL
-        )
+        let startedNavigation: WKNavigation?
+        if originalURL.isFileURL, fileReadAccessURL == nil,
+           let sessionID = BrowserReplTabAttachments.shared.fileLoadSession(panelID: id, url: originalURL) {
+            // A file of a browser REPL session's directories, loaded without
+            // the driver (a crashed process's recovery, a restore, a reload):
+            // read access to the session's pinned root, checked and granted
+            // while no REPL rename can run, never the file's parent directory
+            // as a link swapped in would resolve it. A refused file loads nothing.
+            startedNavigation = try? BrowserReplPolicyBoard.shared.withPinnedFileAccess(
+                originalURL.absoluteString,
+                sessionID: sessionID
+            ) { readAccess in
+                browserLoadRequest(
+                    effectiveRequest,
+                    in: webView,
+                    trustedInternalNavigation: trustedInternalNavigation,
+                    fileReadAccessURL: readAccess
+                )
+            }
+        } else {
+            startedNavigation = browserLoadRequest(
+                effectiveRequest,
+                in: webView,
+                trustedInternalNavigation: trustedInternalNavigation,
+                fileReadAccessURL: fileReadAccessURL
+            )
+        }
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {

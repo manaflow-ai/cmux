@@ -291,6 +291,13 @@ public struct BrowserReplFileSandbox: Sendable {
         }
     }
 
+    /// Whether `path`, normalized without the file system, lies strictly
+    /// inside one of `roots` (also through a root's `/var`, `/tmp` alias).
+    static func isLexicallyInside(_ path: String, roots: [String]) -> Bool {
+        let normalized = lexicallyNormalized(path)
+        return roots.contains { root in aliases(of: root).contains { normalized.hasPrefix($0 + "/") } }
+    }
+
     /// `root` and, for a root under `/private`, the same path through the
     /// system's `/var`, `/tmp` and `/etc` links, as a file URL may name it.
     private static func aliases(of root: String) -> [String] {

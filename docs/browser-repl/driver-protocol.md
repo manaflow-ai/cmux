@@ -565,7 +565,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   directory the session began with (same identity, no link on its path).
   WebKit resolves that directory when it grants it and refuses a file
   outside it, so a link another session or process swaps in below it
-  after the check leads nowhere outside (measured on macOS 27.0). A file
+  after the check leads nowhere outside (measured on macOS 27.0). A load
+  of such a file that the tab starts without the driver (a crashed web
+  process's recovery, a discarded tab's restore, a reload, the page's own
+  navigation) gets the same grant under the same lock: in a tab a session
+  created for any file (the creating session's directories), in a user's
+  tab for a file inside an attached session's directories; a refused one
+  loads nothing, and such a file is never restored from WebKit's saved
+  session state, whose replay would grant the directory it recorded. A file
   navigation in a workspace whose browser waits for a remote proxy is
   refused rather than started later outside that check. In a tab the
   session created, and its popups, the same rule holds for what the page

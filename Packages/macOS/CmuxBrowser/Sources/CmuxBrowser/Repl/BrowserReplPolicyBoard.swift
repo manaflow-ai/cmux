@@ -39,6 +39,9 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
     /// Each session's working and temporary directories, the only ones its
     /// tabs load local files from.
     private var fileRoots: [String: [String]] = [:]
+    /// The same directories with the identity each had when the session
+    /// named it (``BrowserReplFileRoot``), which a file load requires.
+    private var pinnedFileRoots: [String: [BrowserReplFileRoot]] = [:]
 
     public init() {}
 
@@ -64,7 +67,11 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
     /// Sets the directories the session's tabs may load local files from;
     /// the navigation checks read them at once.
     public func setFileRoots(_ roots: [String], sessionID: String) {
-        lock.withLock { fileRoots[sessionID] = roots }
+        let pinned = roots.map(BrowserReplFileRoot.init(path:))
+        lock.withLock {
+            fileRoots[sessionID] = roots
+            pinnedFileRoots[sessionID] = pinned
+        }
     }
 
     /// The session's directories, or nil when it set none.
@@ -75,14 +82,30 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
     /// The session whose directories govern a load of the local file `url`
     /// in a tab whose live creator is `creator` and to which `attached`
     /// sessions are attached, or nil.
+    /// The tab's creator governs every file its tab loads; in a user's tab,
+    /// an attached session governs a file that lies, as written, inside its
+    /// directories (it may have put a link there); any other file is the
+    /// user's own load.
     public func fileLoadSession(_ url: URL, creator: String?, attached: [String]) -> String? {
-        nil
+        guard url.isFileURL else { return nil }
+        if let creator { return creator }
+        let path = url.path(percentEncoded: false)
+        return attached.sorted().first { sessionID in
+            BrowserReplFileSandbox.isLexicallyInside(path, roots: fileRoots(for: sessionID) ?? [])
+        }
     }
 
     /// Runs `load`, which must start the browser's load of the file `url`,
     /// with the read access the governing session `sessionID` grants.
+    /// Checked and granted while no REPL `fs.rename` can run
+    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``): the
+    /// grant is the session root that holds the file, never the file's
+    /// parent directory as a link swapped in would resolve it.
+    /// - Throws: `blocked` when the session has no directories, the file is
+    ///   outside them or a link lies below them, or a root was replaced.
     public func withPinnedFileAccess<T>(_ url: String, sessionID: String, _ load: (URL) throws -> T) throws -> T {
-        try load(URL(string: url)?.deletingLastPathComponent() ?? URL(fileURLWithPath: "/"))
+        let roots = lock.withLock { pinnedFileRoots[sessionID] ?? [] }
+        return try BrowserReplFileSandbox.withPinnedFileAccess(url, roots: roots, load)
     }
 
     public func ruleState(for sessionID: String) -> RuleState {
@@ -122,6 +145,7 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
         let released = lock.withLock {
             entries.removeValue(forKey: sessionID)
             fileRoots.removeValue(forKey: sessionID)
+            pinnedFileRoots.removeValue(forKey: sessionID)
             return waiters.removeValue(forKey: sessionID) ?? []
         }
         for body in released { body(.installed) }

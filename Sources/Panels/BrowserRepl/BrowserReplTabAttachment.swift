@@ -76,6 +76,15 @@ final class BrowserReplTabAttachments {
         }
     }
 
+    /// The session whose directories govern a load of the local file `url`
+    /// in `panelID` that cmux starts itself (a recovery, a restore, a
+    /// reload, the page's own navigation), or nil for the user's own load
+    /// (``BrowserReplPolicyBoard/fileLoadSession(_:creator:attached:)``).
+    func fileLoadSession(panelID: UUID, url: URL) -> String? {
+        guard url.isFileURL, let attachment = attachment(for: panelID) else { return nil }
+        return BrowserReplPolicyBoard.shared.fileLoadSession(url, creator: attachment.creatorSessionID, attached: attachment.sessionIDs)
+    }
+
     /// `panelID` moved to another workspace: the sessions that may no
     /// longer use it there leave it (``BrowserReplTabAttachment/workspaceDidChange()``).
     func panelDidChangeWorkspace(_ panelID: UUID) {
