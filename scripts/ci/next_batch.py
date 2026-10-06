@@ -645,6 +645,7 @@ class Validation:
     branch: str = ""
     heavy_url: str = ""
     heavy_failed: list[str] = field(default_factory=list)
+    heavy_passed: list[str] = field(default_factory=list)
     inherited: list[str] = field(default_factory=list)
     rerun: bool = False
     build: dict = field(default_factory=dict)
@@ -756,6 +757,13 @@ class Controller:
             if time.monotonic() > deadline:
                 return run
             time.sleep(POLL_SECONDS)
+
+    def passed_heavy_jobs(self, run_id: int) -> list[str]:
+        """Heavy-tier jobs that ran and passed. A dispatch on a ref whose
+        cmux-next.yml predates the next-batch gate skips them all."""
+        jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
+        return sorted({job["name"] for job in jobs
+                       if job.get("conclusion") == "success" and any(job["name"].endswith(name) for name in HEAVY_CHECKS)})
 
     def failed_jobs(self, run_id: int) -> list[str]:
         jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
@@ -941,6 +949,8 @@ class Controller:
         inherited = self.failing_on_base(base_sha)
         validation.inherited = sorted(set(failed) & inherited)
         validation.heavy_failed = sorted(set(failed) - inherited)
+        if run["status"] == "completed":
+            validation.heavy_passed = self.passed_heavy_jobs(heavy["id"])
         if pin:
             self.delete_branch(pin)
         validation.seconds = int(time.monotonic() - started)
@@ -1027,6 +1037,11 @@ class Controller:
                 except RuntimeError as error:
                     landed.append((pr, f"not landed: {error}"))
                     continue
+            if not getattr(self.args, "land", True):
+                self.comment_once(pr, "receipt", self.receipt(validation, pr))
+                landed.append((pr, "receipt posted; owner lands"))
+                log(f"#{pr.number}: receipt posted")
+                continue
             self.comment_once(pr, "landing", (
                 f"Batch queue: landing. [Batch]({self.run_url}), stack `{validation.stack.head[:12]}` "
                 f"on `{validation.stack.base[:12]}`, [heavy tier]({validation.heavy_url}), "
@@ -1040,6 +1055,18 @@ class Controller:
                 ).format(run=self.run_url))
             log(f"#{pr.number}: {outcome}")
         return landed
+
+    def receipt(self, validation: Validation, pr: PullRequest) -> str:
+        stack = validation.stack
+        heavy = (f"[heavy tier]({validation.heavy_url}) passed: " + ", ".join(f"`{job}`" for job in validation.heavy_passed)
+                 if validation.heavy_passed else
+                 f"heavy tier did not run on this branch ([run]({validation.heavy_url})); your PR's own checks are the tests")
+        build = validation.build
+        return (f"Batch queue: green. [Batch]({self.run_url}) stack `{stack.head[:12]}` on feat-cmux-next "
+                f"`{stack.base[:12]}` with " + " ".join(f"#{item.number}" for item in stack.included) + ". "
+                f"Fleet production build: job `{build.get('job_id', 'n/a')}` ({build.get('link', 'n/a')}). "
+                f"{heavy}. Validated this PR at `{pr.sha[:12]}`.\n\n"
+                "Next: land it yourself with gh-merge-green on this receipt.")
 
     def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
         ref = f"{self.args.repo}#{pr.number}"
@@ -1294,6 +1321,10 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--no-regen", action="store_true")
         command.add_argument("--local", action="store_true",
                              help="run here with the gh login; build with this host's cmux-ci")
+        command.add_argument("--land", action="store_true",
+                             help="serve: merge green PRs (default: post a receipt; the owner lands)")
+        if name == "run":
+            command.set_defaults(land=True)
     args = parser.parse_args(argv)
     if args.command in {"run", "stack", "serve"}:
         worktree = Path(args.worktree)

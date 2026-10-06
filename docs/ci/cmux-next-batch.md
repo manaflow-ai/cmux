@@ -46,7 +46,9 @@ CMUX_NEXT_BATCH_STICKY=manaflow-ai/cmuxterm-hq#1392 \
 
 It polls the open PRs every minute and uses the debounce job's timing: 2 minutes of quiet, at most 10 minutes. It runs one batch at a time and never interrupts one. Its fleet build uses the host's `cmux-ci`. Regeneration and the heavy tier still run on Actions, and only the controller runs locally. Its pushes and merges start CI like anyone's, so nothing is re-dispatched after landing. Comments link the sticky issue. Keep `CMUX_NEXT_BATCH_ENABLED` unset while a local controller serves, so the two never race.
 
-`run --local` runs one batch the same way.
+By default `serve` merges nothing. It posts a receipt on each validated PR (the stack, the fleet job and the heavy jobs that passed), and the owner lands it with gh-merge-green. `--land` makes it merge. A receipt says when the heavy tier did not run, which happens when the stack's `cmux-next.yml` predates the next-batch gate.
+
+`run --local` runs one batch the same way, and lands by default.
 
 ## Run it by hand
 
