@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileBilling
+import CmuxMobileBillingUI
 import CmuxMobileCloud
 import CmuxMobileSupport
 import SwiftUI
@@ -6,7 +8,7 @@ import SwiftUI
 /// Deterministic DEBUG-only host used to review the Cloud access states in a
 /// simulator without an account or a live control plane.
 public struct CloudStatePreviewView: View {
-    private enum State: String {
+    private enum PreviewState: String {
         case requiresPlan = "requires-plan"
         case available
         case machines
@@ -14,15 +16,20 @@ public struct CloudStatePreviewView: View {
         case unavailable
 
         init(rawValue: String?) {
-            self = State(rawValue: rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") ?? .requiresPlan
+            self = PreviewState(rawValue: rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") ?? .requiresPlan
         }
     }
 
-    private let state: State
+    private let state: PreviewState
+    private let storefrontCountryCode: String?
+    @Environment(BillingModel.self) private var billing: BillingModel?
+    @Environment(\.openURL) private var openURL
+    @State private var isPlansSheetPresented = false
 
     /// Creates a deterministic Cloud tab state for screenshot review.
-    public init(state: String? = nil) {
-        self.state = State(rawValue: state)
+    public init(state: String? = nil, storefrontCountryCode: String? = nil) {
+        self.state = PreviewState(rawValue: state)
+        self.storefrontCountryCode = storefrontCountryCode ?? UITestConfig.cloudPreviewStorefront
     }
 
     public var body: some View {
@@ -35,7 +42,8 @@ public struct CloudStatePreviewView: View {
                         access: .requiresPlan,
                         activeMachineCount: 0,
                         maxActiveMachines: 0,
-                        onUpgrade: {}
+                        upgradeRoute: upgradeRoute,
+                        onUpgrade: handleUpgrade
                     )
                 case .available:
                     emptyState
@@ -43,6 +51,7 @@ public struct CloudStatePreviewView: View {
                         access: .available,
                         activeMachineCount: 0,
                         maxActiveMachines: 5,
+                        upgradeRoute: upgradeRoute,
                         onUpgrade: {}
                     )
                     createButton
@@ -52,6 +61,7 @@ public struct CloudStatePreviewView: View {
                         access: .available,
                         activeMachineCount: 2,
                         maxActiveMachines: 5,
+                        upgradeRoute: upgradeRoute,
                         onUpgrade: {}
                     )
                     createButton
@@ -61,6 +71,7 @@ public struct CloudStatePreviewView: View {
                         access: .limitReached,
                         activeMachineCount: 5,
                         maxActiveMachines: 5,
+                        upgradeRoute: upgradeRoute,
                         onUpgrade: {}
                     )
                 case .unavailable:
@@ -69,6 +80,7 @@ public struct CloudStatePreviewView: View {
                         access: .unavailable,
                         activeMachineCount: nil,
                         maxActiveMachines: nil,
+                        upgradeRoute: upgradeRoute,
                         onUpgrade: {}
                     )
                 }
@@ -76,6 +88,28 @@ public struct CloudStatePreviewView: View {
             .listStyle(.insetGrouped)
             .navigationTitle(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(isPresented: $isPlansSheetPresented) {
+            MobilePlansSheet(entryPoint: .cloudUpgrade)
+                .environment(billing)
+        }
+    }
+
+    private var upgradeRoute: CloudUpgradeRoute {
+        CloudUpgradePolicy(
+            storefrontCountryCode: storefrontCountryCode,
+            hasInAppBilling: billing != nil && !UITestConfig.cloudPreviewNoBilling
+        ).route
+    }
+
+    private func handleUpgrade() {
+        switch upgradeRoute {
+        case .inApp:
+            isPlansSheetPresented = true
+        case .unavailable:
+            break
+        case .web:
+            openURL(URL(string: "https://cmux.com/pricing?plan=pro")!)
         }
     }
 

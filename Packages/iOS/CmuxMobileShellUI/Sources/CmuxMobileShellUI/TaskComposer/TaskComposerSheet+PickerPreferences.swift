@@ -35,13 +35,16 @@ extension TaskComposerSheet {
             macDeviceID: selectedMacDeviceID, instanceTag: selectedMacInstanceTag
         )
         let preferences = store.taskTemplateStore?.composerPickerPreferences(macPairingID: pairingID)
-        selectedTemplateID = (preferences?.templateID).flatMap { id in
-            templates.contains { $0.id == id } ? id : nil
-        } ?? fallbackTemplateID.flatMap { id in
-            templates.contains { $0.id == id } ? id : nil
-        } ?? store.taskTemplateStore?.lastTemplateID().flatMap { id in
-            templates.contains { $0.id == id } ? id : nil
-        } ?? templates.first?.id
+        func validTemplateID(_ candidate: MobileTaskTemplate.ID?) -> MobileTaskTemplate.ID? {
+            guard let candidate, templates.contains(where: { $0.id == candidate }) else {
+                return nil
+            }
+            return candidate
+        }
+        selectedTemplateID = validTemplateID(preferences?.templateID)
+            ?? validTemplateID(fallbackTemplateID)
+            ?? validTemplateID(store.taskTemplateStore?.lastTemplateID())
+            ?? templates.first?.id
         let matchingPreferences = preferences?.templateID == selectedTemplateID ? preferences : nil
         selectedModelID = matchingPreferences?.model?.id
         explicitlySelectedModel = matchingPreferences?.model

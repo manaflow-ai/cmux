@@ -4,6 +4,7 @@ import CmuxMobileBillingUI
 public import CmuxMobileCloud
 import CmuxMobileSupport
 import Foundation
+import StoreKit
 import SwiftUI
 
 /// The Cloud tab's machine list: where machines are listed, created and
@@ -24,6 +25,7 @@ public struct CloudSectionView: View {
     @Environment(\.openURL) private var openURL
     @State private var isCreateSheetPresented = false
     @State private var isPlansSheetPresented = false
+    @State private var storefrontCountryCode: String?
 
     /// Creates the section over a session controller.
     public init(controller: CloudSessionController) {
@@ -42,6 +44,9 @@ public struct CloudSectionView: View {
         .refreshable {
             controller.refreshMachines()
             controller.retryConnections()
+        }
+        .task {
+            await resolveStorefrontCountryCode()
         }
         .sheet(isPresented: $isCreateSheetPresented) {
             CloudCreateMachineSheet(
@@ -171,7 +176,13 @@ public struct CloudSectionView: View {
             access: limits?.creationAccess,
             activeMachineCount: limits?.activeMachineCount,
             maxActiveMachines: limits?.maxActiveMachines,
-            onUpgrade: { openUpgradePage(planID: limits?.createUpgradePlanID ?? "pro") }
+            upgradeRoute: cloudUpgradeRoute,
+            onUpgrade: {
+                openUpgradePage(
+                    route: cloudUpgradeRoute,
+                    planID: limits?.createUpgradePlanID ?? "pro"
+                )
+            }
         )
     }
 
@@ -194,18 +205,38 @@ public struct CloudSectionView: View {
 
     private static let pricingURL = URL(string: "https://cmux.com/pricing")!
 
-    private func openUpgradePage(planID: String?) {
-        if billing != nil {
+    private var cloudUpgradeRoute: CloudUpgradeRoute {
+        CloudUpgradePolicy(
+            storefrontCountryCode: storefrontCountryCode,
+            hasInAppBilling: billing != nil
+        ).route
+    }
+
+    private func resolveStorefrontCountryCode() async {
+        #if DEBUG
+        if let override = UITestConfig.cloudPreviewStorefront {
+            storefrontCountryCode = override
+            return
+        }
+        #endif
+        storefrontCountryCode = await Storefront.current?.countryCode
+    }
+
+    private func openUpgradePage(route: CloudUpgradeRoute, planID: String?) {
+        switch route {
+        case .inApp:
             isPlansSheetPresented = true
-            return
+        case .unavailable:
+            break
+        case .web:
+            guard let planID,
+                  var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
+                openURL(Self.pricingURL)
+                return
+            }
+            components.queryItems = [URLQueryItem(name: "plan", value: planID)]
+            openURL(components.url ?? Self.pricingURL)
         }
-        guard let planID,
-              var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
-            openURL(Self.pricingURL)
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "plan", value: planID)]
-        openURL(components.url ?? Self.pricingURL)
     }
 
     private var loadingRow: some View {
@@ -225,6 +256,7 @@ struct CloudAccessStateView: View {
     let access: CloudMachineCreationAccess?
     let activeMachineCount: Int?
     let maxActiveMachines: Int?
+    let upgradeRoute: CloudUpgradeRoute
     let onUpgrade: () -> Void
 
     @ViewBuilder
@@ -249,12 +281,29 @@ struct CloudAccessStateView: View {
                     Image(systemName: "lock.fill")
                         .foregroundStyle(.tint)
                 }
-                Button(L10n.string(
-                    "mobile.cloud.access.upgrade",
-                    defaultValue: "Upgrade to Pro"
-                ), action: onUpgrade)
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("CloudAccessUpgradeButton")
+                switch upgradeRoute {
+                case .web:
+                    Button(L10n.string(
+                        "mobile.cloud.access.upgrade.web",
+                        defaultValue: "Upgrade on cmux.com"
+                    ), action: onUpgrade)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("CloudAccessUpgradeButton")
+                case .inApp:
+                    Button(L10n.string(
+                        "mobile.cloud.access.upgrade",
+                        defaultValue: "Upgrade to Pro"
+                    ), action: onUpgrade)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("CloudAccessUpgradeButton")
+                case .unavailable:
+                    Text(L10n.string(
+                        "mobile.cloud.access.upgradeUnavailable",
+                        defaultValue: "Upgrade options aren't available in this App Store region."
+                    ))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
             } header: {
                 Text(L10n.string("mobile.cloud.access.header", defaultValue: "Cloud access"))
             }
@@ -338,6 +387,7 @@ struct CloudCreateMachineSheet: View {
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var selectedMemoryMb: Int
     @State private var isPlansSheetPresented = false
+    @State private var storefrontCountryCode: String?
 
     init(
         controller: CloudSessionController,
@@ -372,11 +422,15 @@ struct CloudCreateMachineSheet: View {
                         }
                         ForEach(lockedMemoryOptions, id: \.self) { memoryMb in
                             Button {
-                                openUpgradePage(planID: upgradePlanID(for: memoryMb))
+                                openUpgradePage(
+                                    route: cloudUpgradeRoute,
+                                    planID: upgradePlanID(for: memoryMb)
+                                )
                             } label: {
                                 Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
                             }
                             .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
+                            .disabled(cloudUpgradeRoute == .unavailable)
                         }
                     } label: {
                         HStack {
@@ -399,12 +453,16 @@ struct CloudCreateMachineSheet: View {
                             Spacer(minLength: 0)
                             if let upgradeActionTitle {
                                 Button(upgradeActionTitle) {
-                                    openUpgradePage(planID: highestLockedMemoryUpgradePlanID)
+                                    openUpgradePage(
+                                        route: cloudUpgradeRoute,
+                                        planID: highestLockedMemoryUpgradePlanID
+                                    )
                                 }
                                 .controlSize(.small)
                                 .buttonStyle(.bordered)
                                 .font(.footnote.weight(.semibold))
                                 .accessibilityIdentifier("CloudCreateMachineUpgrade")
+                                .disabled(cloudUpgradeRoute == .unavailable)
                             }
                         }
                     }
@@ -492,6 +550,9 @@ struct CloudCreateMachineSheet: View {
             }
             .navigationTitle(L10n.string("mobile.cloud.create.title", defaultValue: "New Machine"))
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                await resolveStorefrontCountryCode()
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.string("mobile.cloud.cancel", defaultValue: "Cancel")) { dismiss() }
@@ -696,19 +757,38 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    private func openUpgradePage(planID: String?) {
-        // App Store builds sell plans in app (Guideline 3.1.1); the web
-        // pricing page remains only for hosts without a billing model.
-        if billing != nil {
+    private var cloudUpgradeRoute: CloudUpgradeRoute {
+        CloudUpgradePolicy(
+            storefrontCountryCode: storefrontCountryCode,
+            hasInAppBilling: billing != nil
+        ).route
+    }
+
+    private func resolveStorefrontCountryCode() async {
+        #if DEBUG
+        if let override = UITestConfig.cloudPreviewStorefront {
+            storefrontCountryCode = override
+            return
+        }
+        #endif
+        storefrontCountryCode = await Storefront.current?.countryCode
+    }
+
+    private func openUpgradePage(route: CloudUpgradeRoute, planID: String?) {
+        switch route {
+        case .inApp:
             isPlansSheetPresented = true
-            return
+        case .unavailable:
+            break
+        case .web:
+            guard let planID,
+                  var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
+                openURL(Self.pricingURL)
+                return
+            }
+            components.queryItems = [URLQueryItem(name: "plan", value: planID)]
+            openURL(components.url ?? Self.pricingURL)
         }
-        guard let planID, var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
-            openURL(Self.pricingURL)
-            return
-        }
-        components.queryItems = [URLQueryItem(name: "plan", value: planID)]
-        openURL(components.url ?? Self.pricingURL)
     }
 }
 

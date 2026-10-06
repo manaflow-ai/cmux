@@ -246,14 +246,24 @@ struct TaskComposerSheet: View {
         ) : nil
         let initialWorkspaceGroupID = draft == nil
             ? rememberedPickers?.workspaceGroupID : draft?.workspaceGroupID
-        let draftTemplateID = draft?.templateID
-            .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
-        let selectedTemplateID = draftTemplateID
-            ?? (rememberedPickers?.templateID).flatMap { id in
-                templates.contains { $0.id == id } ? id : nil
+        let draftTemplateID: MobileTaskTemplate.ID?
+        if let candidate = draft?.templateID,
+           templates.contains(where: { $0.id == candidate }) {
+            draftTemplateID = candidate
+        } else {
+            draftTemplateID = nil
+        }
+        func validTemplateID(_ candidate: MobileTaskTemplate.ID?) -> MobileTaskTemplate.ID? {
+            guard let candidate, templates.contains(where: { $0.id == candidate }) else {
+                return nil
             }
-            ?? store.taskTemplateStore?.lastTemplateID()
-            .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
+            return candidate
+        }
+        let rememberedTemplateID = validTemplateID(rememberedPickers?.templateID)
+        let lastTemplateID = validTemplateID(store.taskTemplateStore?.lastTemplateID())
+        let selectedTemplateID = draftTemplateID
+            ?? rememberedTemplateID
+            ?? lastTemplateID
             ?? templates.first?.id
         let selectedTemplate = selectedTemplateID.flatMap { id in templates.first { $0.id == id } }
         let initialProvider = selectedTemplate.flatMap {

@@ -107137,6 +107137,34 @@
         }
       }
     },
+    "mobile.cloud.access.upgrade.web": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Upgrade on cmux.com" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Auf cmux.com upgraden" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Passer à l'offre supérieure sur cmux.com" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الترقية على cmux.com" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Mejorar en cmux.com" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在 cmux.com 升級" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在 cmux.com 升级" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux.com에서 업그레이드" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux.com でアップグレード" } }
+      }
+    },
+    "mobile.cloud.access.upgradeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Upgrade options aren't available in this App Store region." } },
+        "de": { "stringUnit": { "state": "translated", "value": "In dieser App-Store-Region sind keine Upgrade-Optionen verfügbar." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les options de mise à niveau ne sont pas disponibles dans cette région de l'App Store." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "خيارات الترقية غير متاحة في منطقة App Store هذه." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Las opciones de mejora no están disponibles en esta región del App Store." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此 App Store 地區無法使用升級選項。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此 App Store 地区无法使用升级选项。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 App Store 지역에서는 업그레이드 옵션을 사용할 수 없습니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この App Store 地域ではアップグレードオプションを利用できません。" } }
+      }
+    },
     "mobile.cloud.access.limit.title": {
       "extractionState": "manual",
       "localizations": {

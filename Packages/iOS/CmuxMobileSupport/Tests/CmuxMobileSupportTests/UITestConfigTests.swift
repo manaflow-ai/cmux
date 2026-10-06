@@ -49,6 +49,37 @@ import Testing
         #endif
     }
 
+    @Test func cloudPreviewStorefrontReadsTrimmedValue() {
+        #if DEBUG
+        #expect(
+            UITestConfig.cloudPreviewStorefrontValue(
+                from: ["CMUX_UITEST_CLOUD_STOREFRONT": "  US  "],
+                arguments: ["CMUX_UITEST_CLOUD_STOREFRONT=GB"]
+            ) == "US"
+        )
+        #expect(
+            UITestConfig.cloudPreviewStorefrontValue(
+                from: [:],
+                arguments: ["CMUX_UITEST_CLOUD_STOREFRONT= GB "]
+            ) == "GB"
+        )
+        #expect(
+            UITestConfig.cloudPreviewNoBillingValue(
+                from: ["CMUX_UITEST_CLOUD_NO_BILLING": "1"]
+            )
+        )
+        #expect(
+            UITestConfig.cloudPreviewNoBillingValue(
+                from: [:],
+                arguments: ["CMUX_UITEST_CLOUD_NO_BILLING=1"]
+            )
+        )
+        #else
+        #expect(UITestConfig.cloudPreviewStorefrontValue(from: [:]) == nil)
+        #expect(UITestConfig.cloudPreviewNoBillingValue(from: [:]) == false)
+        #endif
+    }
+
     @Test func valueReturnsTrimmedNonEmptyWhenMockEnabled() {
         let env = [
             "CMUX_UITEST_MOCK_DATA": "1",
