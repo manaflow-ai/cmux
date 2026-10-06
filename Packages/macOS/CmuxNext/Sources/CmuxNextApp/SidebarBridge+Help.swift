@@ -1,9 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextSidebar
 
-extension SidebarBridge {
-    func configureHelpMenu() {
-        container.sidebarView.helpMenuProvider = { [weak services] in
+private enum SidebarHelpMenuProvider {
+    static func install(on sidebar: SidebarView, services: AppServices) {
+        sidebar.helpMenuProvider = { [weak services] in
             guard let services else { return nil }
             let menu = NSMenu()
             for item in services.registry.makeMainMenuItems(for: .help) {
