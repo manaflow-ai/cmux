@@ -90,6 +90,22 @@ import Testing
         #expect(!text.contains("CodeRouter, so"), "an explanation is still on the page")
     }
 
+    /// Controls that cannot run are hidden, not greyed out or explained:
+    /// signed out, no row offers Connect, and no row says CodeRouter does
+    /// not route its provider.
+    @Test func rowsOfferOnlyWhatCanRun() async throws {
+        let services = MockAccountsServices()
+        services.isSignedInToCmux = false
+        let model = AccountsModel(services: services)
+        model.refresh()
+        await settle { !model.isRefreshing }
+        let rows = model.pageState.groups.flatMap(\.rows)
+        #expect(!rows.isEmpty)
+        #expect(rows.allSatisfy { row in !row.buttons.contains { $0.id == "connect" } })
+        let text = String(decoding: try JSONEncoder().encode(model.pageState), as: UTF8.self)
+        #expect(!text.contains("does not route"))
+    }
+
     @Test func reauthRedetectsOnActivation() async {
         let services = MockAccountsServices()
         let model = AccountsModel(services: services)
