@@ -92,6 +92,8 @@ import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
+import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -443,6 +445,7 @@ const defaultRegistry: NativeRegistry = {
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
+  [MOVE_ROW]: MoveRow,
 };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
@@ -888,6 +891,10 @@ function AcpmuxPane() {
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
+  /// Folders started chats moved to from the location row (shell/chatMoves.ts), oldest first.
+  const [chatMoves, setChatMoves] = useState<ChatMove[]>([]);
+  /// This Mac's name, from the handshake.
+  const [machineName, setMachineName] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -959,9 +966,15 @@ function AcpmuxPane() {
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
       : undefined;
+  const sessionMoves = useMemo(
+    () => chatMoves.filter((move) => move.sessionId === snapshot.sessionId),
+    [chatMoves, snapshot.sessionId],
+  );
+  /// The folder the chat moved to, where its commands run and its files are searched.
+  const movedTo = sessionMoves.at(-1)?.cwd;
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
-  const fileRoot = snapshot.summary?.cwd;
+  const fileRoot = movedTo ?? snapshot.summary?.cwd;
   const searchFiles = useCallback<FileSearchSource>(
     (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
     [fileRoot],
@@ -983,8 +996,11 @@ function AcpmuxPane() {
             (!row.permission?.groupId && !groupedIds.has(row.permission?.permissionId ?? "")),
         )
       : snapshot.rows;
-    return withShellRows(turnView(rows, expanded, { working: snapshot.isWorking }), chatShellRuns);
-  }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns]);
+    return withMoveRows(
+      withShellRows(turnView(rows, expanded, { working: snapshot.isWorking }), chatShellRuns),
+      sessionMoves,
+    );
+  }, [snapshot.rows, expanded, snapshot.isWorking, snapshot.permissionGroups, chatShellRuns, sessionMoves]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -1464,6 +1480,7 @@ function AcpmuxPane() {
           linkScheme?: unknown;
           sessionMustExist?: boolean;
           revealTurn?: unknown;
+          machineName?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
@@ -1475,6 +1492,7 @@ function AcpmuxPane() {
         )
           setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
+        setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
@@ -2026,9 +2044,29 @@ function AcpmuxPane() {
             ? undefined
             : (command) =>
                 shellRuns.start(command, {
-                  ...(composerSnapshot.summary?.cwd ? { cwd: composerSnapshot.summary.cwd } : {}),
+                  ...((movedTo ?? composerSnapshot.summary?.cwd)
+                    ? { cwd: movedTo ?? composerSnapshot.summary?.cwd }
+                    : {}),
                   ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                 })
+        }
+        localName={machineName}
+        movedTo={movedTo}
+        // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
+        onMove={
+          snapshot.sessionId && composerSnapshot.summary?.hostKind !== "cloud"
+            ? (cwd) => {
+                const move: ChatMove = {
+                  id: `${Date.now().toString(36)}-${chatMoves.length}`,
+                  sessionId: snapshot.sessionId!,
+                  cwd,
+                  machine: machineName ?? t("composer.thisMac"),
+                  at: Date.now(),
+                };
+                setChatMoves((current) => [...current, move]);
+                return move;
+              }
+            : undefined
         }
         onShellInterrupt={() => {
           const running = shellRuns.running(snapshot.sessionId);
@@ -2096,7 +2134,7 @@ function AcpmuxPane() {
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
-              host={newTab.host}
+              host={newTab.host ?? machineName}
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}

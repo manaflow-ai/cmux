@@ -86,8 +86,7 @@ public final class AgentPaneModel {
     @ObservationIgnored private let allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
-    /// Shell mode's commands (`shell.run`, `shell.read`, `shell.stop`).
-    @ObservationIgnored public let shell = AgentPaneShell()
+    @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp
     /// token is never kept beyond one handshake.
     @ObservationIgnored private var pendingConnection: AcpmuxConnection?
@@ -215,6 +214,7 @@ public final class AgentPaneModel {
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
                 handshake.linkScheme = linkScheme
+                handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
