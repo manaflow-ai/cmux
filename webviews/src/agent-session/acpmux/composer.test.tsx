@@ -299,6 +299,27 @@ describe("acpmux composer slash menu", () => {
     expect(textarea().value).toBe("/compact main");
   });
 
+  test("the agent gets the characters the user typed, not the field's markdown escapes", async () => {
+    const submit = async () =>
+      act(async () => {
+        dom.window.document
+          .querySelector("form")!
+          .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      });
+    await render(snapshot(commands));
+    const typed = String.raw`See [notes](./notes.md) and http://127.0.0.1:47931/preview.html, a\b "q" *x* #1 <b>`;
+    await act(async () => textarea().handle.insertTyped(typed));
+    await settle();
+    // The field keeps escapes so its own markdown reads back as text; the agent must not see them.
+    expect(textarea().value).not.toBe(typed);
+    await submit();
+    expect(sent).toEqual([typed]);
+    // Formatting the field made from typed syntax goes out as that syntax.
+    await type("Make it **bold** and `code`");
+    await submit();
+    expect(sent[1]).toBe("Make it **bold** and `code`");
+  });
+
   test("what + wrote never reaches the agent: Send and leaving the composer take the draft back", async () => {
     const plus = () => pickPlus("commands");
     const submit = async () =>
