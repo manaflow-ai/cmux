@@ -15,6 +15,8 @@ class ProtocolDecodeError(ValueError):
 
 
 MODEL_BY_PATH = {
+    'types/ActivitySnapshot': models.ActivitySnapshot,
+    'types/ActivitySubscribeResult': models.ActivitySubscribeResult,
     'types/AgentRecord': models.AgentRecord,
     'types/AgentSessionSource': models.AgentSessionSource,
     'types/AppliedPane': models.AppliedPane,
@@ -393,6 +395,7 @@ MODEL_BY_PATH = {
     'commands/snapshot-request/request': models.SnapshotRequestRequest,
     'commands/split/request': models.SplitRequest,
     'commands/subscribe/request': models.SubscribeRequest,
+    'commands/subscribe-activity/request': models.SubscribeActivityRequest,
     'commands/swap-pane/request': models.SwapPaneRequest,
     'commands/terminal-clipboard-reply/request': models.TerminalClipboardReplyRequest,
     'commands/terminal-clipboard-subscribe/request': models.TerminalClipboardSubscribeRequest,
@@ -424,6 +427,7 @@ MODEL_BY_PATH = {
     'commands/vt-state/request': models.VtStateRequest,
     'commands/wait-for/request': models.WaitForRequest,
     'commands/zoom-pane/request': models.ZoomPaneRequest,
+    'events/activity-changed/payload': models.ActivityChangedEvent,
     'events/agent-changed/payload': models.AgentChangedEvent,
     'events/bell/payload': models.BellEvent,
     'events/bookmarks-changed/payload': models.BookmarksChangedEvent,

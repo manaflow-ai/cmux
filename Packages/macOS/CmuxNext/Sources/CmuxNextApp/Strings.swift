@@ -20,6 +20,7 @@ enum Strings {
     static var menuView: String { String(localized: "menu.view", defaultValue: "View", bundle: .module) }
     static var menuWindow: String { String(localized: "menu.window", defaultValue: "Window", bundle: .module) }
     static var menuDebug: String { String(localized: "menu.debug", defaultValue: "Debug", bundle: .module) }
+    static var menuServer: String { String(localized: "menu.server", defaultValue: "Server", bundle: .module) }
     static var menuMinimize: String { String(localized: "menu.window.minimize", defaultValue: "Minimize", bundle: .module) }
     static var menuZoom: String { String(localized: "menu.window.zoom", defaultValue: "Zoom", bundle: .module) }
 
