@@ -19444,7 +19444,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "undeclared",
+      "cli" : "stepAdjust",
       "cli_name" : "settings increase-interface-scale",
       "context_menu" : "stepAdjust",
       "context_menus" : [
@@ -19462,7 +19462,7 @@
         ]
       },
       "id" : "appearance.uiScale.increase",
-      "mcp" : "undeclared",
+      "mcp" : "systemChange",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",
@@ -19476,7 +19476,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "undeclared",
+      "cli" : "stepAdjust",
       "cli_name" : "settings decrease-interface-scale",
       "context_menu" : "stepAdjust",
       "context_menus" : [
@@ -19494,7 +19494,7 @@
         ]
       },
       "id" : "appearance.uiScale.decrease",
-      "mcp" : "undeclared",
+      "mcp" : "systemChange",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",
@@ -19508,7 +19508,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "undeclared",
+      "cli" : "stepAdjust",
       "cli_name" : "settings reset-interface-scale",
       "context_menu" : "stepAdjust",
       "context_menus" : [
@@ -19526,7 +19526,7 @@
         ]
       },
       "id" : "appearance.uiScale.reset",
-      "mcp" : "undeclared",
+      "mcp" : "systemChange",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",
