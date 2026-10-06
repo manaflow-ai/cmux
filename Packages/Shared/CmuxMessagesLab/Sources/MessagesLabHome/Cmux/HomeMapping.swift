@@ -76,7 +76,7 @@ enum HomeMapping {
                       links: Links = { _ in nil }) -> [Part] {
         guard case .text(let text, let mentions) = p, mentions.isEmpty,
               !(markdown && (text.contains("```") || text.contains("~~~"))) else {
-            return [part(p, media: media, progress: progress, markdown: markdown)]
+            return [part(p, media: media, progress: progress, markdown: markdown, links: links)]
         }
         return TextParts.parts(for: text).map { shown in
             switch shown {
@@ -124,7 +124,8 @@ enum HomeMapping {
 
     /// `markdown`: an agent's text part shows its Markdown styled (HomeMarkdown).
     /// A part with mentions keeps its text as written (mention offsets index it).
-    static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false) -> Part {
+    static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
+                     links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
             let (shown, runs) = HomeMarkdown.render(text)
@@ -134,8 +135,12 @@ enum HomeMapping {
                 TextRun(start: $0.start, length: $0.length, style: nil, link: nil, mention: $0.participant.rawValue, detected: nil)
             })
         case .linkPreview(let link):
-            let host = URL(string: link.url)?.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
-            return .link(url: link.url, title: link.title ?? host, siteName: link.site ?? host, image: nil, theme: "dark")
+            // What the sender attached; its picture is a blob fetched by hash (HomeMedia), never
+            // the URL. A preview this Mac fetched itself (its send, a tap) fills what the part lacks.
+            let host = URL(string: link.url).map(TextParts.host) ?? link.url
+            let fetched = links(link.url)
+            return .link(url: link.url, title: link.title ?? fetched?.title ?? host, siteName: link.site ?? fetched?.site ?? host,
+                         image: link.image.flatMap { media($0.hash) } ?? fetched?.image, theme: "dark")
         case .attachment(let ref):
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress[ref.hash]))
         case .location(let place):
@@ -144,6 +149,12 @@ enum HomeMapping {
             // Agent session and approval cards are not MessagesLab rows: their text.
             return .text(p.plainText, runs: [])
         }
+    }
+
+    /// A link preview's picture as an image attachment ref (HomeMedia loads
+    /// it by hash, from the owner's record of the sender's upload).
+    static func attachmentRef(_ image: AttachmentDerivedImage) -> AttachmentRef {
+        AttachmentRef(hash: image.hash, name: "link-preview", mimeType: image.mimeType, byteCount: image.byteCount)
     }
 
     /// MessagesLab's attachment kind (its row drawing): image and video

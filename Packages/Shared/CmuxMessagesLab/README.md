@@ -38,7 +38,8 @@ and render-server field animation, blurred header and native scrolling.
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
-  `HomeLinkPreviews` (which links may fetch a preview),
+  `HomeLinkPreviews` (which links may fetch a preview), `HomeLinkSend` (the
+  preview a send attaches),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
   people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
@@ -119,9 +120,18 @@ through MessagesLab's LinkGuard: http(s) on the default port, every resolved
 address public (no loopback, private, CGNAT/Tailscale, link-local, ULA;
 mapped and NAT64 IPv6 as IPv4), the connected address re-checked, at most 5
 redirects each re-checked and no https to http, an ephemeral session, 512 KB
-of HTML and 5 MB of image. Not yet: the sender attaching the preview to the
-message (a `link_preview` wire part with the poster as an attachment record,
-shape agreed with the images lane), so another device shows the domain card.
+of HTML and 5 MB of image. The sender attaches the preview to the message
+(`Cmux/HomeLinkSend`): a draft with URL-only lines waits for each card's
+fetch (the one MessagesLab's send started; the local message already flies
+with the grey card), then sends HomeStore parts in `TextParts` order,
+`.text` blocks and `.linkPreview(url, title, site, image)`. The picture
+(LinkPreviews' PNG) becomes a JPEG of at most 1024 px and 512 KB uploaded as
+its own image record with the message (`HomeStore.prepareLinkPreviewImage`,
+`send(conversation:parts:uploads:key:)`); the owner checks its hash like an
+attachment's. A failed fetch sends the URL only (iMessage sends the bare
+URL; every device shows the domain card). A receiver maps the part to
+MessagesLab's card and loads only the picture, by hash, through HomeMedia
+(`refreshAttachments` fills the card when it arrives), never the URL.
 
 Messages' 434 pt window minimum (Host.swift) is not applied: a Home tab is a
 pane in the cmux-next window, whose layout has one global minimum pane width

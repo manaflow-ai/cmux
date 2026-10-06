@@ -457,6 +457,14 @@ public actor MockHomeSource: HomeSource {
                     throw HomeRejection.invalid("attachment_mismatch")
                 }
             }
+            // A link preview's picture: a recorded image of the same type and size.
+            for case .linkPreview(let link) in parts {
+                guard let image = link.image else { continue }
+                guard let record = blobs[image.hash] else { throw HomeRejection.invalid("unknown_attachment") }
+                guard record.mimeType == image.mimeType, record.data.count == image.byteCount else {
+                    throw HomeRejection.invalid("attachment_mismatch")
+                }
+            }
             let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key)
             return HomeOpResult(rev: rev, conversation: conversation)
         case .setReadCursor(let conversation, let seq):

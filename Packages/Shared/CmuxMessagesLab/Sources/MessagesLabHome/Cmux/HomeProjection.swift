@@ -12,7 +12,10 @@ import Observation
 ///
 /// A send: the draft goes to `HomeStore.perform(.sendMessage)` with a fresh
 /// key, and `.send` is dispatched on the projection in the same turn, so the
-/// morph flies at the press as in MessagesLab. The local message keeps its
+/// morph flies at the press as in MessagesLab. A draft with URL-only lines
+/// goes once their previews answered (`HomeLinkSend`: `link_preview` parts
+/// with the pictures uploaded as records), as iMessage sends after its
+/// loading card. The local message keeps its
 /// reducer id (`aliases[key]`); HomeStore's pending item and committed echo
 /// carry the key, so they only change its status. A send the owner refuses
 /// before logging it leaves the projection (rebuild) and its text returns to
@@ -229,10 +232,18 @@ final class HomeProjection: @preconcurrency ChatIntents {
             drafts[a.ref.hash] = nil
         }
         let homeStore = self.homeStore, conversation = self.conversation
+        // Messages' link rule: URL-only lines are cards whose previews this Mac attaches.
+        let shown = TextParts.parts(for: text)
+        let links = HomeLinkSend.hasLinks(shown) ? HomeLinkSend(previews: linkPreviews, store: homeStore) : nil
         // task-owner: one send; ends with the owner's answer
         Task { [weak self] in
             do {
-                if attachments.isEmpty {
+                if let links {
+                    // The local message already flies with the grey card; the parts go once the previews answered.
+                    let (parts, pictures) = await links.parts(shown)
+                    try await homeStore.send(conversation: conversation, parts: attachments.map { .attachment($0.ref) } + parts,
+                                             uploads: attachments + pictures, key: key)
+                } else if attachments.isEmpty {
                     _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)]), key: key)
                 } else {
                     try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key)
@@ -301,6 +312,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
             for part in item.parts {
+                if case .linkPreview(let link) = part {
+                    refreshLinkPicture(link, in: message)
+                    continue
+                }
                 guard case .attachment(let ref) = part else { continue }
                 media.request(ref)
                 let want = HomeMapping.attachment(ref, picture: media.asset(ref.hash), progress: Self.shownProgress(item, ref))
@@ -311,6 +326,20 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 if let have, have != want { controller.dispatch(.cmuxSetAttachment(id, want)) }
             }
         }
+    }
+
+    /// A link preview's picture, fetched by its hash like an attachment's
+    /// (never the URL): once ready it fills a card that has none
+    /// (`.linkMetadata`, the card redraws in place).
+    private func refreshLinkPicture(_ link: LinkPreview, in message: Message) {
+        guard let image = link.image else { return }
+        media.request(HomeMapping.attachmentRef(image))
+        guard let picture = media.asset(image.hash) else { return }
+        let bare = message.parts.contains { part in
+            if case let .link(url, _, _, shown, _) = part { return url == link.url && shown == nil }
+            return false
+        }
+        if bare { controller.dispatch(.linkMetadata(url: link.url, title: nil, site: nil, image: picture)) }
     }
 
     /// MessagesLab draws upload progress only on file rows (a bar); image and

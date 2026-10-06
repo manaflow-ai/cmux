@@ -541,15 +541,32 @@ public final class HomeStore {
     /// refuse.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
                      key: IdempotencyKey = .make()) async throws {
+        var parts = attachments.map { MessagePart.attachment($0.ref) }
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
+        try await send(conversation: conversation, parts: parts, uploads: attachments, key: key)
+    }
+
+    /// Sends `parts` as one message, uploading `uploads` first exactly as
+    /// `send(conversation:text:attachments:key:)` does (one pending row at
+    /// once, progress, the same queue, retry, resume and cancel rules).
+    /// `uploads` holds every blob the parts name that the owner may not have
+    /// yet: each attachment part's bytes, and a link preview's picture,
+    /// which has no attachment part of its own (an image record the sender
+    /// uploads, `prepareLinkPreviewImage`). Attachment parts and link
+    /// preview pictures take the owner's stored mime type and byte count.
+    public func send(conversation: ConversationID, parts: [MessagePart], uploads: [LocalAttachment],
+                     key: IdempotencyKey = .make()) async throws {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
         // The owner's spelling and ranges, also for refs built outside prepare.
-        let attachments = attachments.map { attachment -> LocalAttachment in
+        let attachments = uploads.map { attachment -> LocalAttachment in
             var attachment = attachment
             attachment.ref = HomeAttachmentPolicy.normalized(attachment.ref)
             return attachment
         }
-        var parts = attachments.map { MessagePart.attachment($0.ref) }
-        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
+        let parts = parts.map { part -> MessagePart in
+            guard case .attachment(let ref) = part else { return part }
+            return .attachment(HomeAttachmentPolicy.normalized(ref))
+        }
         guard !parts.isEmpty else { throw HomeRejection.invalid("empty_message") }
         guard parts.count <= HomeAttachmentPolicy.maxParts else {
             throw HomeAttachmentError.tooManyParts(limit: HomeAttachmentPolicy.maxParts)
@@ -571,10 +588,27 @@ public final class HomeStore {
             unique.append(attachment)
             localFiles[attachment.ref.hash] = attachment.files
         }
-        uploads[key] = UploadJob(conversation: conversation, attachments: unique)
+        self.uploads[key] = UploadJob(conversation: conversation, attachments: unique)
         enqueueSend(key, in: conversation)
         afterLogChange(op)
         try await uploadAndSubmit(key)
+    }
+
+    /// A link preview's picture (LinkPreviews' downloaded file) as an image
+    /// record to upload with the send that names it: a JPEG at most
+    /// `previewMaxPixel` and `previewMaxBytes` in the blob cache. Throws
+    /// when the file is not an image or cannot fit.
+    public func prepareLinkPreviewImage(fileURL: URL) async throws -> LocalAttachment {
+        await beginPrepare()
+        defer { preparing -= 1 }
+        let prepared = try await Self.makeLinkPreviewImage(fileURL, root: blobCacheDirectory)
+        localFiles[prepared.ref.hash] = prepared.files
+        return prepared
+    }
+
+    @concurrent
+    private nonisolated static func makeLinkPreviewImage(_ fileURL: URL, root: URL) async throws -> LocalAttachment {
+        try AttachmentMedia.prepareLinkPreviewImage(fileURL: fileURL, root: root)
     }
 
     /// A local file holding the variant's bytes: this client's own copy when
@@ -927,16 +961,27 @@ public final class HomeStore {
     }
 
     /// The op with each attachment part's mime type, byte count and poster
-    /// taken from the owner's stored ref for its hash.
+    /// (and each link preview picture's mime type and byte count) taken from
+    /// the owner's stored ref for its hash.
     static func adopting(_ stored: [String: AttachmentRef], in op: HomeOp) -> HomeOp {
         guard case .sendMessage(let conversation, let parts) = op else { return op }
         let adopted = parts.map { part -> MessagePart in
-            guard case .attachment(var ref) = part, let record = stored[ref.hash] else { return part }
-            ref.mimeType = record.mimeType
-            ref.byteCount = record.byteCount
-            ref.poster = record.poster
-            ref.preview = record.preview
-            return .attachment(ref)
+            switch part {
+            case .attachment(var ref):
+                guard let record = stored[ref.hash] else { return part }
+                ref.mimeType = record.mimeType
+                ref.byteCount = record.byteCount
+                ref.poster = record.poster
+                ref.preview = record.preview
+                return .attachment(ref)
+            case .linkPreview(var link):
+                // A link preview's picture is checked against its record the same way.
+                guard let image = link.image, let record = stored[image.hash] else { return part }
+                link.image = AttachmentDerivedImage(hash: image.hash, mimeType: record.mimeType, byteCount: record.byteCount)
+                return .linkPreview(link)
+            default:
+                return part
+            }
         }
         return .sendMessage(conversation: conversation, parts: adopted)
     }
