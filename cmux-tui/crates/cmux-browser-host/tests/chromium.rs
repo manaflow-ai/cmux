@@ -47,6 +47,15 @@ fn serve() -> u16 {
                         break;
                     }
                 }
+                // One hop to the other loopback origin (host fetch redirects).
+                if path == "/redirect" {
+                    let mut stream = stream;
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 302 Found\r\nLocation: http://localhost:{port}/second\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                    return;
+                }
                 let body = match path.as_str() {
                     "/" => format!(
                         "<!doctype html><title>Host test</title>\
@@ -557,4 +566,31 @@ fn a_tab_less_fetch_runs_in_a_hidden_shell() {
         })
         .collect();
     assert!(leaked.is_empty(), "the shell emitted events: {leaked:?}");
+}
+
+/// SHELL-REDIRECT-LNA option 1 on a real Chromium: a tab-less fetch whose
+/// server redirects 127.0.0.1 -> localhost (another origin, a local
+/// address) is followed by the host, each hop in a shell at its own origin,
+/// so Local Network Access never blocks it; a Local caller gets the final
+/// response.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_tab_less_fetch_follows_a_redirect_to_another_local_origin() {
+    use cmux_browser_host::gate::{Gate, Grants};
+    use cmux_browser_host::vm::VmHost;
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(chromium.connection().clone(), AGENT, Arc::new(|_| {}))
+        .expect("attach to Chromium");
+    let gate = Gate::new(Arc::new(driver), Grants::default());
+    let out = gate
+        .driver_call("net.fetch", json!({"url": format!("http://127.0.0.1:{port}/redirect")}))
+        .expect("the redirect is followed");
+    assert_eq!(out["status"], 200, "{out}");
+    assert_eq!(out["url"], format!("http://localhost:{port}/second"));
+    assert_eq!(out["redirected"], true);
 }
