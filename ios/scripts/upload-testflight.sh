@@ -95,7 +95,7 @@ verify_ipa_aps_environment_production() {
 
 verify_ipa_cloud_vpn_extension() {
   local ipa="$1"
-  local workdir app extension ent profile
+  local workdir app extension ent profile host_ent
   local bundle_id expected_bundle_id expected_app_id app_id team_id network_extension
   local profile_app_id profile_network_extension
   workdir="$(mktemp -d)"
@@ -133,6 +133,26 @@ verify_ipa_cloud_vpn_extension() {
   network_extension="$($PLISTBUDDY -c 'Print :com.apple.developer.networking.networkextension:0' "$ent" 2>/dev/null || true)"
   expected_bundle_id="$CLOUD_VPN_BUNDLE_IDENTIFIER"
   expected_app_id="$DEVELOPMENT_TEAM.$expected_bundle_id"
+  host_ent="$workdir/host-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$host_ent" 2>/dev/null ||
+    ! python3 - "$host_ent" "$ent" "$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" <<'PY'
+import plistlib
+import sys
+
+host_path, extension_path, host_group = sys.argv[1:]
+for label, path in (("host", host_path), ("CloudVPN", extension_path)):
+    with open(path, "rb") as handle:
+        entitlements = plistlib.load(handle)
+    if "packet-tunnel-provider" not in entitlements.get("com.apple.developer.networking.networkextension", []):
+        raise SystemExit(f"signed {label} is missing packet-tunnel-provider")
+    if entitlements.get("keychain-access-groups") != [host_group]:
+        raise SystemExit(f"signed {label} must claim exactly the host keychain group {host_group}")
+PY
+  then
+    echo "error: signed host and CloudVPN do not share the required VPN permissions; refusing to upload" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
   if [[ "$bundle_id" != "$expected_bundle_id" || "$app_id" != "$expected_app_id" || "$team_id" != "$DEVELOPMENT_TEAM" ]] ||
     ! python3 - "$ent" <<'PY'
 import plistlib
@@ -159,7 +179,7 @@ PY
   profile_app_id="$($PLISTBUDDY -c 'Print :Entitlements:application-identifier' "$profile" 2>/dev/null || true)"
   profile_network_extension="$($PLISTBUDDY -c 'Print :Entitlements:com.apple.developer.networking.networkextension:0' "$profile" 2>/dev/null || true)"
   if [[ "$profile_app_id" != "$expected_app_id" ]] ||
-    ! python3 - "$profile" <<'PY'
+    ! python3 - "$profile" "$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" <<'PY'
 import plistlib
 import sys
 
@@ -168,6 +188,13 @@ with open(sys.argv[1], "rb") as handle:
 values = entitlements.get("com.apple.developer.networking.networkextension", [])
 if "packet-tunnel-provider" not in values:
     raise SystemExit(1)
+expected_group = sys.argv[2]
+if not any(
+    group == expected_group
+    or (isinstance(group, str) and group.endswith(".*") and expected_group.startswith(group[:-1]))
+    for group in entitlements.get("keychain-access-groups", [])
+):
+    raise SystemExit("CloudVPN profile does not authorize the host keychain group")
 PY
   then
     echo "error: embedded CloudVPN profile does not authorize the signed packet tunnel (application-identifier='${profile_app_id:-<absent>}', network-extension='${profile_network_extension:-<absent>}'): $extension" >&2
@@ -370,6 +397,16 @@ network_extension = profile.get("com.apple.developer.networking.networkextension
 if "packet-tunnel-provider" not in network_extension:
     raise SystemExit("CloudVPN provisioning profile does not authorize packet-tunnel-provider")
 
+# The checked-in keychain value contains Xcode substitutions. Resolve the host
+# identity before applying the profile's exact or wildcard authorization.
+host_group = f"{team_id}.{host_bundle_id}"
+if not any(
+    group == host_group
+    or (isinstance(group, str) and group.endswith(".*") and host_group.startswith(group[:-1]))
+    for group in profile.get("keychain-access-groups", [])
+):
+    raise SystemExit("CloudVPN provisioning profile does not authorize the host keychain group")
+
 # Keep profile metadata as the source of truth, adding only values explicitly
 # requested by the checked-in contract and already authorized by the profile.
 for key, value in source.items():
@@ -380,6 +417,8 @@ for key, value in source.items():
         profile[key] = [item for item in value if item in profile_value]
     else:
         profile[key] = value
+
+profile["keychain-access-groups"] = [host_group]
 
 with open(merged_path, "wb") as handle:
     plistlib.dump(profile, handle)
@@ -1002,6 +1041,12 @@ WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
 CLOUD_VPN_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.CloudVPN"
+# These public apps have provisioned packet-tunnel extensions. Internal/demo
+# app identities are separate Apple registrations and do not opt in implicitly.
+CLOUD_VPN_REQUIRED=0
+if [[ "$LANE" == "appstore" || "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
+  CLOUD_VPN_REQUIRED=1
+fi
 SHARED_XCCONFIG="$IOS_DIR/Config/Shared.xcconfig"
 CHECKED_IN_BETA_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_BETA_MARKETING_VERSION "$SHARED_XCCONFIG")"
 CHECKED_IN_APPSTORE_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_APPSTORE_MARKETING_VERSION "$SHARED_XCCONFIG")"
@@ -1487,8 +1532,12 @@ else
       exit 1
     fi
     "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
-    if [[ "$LANE" == "appstore" ]]; then
-      CLOUD_VPN_PROFILE_NAME="${IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
+    if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
+      if [[ "$LANE" == "appstore" ]]; then
+        CLOUD_VPN_PROFILE_NAME="${IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
+      else
+        CLOUD_VPN_PROFILE_NAME="${IOS_BETA_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
+      fi
       if [[ -z "$CLOUD_VPN_PROFILE_NAME" ]]; then
         echo "error: manual App Store export needs a provisioning profile name for $CLOUD_VPN_BUNDLE_IDENTIFIER" >&2
         exit 1
@@ -1659,7 +1708,7 @@ if [[ "$SIGNING" == "manual" ]]; then
     echo "error: could not re-sign NotificationService.appex with the host keychain group" >&2
     exit 1
   fi
-  if [[ "$LANE" == "appstore" ]]; then
+  if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
     if ! resign_cloud_vpn_extension \
       "$RESIGN_APP" \
       "$RESIGN_DIR" \
@@ -1855,11 +1904,13 @@ if [[ "$LANE" == "appstore" ]]; then
     exit 1
   fi
   echo "App Store IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
+fi
+if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
   if ! verify_ipa_cloud_vpn_extension "$IPA_PATH"; then
-    echo "error: App Store IPA CloudVPN extension is not signed with its packet-tunnel profile; refusing to upload" >&2
+    echo "error: IPA CloudVPN extension is not signed with its packet-tunnel profile and host keychain group; refusing to upload" >&2
     exit 1
   fi
-  echo "App Store IPA verified to carry a signed CloudVPN packet-tunnel extension: $IPA_PATH"
+  echo "IPA verified to carry a signed CloudVPN packet-tunnel extension sharing the host keychain group: $IPA_PATH"
 fi
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then

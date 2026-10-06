@@ -92,6 +92,7 @@ def _profile_plist(
             "aps-environment": "production",
             "com.apple.developer.usernotifications.time-sensitive": True,
             "com.apple.developer.applesignin": ["Default"],
+            "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"],
             "keychain-access-groups": [app_id],
         },
     }
@@ -122,6 +123,7 @@ def _cloud_vpn_profile_plist() -> dict[str, object]:
     assert isinstance(entitlements, dict)
     entitlements.pop("aps-environment", None)
     entitlements.pop("com.apple.developer.usernotifications.time-sensitive", None)
+    entitlements["keychain-access-groups"] = [f"{TEAM_ID}.*", "com.apple.token"]
     entitlements["com.apple.developer.networking.networkextension"] = [
         "app-proxy-provider",
         "packet-tunnel-provider",
@@ -205,8 +207,10 @@ def entitlements_for_bundle(bundle_id):
             "get-task-allow": False,
         }}
     entitlements = dict(profile_for_bundle(bundle_id)["Entitlements"])
-    if bundle_id == APPSTORE_CLOUD_VPN_BUNDLE_ID:
-        entitlements["com.apple.developer.networking.networkextension"] = ["packet-tunnel-provider"]
+    if bundle_id.endswith(".CloudVPN"):
+        entitlements["application-identifier"] = f"{{TEAM_ID}}.{{bundle_id}}"
+        entitlements.pop("com.apple.developer.networking.networkextension", None)
+        entitlements["keychain-access-groups"] = []
     override_group = os.environ.get("CMUX_FAKE_SIGNED_KEYCHAIN_GROUP")
     if override_group:
         entitlements["keychain-access-groups"] = [override_group]
@@ -571,6 +575,10 @@ if "-d" in args and "--entitlements" in args:
         if marker is not None and marker.exists()
         else entitlements_for_bundle(bundle_id)
     )
+    if bundle_id.endswith(".CloudVPN") and os.environ.get("CMUX_FAKE_VPN_EMPTY_SIGNED_GROUP") == "1":
+        entitlements["keychain-access-groups"] = []
+    if bundle_id in (APPSTORE_BUNDLE_ID, BETA_BUNDLE_ID) and os.environ.get("CMUX_FAKE_HOST_MISSING_PACKET_TUNNEL") == "1":
+        entitlements.pop("com.apple.developer.networking.networkextension", None)
     sys.stdout.buffer.write(plist_bytes(entitlements))
     sys.exit(0)
 if "--force" in args:
@@ -619,6 +627,8 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
                 profile = BETA_EXTENSION_PROFILE
             elif b"cloud vpn profile" in body:
                 profile = copy.deepcopy(APPSTORE_CLOUD_VPN_PROFILE)
+                if os.environ.get("CMUX_FAKE_VPN_UNAUTHORIZED_GROUP") == "1":
+                    profile["Entitlements"]["keychain-access-groups"] = [TEAM_ID + ".unrelated.*"]
                 try:
                     cloud_vpn_info = source.parent / "Info.plist"
                     cloud_vpn_bundle_id = plistlib.loads(cloud_vpn_info.read_bytes()).get(
@@ -707,6 +717,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME"] = APPSTORE_CLOUD_VPN_PROFILE_NAME
     env["IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"cloud vpn profile").decode()
     env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Beta Notification Service Distribution"
+    env["IOS_BETA_CLOUD_VPN_PROVISIONING_PROFILE_NAME"] = "cmux Beta CloudVPN Distribution"
     # Profile expiry is validated against this fixed instant, not the real clock.
     env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
