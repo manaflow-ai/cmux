@@ -6,16 +6,21 @@ import Foundation
 import Observation
 import os
 
-/// Home's client of the local conversation owner (plans/cmux-next/home.md):
-/// the conversation list, one session (mirror + intent log) per open
-/// conversation, and the typed ops the user sends. The owner is the daemon;
-/// nothing here is persisted.
+/// Home's client of the Chief home's conversation owner
+/// (`ChiefConversationOwner`, plans/cmux-next/home-state-ownership.md): the
+/// conversation list, one session (mirror + intent log) per open
+/// conversation, and the typed ops the user sends. The owner is the Chief
+/// home's daemon session, the same in every build of one account, so every
+/// build shows the same history; nothing here is persisted. The build's own
+/// daemon keeps only the Home workspace and its tabs.
 @Observable @MainActor
 final class HomeService {
     /// Conversations, newest activity first, as the owner reports them.
     private(set) var conversations: [CmuxNextDaemon.ConversationSummary] = []
-    /// The local daemon serves `local-conversations-v1`.
-    var isAvailable: Bool { services.machines.local.supports(DaemonCapabilities.shared.localConversations) }
+    /// The Chief home's conversation owner serves `local-conversations-v1`.
+    var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
+    /// The owner of every Home conversation: one per Chief home, never per build.
+    @ObservationIgnored let chief: ChiefConversationOwner
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored unowned let services: AppServices
     @ObservationIgnored private var availability: Task<Void, Never>?
@@ -38,19 +43,22 @@ final class HomeService {
     /// The local user's participant id in local conversations.
     let actor = ConversationParticipant.localUserID
 
-    init(services: AppServices) {
+    init(services: AppServices, chiefHome: ChiefHome? = nil) {
         self.services = services
+        chief = ChiefConversationOwner(home: chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))
         // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
         HomeFlightRecording.install(available: DevTools.isEnabled,
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
     }
 
-    /// Observes the local daemon: each new connection that serves
-    /// conversations reloads the list and every open session, then resends
-    /// what is still sending (same keys; the owner applies each once).
+    /// Observes the Chief owner: each new connection reloads the list and
+    /// every open session, then resends what is still sending (same keys;
+    /// the owner applies each once). The local daemon gets the Home workspace.
     func start() {
-        services.machines.local.store.sideEvents.subscribe { [weak self] event in self?.handle(event) }
+        chief.onEvent = { [weak self] event in self?.handle(event) }
+        chief.start()
         let local = services.machines.local
+        let chief = chief
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
             for await connection in Observations({ local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil }) {
@@ -61,7 +69,7 @@ final class HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
         availability = Task { [weak self] in
-            for await connection in Observations({ local.supports(DaemonCapabilities.shared.localConversations) ? local.connection : nil }) {
+            for await connection in Observations({ chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil }) {
                 guard let self else { continue }
                 homeSource.connectionChanged(connection)
                 guard let connection else { continue }
@@ -76,16 +84,19 @@ final class HomeService {
         }
     }
 
-    var connection: DaemonConnection? { isAvailable ? services.machines.local.connection : nil }
+    /// The Chief owner's connection, while it serves conversations.
+    var connection: DaemonConnection? { isAvailable ? chief.connection : nil }
 
-    /// Home opened in a window: start the local mux's brain host once per launch.
+    /// Home opened in a window: start the Chief home's brain host once per
+    /// launch. Its lock keeps one host per home, so a host another build
+    /// started keeps running and this launch's exits at once.
     func homeDidOpen() {
         guard !startedBrainHost, let connection else { return }
         // task-owner: reads the endpoint, then spawns the detached host once
         Task { [weak self] in
             guard let self, let socket = await connection.endpoint?.socketPath,
                   let host = HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath,
-                                                       home: ChiefHome.resolve(tag: services.environment.tag)) else { return }
+                                                   home: chief.home) else { return }
             guard !startedBrainHost else { return }
             startedBrainHost = true
             // The mux proves its principal with a token this (user) connection mints.

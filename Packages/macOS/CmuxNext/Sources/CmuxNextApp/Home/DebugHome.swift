@@ -37,8 +37,18 @@ enum DebugHome {
             "tab_kinds": .array(tabs.map { .string(String(describing: $0.kind)) }),
             "workspace_kind": .bool(local.supports(caps.workspaceKind)),
             "conversation_tabs": .bool(local.supports(caps.conversationTabs)),
-            "local_conversations": .bool(local.supports(caps.localConversations)),
+            "local_conversations": .bool(home.chief.supports(caps.localConversations)),
         ])
-        return .object(["available": .bool(home.isAvailable), "home_workspace": setup, "conversations": .array(conversations)])
+        let chief = home.chief
+        let owner: CmuxNextSettings.JSONValue = .object([
+            "home": .string(chief.home.root.path),
+            "isolated": .bool(chief.home.isolated),
+            "session": .string(chief.home.session),
+            "connected": .bool(chief.connection != nil),
+            "daemon_pid": chief.identity.map { .number(Double($0.pid)) } ?? .null,
+            "error": chief.lastError.map(CmuxNextSettings.JSONValue.string) ?? .null,
+        ])
+        return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
+                        "conversations": .array(conversations)])
     }
 }
