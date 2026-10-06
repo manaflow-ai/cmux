@@ -96,8 +96,11 @@ impl Client {
     }
 
     async fn prompt(&mut self, s: &str, text: &str) -> Value {
-        self.call("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]}))
-            .await
+        self.call(
+            "session/prompt",
+            json!({"sessionId": s, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await
     }
 
     async fn count(&mut self) -> usize {
@@ -184,7 +187,10 @@ async fn web_control_of_codex_or_opencode_is_refused_in_every_mode() {
             let r = web.call("session/set_mode", json!({"sessionId": s, "modeId": mode})).await;
             assert!(r.get("error").is_some(), "web set_mode {harness} {mode}: {r}");
             let r = web
-                .call("session/set_config_option", json!({"sessionId": s, "configId": "mode", "value": mode}))
+                .call(
+                    "session/set_config_option",
+                    json!({"sessionId": s, "configId": "mode", "value": mode}),
+                )
                 .await;
             assert!(r.get("error").is_some(), "web mode option {harness} {mode}: {r}");
             let r = web.call("session/fork", json!({"sessionId": s})).await;
@@ -230,14 +236,7 @@ async fn a_queued_web_prompt_is_dropped_when_its_harness_turns_out_to_run_codex(
     let web_id = web.send("session/prompt", queued).await;
     wait_events(&mut local, &s, "queued-web").await;
     // While the prompt waits, the profile is changed to run Codex.
-    hub.config
-        .write()
-        .await
-        .harnesses
-        .get_mut("flater")
-        .unwrap()
-        .argv
-        .push("codex-acp".into());
+    hub.config.write().await.harnesses.get_mut("flater").unwrap().argv.push("codex-acp".into());
     tokio::task::spawn_blocking(move || std::fs::write(fifo, "go")).await.unwrap().unwrap();
     assert!(busy.reply(busy_id).await.get("error").is_none());
     let r = web.reply(web_id).await;

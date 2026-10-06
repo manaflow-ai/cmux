@@ -42,31 +42,41 @@ A Web source (fork, load, resume, handoff) is accepted only with no mode or a mo
 | Family | Modes that ask | Not accepted | Source |
 | --- | --- | --- | --- |
 | claude | `default`, `plan` | acceptEdits, dontAsk, auto, bypassPermissions | claude-agent-acp 0.74.0 `dist/permissions/modes.js`; https://docs.anthropic.com/en/docs/claude-code/iam#permission-modes; acpmux `claude_stdio/mod.rs` `MODES` |
-| codex | `read-only` | `agent` (its default: "Approve for me", auto-review), `agent-full-access` | codex-acp 1.10.0 `dist/index.js` `_AgentMode` (`DEFAULT_AGENT_MODE = Agent`) |
-| opencode | `plan` | `build` (its default; default permissions allow) | https://opencode.ai/docs/agents/#plan, https://opencode.ai/docs/permissions/ |
+| codex | none: refused family | `read-only`, `agent` (its default), `agent-full-access` | codex-acp 1.10.0 `dist/index.js` `AgentMode`; see "Codex and opencode are refused" |
+| opencode | none: refused family | `build` (its default), `plan`, every primary agent | opencode 1.18.33 `Agent.state`; see "Codex and opencode are refused" |
 
-#### Remote editing for Codex and opencode (D10, 2026-10-06)
+#### Codex and opencode are refused (D10, 2026-10-06)
 
-Decision D10: a remote client may edit through Codex or opencode only in a mode that asks before EVERY edit and EVERY command, writes inside the workspace included. The investigation found no such mode, so `ASKING_MODES` did not change. The agent pane says why on a remote connection (`origin: "remote"` in `initialize`) that shows a Codex or opencode chat: "Editing from here needs a mode that asks before each change" (`composer.remoteEditing`, `webviews/src/agent-session/acpmux/remoteEditing.ts`).
+Decision (coordinator, 2026-10-06, secure by default): a remote connection never drives Codex or opencode. D10 allows a remote client to edit through a harness only in a mode that asks before EVERY edit and EVERY command, writes inside the workspace included, and the investigation below found no such mode in either harness. The modes accepted before (Codex `read-only`, opencode `plan`) do not ask either, so they were removed too.
 
-Codex (codex-acp 1.10.0 with codex-cli 0.153.4, the versions acpmux runs; `config/codex_adapter.rs` pins the adapter):
+Code: `REFUSED_FAMILIES` in `src/web_modes.rs` (`codex`, `opencode`). `ASKING_MODES` has no row for them. The table refuses them whatever config.json says: a `webAskingModes` entry for them is ignored with a warning, and so is an entry for the family of any profile whose command line runs one of them (`derive_family` without the explicit `family`, so `{"argv": ["codex-acp"], "family": "mine"}` makes `mine` refused too). A preset or a default cannot add them back, because the check is on the session's family. For a refused family, `session_asks` is false even when the session reports no mode, and `config_value_asks` is false for every option. Thus a Web `session/new` is ended and refused (`no reviewed asking mode`), and set_mode, set_config_option, fork, load, resume, handoff to a new target, prompts and permission answers are refused (`remote.mode_not_asking`). The cache key includes the refused set, so a profile changed while a Web prompt is queued is seen at dispatch. The daemon logs `web asking modes: claude=[default,plan] refused=[codex,opencode]`; `_acpmux/web_modes` lists `refusedFamilies`. Tests: `tests/remote_guard_refused_families.rs`, `tests/web_mode_current.rs` (an opencode handoff target), `web_modes.rs` unit tests.
+
+Agent pane: on a remote connection (`origin: "remote"` in `initialize`) that shows a Codex or opencode chat, the composer hides Send and says "Not available from here: this agent has no mode that asks before each change" (`composer.remoteUnavailable`). An acpmux that names no origin (older than the origin field) gets the same with "Update acpmux to send from here: it does not say where this connection comes from" (`composer.originUnknown`). `webviews/src/agent-session/acpmux/remoteEditing.ts`.
+
+Exposure: the WebSocket listener binds loopback only by default (`127.0.0.1:47811` for the shared home, else `127.0.0.1:0`). A Web origin is therefore any allowed local web origin (the dashboard, a paired or relayed device through the relay), unless the user set another listen address or a tunnel. The Mac agent pane is LocalApp and keeps full control. One local effect: the native relay asks `_acpmux/web_modes` whether a mode set asks, so a Codex or opencode mode set from the Mac pane (also `read-only`) now shows the native confirmation sheet for a mode that does not ask.
+
+Enable it again only when a harness gives a verifiable ask-every-change mode: a mode whose approval acpmux can read from the session (an ACP field, a fixed adapter mode with a published policy), that asks before every file write and every command, inside the workspace too. Then add its row to `ASKING_MODES`, remove the family from `REFUSED_FAMILIES`, cite the source, and add red tests, after a security review. For Codex this needs an adapter mode with a read-only sandbox and approvals for every escalation, or a granular policy that asks for every patch and every command. For opencode it needs the merged permission rules reported to the client.
+
+Residual: a profile that runs Codex or opencode through a wrapper whose argv basenames name neither, with an explicit other `family`, is not detected. That needs the local user to write both the profile and a `webAskingModes` row for its family.
+
+Evidence, Codex (codex-acp 1.10.0 with codex-cli 0.153.4, the versions acpmux runs; `config/codex_adapter.rs` pins the adapter):
 - codex-acp sends the mode's `approvalPolicy`, `approvalsReviewer` and `sandboxPolicy` with every turn (`dist/index.js` `sendPrompt` calls `runTurn`), so config.toml cannot change them, and a Web request cannot set them (`MODE_FIELDS`).
 - The three modes (`dist/index.js` `AgentMode`): `read-only` = `on-request`, reviewer `user`, sandbox `workspaceWrite` ("Always ask to edit external files and use the internet"); `agent` = the same with reviewer `auto_review`; `agent-full-access` = `never`, `dangerFullAccess`.
 - `on-request` means "The model decides when to ask the user for approval" (`codex --help`, 0.153.4, which offers only `on-request` and `never`). The Codex docs (https://developers.openai.com/codex/agent-approvals-security) say workspace-write with on-request "can read files, make edits, and run commands in the working directory automatically" and "commands allowed by the sandbox can run without approval". `approval_policy = "untrusted"` is retired.
-- Result: no codex-acp mode asks before each edit or each command. FINDING: the accepted `read-only` row is Codex's Auto preset under another name. It writes files and runs commands inside the workspace without a prompt (`.git` stays read-only). The "Modes that ask" table above is wrong for this row. The row is unchanged here; the decision belongs to the lead (see Follow-ups (g)).
+- Result: no codex-acp mode asks before each edit or each command. `read-only` is Codex's Auto preset under another name: it writes files and runs commands inside the workspace without a prompt (`.git` stays read-only).
 
-opencode (1.18.33, the installed version; acpmux runs `opencode acp`):
+Evidence, opencode (1.18.33; acpmux runs `opencode acp`):
 - ACP modes are opencode's primary agents that are not hidden (`build`, `plan`, and any primary agent the user defines). A mode carries no permission data over ACP. Permissions are opencode rules: the agent's defaults, then the user's `permission` config, merged LAST (last match wins).
 - Defaults (the binary's `Agent.state`, and `opencode debug agent <name>` with an empty config): every agent starts from `"*": "allow"`. `build` adds nothing, so edit and bash run without asking. `plan` sets `edit` to `deny`, but allows writes to `.opencode/plans/*.md` without asking, and leaves `bash` at `allow`. The docs (https://opencode.ai/docs/agents/#plan) say plan sets edits and bash to `ask`; the 1.18.33 code does not.
-- On this Mac, `~/.config/opencode/opencode.json` has `"permission": "allow"`. Because the user's rules come last, `plan` here allows every edit and every command without asking.
-- A user config `{"permission": {"edit": "ask", "bash": "ask"}}` makes `build` ask before each edit and each bash command (`opencode debug agent build`). It does not make every action ask: MCP tools, plugin tools, webfetch and the `explore` subagent's other tools stay `allow`. acpmux cannot see the merged rules: they come from the global config, a project `opencode.json` and `.opencode/` in the workspace, `OPENCODE_CONFIG_CONTENT`, and agent files. A check by mode id cannot prove that a session asks.
-- Result: no opencode mode qualifies. FINDING: the accepted `plan` row does not ask before bash with the defaults, and does not ask before anything with this Mac's config. The row is unchanged here; see Follow-ups (g).
+- On Lawrence's Mac, `~/.config/opencode/opencode.json` has `"permission": "allow"`. Because the user's rules come last, `plan` there allows every edit and every command without asking.
+- A user config `{"permission": {"edit": "ask", "bash": "ask"}}` makes `build` ask before each edit and each bash command, but MCP tools, plugin tools, webfetch and the `explore` subagent's tools stay `allow`. acpmux cannot see the merged rules: they come from the global config, a project `opencode.json` and `.opencode/` in the workspace, `OPENCODE_CONFIG_CONTENT`, and agent files.
+- Result: no opencode mode qualifies.
 
 `webAskingModes` in config.json (written by the local user, never over a WebSocket) adds modes per family. WARNING: a mode added there lets paired devices start that mode without a per-action prompt. If `webAskingModes` ever gets a Settings row, the Settings lead must show the same warning.
 
 ### Ignored config entries and mode drift
 
-The table lives in `src/web_modes.rs`, with `NON_ASKING_MODES` (the "Not accepted" column) next to it under the same sources. A `webAskingModes` entry that names a non-asking mode, for any family, is ignored with a warning. The daemon logs the merged table once at start and once on each config reload (`web asking modes: claude=[default,plan] codex=[read-only] ...`).
+The table lives in `src/web_modes.rs`, with `NON_ASKING_MODES` (the "Not accepted" column) next to it under the same sources. A `webAskingModes` entry that names a non-asking mode, for any family, is ignored with a warning. The daemon logs the merged table once at start and once on each config reload (`web asking modes: claude=[default,plan] ... refused=[codex,opencode]`).
 
 ### Web control follows the current mode
 
@@ -116,14 +126,14 @@ A Web cwd or `additionalDirectories` entry must be inside a root, compared by pa
 - 2026-10-05: non-asking `webAskingModes` entries are ignored with a warning; Web control ends on mode drift and only a local set restores it.
 - 2026-10-05: `Origin::Peer` with a per-launch peer token; Web control follows the current mode (`remote.mode_not_asking`); one setter for mode writes; the check repeats at dispatch; Peer keeps no mode rule.
 - 2026-10-05: Web loads of peer sessions stay refused; `webAskingModes` stays, local user only; Web Codex `read-only` and Web opencode `plan` are accepted for now.
-- 2026-10-06 (D10): no Codex or opencode mode asks before every edit and command, so `ASKING_MODES` is unchanged; the agent pane shows `composer.remoteEditing` on a remote connection to a Codex or opencode chat. The investigation found that the accepted Codex `read-only` and opencode `plan` rows do not ask either (Follow-ups (g)).
+- 2026-10-06 (D10): no Codex or opencode mode asks before every edit and command; Codex `read-only` and opencode `plan` do not ask either. Both families are refused for the Web in code (`REFUSED_FAMILIES`), whatever config.json says; the agent pane hides Send for them on a remote or origin-unknown connection.
 
 ## Follow-ups
 
-- (a) A per-action prompt that the Web user answers, so paired devices can run Codex and opencode with edits. This is the long-term target and replaces the read-only and plan limits.
+- (a) A per-action prompt that the Web user answers, so paired devices can run Codex and opencode. This is the long-term target; until a harness also has a verifiable ask-every-change mode, Codex and opencode stay refused (D10).
 - (b) Check the source on the owning daemon for peer loads, so a Web load of a peer's session can be served.
 - (d) Closed 2026-10-05: Web control follows the current mode, and peers keep theirs through `Origin::Peer`.
 - (e) Closed 2026-10-05: `session_pool.rs` claims a pooled fake session (the non-Claude claim path, `absorb_session_response`) in a mode that does not ask, and a Web prompt is refused. The Claude-state claim path (`claude_state`) is driven too: `tests/fake_claude.py` reports the `--permission-mode` its profile pins, as Claude Code does, and a pooled Claude session claimed in `bypassPermissions` refuses a Web prompt.
 - (f) Closed 2026-10-05: Web control requires an asking policy and no auto-approving rule (`remote.policy_not_asking`).
-- (g) Open, lead decision (D10 investigation, 2026-10-06): the `codex` `read-only` row and the `opencode` `plan` row let a Web user drive a session that writes files or runs commands without a prompt. To keep "every mutating mode must ask", remove both rows (Web control of Codex and opencode is then refused, `remote.mode_not_asking`), or accept the residual and record it here. A real fix for opencode needs the daemon to know the merged permission rules (an opencode API or ACP field that reports them); for Codex it needs an adapter mode that sends a read-only sandbox, or a granular approval policy that asks for every patch and command.
+- (g) Closed 2026-10-06: the Codex `read-only` and opencode `plan` rows are removed, and both families are refused (D10).
 - (c) `$/cancel_request` does nothing over a socket: requests run as spawned tasks, so a cancelled `session/new` still completes (the in-process case is covered by the pool's ClaimGuard).
