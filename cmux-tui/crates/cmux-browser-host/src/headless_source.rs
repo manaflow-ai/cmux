@@ -82,8 +82,12 @@ impl HeadlessSource {
         // Headless: no person can see an Open panel, every tab intercepts.
         driver.intercept_all_choosers(options.headless);
         // Chromium opens a start tab; it is no session's tab, so sessions
-        // start with none (headless Chromium keeps running without tabs).
-        if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {
+        // start with none (headless Chromium keeps running without tabs). A
+        // headful browser keeps it: its window is the person's, and new tabs
+        // need a window to open in ("Failed to open a new tab" without one).
+        let start_tabs =
+            if options.headless { driver.call("tabs.list", &json!({})).ok() } else { None };
+        if let Some(Value::Array(tabs)) = start_tabs {
             for tab in tabs {
                 if let Some(target) = tab["targetId"].as_str() {
                     let _ = driver.call("tabs.close", &json!({"targetId": target}));

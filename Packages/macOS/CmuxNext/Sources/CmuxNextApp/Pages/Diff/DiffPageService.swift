@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 
@@ -61,6 +62,7 @@ final class DiffPageService: InternalPageProvider {
     var page: InternalPageID { .diff }
     var title: String { DiffPageStrings.tabTitle }
     var symbol: String { "plusminus" }
+    var icon: IconName? { .diffFile }
     var recents: DiffRecents { recentsStore }
 
     func title(for key: String) -> String { tabs[key]?.repository?.name ?? title }

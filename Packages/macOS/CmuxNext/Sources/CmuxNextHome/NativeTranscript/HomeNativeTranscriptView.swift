@@ -163,6 +163,16 @@ public final class HomeNativeTranscriptView: NSView {
         noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
     }
 
+    /// A notice about the conversation itself (Home's merge notice): a row of
+    /// the transcript, under the newest message; nil removes it.
+    public func showConversationNotice(_ text: String?) {
+        guard transcript.notice != text else { return }
+        transcript.notice = text
+        if let text {
+            NSAccessibility.post(element: transcript, notification: .announcementRequested, userInfo: [.announcement: text])
+        }
+    }
+
     /// Shows (or with nil clears) the notice; VoiceOver hears it.
     public func showNotice(_ text: String?) {
         guard text != notice else { return }
