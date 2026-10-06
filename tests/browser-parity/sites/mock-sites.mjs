@@ -72,7 +72,10 @@ export function createState() {
   // { after, rows }, another session's sign-in that makes `rows` current
   // once ListAccounts has answered `after` more times (a switch between
   // a commit's account check and its write).
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  // slackSwitchOnInfo: the member id another session's sign-in makes the
+  // Acme workspace's session act as once conversations.info has answered
+  // (slackMemberNow holds it from then on).
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -602,7 +605,7 @@ function slackApi(req, url, body, state, sameOrigin = false) {
   const form = parseForm(req, body);
   const team = Object.values(SLACK_TEAMS).find((t) => url.hostname === `${t.domain}.slack.com`);
   const reply = (json) => ({ status: 200, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(json) });
-  const member = slackMember(team, form.token);
+  const member = slackMember(team, form.token) && state.slackMemberNow && team.id === "T01ACME" ? state.slackMemberNow : slackMember(team, form.token);
   if (!member || cookieOf(req, "d") !== SECRETS.slackCookie) return reply({ ok: false, error: "invalid_auth" });
   const defaults = [
     { id: "C01GEN0001", name: "general", is_private: false, topic: { value: "Company-wide" }, num_members: 42 },
@@ -615,6 +618,7 @@ function slackApi(req, url, body, state, sameOrigin = false) {
     case "conversations.info": {
       // Archived and renamed channels keep their id.
       const c = channels.find((x) => x.id === form.channel) || defaults.find((x) => x.id === form.channel);
+      if (state.slackSwitchOnInfo) (state.slackMemberNow = state.slackSwitchOnInfo), (state.slackSwitchOnInfo = null);
       return reply(c ? { ok: true, channel: c } : { ok: false, error: "channel_not_found" });
     }
     case "conversations.history":

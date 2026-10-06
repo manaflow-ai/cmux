@@ -85,29 +85,31 @@ rules neither reference enforces together:
    change fails as at the first read-back, and nothing is pressed. A
    control the press opens (Calendar's invitation dialog Send) is pressed
    the same way (`press.next`): exactly one match, pinned, read back
-   again. Gmail,
-   LinkedIn and X then read the account once more as the last step before
-   the press (`{ account }` in the commit), so a switch while the rest is
-   read back fails with `account_mismatch`. The remaining window is
-   between that last account read and the press, which no site API
-   closes: none binds a click to an account. The Google editors' keyboard
-   and menu writes (Sheets' paste, typed cells and Delete, Slides' typed
-   notes, Docs' typed append) send each batch of keys or a paste through
-   `press.input`, which reads the editor's account again (`{ account }`
-   and `{ inputs: "guarded" }` in the commit) right before that batch;
-   Drive's File > Move to trash is pressed like Send (pinned, read back
-   again, account last). A switch after the read-back fails with
+   again. Every commit gives the loader an account reader (`{ account }`;
+   a commit without one fails as `invalid` before it writes), and the
+   loader reads the account once more as the last step before each write:
+   before each press (Gmail's Send, Calendar's Save and invitation Send,
+   LinkedIn's and X's Post, Drive's File > Move to trash, Docs' and
+   Slides' Replace all), and before each batch of input or each request
+   that is not a click (`press.input`: the Google editors' paste, typed
+   cells, Delete, typed notes and typed append; Slack's
+   `chat.postMessage`; Notion's `saveTransactions`; a WebMCP tool call).
+   A commit whose act writes without `press` or `press.input` fails as
+   `commit_unverified`. A switch after the read-back fails with
    `account_mismatch` (`account_unverified` when the account cannot be
-   read) and that batch, and every later one, is not sent; batches sent
+   read) and that write, and every later batch, is not sent; batches sent
    before it stay sent (Slides' Delete of the old notes before a typed
-   line). A guarded commit whose act uses neither `press` nor
-   `press.input` fails as `commit_unverified`. The remaining window is
-   between the last account read and the batch reaching the page. Slack's
-   `chat.postMessage` checks the member again in the same page call
-   (`account_changed`); Notion reads and writes with
-   `x-notion-active-user-header` set to the drafted user, so Notion runs
-   the write as that user or refuses it; a WebMCP call runs only in the
-   listed document while the tool's descriptor is the previewed one
+   line). The remaining window is between that last account read and the
+   click or input reaching the page, which no site API closes: none binds
+   a click or keystroke to an account. The request writes also bind the
+   account in the request itself: Slack's `chat.postMessage` checks the
+   member again in the same page call (`account_changed`); Notion reads
+   and writes with `x-notion-active-user-header` set to the drafted user,
+   so Notion runs the write as that user or refuses it, and its
+   `saveTransactions` runs in the agent's isolated world under the
+   fixed-origin guard, so the page's own `fetch`, `XMLHttpRequest` or
+   `JSON` never see or change it; a WebMCP call runs only in the listed
+   document while the tool's descriptor is the previewed one
    (`page_changed`, `tool_changed`).
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
@@ -194,14 +196,14 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
 | `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, the whole body checked in the composer, the To, Cc and Bcc rows (address chips and typed addresses, no chip outside them) checked against the draft, and for a new message the subject (`target_mismatch` or `content_mismatch` on any difference, `*_unverified` for a field it cannot read); a reply's rows are those its draft read from Gmail's reply composer, so a changed Reply-To or Cc sends nothing, and a reply composer whose To row cannot be read, or that holds a chip outside its rows, fails closed with `target_unverified` at the draft and at Send; `to`, `cc` and `bcc` cannot be set on a reply; confirmed replies are off in source (`reply_unverified`, nothing sent; the draft still shows the recipients) until a live check, drafts only, shows that the previewed To, Cc and Bcc are the ones Gmail's own reply composer addresses (decision 12); the page's account (Google's account list for its `/u/` index, which its title and account button must name) checked against the drafted account id and email, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
-| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked as for Gmail, then the form checked against the draft right before Save (title exactly; start and end dates and times as shown, in `timeZone` or this Mac's (a named month, a year-first date, or a numeric date that reads only one way; a numeric date whose month and day could be either way round, such as `10/1/2026`, is not accepted); location and description with whitespace collapsed; the recurrence menu's words against the drafted rule: "Does not repeat" without one, else its frequency and interval, its weekdays (`BYDAY`) or day of the month (`BYMONTHDAY`, or one ordinal weekday such as `3TH`), the start's when the rule names none, the exact `COUNT` and the `UNTIL` date; a rule with any other part (`BYMONTH`, `BYSETPOS`, `WKST`, ...) is refused at the draft as `invalid`; the guests, organizer aside), failing with `target_mismatch` or `content_mismatch` (`*_unverified` for a field it cannot read) and saving nothing on any difference or a field it cannot read; Save, then, only when the draft has guests, the invitation dialog's Send, pressed like Save (the one Send in the dialog, pinned, after the form and account are read back again) | write [9], [14] |
+| `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, the event page's account checked as for Gmail, then the form checked against the draft right before Save (title exactly; start and end dates and times as shown, in `timeZone` or this Mac's (a named month, a year-first date, or a numeric date that reads only one way; a numeric date whose month and day could be either way round, such as `10/1/2026`, is not accepted); location and description with whitespace collapsed; the recurrence menu's words against the drafted rule: "Does not repeat" without one, else its frequency and interval, its weekdays (`BYDAY`) or day of the month (`BYMONTHDAY`, or one ordinal weekday such as `3TH`), the start's when the rule names none, the exact `COUNT` and the `UNTIL` date; a rule with any other part (`BYMONTH`, `BYSETPOS`, `WKST`, ...) is refused at the draft as `invalid`; the guests, organizer aside), failing with `target_mismatch` or `content_mismatch` (`*_unverified` for a field it cannot read) and saving nothing on any difference or a field it cannot read; Save, then, only when the draft has guests, the invitation dialog's Send, pressed like Save (the one Send in the dialog, pinned, after the form and account are read back again); the account is read once more, last, right before each of the two clicks | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
 | `youtube.search`, `.metadata`, `.captions`, `.comments` | desktop watch/results HTML (`ytInitialPlayerResponse`, `ytInitialData`, also as an escaped string), InnerTube `/youtubei/v1/next` | read |
 | `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A caption URL is fetched only when it is https on `www.youtube.com`, `m.youtube.com` or `youtube.com`, its path is `/api/timedtext` and its `v` is the requested video (track URLs come from page data); other tracks are skipped. A video with no track fails as `no_captions` | read |
 | `slack.workspaces()`, `.channels`, `.history`, `.replies`, `.search`, `.user`, `.call(team, readMethod, params)` | Slack Web API from an app.slack.com tab, token from that page's `localStorage`; every page call runs under the fixed-origin guard (`withOrigin`) on `https://app.slack.com`, rechecks the document's origin before each request, and sends the token only to that fixed origin's `/api/` (the web client boots in a separate tab, which a redirect to sign-in or SSO cannot turn into a call target) | read |
-| `slack.post({ team, channel, text, threadTs })` | draft with the workspace, member and channel ids and names; confirmed: one page call that runs `auth.test` with that workspace's token and, when it is the drafted member, `chat.postMessage` to those ids with the same token | write [9] |
+| `slack.post({ team, channel, text, threadTs })` | draft with the workspace, member and channel ids and names; confirmed: the member and channel read back, the member once more, then one page call that runs `auth.test` with that workspace's token and, when it is the drafted member, `chat.postMessage` to those ids with the same token | write [9] |
 | `notion.accounts()`, `.search(q, { spaceId })`, `.read(url)` | `/api/v3` (`getSpaces`, `search`, `loadPageChunk`, `syncRecordValues`) same-origin, on `app.notion.com`, else `www.notion.so`; `{ origin }` pins one of those two exactly and refuses any other | read |
-| `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues` and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user | write [9] |
+| `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues`, `getSpaces` once more, and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user, every call in the agent's isolated world | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
 | `linkedin.post({ text, audience })` | draft naming the member id and public identifier (account), and the member's name the composer posts as and the audience, `"anyone"` (shown as `Anyone`) or `"connections"` (`Connections only`), which the call must name: a public post is an explicit choice, and a draft without it fails with `invalid` (target); confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), the composer's header (`<name> Post to <audience>`, which keeps LinkedIn's last choice of identity and audience) checked, so a post as a company page or to another audience fails with `target_mismatch` and a header it cannot read with `target_unverified`, then Post (the button itself, never the header) | write [9] |
@@ -211,6 +213,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `github.assigned({ issues, pulls, state, limit })` | GitHub's own search (`/search?type=issues`, `assignee:@me`) answering JSON in the session, 10 per page | read |
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
 | `github.diff`, `.file` | `/pull/N.diff`, `/raw/REF/PATH` with the session | read |
+| GitHub repository names | `owner/repo` components are single path segments (letters, digits, `_`, `-`, `.`), never `.` or `..`, nothing encoded; `.file` paths and refs refuse empty, `.` and `..` segments; every issue, pull, diff, list and raw URL must still start with `https://github.com/owner/repo/` once parsed, else `invalid` before any request | read |
 | `linear.*` | client-api.linear.app GraphQL from a linear.app tab with the session | read |
 | `linear.query(text, variables, { operationName })` | the same; the document is first lexed and parsed as GraphQL (comments, commas, strings and block strings skipped). It is refused, with nothing sent, when it does not parse, holds a mutation or subscription anywhere, or holds several operations without an `operationName` naming one | read |
 | `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin, only on a site whose exact origin is in the signed-in account's `jira.sites()` list (read once per session, again when a site is missing); any other `*.atlassian.net` site fails as `invalid` before a request. When the domain policy blocks `home.atlassian.com` (`allowedDomains: ["*.atlassian.net"]`), the list cannot be read and every call fails closed as `blocked` before any request, naming `home.atlassian.com` to allow (a tenant's own `/myself` is not proof: anyone can create a tenant) | read |

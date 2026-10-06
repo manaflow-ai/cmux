@@ -366,3 +366,60 @@ test("Google editor keyboard and menu writes: an account switch after the confir
   }
   assert.deepEqual(failures, []);
 });
+
+// r21 sites#1: every confirmed write reads its account again as the last
+// step before the click or the request, in the loader's commit path.
+// Calendar read the account first and the form after it, so another
+// session's switch while the press read the form back saved the event as
+// the switched account.
+test("googleCalendar.create: an account switch while the press reads the form back saves nothing", async () => {
+  const listed = () => env.state.requests.filter((r) => r.url.includes("/ListAccounts")).length;
+  try {
+    await s.run('var gcP = await sites.googleCalendar.create({ title: "Bound at Save", start: "2026-10-03T17:00:00Z" })');
+    const start = listed();
+    // The press's read-back: the account (the second ListAccounts read of
+    // the confirmation), then the form; switch at its first form read.
+    s.intercept(async (method, params) => {
+      if (listed() - start >= 2 && JSON.stringify(params || {}).includes("Recurrence") && !env.state.googleAccounts) env.state.googleAccounts = SWITCHED();
+      return undefined;
+    });
+    const created = env.state.calendarCreated.length;
+    assert.match(await s.error("sites.googleCalendar.create(gcP.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.ok(env.state.googleAccounts, "the switch happened during the confirmation");
+    assert.equal(env.state.calendarCreated.length, created, "the event was saved as the switched account");
+  } finally {
+    s.intercept(null);
+    env.state.googleAccounts = null;
+  }
+});
+
+// Slack's chat.postMessage already checks the member in its own page call;
+// the commit reads the member last before it too, so the write is refused
+// as an account mismatch before any post request.
+test("slack.post: a member switch after the confirmation's read-back posts nothing (account_mismatch)", async () => {
+  try {
+    await s.run('var slP = await sites.slack.post({ team: "T01ACME", channel: "#eng", text: "Bound at the post" })');
+    env.state.slackSwitchOnInfo = "U09MAL";
+    const posts = env.state.slackPosts.length;
+    assert.match(await s.error("sites.slack.post(slP.id, { confirm: true })"), /account it acts as differs from the draft .*U09MAL/);
+    assert.equal(env.state.slackPosts.length, posts, "posted as mallory");
+  } finally {
+    env.state.slackSwitchOnInfo = null;
+    env.state.slackMemberNow = null;
+  }
+});
+
+test("notion.append: a user switch after the confirmation's read-back fails as account_mismatch before saveTransactions", async () => {
+  try {
+    await s.run(`var nP = await sites.notion.append(${JSON.stringify(NOTION_PAGE_URL)}, "Bound at the save.")`);
+    env.state.notionSwitchOnSync = NOTION_MALLORY;
+    const ops = env.state.notionOps.length;
+    const saves = env.state.requests.filter((r) => r.url.includes("saveTransactions")).length;
+    assert.match(await s.error("sites.notion.append(nP.id, { confirm: true })"), /account it acts as differs from the draft .*user-mallory/);
+    assert.equal(env.state.notionOps.length, ops, "appended as mallory");
+    assert.equal(env.state.requests.filter((r) => r.url.includes("saveTransactions")).length, saves, "a saveTransactions request left after the switch");
+  } finally {
+    env.state.notionUser = null;
+    env.state.notionSwitchOnSync = null;
+  }
+});

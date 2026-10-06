@@ -147,7 +147,10 @@
                   const found = (now.tools || []).find((x) => x.name === name);
                   return { page: page.url(), ...(found ? shape(found) : { tool: null }) };
                 },
-                () => run(page, c.intent.tool, c.intent.input, descriptor, at),
+                (press) => press.input(() => run(page, c.intent.tool, c.intent.input, descriptor, at)),
+                // The principal is the document: its URL again, last, right
+                // before the call (which itself runs only in that document).
+                { account: () => ({ page: page.url() }) },
               ),
           }));
         },
