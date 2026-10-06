@@ -83,8 +83,13 @@ pub(crate) struct CreateOutcome {
     pub replayed: bool,
 }
 
+#[path = "conversation_attachments.rs"]
+pub(crate) mod attachments;
+
 pub(crate) struct ConversationStore {
     connection: Connection,
+    /// Attachment bytes (`attachments/` beside the store) and uploads in flight.
+    attachments: attachments::Attachments,
 }
 
 impl std::fmt::Debug for ConversationStore {
@@ -108,10 +113,13 @@ impl ConversationStore {
             }
             None => Connection::open_in_memory()?,
         };
-        Self::initialize(connection)
+        Self::initialize(connection, attachments::Attachments::open(directory)?)
     }
 
-    fn initialize(mut connection: Connection) -> anyhow::Result<Self> {
+    fn initialize(
+        mut connection: Connection,
+        attachments: attachments::Attachments,
+    ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
             "PRAGMA journal_mode=WAL;
@@ -190,6 +198,7 @@ impl ConversationStore {
                token_hash TEXT NOT NULL
              ) WITHOUT ROWID;",
         )?;
+        transaction.execute_batch(attachments::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -197,7 +206,7 @@ impl ConversationStore {
             params![SCHEMA_VERSION.to_string()],
         )?;
         transaction.commit()?;
-        Ok(Self { connection })
+        Ok(Self { connection, attachments })
     }
 
     /// Mints the credential of agent `participant`: a random token whose SHA-256
@@ -445,6 +454,10 @@ fn apply_op_in(
         },
     )
     .map_err(rejected)?;
+    if let Op::MessageSend { parts, .. } | Op::MessageEdit { parts, .. } = op {
+        // The parts' hashes are this conversation's records, usable by the author.
+        attachments::check_parts(transaction, conversation, actor, parts)?;
+    }
     if let Op::MessageSend { parts, .. } = op {
         // After every reducer rule (the conformance corpus order), over the
         // head's loop-guard counters (no row window to fill with work cards).
@@ -454,6 +467,12 @@ fn apply_op_in(
     write_head(transaction, &commit.head)?;
     if let Some(message) = &commit.message {
         write_message(transaction, message)?;
+        if matches!(op, Op::MessageSend { .. } | Op::MessageEdit { .. } | Op::MessageRetract { .. })
+        {
+            let parts: &[cmux_conversation::Part] =
+                if message.retracted_at.is_some() { &[] } else { &message.parts };
+            attachments::write_refs(transaction, conversation, &message.id, parts)?;
+        }
     }
     let result = OpResult {
         rev: commit.head.rev,
@@ -808,7 +827,11 @@ mod tests {
                  INSERT INTO meta VALUES('schema_version', '3');",
             )
             .unwrap();
-        let error = ConversationStore::initialize(connection).unwrap_err();
+        let error = ConversationStore::initialize(
+            connection,
+            attachments::Attachments::open(None).unwrap(),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("unsupported conversation store schema 3"));
     }
 }

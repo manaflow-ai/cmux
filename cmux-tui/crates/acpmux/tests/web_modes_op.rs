@@ -17,12 +17,14 @@ fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
+            "fmine": {"argv": ["python3", FAKE], "family": "mine"},
             "fnomode": {"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}},
         },
         "defaultHarness": "fcodex",
         "permissionPolicy": "ask",
-        // "agent" (Codex's non-asking default) is refused; "ask-more" is added.
-        "webAskingModes": {"codex": ["agent", "ask-more"], "mine": ["careful"]},
+        // Codex is a refused family: both entries are ignored. "mine" gets
+        // the fake's "strict"; "bypassPermissions" never asks and is ignored.
+        "webAskingModes": {"codex": ["agent", "ask-more"], "mine": ["strict", "bypassPermissions"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -57,10 +59,11 @@ async fn the_unix_socket_reads_the_table_the_lists_and_a_session() {
     let r = call(&hub, Origin::Local, "_acpmux/web_modes", json!({})).await;
     let v = &r["result"];
     assert_eq!(v["families"]["claude"], json!(["default", "plan"]), "{r}");
-    assert_eq!(v["families"]["opencode"], json!(["plan"]), "{r}");
-    // The refused entry is not there; the asking default stays first.
-    assert_eq!(v["families"]["codex"], json!(["read-only", "ask-more"]), "{r}");
-    assert_eq!(v["families"]["mine"], json!(["careful"]), "{r}");
+    // Codex and opencode have no row, whatever config.json says (D10).
+    assert!(v["families"].get("codex").is_none(), "{r}");
+    assert!(v["families"].get("opencode").is_none(), "{r}");
+    assert_eq!(v["refusedFamilies"], json!(["codex", "opencode"]), "{r}");
+    assert_eq!(v["families"]["mine"], json!(["strict"]), "{r}");
     assert!(v.get("session").is_none(), "{r}");
     for f in ["modeId", "mode", "permissionMode", "approvalPolicy", "sandbox"] {
         assert!(v["modeFields"].as_array().unwrap().contains(&json!(f)), "{f}: {r}");
@@ -90,12 +93,11 @@ async fn the_unix_socket_reads_the_table_the_lists_and_a_session() {
 #[tokio::test]
 async fn asks_reports_the_guard_decision_for_a_config_value() {
     let hub = hub();
-    let s = session(&hub, "fcodex").await;
+    let s = session(&hub, "fmine").await;
     for (id, value, asks) in [
-        ("mode", "read-only", true),
-        ("mode", "ask-more", true),
-        ("mode", "agent", false),
-        ("mode", "agent-full-access", false),
+        ("mode", "strict", true),
+        ("mode", "normal", false),
+        ("mode", "bypassPermissions", false),
         ("model", "anything", true),
         ("effort", "high", true),
         ("approval_policy", "never", false),
@@ -103,6 +105,13 @@ async fn asks_reports_the_guard_decision_for_a_config_value() {
         let p = json!({"sessionId": s, "configId": id, "value": value});
         let r = call(&hub, Origin::Local, "_acpmux/web_modes", p).await;
         assert_eq!(r["result"]["session"]["asks"], json!(asks), "{id}={value}: {r}");
+    }
+    // A refused family never asks, not even for a model.
+    let c = session(&hub, "fcodex").await;
+    for (id, value) in [("mode", "read-only"), ("mode", "ask-more"), ("model", "anything")] {
+        let p = json!({"sessionId": c, "configId": id, "value": value});
+        let r = call(&hub, Origin::Local, "_acpmux/web_modes", p).await;
+        assert_eq!(r["result"]["session"]["asks"], json!(false), "codex {id}={value}: {r}");
     }
     // Without both configId and value: no asks.
     let r =

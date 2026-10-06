@@ -60,12 +60,18 @@ struct AgentCursorSnapshotBuilder {
         let window = controller.window
         let content = controller.content
         let space = window?.contentView.map(AgentCursorContentSpace.init)
-        let shown = content?.workspace.id
+        // The Home page draws the home workspace's chief conversation: that workspace is on screen.
+        let homePage = controller.shownTopPage == .home ? controller.topPages.views[.home] : nil
+        let shown = content?.workspace.id ?? homePage.flatMap { _ in services.home.homeWorkspace?.id }
         var rows: [String: AgentCursorRect] = [:]
         var panes: [AgentCursorVisibilitySnapshot.Pane] = []
-        if let location, let space, let content {
+        if let location, let space {
             if shown == location.workspace {
-                if let pane = pane(location.pane, target: target, content: content, space: space) { panes = [pane] }
+                if let content, let pane = pane(location.pane, target: target, content: content, space: space) {
+                    panes = [pane]
+                } else if let homePage, homePage.window != nil {
+                    panes = [Self.page(location.pane, target: target, view: homePage, space: space)]
+                }
             } else {
                 let sidebar = controller.sidebar.container.sidebarView
                 // The home workspace has no list row while the Home item shows: that item is its row.
@@ -91,6 +97,14 @@ struct AgentCursorSnapshotBuilder {
     }
 
     // MARK: Pane
+
+    /// A top page that draws `pane`'s content: the page's bounds are the
+    /// pane's frame and clip; it has no strip.
+    private static func page(_ key: String, target: String, view: NSView,
+                             space: AgentCursorContentSpace) -> AgentCursorVisibilitySnapshot.Pane {
+        let frame = AgentCursorRect(space.rect(view.bounds, from: view))
+        return AgentCursorVisibilitySnapshot.Pane(id: key, frame: frame, clip: frame, selectedTab: target, strip: nil, chips: [:], page: nil)
+    }
 
     private func pane(_ key: String, target: String, content: WorkspaceContentController,
                       space: AgentCursorContentSpace) -> AgentCursorVisibilitySnapshot.Pane? {

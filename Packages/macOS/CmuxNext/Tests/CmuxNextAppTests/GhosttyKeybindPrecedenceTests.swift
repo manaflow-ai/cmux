@@ -1,13 +1,15 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextSettings
 import CmuxNextTerminal
 import Testing
 
 /// GHOSTTY-CONFIG keybind precedence (plans/cmux-next/ghostty-config.md,
-/// "Keybinds"): cmux.json shortcuts > user Ghostty keybinds (focused
-/// terminal) > cmux defaults > Ghostty defaults, all resolved by the one
-/// binding table.
+/// "Keybinds"; PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS): cmux.json
+/// shortcuts > user Ghostty keybinds (app-wide; a terminal action or
+/// `unbind` takes the key from cmux's defaults) > cmux defaults > Ghostty
+/// defaults, all resolved by the one binding table.
 @MainActor
 struct GhosttyKeybindPrecedenceTests {
     typealias K = KeyInterceptionTests
@@ -38,18 +40,81 @@ struct GhosttyKeybindPrecedenceTests {
         #expect(Self.owner(services, try Self.commandD(), M.terminal) == .surface)
     }
 
-    /// Outside a terminal the user's Ghostty keybind is a fallback only:
-    /// cmux's default still runs.
-    @Test func outsideATerminalTheCmuxDefaultStillWins() throws {
+    /// The user's Ghostty keybind for an action cmux owns wins over cmux's
+    /// default app-wide (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS
+    /// amendment 3): in a page the routed action (Split Down) runs.
+    @Test func outsideATerminalTheUserGhosttyKeybindAlsoWins() throws {
         let services = Self.services(user: [Self.userLine])
-        #expect(Self.owner(services, try Self.commandD(), M.page) == .action("splitRight"))
+        #expect(Self.owner(services, try Self.commandD(), M.page) == .action("splitDown"))
+        let sidebar = M.focused(.terminal, tab: "t1", target: .sidebar(keyboard: false))
+        #expect(Self.owner(services, try Self.commandD(), sidebar) == .action("splitDown"))
     }
 
-    /// Copy mode takes every key before Ghostty, so a Ghostty keybind
-    /// cannot win there.
-    @Test func inCopyModeTheCmuxDefaultStillWins() throws {
+    /// Copy mode takes every key before Ghostty, so the dispatcher runs the
+    /// user's Ghostty keybind as its routed action there.
+    @Test func inCopyModeTheUserGhosttyKeybindRunsAsItsRoutedAction() throws {
         let services = Self.services(user: [Self.userLine])
-        #expect(Self.owner(services, try Self.commandD(), M.terminal, copyMode: true) == .action("splitRight"))
+        #expect(Self.owner(services, try Self.commandD(), M.terminal, copyMode: true) == .action("splitDown"))
+    }
+
+    // MARK: Terminal actions and unbind (claims)
+
+    static let controlShiftH = Shortcut("h", modifiers: [.control, .shift])
+    static func controlShiftHEvent() throws -> NSEvent { try K.key("H", keyCode: 4, [.control, .shift]) }
+
+    /// A Ghostty keybind that maps Ctrl-Shift-H to a terminal action (or
+    /// unbinds it) beats cmux's default Resize Pane Left on that key: the
+    /// terminal gets the key, and no cmux default runs anywhere else.
+    @Test func aGhosttyTerminalActionOrUnbindBeatsTheCmuxDefaultOnThatKey() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        #expect(Self.owner(services, try Self.controlShiftHEvent(), M.terminal) == .action("resizePaneLeft"))
+        services.keyRouter.loadGhosttyKeybinds([], defaults: [], claims: [Self.controlShiftH])
+        #expect(Self.owner(services, try Self.controlShiftHEvent(), M.terminal) == .surface)
+        #expect(Self.owner(services, try Self.controlShiftHEvent(), M.page) == .surface)
+        // The action keeps its other default key (Cmd-Ctrl-Left).
+        let arrow = try K.key(K.left, keyCode: 123, [.command, .control, .numericPad, .function])
+        #expect(Self.owner(services, arrow, M.terminal) == .action("resizePaneLeft"))
+    }
+
+    /// cmux.json still wins over a Ghostty claim on the same key.
+    @Test func aCmuxJsonShortcutBeatsAGhosttyClaim() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.keyRouter.loadGhosttyKeybinds([], defaults: [], claims: [Self.controlShiftH])
+        services.registry.setShortcutOverride(Self.controlShiftH, for: "equalizeSplits")
+        #expect(Self.owner(services, try Self.controlShiftHEvent(), M.terminal) == .action("equalizeSplits"))
+    }
+
+    /// Settings lists a claimed default as overridden by the Ghostty config,
+    /// read-only, with its source.
+    @Test func theKeyboardShortcutsPageListsAClaimedDefaultWithItsSource() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.keyRouter.loadGhosttyKeybinds([], defaults: [], claims: [Self.controlShiftH])
+        let list = KeybindingReports.pageList(["command": .string("resizePaneLeft")], registry: services.registry)
+        let rows = try #require(list.objectValue?["bindings"]?.arrayValue).compactMap(\.objectValue)
+        let claimed = try #require(rows.first { $0["key"]?.stringValue == "shift+ctrl+h" })
+        #expect(claimed["removed"] == .bool(true))
+        #expect(claimed["removedBy"] == .string("ghostty"))
+        #expect(claimed["source"] == .string("default"))
+    }
+
+    // MARK: Live layer
+
+    /// A Ghostty config reload that moves `goto_split:left` to another key
+    /// moves the binding, with no cmux.json change (the sync reloads the
+    /// layer from the config on every change; nothing is imported).
+    @Test func aConfigReloadChangingGotoSplitMovesTheBinding() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let y = GhosttyHostKeybind(key: .unicode(121), modifiers: [.command, .control], action: .gotoSplit(.left))
+        let u = GhosttyHostKeybind(key: .unicode(117), modifiers: [.command, .control], action: .gotoSplit(.left))
+        let commandControlY = try K.key("y", keyCode: 16, [.command, .control])
+        let commandControlU = try K.key("u", keyCode: 32, [.command, .control])
+        services.keyRouter.loadGhosttyKeybinds([y], defaults: [])
+        #expect(Self.owner(services, commandControlY, M.page) == .action("focusLeft"))
+        services.keyRouter.loadGhosttyKeybinds([u], defaults: [])
+        #expect(Self.owner(services, commandControlU, M.page) == .action("focusLeft"))
+        #expect(Self.owner(services, commandControlY, M.page) != .action("focusLeft"))
+        #expect(services.registry.shortcutOverrides.isEmpty)
+        #expect(services.registry.keyBindingLayers.user.isEmpty)
     }
 
     /// A cmux.json shortcut beats the user's Ghostty keybind, also in a terminal.

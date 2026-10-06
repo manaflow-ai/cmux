@@ -24,6 +24,8 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.animationBehavior = .alertPanel
+        // The close button stays visible (Lane 20: every window of its own
+        // shows it); Escape and Skip also dismiss.
         // A fixed size: content never grows the window.
         window.contentMinSize = OnboardingMetrics.windowSize
         window.contentMaxSize = OnboardingMetrics.windowSize

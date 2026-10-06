@@ -133,6 +133,7 @@ final class SidebarListView: NSView {
         var o = SidebarLayoutOptions()
         o.filterMatches = model.filterMatches
         o.showWorkspaceTabs = model.showWorkspaceTabs
+        o.showsSoleMachineHeader = true
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -207,10 +208,12 @@ final class SidebarListView: NSView {
             return section
         })
         var leaving: [SidebarRowView] = []
+        var replacedRows = false
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
             let placeholder = if case .emptySection = key { true } else { false }
             let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false
+            replacedRows = replacedRows || replaced
             if suppressed.contains(key) || !animate || placeholder || replaced {
                 recycle(view)
             } else {
@@ -221,7 +224,8 @@ final class SidebarListView: NSView {
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
-        decorations.setPill(pillFrame, animated: animate)
+        // A pill whose row the placeholder replaced at once leaves with it.
+        decorations.setPill(pillFrame, animated: animate && !(pillFrame == nil && replacedRows))
         decorations.setGap(gapFrame, animated: animate)
         let moves = {
             for (view, target) in targets {
@@ -288,6 +292,15 @@ final class SidebarListView: NSView {
         let clipHeight = enclosingScrollView?.contentView.bounds.height ?? 0
         let height = max(displayed.totalHeight, clipHeight)
         if frame.height != height { setFrameSize(NSSize(width: frame.width, height: height)) }
+    }
+    /// Exactly as wide as the visible clip, and as tall as the rows or the
+    /// clip, whichever is taller, on every clip resize too (nxdog56: a clip
+    /// that shrank after the rows were laid out kept the old height, so an
+    /// empty list showed a scroll bar and scrolled).
+    func fitToClip() {
+        guard let clip = enclosingScrollView?.contentView else { return }
+        if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
+        updateDocumentHeight()
     }
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width

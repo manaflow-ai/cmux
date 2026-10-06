@@ -23,6 +23,7 @@ extension HomeNativeTranscriptView {
         transcript.onCancelSend = { [weak binding] key in binding?.cancelSend(key) ?? false }
         transcript.onRefusal = { [weak self] _, rejection in self?.showRefusal(rejection) }
         binding.onRefusal = { [weak self] _, rejection in self?.showRefusal(rejection) }
+        binding.onSendNotDelivered = { [weak self] _, rejection in self?.showNotDelivered(rejection) }
         binding.onUnanswered = { [weak self] intent in self?.showUnanswered(intent) }
         registerForDraggedTypes(HomeAttachmentIntake.dragTypes)
     }

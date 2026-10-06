@@ -368,3 +368,40 @@ fn a_ledger_from_the_first_v2_build_gains_sequences() {
     open_schema(&mut connection);
     assert_eq!(group_ids(&connection), vec![json!("closed_old3"), json!("closed_old1")]);
 }
+
+/// Cmd-W of the last tab of a pane, then Cmd-Z inside the reap grace: the
+/// reopen reattaches the still-running terminal at the pane's end through a
+/// resource commit. Delta clients build their tree from v1 deltas, so that
+/// commit must send `tab-added` for the reattached view.
+#[test]
+fn a_reopen_that_reattaches_at_the_pane_end_emits_tab_added() {
+    let mux = Mux::new_for_test("closed-v2-reattach-end", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 3);
+    let pane = mux.with_state(|state| state.pane_of(tabs[0]).unwrap());
+    let terminal = mux.surface(tabs[2]).unwrap().terminal_public_id().cloned().unwrap();
+    assert!(mux.close_surface(tabs[2]).unwrap());
+    let closed = read(&mux, "closed.list", json!({}));
+
+    let events = mux.subscribe();
+    let reopened = mutate(&mux, "closed.reopen", json!({"closed": closed[0]["id"]}), "reattach");
+    let tab = TabPublicId::parse(reopened["tab_ids"][0].as_str().unwrap().to_string()).unwrap();
+    let surface = mux.with_state(|state| state.resource_indexes.tabs[&tab]);
+    let reattached = mux.surface(surface).unwrap().terminal_public_id().cloned();
+    assert_eq!(reattached, Some(terminal), "the reopen reattached the running terminal");
+    assert_eq!(
+        mux.with_state(|state| state.panes[&pane].tabs.clone()),
+        [tabs[0], tabs[1], surface]
+    );
+
+    let added = events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::TabAdded => Some(delta),
+            _ => None,
+        })
+        .find(|delta| delta.surface == Some(surface))
+        .expect("the reattached tab is announced with tab-added");
+    assert_eq!(added.pane, Some(pane));
+    assert_eq!(added.index, Some(2));
+    assert_eq!(added.entity["surface"], surface);
+}

@@ -35,6 +35,8 @@ enum MainMenu {
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
         ]))
         mainMenu.addItem(submenu(Strings.menuView, items: registry.makeMainMenuItems(for: .view)))
+        let server = registry.makeMainMenuItems(for: .server)
+        if !server.isEmpty { mainMenu.addItem(submenu(Strings.menuServer, items: server)) }
         // Zoom (`zoomWindow`) sits under Minimize, as in every Mac app.
         let zoomTitle = registry.title(for: "zoomWindow")
         let windowMenu = submenu(Strings.menuWindow, items: [

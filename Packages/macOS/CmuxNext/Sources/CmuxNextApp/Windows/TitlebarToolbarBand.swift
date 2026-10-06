@@ -129,19 +129,21 @@ final class TitlebarBandButton: NSButton {
     var menuProvider: (() -> NSMenu?)?
 
     override func rightMouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
         guard let menu = menuProvider?() else { return super.rightMouseDown(with: event) }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     /// A long press shows the menu like a browser's Back button; a click runs.
     override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
         guard menuProvider != nil, let window else { return super.mouseDown(with: event) }
         let deadline = Date().addingTimeInterval(NSEvent.doubleClickInterval)
         while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {
             if next.type == .leftMouseUp { sendAction(action, to: target); return }
         }
         if let menu = menuProvider?() {
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + Metrics.space1), in: self)
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: Metrics.space1), in: self)
         }
     }
 }

@@ -3,8 +3,9 @@ import Testing
 @testable import CmuxNextHome
 
 /// Leo's first-launch capture (op-next-look): capsule pills are banned in
-/// cmux-next. The first-run rows are small-radius rects with a hairline,
-/// never glass capsules. (The composer is MessagesLab's field, home-mac.md.)
+/// cmux-next. The first-run rows and the composer are small-radius
+/// rects with a hairline, never glass capsules. The composer is
+/// MessagesLab's measured field (its own tests pin its geometry).
 @MainActor
 @Suite struct HomeNoCapsuleTests {
     @Test func aFirstRunRowIsASmallRadiusRect() {

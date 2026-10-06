@@ -69430,6 +69430,23 @@
           }
         }
       }
+    },
+    "action.agent.openSessionWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Agent Session in New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを新しいワークスペースで開く"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

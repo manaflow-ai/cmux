@@ -6,6 +6,7 @@ mod agent_wrapper;
 mod app_control;
 mod attach;
 mod browser;
+mod cli_connection;
 mod coderouter;
 mod config;
 mod foreign_viewport;
@@ -30,6 +31,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use app_control::AppControlMessages;
 pub(crate) use attach::AttachMessages;
 pub(crate) use browser::BrowserMessages;
+pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
 pub(crate) use config::ConfigMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
@@ -115,6 +117,7 @@ pub(crate) struct Catalog {
     pub remote: RemoteMessages,
     pub config: ConfigMessages,
     pub attach: AttachMessages,
+    pub cli_connection: CliConnectionMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub app_control: AppControlMessages,
@@ -152,6 +155,7 @@ static ENGLISH: Catalog = Catalog {
     remote: remote::ENGLISH,
     config: config::ENGLISH,
     attach: attach::ENGLISH,
+    cli_connection: cli_connection::ENGLISH,
     sidebar: sidebar::ENGLISH,
 };
 
@@ -179,6 +183,7 @@ static JAPANESE: Catalog = Catalog {
     remote: remote::JAPANESE,
     config: config::JAPANESE,
     attach: attach::JAPANESE,
+    cli_connection: cli_connection::JAPANESE,
     sidebar: sidebar::JAPANESE,
 };
 

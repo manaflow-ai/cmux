@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30.
+// cmux-tui mux protocol 12, IR b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -20,6 +20,21 @@ pub type JsonValue = serde_json::Value;
 pub type PaneRef = serde_json::Value;
 #[rustfmt::skip]
 pub type TabRef = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivitySnapshot {
+    pub attached_clients: u32,
+    pub last_agent_action_at_ms: Nullable<u64>,
+    pub last_user_input_at_ms: Nullable<u64>,
+    pub live_agents: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivitySubscribeResult {
+    pub activity: ActivitySnapshot,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -356,9 +371,9 @@ pub struct ConversationPart {
     /// type work.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
-    /// type work.
+    /// type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub preview: Option<String>,
+    pub preview: Option<JsonValue>,
     /// type text.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub runs: Option<Vec<ConversationTextRun>>,
@@ -371,7 +386,7 @@ pub struct ConversationPart {
     /// type text.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-    /// Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties.
+    /// Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.
     #[serde(rename = "type")]
     pub type_: String,
     #[serde(flatten)]
@@ -451,7 +466,7 @@ pub struct ConversationSummary {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConversationTabRecord {
-    /// Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.
+    /// Agent session source (agent-session-tabs-v1); exclusive with the other sources.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub agent_session: Option<AgentSessionSource>,
     /// Conversation source: a conv_ id, with owner.
@@ -460,6 +475,9 @@ pub struct ConversationTabRecord {
     /// Conversation source: local or cloud.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
 }
 
 #[rustfmt::skip]

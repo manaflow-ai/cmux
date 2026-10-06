@@ -15,6 +15,7 @@ mod code_mode;
 mod coderouter;
 mod command;
 mod docs;
+mod extra_help;
 mod federation;
 mod lifecycle;
 #[cfg(unix)]
@@ -25,6 +26,7 @@ mod scope_help;
 mod screen_help;
 mod shorthand;
 mod surface;
+mod topology_help;
 mod wire;
 pub(super) use surface::Surface;
 
@@ -34,6 +36,7 @@ use std::path::PathBuf;
 
 use command::{CommandPlan, ParsedCommand};
 use screen_help::SCREEN_HELP;
+use topology_help::{PANE_HELP, TAB_HELP, TERMINAL_HELP, WORKSPACE_HELP};
 
 const PUBLIC_SCOPES: &[&str] = &[
     "machine",
@@ -259,8 +262,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
 #[cfg(unix)]
 fn run_app_scope(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
-    if has_help_option(&command_args) {
-        return None;
+    if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return extra_help::print(&command_args);
     }
     match app::parse(&command_args) {
         Ok(Some(_)) if global.all_sessions => Some(app::failure(
@@ -310,7 +313,7 @@ fn parse_command(
     command_args: Vec<String>,
     surface: Surface,
 ) -> Result<ParsedCommand, UsageError> {
-    let mut command_args = shorthand::normalize(&command_args)?;
+    let mut command_args = shorthand::normalize(&command_args, surface)?;
     federation::apply_qualifiers(&mut global, &mut command_args)?;
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
@@ -340,6 +343,9 @@ fn parse_command(
     }
     if command_args[0] == "daemon" {
         return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
+    }
+    if let Some(error) = extra_help::own_options_scope(&command_args[0]) {
+        return Err(error);
     }
     if command_args[0] == "help" {
         return match command_args.get(1) {
@@ -374,6 +380,9 @@ fn parse_command(
                 ) =>
             {
                 Some(format!("server {action}"))
+            }
+            [scope @ ("workspace" | "screen" | "pane" | "tab"), .., "rename"] => {
+                Some(format!("{scope} rename"))
             }
             [scope, ..] if surface.accepts(scope) => Some((*scope).to_string()),
             _ => None,
@@ -645,10 +654,13 @@ fn scope_help_for(
         "pane" => Cow::Borrowed(PANE_HELP),
         "tab" => Cow::Borrowed(TAB_HELP),
         "terminal" => Cow::Borrowed(TERMINAL_HELP),
-        "browser" => Cow::Borrowed(BROWSER_HELP),
-        "notification" => Cow::Borrowed(NOTIFICATION_HELP),
+        "workspace rename" | "screen rename" | "pane rename" | "tab rename" => {
+            Cow::Owned(topology_help::rename_help(scope))
+        }
+        "browser" => Cow::Borrowed(scope_help::BROWSER_HELP),
+        "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
-        "room" => Cow::Borrowed(ROOM_HELP),
+        "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
@@ -792,138 +804,6 @@ USAGE
   cmux client <selector> cell pixels set --width-px <n> --height-px <n>
 ";
 
-const WORKSPACE_HELP: &str = "\
-USAGE
-  cmux workspace list [--order session|personal]
-  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
-    [--expected-revision <revision>]
-  cmux workspace <selector> show|rename|move|focus|close
-  cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon]
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
-  cmux workspace <selector> layout apply [OPTIONS]
-  cmux workspace <selector> screen ...
-  cmux workspace [<selector>] status list
-  cmux workspace status list --all
-  cmux workspace [<selector>] status set <key> <text> [--icon <value>] [--color <value>]
-  cmux workspace [<selector>] status clear [<key>]
-  cmux workspace [<selector>] progress set <0..1>|--indeterminate [--label <value>]
-  cmux workspace [<selector>] progress clear
-  cmux workspace [<selector>] log append <text> [--level <level>] [--source <value>]
-  cmux workspace [<selector>] log list [--limit <1..200>]
-  cmux workspace [<selector>] log clear
-  cmux workspace placement list
-  cmux workspace group list [--room <room>]
-  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
-  cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
-    [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
-  cmux workspace group <group> delete
-  cmux workspace group <group> move --index <n>
-  cmux workspace group <group> add --workspace <selector> [--index <n>]
-  cmux workspace group remove --workspace <selector>
-
-Nested panes support split --right or --down. Without a selector, status,
-progress and log target the caller's workspace inside a cmux terminal, else
-the current one. Levels: info, progress, success, warning, error. Text that
-starts with a dash goes after --. --ephemeral creates an incognito workspace
-the session closes at its next start. Workspace groups and rooms are
-personal: they live in this Mac's home session. A group or room is named by
-its id or exact name. list --order personal gives the sidebar order: loose
-workspaces, and each group's workspaces where the group shows. --top-index
-puts a group right before the workspace at that placement index;
---clear-top-index puts it after every loose workspace.
-";
-
-const PANE_HELP: &str = "\
-USAGE
-  cmux pane list
-  cmux pane create [--correlation-key <value>]
-  cmux pane <selector> show|rename|focus|close
-  cmux pane <selector> split [--right|--down] [--ratio <value>]
-    [--viewport-width <fraction>] [--correlation-key <value>]
-  cmux pane <selector> focus direction <left|right|up|down>
-  cmux pane <selector> neighbor <left|right|up|down>
-  cmux pane <selector> swap --other-workspace <selector>
-    --other-screen <selector> --other-pane <selector>
-  cmux pane <selector> zoom [--enabled <bool>]
-  cmux pane <selector> split ratio set --split <id> --ratio <value>
-  cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
-  cmux pane <selector> tab ...
-";
-
-const TAB_HELP: &str = "\
-USAGE
-  cmux tab list
-  cmux tab <selector> show|rename|move|focus|close
-  cmux tab <selector> pin|unpin
-  cmux tab <selector> zoom <0.25..5>|reset|in|out
-  cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
-  cmux tab create terminal [--correlation-key <value>] [OPTIONS]
-  cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
-  cmux tab <selector> terminal|browser ...
-  cmux tab group list [--pane <pane_…>]
-  cmux tab group create --tabs <tab_…,...> [--name <value>] [--color <color>]
-  cmux tab group <group> show|ungroup|close
-  cmux tab group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
-  cmux tab group <group> add --tabs <tab_…,...> [--index <n>]
-  cmux tab group remove --tabs <tab_…,...>
-  cmux tab group <group> move [--pane <pane_…>] [--index <n>]
-  cmux tab group <group> save [--room <room>]
-  cmux tab group <group> split --pane <id> --edge <left|right|top|bottom> [--ratio <r>]
-  cmux tab group <group> column [--pane <id>|--screen <id>] [--after-column <id>] [--width <w>]
-  cmux tab group <group> new-workspace [--workspace-group <id>] [--index <n>]
-  cmux tab group <group> unsave
-  cmux tab group saved list [--room <room>]
-  cmux tab group saved <saved> reopen [--pane <pane_…>]
-  cmux tab group saved <saved> delete
-
-Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
-and leave their group. A group or saved group is named by its id or exact
-name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange.
-";
-
-const TERMINAL_HELP: &str = "\
-USAGE
-  cmux terminal list
-  cmux terminal <selector> show
-  cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
-  cmux terminal <selector> keys <key...>
-  cmux terminal <selector> mouse <kind> [OPTIONS]
-  cmux terminal <selector> focus <in|out>
-  cmux terminal <selector> screen read
-  cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
-  cmux terminal <selector> state read
-  cmux terminal <selector> history read|clear
-  cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
-  cmux terminal <selector> copy|process show [OPTIONS]
-  cmux terminal <selector> process wait [--timeout-ms <n>]
-  cmux terminal <selector> viewport scroll --delta-rows <n>
-  cmux terminal <selector> move|project|attach|close [OPTIONS]
-  cmux terminal <term_id> keep on|off
-
-screen wait prints its result either way and exits 1 when the timeout
-passes without a match. keep on stops the owner from ending the terminal
-when it has no tab; keep off lets it end after the reap grace period.
-";
-
-const BROWSER_HELP: &str = "\
-USAGE
-  cmux browser open <url> | --url <url> [OPTIONS]
-  cmux browser list
-  cmux browser <selector> show|navigate|back|forward|reload|activate
-  cmux browser <selector> key|text [OPTIONS]
-  cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
-  cmux browser <selector> attach|close [OPTIONS]
-";
-
-const NOTIFICATION_HELP: &str = "\
-USAGE
-  cmux notification list
-  cmux notification create --title <value> --body <value> [OPTIONS]
-";
-
 const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
@@ -934,27 +814,6 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
-";
-
-const ROOM_HELP: &str = "\
-USAGE
-  cmux room list
-  cmux room create --name <value> [--color <value>] [--icon <value>] [--theme <value>] [--index <n>]
-  cmux room <room> update [--name <value>] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon] [--theme <value>|--clear-theme]
-    [--browser-profile <id>|--clear-browser-profile]
-    [--default-session <id>|--clear-default-session]
-  cmux room <room> delete [--move-to <room>]
-  cmux room <room> move --index <n>
-  cmux room <room> follow --sessions <session,...>
-  cmux room <room> pin --workspace <selector>
-  cmux room unpin --workspace <selector>
-
-Rooms are personal views of this Mac's home session. A room shows the
-workspaces pinned to it and the unpinned workspaces of the sessions it
-follows; --sessions is the complete follow set (\"\" follows none). A
-workspace is pinned to at most one room. A room is named by its id or exact
-name.
 ";
 
 const SIDEBAR_HELP: &str = "\

@@ -158,7 +158,8 @@ import Testing
     @Test func aNotDeliveredSendSaysWhy() async throws {
         let (window, view, _, store, _) = try await host()
         defer { close(window, view, store) }
-        view.showNotDelivered(.invalid("attachments unsupported"))
+        view.binding.onSendNotDelivered(HomeIntent(op: .setReadCursor(conversation: ConversationID("c"), seq: 1)),
+                                        .invalid("attachments unsupported"))
         #expect(view.notice == "This conversation can’t receive attachments yet.")
         view.showNotDelivered(.notAuthorized)
         #expect(view.notice == "You can’t send messages in this conversation.")
@@ -249,9 +250,10 @@ import Testing
         #expect(view.notice == "You can’t send messages in this conversation.", "a background refusal shows in the composer notice")
     }
 
-    /// Each binding registers its conversation's hooks with the store: a
-    /// second Home of the same store keeps the first one's notices (lane 16
-    /// rule: never set `store.onRefusal` or `store.onUnanswered` directly).
+    /// Each Home's binding registers its conversation's hooks with the store:
+    /// a second Home of the same store gets only its own conversation's
+    /// notices (lane 16 rule: never set `store.onRefusal` or
+    /// `store.onUnanswered` directly; those hear only what no view does).
     @Test func twoHomesOfOneStoreEachGetTheirOwnNotices() async throws {
         let (window, view, _, store, id) = try await host()
         defer { close(window, view, store) }

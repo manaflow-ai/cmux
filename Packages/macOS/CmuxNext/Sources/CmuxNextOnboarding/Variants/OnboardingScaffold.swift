@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// A ready-made screen layout variants can use: title, one sentence, the
-/// control, and the footer (Skip, Continue). Every measure is on
+/// control, and the footer ("2 of 4", Skip, Continue). Every measure is on
 /// the 4 pt grid; `Style` picks alignment, title scale and spacing.
 @MainActor
 enum OnboardingScaffold {
@@ -61,9 +61,8 @@ enum OnboardingScaffold {
     }
 }
 
-/// "2 of 4" on the left (runs of more than three screens), Skip and
-/// Continue (Done on the last step, Import while the import step has a
-/// choice to run) on the right.
+/// "2 of 4" on the left, Skip and Continue (Done on the last step, Import
+/// while the import step has a choice to run) on the right.
 final class OnboardingFooter: NSView {
     private let context: OnboardingStepContext
     private var loop: RenderLoop?
@@ -75,7 +74,7 @@ final class OnboardingFooter: NSView {
         self.context = context
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count),
+        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count, step: context.model.step),
                                            font: OnboardingMetrics.captionFont, color: Palette.textTertiary)
         counter.isHidden = !showsCounter || !Self.showsCounter(count: context.count)
         let skip = OnboardingControl.plainButton(OnboardingStrings.skip, target: self, action: #selector(skipPressed))
@@ -90,7 +89,10 @@ final class OnboardingFooter: NSView {
         let model = context.model
         loop = RenderLoop { [weak next] in
             let title = model.primaryTitle
-            if next?.title != title { next?.title = title }
+            if next?.title != title {
+                next?.title = title
+                (next as? OnboardingAccentButton)?.refreshAppearance()
+            }
         }
     }
 

@@ -167,6 +167,9 @@ struct Shared {
     /// cancel it (classic `cancelFetches(ofEval:)`).
     cell: u64,
     last_cell: u64,
+    /// The session's file sandbox: a `download.finished` path becomes
+    /// readable before the runtime sees the event.
+    sandbox: Option<Arc<crate::fs_sandbox::FsSandbox>>,
 }
 
 impl Shared {
@@ -419,6 +422,12 @@ fn run(
                 }
             }),
             Some(Input::Event { name, payload }) => context.with(|ctx| {
+                if name == "download.finished"
+                    && let Some(path) = payload.get("path").and_then(Value::as_str)
+                    && let Some(sandbox) = shared.borrow().sandbox.clone()
+                {
+                    sandbox.allow_read(path);
+                }
                 if running.is_none() {
                     callback_deadline(&interrupt_at);
                 }
@@ -495,6 +504,7 @@ fn install(
     native.set("capabilities", config.capabilities.clone()).map_err(js)?;
     let sandbox = Arc::new(crate::fs_sandbox::FsSandbox::new(&config.cwd));
     native.set("tmpdir", sandbox.tmp().display().to_string()).map_err(js)?;
+    shared.borrow_mut().sandbox = Some(sandbox.clone());
     native.set("homedir", std::env::var("HOME").unwrap_or_else(|_| "/".into())).map_err(js)?;
     let resources: HashMap<String, String> = config.resources.iter().cloned().collect();
     native

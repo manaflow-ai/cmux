@@ -9,13 +9,14 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30";
+    public static final String IR_SHA256 = "b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
         Map<String, Object> object = Wire.object(value, "event");
         String event = Wire.string(Wire.required(object, "event"), "event.event");
         return switch (event) {
+            case "activity-changed" -> ActivityChangedEvent.fromWire(value);
             case "agent-changed" -> AgentChangedEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "bookmarks-changed" -> BookmarksChangedEvent.fromWire(value);

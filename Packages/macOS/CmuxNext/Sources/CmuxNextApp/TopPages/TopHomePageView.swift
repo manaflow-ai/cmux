@@ -21,6 +21,7 @@ final class TopHomePageView: NSView {
     private(set) var shown: ConversationID?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
+    private var chiefObservation: Task<Void, Never>?
 
     init(services: AppServices) {
         self.services = services
@@ -47,6 +48,7 @@ final class TopHomePageView: NSView {
     isolated deinit {
         rowsObservation?.cancel()
         selectionObservation?.cancel()
+        chiefObservation?.cancel()
     }
 
     static let listWidth: CGFloat = 280
@@ -86,6 +88,16 @@ final class TopHomePageView: NSView {
                 if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
             }
         }
+        // task-owner: lives as long as this view; event-driven (Observation). The chief placed
+        // on a paired server (G6) replaces the local chief while the page shows the local one.
+        chiefObservation = Task { [weak self] in
+            var previous = Self.chief(home)
+            for await chief in Observations({ Self.chief(home) }) {
+                guard let self, let chief, chief != previous else { continue }
+                if shown == nil || shown?.rawValue == previous { show(ConversationID(chief)) }
+                previous = chief
+            }
+        }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in
             for await pending in Observations({ (home.pendingSelection, store.rows.map(\.id)) }) {
@@ -106,10 +118,15 @@ final class TopHomePageView: NSView {
         }
     }
 
-    /// The local Chief's conversation, else the first listed conversation.
+    /// The Chief's conversation (the chief placed on a server, else the
+    /// local one: `HomeChiefSource`), else the first listed conversation.
     private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
-        if let chief = HomeChiefName.select(from: home.conversations) { return ConversationID(chief.id) }
+        if let chief = Self.chief(home) { return ConversationID(chief) }
         return HomeConversationList.lines(rows).lazy.compactMap(\.conversation).first
+    }
+
+    static func chief(_ home: HomeService) -> String? {
+        HomeChiefSource.choose(local: HomeChiefName.select(from: home.conversations)?.id, placed: home.cloudChief)
     }
 
     /// Shows `id` in the transcript column and selects it in the list.
