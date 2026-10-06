@@ -152,6 +152,11 @@ public struct DaemonCapabilities: Sendable {
     public let agentSessionTabs = "agent-session-tabs-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
+    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
+    /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
+    /// commands and their `cloud-*` events. Advertised only when the daemon
+    /// has the cloud transport installed.
+    public let cloudConversations = "cloud-conversations-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
@@ -206,7 +211,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, agentSessionTabs, conversationSearch,
+                                            workspaceKind, conversationTabs, agentSessionTabs, conversationSearch, cloudConversations,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead] }
 

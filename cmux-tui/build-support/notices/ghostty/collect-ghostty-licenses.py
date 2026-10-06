@@ -43,7 +43,7 @@ MAX_LICENSE_BYTES = 2 * 1024 * 1024
 # also changes this script, which keys the Ghostty helper caches.
 PINNED_LICENSES = Path(__file__).resolve().parent / "pinned-licenses"
 PINNED_MANIFEST_SHA256 = (
-    "a1a7298dd4ae562fd152f245a9ea9e27102b78b0e7e24f3930f1c5318a6c2773"
+    "197dbcbe3b62c40e6f666062b15c165950ba57a44ef3a736570745bf91391b3f"
 )
 
 
@@ -62,6 +62,8 @@ def load_known_licenses() -> dict[str, dict]:
     ghostty_vendored.validate_entries(manifest.get("vendored", {}), manifest["packages"])
     VENDORED.clear()
     VENDORED.update(manifest.get("vendored", {}))
+    SUPPLEMENTS.clear()
+    SUPPLEMENTS.update(manifest.get("supplements", {}))
     return manifest["packages"]
 
 
@@ -69,6 +71,28 @@ def load_known_licenses() -> dict[str, dict]:
 KNOWN_LICENSES: dict[str, dict] = {}
 # The reviewed Ghostty pkg/ and vendor/ directories (ghostty_vendored.py).
 VENDORED: dict[str, dict] = {}
+# Texts that a Zig package carries outside the files the license-name scan finds
+# (FreeType: LICENSE.TXT only points to docs/FTL.TXT and the BDF/PCF terms). Each
+# file names its `package_path` (with `#Lm-Ln` for a line range); the collector
+# ships it only when the fetched package holds exactly the pinned bytes there, and
+# a package of the same dependency with an unreviewed hash stops the collection.
+SUPPLEMENTS: dict[str, dict] = {}
+LINE_RANGE = re.compile(r"L([1-9][0-9]*)-L([1-9][0-9]*)")
+
+
+def package_text(package: Path, package_path: str) -> bytes:
+    """The bytes at `package_path` in a fetched package (a `#Lm-Ln` suffix: those lines)."""
+    file, _, lines = package_path.partition("#")
+    relative = PurePosixPath(file)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"supplement package path is unsafe: {package_path}")
+    data = package.joinpath(*relative.parts).read_bytes()
+    if not lines:
+        return data
+    match = LINE_RANGE.fullmatch(lines)
+    if match is None or int(match[1]) > int(match[2]):
+        raise ValueError(f"supplement line range is invalid: {package_path}")
+    return b"".join(data.splitlines(keepends=True)[int(match[1]) - 1 : int(match[2])])
 
 
 def digest(path: Path) -> str:
@@ -442,6 +466,40 @@ def main() -> int:
             ghostty_vendored.Tree.from_directory(source), VENDORED
         )
         unresolved.extend(problems)
+        # Supplementary texts of fetched packages (pinned-licenses "supplements").
+        fetched: dict[str, tuple[str, Path]] = {}
+        zig_pkg = source / ZIG_PKG_DIRECTORY
+        if zig_pkg.is_dir():
+            for package in zig_pkg.iterdir():
+                if package.is_dir():
+                    fetched.setdefault(package.name, ("ghostty-source", package))
+        for label, root in roots[1:]:
+            fetched.setdefault(root.name, (label, root))
+        for known_name, supplement in sorted(SUPPLEMENTS.items()):
+            reviewed = set(supplement["packages"])
+            for package_name, (label, package) in sorted(fetched.items()):
+                if package_name not in reviewed:
+                    declared = declarations.get(package_name)
+                    if declared is not None and declared[0] == supplement["dependency"]:
+                        raise ValueError(
+                            f"{supplement['dependency']} {package_name}: its supplementary license texts "
+                            f"({known_name} in pinned-licenses/MANIFEST.json) are reviewed for "
+                            f"{sorted(reviewed)}; review this version's license files and pin them"
+                        )
+                    continue
+                for item in supplement["files"]:
+                    content = PINNED_LICENSES.joinpath(*PurePosixPath(item["path"]).parts).read_bytes()
+                    if hashlib.sha256(content).hexdigest() != item["sha256"]:
+                        raise ValueError(f"pinned license digest changed for {item['path']}")
+                    if package_text(package, item["package_path"]) != content:
+                        raise ValueError(
+                            f"{package_name}/{item['package_path']} differs from the reviewed "
+                            f"{item['path']}; review the package's license text again"
+                        )
+                    record(
+                        label, package_name, f"{ZIG_PKG_DIRECTORY}/{package_name}/{item['package_path']}",
+                        str(item["filename"]), content, "zig-cache",
+                    )
         shipped: set[str] = set()
         for directory, known_name in pinned_dirs:
             if known_name in shipped:

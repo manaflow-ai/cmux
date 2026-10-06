@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settingsPage.invalidSearchTemplate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put {searchTerms} where the typed text goes, as in https://example.com/search?q={searchTerms}."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضع {searchTerms} حيث يوضع النص المكتوب، كما في https://example.com/search?q={searchTerms}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stavite {searchTerms} gdje ide upisani tekst, kao u https://example.com/search?q={searchTerms}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriv {searchTerms} der, hvor den indtastede tekst skal stå, som i https://example.com/search?q={searchTerms}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Setze {searchTerms} an die Stelle des eingegebenen Texts, wie in https://example.com/search?q={searchTerms}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pon {searchTerms} donde va el texto escrito, como en https://example.com/search?q={searchTerms}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placez {searchTerms} à l'endroit du texte saisi, comme dans https://example.com/search?q={searchTerms}."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metti {searchTerms} dove va il testo digitato, come in https://example.com/search?q={searchTerms}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力した文字が入る位置に {searchTerms} を書きます。例: https://example.com/search?q={searchTerms}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ {searchTerms} នៅកន្លែងអត្ថបទដែលបានវាយ ដូចក្នុង https://example.com/search?q={searchTerms}។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력한 텍스트가 들어갈 자리에 {searchTerms}를 넣으세요. 예: https://example.com/search?q={searchTerms}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriv {searchTerms} der den innskrevne teksten skal stå, som i https://example.com/search?q={searchTerms}."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wpisz {searchTerms} w miejscu wpisanego tekstu, jak w https://example.com/search?q={searchTerms}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Coloque {searchTerms} onde vai o texto digitado, como em https://example.com/search?q={searchTerms}."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставьте {searchTerms} на место введённого текста, как в https://example.com/search?q={searchTerms}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใส่ {searchTerms} ในตำแหน่งของข้อความที่พิมพ์ เช่น https://example.com/search?q={searchTerms}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazılan metnin geleceği yere {searchTerms} koyun, örneğin https://example.com/search?q={searchTerms}."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставте {searchTerms} на місце введеного тексту, як у https://example.com/search?q={searchTerms}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt {searchTerms} vào chỗ của văn bản đã nhập, như trong https://example.com/search?q={searchTerms}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在输入文字的位置写 {searchTerms}，例如 https://example.com/search?q={searchTerms}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在輸入文字的位置寫上 {searchTerms}，例如 https://example.com/search?q={searchTerms}。"
+          }
+        }
+      }
+    },
     "settingsWindow.add": {
       "extractionState": "manual",
       "localizations": {

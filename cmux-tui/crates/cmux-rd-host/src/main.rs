@@ -25,7 +25,6 @@ mod host;
 mod inject;
 #[cfg(target_os = "linux")]
 mod keymap;
-mod loss;
 mod marker;
 mod selftest;
 #[cfg(target_os = "linux")]

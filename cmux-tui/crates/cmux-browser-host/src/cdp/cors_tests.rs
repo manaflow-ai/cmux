@@ -71,15 +71,23 @@ fn a_guessed_or_replayed_token_is_stripped_and_relaxes_nothing() {
     assert!(!cors.active());
 }
 
+/// SHELL-REDIRECT-LNA option 1: the host follows redirects, so no hop is
+/// relaxed; a token request's redirect is read at the response stage.
 #[test]
-fn a_redirect_hop_of_the_token_request_stays_relaxed() {
+fn a_redirect_is_read_for_the_host_and_no_hop_is_relaxed() {
     let mut cors = granted();
     cors.on_request("T", "n1", "GET", URL, &token_request("t1"));
-    // The browser re-sends the header on the next hop, same network id.
+    let location = json!({"name": "Location", "value": "/next"});
+    cors.note_redirect("n1", 302, std::slice::from_ref(&location));
+    assert_eq!(cors.take_redirect("t1"), Some((302, "/next".to_owned())));
+    // A page request's redirect is nobody's.
+    cors.note_redirect("other", 302, &[location]);
+    assert_eq!(cors.take_redirect("t1"), None);
+    // A hop request with the used token (same network id) is stripped only.
     let hop = "https://cdn.peer.test/data";
-    let action = cors.on_request("T", "n1", "GET", hop, &token_request("t1"));
+    let action = cors.on_request("T", "n9", "GET", hop, &token_request("t1"));
     assert!(matches!(action, RequestAction::ContinueWith { .. }));
-    assert!(cors.on_response("n1", hop, &[]).is_some());
+    assert_eq!(cors.on_response("n9", hop, &[]), None, "a hop is not relaxed");
 }
 
 #[test]

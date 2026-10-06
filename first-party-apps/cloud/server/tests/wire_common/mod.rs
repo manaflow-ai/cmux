@@ -72,6 +72,14 @@ impl WireFake {
             lose_next: 0,
         };
         for case in doc["cases"].as_array().expect("cases") {
+            // The server calls only the ops it serves; a backend-only op
+            // (`cloud.machine.link_token`, minted for `cmux link`) is never
+            // its request, and its session and install vectors may share
+            // params because the backend keys them by principal kind.
+            let op = case["op"].as_str().expect("op");
+            if cmux_cloud::ops::canonical_name(op).is_none() {
+                continue;
+            }
             let agent = case["principal"].get("agent").is_some_and(|a| !a.is_null());
             let route = Route {
                 name: case["name"].as_str().expect("name").to_owned(),

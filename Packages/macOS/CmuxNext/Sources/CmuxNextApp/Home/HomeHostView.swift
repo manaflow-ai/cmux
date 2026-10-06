@@ -20,6 +20,8 @@ final class HomeHostView: NSView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(conversation: id, me: service.homeSource.me.id)
+        // The binding opens the conversation now and `binding.stop()` in
+        // deinit closes it, however early the tab closes.
         binding = HomeStoreBinding(store: service.homeStore, controller: transcript.controller)
         super.init(frame: .zero)
         // Paste, drop and the picker attach files through the store; refusals
@@ -30,8 +32,6 @@ final class HomeHostView: NSView {
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
-        // task-owner: one snapshot read; ends with its reply
-        Task { await service.homeStore.open(id) }
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             for await (available, online) in Observations({ (service.isAvailable, service.homeStore.isOnline) }) {

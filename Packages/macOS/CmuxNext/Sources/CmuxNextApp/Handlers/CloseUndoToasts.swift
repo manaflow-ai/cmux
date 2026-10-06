@@ -43,6 +43,13 @@ final class CloseUndoToasts {
     private(set) var announced = 0
     private(set) var announcedEmpty = 0
     private(set) var recentDaemonItems: [(id: String, pane: String?, tabs: Int, matched: Bool)] = []
+    /// The last reopen (`DaemonClosedHistory.reopen`): time to the daemon's
+    /// reply and to the store holding the reopened objects (`debug.filepages`).
+    private(set) var lastReopen: (id: String, reply: Duration, applied: Duration?)?
+
+    func noteReopen(id: String, reply: Duration, applied: Duration?) {
+        lastReopen = (id, reply, applied)
+    }
     private var observation: Task<Void, Never>?
     static let toastID = "tab-closed"
 

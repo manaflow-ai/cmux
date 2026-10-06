@@ -7,7 +7,7 @@ use super::channel::{Carrier, CarrierEvent};
 use super::dial::DialCode;
 use super::supervisor::{LinkFailure, LinkState};
 use crate::api::models::MachineStatus;
-use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes};
+use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes, event_line};
 use crate::ops::Server;
 use crate::rescue::{MISSING_ROUTE, RESCUE_KIND};
 use cmux_terminal_iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
@@ -16,6 +16,10 @@ use serde_json::{Value, json};
 pub const LINK_REVOKED: &str = "cmux.cloud.link_revoked";
 pub const LINK_DOWN: &str = "cmux.cloud.link_down";
 pub const LINK_UNAVAILABLE: &str = "cmux.cloud.link_unavailable";
+
+/// The server event of a link change (the daemon broadcasts it to apps
+/// clients as `cmux.cloud.link.changed`).
+pub(crate) const LINK_CHANGED: &str = "cloud.link.changed";
 
 pub(crate) const CONNECT: &str = "cloud.machine.connect";
 pub(crate) const DISCONNECT: &str = "cloud.machine.disconnect";
@@ -34,19 +38,30 @@ pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<V
     };
     events
         .into_iter()
-        .map(|event| match event {
-            CarrierEvent::Up { carrier } => json!({ "type": "event", "event": "cloud.link.changed",
-                "machine": carrier.target, "state": "up", "carrier": carrier.id,
-                "generation": carrier.generation }),
-            CarrierEvent::Down { target, generation, retryable, reason, .. } => json!({
-                "type": "event", "event": "cloud.link.changed", "machine": target,
-                "state": "down", "generation": generation, "retryable": retryable,
-                "reason": reason, "error_code": refusal(&target) }),
-            CarrierEvent::Revoked { target, reason, .. } => json!({ "type": "event",
-                "event": "cloud.link.changed", "machine": target, "state": "revoked",
-                "reason": reason, "error_code": refusal(&target) }),
+        .map(|event| {
+            let code = match &event {
+                CarrierEvent::Up { .. } => Value::Null,
+                CarrierEvent::Down { target, .. } | CarrierEvent::Revoked { target, .. } => {
+                    refusal(target)
+                }
+            };
+            event_line(LINK_CHANGED, link_change(event, code))
         })
         .collect()
+}
+
+/// The `data` of one `cloud.link.changed` line (`error_code`: the typed
+/// `link.dial` refusal that ended the link, or null).
+fn link_change(event: CarrierEvent, error_code: Value) -> Value {
+    match event {
+        CarrierEvent::Up { carrier } => json!({ "machine": carrier.target, "state": "up",
+            "carrier": carrier.id, "generation": carrier.generation }),
+        CarrierEvent::Down { target, generation, retryable, reason, .. } => json!({
+            "machine": target, "state": "down", "generation": generation,
+            "retryable": retryable, "reason": reason, "error_code": error_code }),
+        CarrierEvent::Revoked { target, reason, .. } => json!({ "machine": target,
+            "state": "revoked", "reason": reason, "error_code": error_code }),
+    }
 }
 
 /// Ops whose answer is live link state and must never be replayed.
@@ -393,4 +408,42 @@ fn rescue_open<C: ControlPlane>(
         "kind": RESCUE_KIND,
         "focus": origin == Origin::User || focus,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every field of a link change is under `data` (the daemon broadcasts
+    /// only `data`), revoked and down included.
+    #[test]
+    fn revoked_and_down_lines_carry_their_fields_under_data() {
+        let code = json!("host_paused");
+        let revoked = CarrierEvent::Revoked {
+            target: "vm-alpha01".into(),
+            reason: "the app's permission was revoked".into(),
+            generation: Some(3),
+        };
+        let line = event_line(LINK_CHANGED, link_change(revoked, code));
+        assert_eq!(
+            line,
+            json!({ "type": "event", "event": "cloud.link.changed", "data": {
+                "machine": "vm-alpha01", "state": "revoked",
+                "reason": "the app's permission was revoked", "error_code": "host_paused" } })
+        );
+        let down = CarrierEvent::Down {
+            target: "vm-alpha01".into(),
+            generation: 2,
+            retryable: true,
+            reason: "exit 1".into(),
+            opened: true,
+        };
+        let line = event_line(LINK_CHANGED, link_change(down, Value::Null));
+        assert_eq!(
+            line,
+            json!({ "type": "event", "event": "cloud.link.changed", "data": {
+                "machine": "vm-alpha01", "state": "down", "generation": 2, "retryable": true,
+                "reason": "exit 1", "error_code": null } })
+        );
+    }
 }

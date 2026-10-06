@@ -339,8 +339,31 @@ async function configureRoles(ctx: Ctx): Promise<void> {
 export const VM_AGENT_PATH = "/opt/cmux/guest/vm-agent.ts";
 
 /** systemd units for the VM agent: started by bind.json (path unit) or at boot when bound; never at bake. */
-export function vmAgentUnits(): { path: string; service: string } {
+export function vmAgentUnits(): { path: string; service: string; resumeTimer: string; resumeService: string } {
   return {
+    // A VM resume sets the realtime clock; OnClockChange turns that into one event (no polling).
+    resumeTimer: [
+      "[Unit]",
+      "Description=cmux VM agent: report after a resume (realtime clock change)",
+      "",
+      "[Timer]",
+      "OnClockChange=yes",
+      "Unit=cmux-vm-agent-resume.service",
+      "",
+      "[Install]",
+      "WantedBy=timers.target",
+      "",
+    ].join("\n"),
+    resumeService: [
+      "[Unit]",
+      "Description=cmux VM agent: resume notice",
+      "ConditionPathExists=/var/lib/cmux/bound.json",
+      "",
+      "[Service]",
+      "Type=oneshot",
+      `ExecStart=/usr/local/bin/bun ${VM_AGENT_PATH} --notify-resume`,
+      "",
+    ].join("\n"),
     path: [
       "[Unit]",
       "Description=cmux VM agent trigger (the driver wrote bind.json)",
@@ -381,11 +404,13 @@ async function installVmAgent(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_AGENT_PATH, readFileSync(path.join(GUEST_DIR, "vm-agent.ts")), 0o644);
   await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.path", units.path, 0o644);
   await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.service", units.service, 0o644);
+  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent-resume.timer", units.resumeTimer, 0o644);
+  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent-resume.service", units.resumeService, 0o644);
   ctx.result.vmAgent = await L.step(vm, "vm-agent-enable", [
     `d="$(mktemp -d)" && /usr/local/bin/bun build --target=bun --outdir "$d" ${VM_AGENT_PATH} >/dev/null && rm -rf "$d"`,
     "systemctl daemon-reload",
-    "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service",
-    "systemctl start cmux-vm-agent.path",
+    "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service cmux-vm-agent-resume.timer",
+    "systemctl start cmux-vm-agent.path cmux-vm-agent-resume.timer",
     "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
     "test \"$(systemctl is-active cmux-vm-agent.service)\" != active",
     "echo vm-agent-armed",
