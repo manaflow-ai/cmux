@@ -34,7 +34,7 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == (["browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+            == (["agent.openSessionWorkspace", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "commandPaletteNext", "commandPalettePrevious", "history.goTo", "list.next", "list.previous",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"]

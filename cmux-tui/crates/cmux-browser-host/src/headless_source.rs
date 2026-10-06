@@ -16,7 +16,7 @@ use crate::driver::{Driver, EventSink, Reply, RequestFilter, RequestInfo};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp, LeaseTable};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider::LeaseState;
-use crate::tab_source::{TabCall, TabRow, TabSource};
+use crate::tab_source::{PolicyLogSink, TabCall, TabRow, TabSource};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,6 +39,12 @@ pub struct HeadlessSource {
     filters: Mutex<HashMap<u64, SessionFilter>>,
     /// Which session gets each event (item 4c).
     routes: Mutex<crate::headless_routes::Routes>,
+    /// Each subscriber's policy log (D2 log).
+    policy_logs: Mutex<HashMap<u64, PolicyLogSink>>,
+    /// Tab -> the sessions that called it (bounded: per tab until
+    /// `tab.closed`, per session until its end). When the last one leaves,
+    /// the input it left pressed is released.
+    driven: Mutex<HashMap<String, HashSet<u64>>>,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -88,6 +94,8 @@ impl HeadlessSource {
             leases: Mutex::default(),
             filters: Mutex::default(),
             routes: Mutex::default(),
+            policy_logs: Mutex::default(),
+            driven: Mutex::default(),
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
@@ -144,6 +152,12 @@ impl HeadlessSource {
     }
 
     fn drive(self: &Arc<Self>, session: u64, target: &str) {
+        self.driven
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(target.to_owned())
+            .or_default()
+            .insert(session);
         let changed = self
             .filters
             .lock()
@@ -157,6 +171,18 @@ impl HeadlessSource {
 }
 
 impl HeadlessSource {
+    /// A tab's URL ("" when the tab is gone).
+    fn tab_url(&self, target: &str) -> String {
+        let Ok(Value::Array(tabs)) = self.driver.call("tabs.list", &json!({})) else {
+            return String::new();
+        };
+        tabs.iter()
+            .find(|tab| tab["targetId"] == target)
+            .and_then(|tab| tab["url"].as_str())
+            .unwrap_or("")
+            .to_owned()
+    }
+
     fn routes(&self) -> std::sync::MutexGuard<'_, crate::headless_routes::Routes> {
         self.routes.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -169,6 +195,11 @@ impl HeadlessSource {
         let sinks: Vec<(u64, EventSink)> =
             self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let attached = |session: u64| sinks.iter().any(|(s, _)| *s == session);
+        if event.name == "tab.closed"
+            && let Some(target) = event.payload.get("targetId").and_then(Value::as_str)
+        {
+            self.driven.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
+        }
         let route = self.routes().route(&event, &attached);
         match route {
             Route::Everyone => sinks.iter().for_each(|(_, sink)| sink(event.clone())),
@@ -198,7 +229,25 @@ impl HeadlessSource {
                     "download" => "dropped",
                     _ => "cancelled",
                 };
-                self.routes().log_unrouted(unrouted_entry(&event, action));
+                let url = self.tab_url(target.as_str().unwrap_or(""));
+                let entry = unrouted_entry(&event, action, &url);
+                let log_session = {
+                    let mut routes = self.routes();
+                    routes.log_unrouted(entry.clone());
+                    routes.log_session(target.as_str().unwrap_or(""))
+                };
+                // The tab's opener, while it is attached, sees it in its
+                // own policy log.
+                let sink = log_session.filter(|s| attached(*s)).and_then(|session| {
+                    self.policy_logs
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .get(&session)
+                        .cloned()
+                });
+                if let Some(sink) = sink {
+                    sink(entry);
+                }
             }
         }
     }
@@ -221,6 +270,11 @@ impl TabSource for SharedHeadless {
 
     fn unsubscribe(&self, id: u64) {
         self.0.subscribers.lock().unwrap_or_else(PoisonError::into_inner).retain(|(s, _)| *s != id);
+        self.0.policy_logs.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+    }
+
+    fn policy_log(&self, id: u64, sink: PolicyLogSink) {
+        self.0.policy_logs.lock().unwrap_or_else(PoisonError::into_inner).insert(id, sink);
     }
 
     /// The browser's tabs; every tab of the profile shares its data store.
@@ -337,9 +391,20 @@ impl TabSource for SharedHeadless {
         if !reads {
             self.0.routes().call_started(call.session, call.target_id);
         }
-        let result = self.dispatch(call);
+        let mut result = self.dispatch(call);
         if !reads {
             self.0.routes().call_ended(call.session, call.target_id);
+        }
+        // Host diagnostics for the person only: the events of this tab no
+        // session took (the host's bounded log, D2).
+        if call.method == "tab.info"
+            && call.origin == "user"
+            && let Ok(Reply::Value(Value::Object(info))) = &mut result
+        {
+            info.insert(
+                "unroutedEvents".into(),
+                Value::Array(self.0.routes().unrouted_for(call.target_id)),
+            );
         }
         result
     }
@@ -368,6 +433,21 @@ impl TabSource for SharedHeadless {
 
     fn session_ended(&self, session: u64) {
         self.0.routes().session_ended(session);
+        // The last session left these tabs: release what was left pressed.
+        let left: Vec<String> = {
+            let mut driven = self.0.driven.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut left = Vec::new();
+            driven.retain(|target, sessions| {
+                if sessions.remove(&session) && sessions.is_empty() {
+                    left.push(target.clone());
+                }
+                !sessions.is_empty()
+            });
+            left
+        };
+        for target in left {
+            let _ = self.0.driver.release_held_input(&target);
+        }
         let removed = self
             .0
             .filters

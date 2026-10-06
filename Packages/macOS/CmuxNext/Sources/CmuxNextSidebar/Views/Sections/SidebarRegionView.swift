@@ -143,12 +143,13 @@ final class SidebarRegionView: NSView {
                 let view = itemViews[id] ?? makeItem(id)
                 let style: SidebarItemRowView.Style = switch row.kind {
                 // An icon-only built-in item (the account, an icon-only Settings)
-                // rests on the tile fill in every arrangement (R97).
+                // has no fill until hover in every arrangement (Lawrence
+                // 2026-10-05: "account icon should not have bg unless i hover").
                 case .tile:
                     switch SectionFlow.mode(section, look: content.look) {
                     case .tiles?: .favorite
-                    case .grid?: .tile
-                    default: item.ref.builtIn != nil ? .tile : .icon
+                    case .grid?: item.ref.builtIn != nil ? .icon : .tile
+                    default: .icon
                     }
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
