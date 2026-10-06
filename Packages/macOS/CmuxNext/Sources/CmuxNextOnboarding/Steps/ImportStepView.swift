@@ -78,8 +78,10 @@ final class ImportStepView: NSView {
             list.arrangedSubviews.forEach { $0.removeFromSuperview() }
             rows = [:]
             let apps = Dictionary(model.sources.map { ($0.browser, $0.appURL) }, uniquingKeysWith: { first, _ in first })
+            let blockedBrowsers = Set(model.sources.filter(\.needsFullDiskAccess).map(\.browser))
             for profile in profiles {
                 let row = ImportProfileRow(profile: profile, appURL: apps[profile.browser] ?? nil,
+                                           needsFullDiskAccess: blockedBrowsers.contains(profile.browser),
                                            onAccess: { [weak model] in model?.openFullDiskAccessSettings() }) { [weak model] in model?.toggle(profile) }
                 rows[profile.id] = row
                 list.addArrangedSubview(row)

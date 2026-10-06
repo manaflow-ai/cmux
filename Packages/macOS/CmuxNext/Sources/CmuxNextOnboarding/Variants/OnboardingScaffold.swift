@@ -88,7 +88,10 @@ final class OnboardingFooter: NSView {
         let model = context.model
         loop = RenderLoop { [weak next] in
             let title = model.primaryTitle
-            if next?.title != title { next?.title = title }
+            if next?.title != title {
+                next?.title = title
+                (next as? OnboardingAccentButton)?.refreshAppearance()
+            }
         }
     }
 
