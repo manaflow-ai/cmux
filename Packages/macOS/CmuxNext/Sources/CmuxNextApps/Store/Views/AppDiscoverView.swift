@@ -64,9 +64,10 @@ struct AppDiscoverView: View {
                     chip(AppsStrings.category(id), selected: model.category == id) { model.category = model.category == id ? nil : id }
                 }
             }
-            .modifier(AppStoreColumnModifier(enabled: model.layout != .split, fallbackPadding: Metrics.space5))
             .padding(.vertical, Metrics.space3)
         }
+        // On the scroll view: inside it the column gets an unbounded width and stays at the edge.
+        .modifier(AppStoreColumnModifier(enabled: model.layout != .split, fallbackPadding: Metrics.space5))
     }
 
     private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -76,7 +77,7 @@ struct AppDiscoverView: View {
                 .foregroundStyle(selected ? colors.primary : colors.secondary)
                 .padding(.horizontal, Metrics.space3)
                 .padding(.vertical, Metrics.space1)
-                .background(Capsule().fill(selected ? colors.selection : colors.hover))
+                .background(RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous).fill(selected ? colors.selection : colors.hover))
         }
         .buttonStyle(.plain)
     }
