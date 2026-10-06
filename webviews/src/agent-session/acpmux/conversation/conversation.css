@@ -1000,6 +1000,109 @@ pre.cv-math-source {
   border-radius: 8px;
 }
 
+/* A shell mode command's block (shell/ShellRow.tsx): the command in mono after a `!` in the
+   theme's magenta, one status slot (Stop while it runs, then exit status and time), "Open in
+   terminal" always there, and the end of the output. Small radius, no pills. */
+.acpmux-shell-block {
+  margin: 4px 0 8px;
+  border-radius: 6px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+  font: 13px/20px var(--cv-font);
+}
+.acpmux-shell-block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 6px 0 10px;
+}
+.acpmux-shell-block-glyph {
+  flex: none;
+  font: 600 12.5px/20px var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--agent-ansi-5, #d670d6);
+}
+.acpmux-shell-block-command {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12.5px/20px var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--agent-text);
+}
+.acpmux-shell-block-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-shell-block-ok {
+  display: inline-flex;
+  color: var(--cv-text-muted);
+}
+.acpmux-shell-block-failed {
+  color: var(--agent-danger);
+}
+.acpmux-shell-block button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--cv-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.acpmux-shell-block button:hover {
+  background: var(--agent-control-hover);
+  color: var(--agent-text);
+}
+.acpmux-shell-block button:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+.acpmux-shell-block kbd {
+  font: 11px/16px var(--cv-font);
+  color: var(--cv-text-muted);
+}
+.acpmux-shell-block-output {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 2px 12px 8px 26px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/18px var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--agent-soft, var(--agent-text));
+}
+.acpmux-shell-block-cut {
+  color: var(--cv-text-muted);
+  font: italic 11.5px/18px var(--cv-font);
+}
+.acpmux-shell-block-error {
+  color: var(--agent-danger);
+  font-family: var(--cv-font);
+}
+.acpmux-shell-block-more {
+  margin: 0 0 6px 20px;
+}
+.acpmux-shell-block .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* The preview card before the reader loads its frame (PreviewCard.tsx): the same height as the
    frame, so loading it does not move the transcript. */
 .acpmux-turn-preview-unloaded {

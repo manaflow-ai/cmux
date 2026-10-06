@@ -116,15 +116,16 @@ enum NewTabPage {
         return .some(trimmed.isEmpty ? nil : trimmed + "\n")
     }
 
-    /// The page a new tab shows beside `selected`: that tab's kind
-    /// selected, its folder inherited, and the location bar's suggestions.
+    /// The page a new tab shows beside `selected`: its folder inherited and
+    /// the location bar's suggestions, with the field empty.
     static func page(_ services: AppServices, selected: TabModel?) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         return AgentPaneNewTab(
             kind: kind(selectedID: selectedID, selectedKind: selected?.kind),
+            // The source tab's folder is what the page's chat or terminal starts in; the field
+            // itself always starts empty, with its placeholder (never `~` or a URL).
             hotkeys: hotkeys, cwd: selected?.cwd,
-            location: selected.flatMap { $0.kind == .browser ? $0.url : $0.cwd.map(abbreviated) },
             omnibar: omnibar(services, excluding: selectedID),
             projects: projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue,
