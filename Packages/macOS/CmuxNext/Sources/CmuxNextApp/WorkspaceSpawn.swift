@@ -22,6 +22,11 @@ struct WorkspaceSpawn: Sendable {
     /// Runs once the daemon reports the workspace and its window lists it
     /// (after the slot is applied), with the window's sidebar.
     var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+    /// A person's new workspace (sidebar +, the New tile, Cmd-N, first
+    /// launch, a new window) opens on the New Tab page; scripts and a spawn
+    /// with a `command` get a terminal. Also a terminal where the page
+    /// cannot run (a Cloud machine, a build without the agent page).
+    var opensNewTabPage = false
 
     init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
          profile: ProfileID? = nil) {
