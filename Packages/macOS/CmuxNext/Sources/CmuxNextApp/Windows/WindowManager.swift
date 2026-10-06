@@ -187,7 +187,7 @@ final class WindowManager {
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        if Self.needsFirstWorkspace(services.daemon.store.workspaces, leftover: leftover) {
+        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
             _ = await createWorkspace()
         }
         let restoredRegistry = WindowRegistry(records: document.windows)
@@ -217,14 +217,6 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
-    }
-
-    /// A tree with no workspace of the user's own gets one at launch.
-    /// Leftover incognito and ephemeral workspaces do not count, nor does
-    /// the store's home workspace, which exists from the first connect
-    /// (`HomeService.ensureHomeWorkspace`) and holds only the Chief tab.
-    static func needsFirstWorkspace(_ workspaces: [WorkspaceModel], leftover: [String]) -> Bool {
-        !workspaces.contains { !leftover.contains($0.id) && !$0.ephemeral && $0.kind != "home" }
     }
 
     /// The launch window takes the frontmost saved window's identity and
