@@ -63,25 +63,11 @@ enum DebugKey {
             }
             window = devTools
         }
-        let name = params["key"]?.stringValue ?? ""
-        let key = named[name.lowercased()] ?? (name, ansiKeyCodes[name.lowercased()] ?? 0)
-        var flags: NSEvent.ModifierFlags = []
-        for modifier in params["modifiers"]?.arrayValue ?? [] {
-            switch modifier.stringValue {
-            case "cmd", "command": flags.insert(.command)
-            case "shift": flags.insert(.shift)
-            case "option", "alt": flags.insert(.option)
-            case "control", "ctrl": flags.insert(.control)
-            default: break
-            }
-        }
-        if key.keyCode >= 123 && key.keyCode <= 126 { flags.formUnion([.numericPad, .function]) }
-        if [115, 116, 117, 119, 121].contains(key.keyCode) { flags.insert(.function) }
-        // AppKit delivers Shift-Tab as back-tab (U+0019), as a real key does.
-        let characters = key.keyCode == 48 && flags.contains(.shift) ? "\u{19}" : key.characters
+        let press = keyPress(params["key"]?.stringValue ?? "", modifiers: (params["modifiers"]?.arrayValue ?? []).compactMap(\.stringValue))
+        let flags = press.flags
         guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
-                                           windowNumber: window.windowNumber, context: nil, characters: characters,
-                                           charactersIgnoringModifiers: characters, isARepeat: false, keyCode: key.keyCode)
+                                           windowNumber: window.windowNumber, context: nil, characters: press.characters,
+                                           charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
         else { return .object(["error": .string("bad key")]) }
         let registry = services.registry
         let previous = registry.isDispatchingKeyDown
@@ -150,6 +136,27 @@ enum DebugKey {
             report.merge(verdict(interception)) { _, new in new }
         }
         return .object(report)
+    }
+
+    /// The key-down `debug.key` sends for `name` (a key name such as `return`, or the character
+    /// typed) and `modifiers` (`cmd`, `shift`, `option`, `control`).
+    static func keyPress(_ name: String, modifiers: [String]) -> (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) {
+        let key = named[name.lowercased()] ?? (name, ansiKeyCodes[name.lowercased()] ?? 0)
+        var flags: NSEvent.ModifierFlags = []
+        for modifier in modifiers {
+            switch modifier {
+            case "cmd", "command": flags.insert(.command)
+            case "shift": flags.insert(.shift)
+            case "option", "alt": flags.insert(.option)
+            case "control", "ctrl": flags.insert(.control)
+            default: break
+            }
+        }
+        if key.keyCode >= 123 && key.keyCode <= 126 { flags.formUnion([.numericPad, .function]) }
+        if [115, 116, 117, 119, 121].contains(key.keyCode) { flags.insert(.function) }
+        // AppKit delivers Shift-Tab as back-tab (U+0019), as a real key does.
+        let characters = key.keyCode == 48 && flags.contains(.shift) ? "\u{19}" : key.characters
+        return (characters, key.keyCode, flags)
     }
 
     /// What debug.key reports for an intercepted chord: the action when it ran.
