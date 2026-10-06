@@ -295,3 +295,23 @@ public struct BrowserReplPageClipboard {
         }
     }
 }
+
+/// A hold on script paste being off in a user's tab while an agent's input
+/// or page script runs there (``BrowserReplPageClipboard/holdScriptPasteOff(in:sleeper:lingering:)``).
+@MainActor
+public final class BrowserReplScriptPasteHold {
+    /// Ends the hold.
+    public func release() {}
+}
+
+extension BrowserReplPageClipboard {
+    /// Turns script paste off in `webView` for an agent's input or page
+    /// script there.
+    public static func holdScriptPasteOff(
+        in webView: WKWebView,
+        sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock()),
+        lingering: Duration = BrowserReplTabOwnership.agentGestureLingering
+    ) -> BrowserReplScriptPasteHold? {
+        BrowserReplScriptPasteHold()
+    }
+}
