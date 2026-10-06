@@ -548,10 +548,8 @@ fn human_error_lines(error: &Value) -> String {
     let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
     let mut text = sanitize_human_block(message);
     text.push('\n');
-    if let Some(candidates) = error
-        .get("details")
-        .and_then(|details| details.get("candidates"))
-        .and_then(Value::as_array)
+    if let Some(candidates) =
+        error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
     {
         for candidate in candidates {
             if let Some(candidate) = candidate.as_str() {

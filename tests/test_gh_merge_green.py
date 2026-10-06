@@ -1,11 +1,13 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
 import copy
+import json
 import importlib.util
 from pathlib import Path
 import unittest
 import subprocess
 import tempfile
 import os
+import shlex
 import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -257,6 +259,15 @@ class InstalledHelperRegression(unittest.TestCase):
                 "printf '%s\\n' \"$@\" > \"$VALIDATOR_MARKER\"\n"
             )
             python.chmod(0o755)
+            gh = directory / "gh"
+            gh.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1 $2\" = 'pr view' ]; then printf '%s\\n' '{\"headRefOid\":\""
+                + HEAD
+                + "\",\"baseRefName\":\"main\",\"labels\":[]}'; exit 0; fi\n"
+                "exit 2\n"
+            )
+            gh.chmod(0o755)
             result = subprocess.run(
                 [str(symlink), "manaflow-ai/cmux#42", "--main-fix", "--squash"],
                 cwd=directory,
@@ -272,16 +283,22 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_args=(), event_log=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=()):
         gh = Path(directory) / "gh"
+        checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
+        checks.extend(
+            {"id": index + 2, "name": name, "status": status, "conclusion": conclusion}
+            for index, (name, status, conclusion) in enumerate(extra_checks)
+        )
+        check_payload = shlex.quote(json.dumps([{"check_runs": checks}]))
         gh.write_text(
             "#!/bin/sh\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
-            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\"}'; exit 0; fi\n"
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
-            "printf '%s\\n' '[{\"check_runs\":[{\"id\":1,\"name\":\"" + check_name + "\",\"status\":\"completed\",\"conclusion\":\"" + check_conclusion + "\"}]}]'; exit 0; fi\n"
+            "printf '%s\\n' " + check_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
@@ -294,6 +311,48 @@ class InstalledHelperRegression(unittest.TestCase):
             text=True,
         )
 
+    def test_exploration_label_refuses_before_merging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, labels=("exploration",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("exploration PR, needs a decision from Leo or the team before merging.", result.stderr)
+
+    def test_exploration_label_refuses_main_fix_before_validator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            symlink = directory / "gh-merge-green"
+            symlink.symlink_to(ROOT / "scripts/gh-merge-green")
+            validator_marker = directory / "validator-called"
+            python = directory / "python3"
+            python.write_text("#!/bin/sh\ntouch \"$VALIDATOR_MARKER\"\n")
+            python.chmod(0o755)
+            gh = directory / "gh"
+            gh.write_text(
+                "#!/bin/sh\n"
+                "if [ \"$1 $2\" = 'pr view' ]; then printf '%s\\n' '{\"headRefOid\":\""
+                + HEAD
+                + "\",\"baseRefName\":\"main\",\"labels\":[{\"name\":\"exploration\"}]}'; exit 0; fi\n"
+                "exit 2\n"
+            )
+            gh.chmod(0o755)
+            result = subprocess.run(
+                [str(symlink), "manaflow-ai/cmux#42", "--main-fix", "--squash"],
+                cwd=directory,
+                env={
+                    **os.environ,
+                    "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                    "VALIDATOR_MARKER": str(validator_marker),
+                    "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1",
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(validator_marker.exists())
+            self.assertIn("exploration PR, needs a decision from Leo or the team before merging.", result.stderr)
+
     def test_ci_status_is_required_on_the_exact_head(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
@@ -305,6 +364,34 @@ class InstalledHelperRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
             result = self.run_helper(directory, marker)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_feat_next_native_and_release_checks_are_required_when_reported(self):
+        names = (
+            "cmux-next Release compile (Xcode 26)",
+            "cmux app scheme compile (Debug)",
+            "cmux-next swift test",
+        )
+        for name, status, conclusion in (
+            (names[0], "in_progress", ""),
+            (names[1], "completed", "failure"),
+        ):
+            with self.subTest(name=name, status=status, conclusion=conclusion), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, extra_checks=[(name, status, conclusion)])
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn(name, result.stderr)
+                self.assertIn("REPAIR.md#merging", result.stderr)
+
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(
+                directory,
+                marker,
+                extra_checks=[(name, "completed", "success") for name in names],
+            )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 
@@ -350,7 +437,7 @@ class InstalledHelperRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             gh = Path(directory) / "gh"
             marker = Path(directory) / "merged"
-            gh.write_text("#!/bin/sh\ncase \"$*\" in\n*'pr view'*) echo '" + HEAD + " feat-cmux-next';;\n*'pulls/42') echo '{\"state\":\"open\",\"head\":{\"sha\":\"" + HEAD + "\"},\"base\":{\"sha\":\"" + BASE + "\",\"ref\":\"feat-cmux-next\"}}';;\n*'pr merge'*) touch \"$MERGE_MARKER\";;\n*) echo '[]';;\nesac\n")
+            gh.write_text("#!/bin/sh\ncase \"$*\" in\n*'pr view'*) echo '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"labels\":[]}';;\n*'pulls/42') echo '{\"state\":\"open\",\"head\":{\"sha\":\"" + HEAD + "\"},\"base\":{\"sha\":\"" + BASE + "\",\"ref\":\"feat-cmux-next\"}}';;\n*'pr merge'*) touch \"$MERGE_MARKER\";;\n*) echo '[]';;\nesac\n")
             gh.chmod(0o755)
             result = subprocess.run([str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--main-fix", "--squash"], env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -414,14 +501,16 @@ class InstalledHelperRegression(unittest.TestCase):
 class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
-    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None):
+    def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
+                 raw_content=None, app_workflow_body=None):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
             queries = directory / "queries"
             payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
-                       "statuses": statuses or [], "app_workflow": app_workflow, "files": files or []}
+                       "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
+                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -440,7 +529,13 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     code = 200 if present else x['probe_status']
                     print('HTTP/2.0 ' + str(code))
                     print()
-                    print('{}')
+                    body = x['app_workflow_body'] if any('ci-macos.yml' in arg for arg in a) else x['workflow_body']
+                    if x['raw_content'] is not None and not any('ci-macos.yml' in arg for arg in a):
+                        print(json.dumps(x['raw_content']))
+                    elif body is not None:
+                        print(json.dumps({'encoding': 'base64', 'content': __import__('base64').b64encode(body.encode()).decode()}))
+                    else:
+                        print('{}')
                     sys.exit(0 if code == 200 else 1)
                 elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
                     print(json.dumps([{'check_runs': x['checks']}]))
@@ -492,6 +587,40 @@ class WorkflowPresenceRegression(unittest.TestCase):
 
     def test_present_ci_workflow_still_requires_ci_status(self):
         result, merged, _ = self.run_case(workflow=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn('ci-status', result.stderr)
+
+    def test_ci_workflow_without_a_ci_status_job_merges_all_green_checks(self):
+        tests_only = "name: CI\non: pull_request\njobs:\n  tests:\n    runs-on: macos-15\n    steps:\n      - run: swift test\n"
+        result, merged, _ = self.run_case(workflow=True, workflow_body=tests_only)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        result, merged, _ = self.run_case(workflow=True, workflow_body=tests_only,
+                                          checks=[{'id': 1, 'name': 'tests', 'status': 'completed', 'conclusion': 'failure'}])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+
+    def test_ci_workflow_with_a_ci_status_job_requires_it(self):
+        aggregate = "jobs:\n  tests:\n    runs-on: x\n  # ci-status: in a comment does not count\n  ci-status:\n    needs: [tests]\n"
+        result, merged, _ = self.run_case(workflow=True, workflow_body=aggregate)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn('ci-status', result.stderr)
+
+    def test_unreadable_workflow_body_still_requires_ci_status(self):
+        # The contents API returns empty content with encoding "none" for files over 1 MB.
+        for raw in ({'encoding': 'none', 'content': ''}, {'content': None}, {'encoding': 'base64', 'content': ''}):
+            with self.subTest(raw=raw):
+                result, merged, _ = self.run_case(workflow=True, raw_content=raw)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('ci-status', result.stderr)
+
+    def test_ci_status_job_in_the_app_workflow_requires_it(self):
+        tests_only = "jobs:\n  tests:\n    runs-on: x\n"
+        result, merged, _ = self.run_case(workflow=True, workflow_body=tests_only, app_workflow=True,
+                                          app_workflow_body="jobs:\n    'ci-status': # aggregate\n      needs: [tests]\n")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
         self.assertIn('ci-status', result.stderr)

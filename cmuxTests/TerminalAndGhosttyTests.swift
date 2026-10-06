@@ -1107,10 +1107,11 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertNotNil(
-            panel.surface.surface,
+        // The first creation waits on the command shim install (see waitUntil), so a
+        // fixed 50 ms turn races it under load.
+        XCTAssertTrue(
+            waitUntil { panel.surface.surface != nil },
             "A direct AppKit-hosted terminal view must create its runtime surface once it enters a real window."
         )
         XCTAssertGreaterThan(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(), 0)

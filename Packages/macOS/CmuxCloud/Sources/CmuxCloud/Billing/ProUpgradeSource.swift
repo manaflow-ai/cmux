@@ -22,6 +22,8 @@ public enum ProUpgradeSource: String, CaseIterable, Sendable {
     case settingsCloudMachines = "mac_settings_cloud_machines"
     /// Machines panel empty state: plan does not include Cloud machines.
     case machinesPanelRequiresPro = "mac_machines_panel_requires_pro"
+    /// "Introducing cmux Cloud" welcome window, Free plan.
+    case cloudWelcome = "mac_cloud_welcome"
     /// Machines panel nudge under the create button.
     case machinesPanelUpgradeNudge = "mac_machines_panel_upgrade_nudge"
     /// Machines panel free-access countdown / expired banner.
@@ -30,6 +32,8 @@ public enum ProUpgradeSource: String, CaseIterable, Sendable {
     case machinesPanelMachineAction = "mac_machines_panel_machine_action"
     /// New machine sheet refused because the free plan is at its limit.
     case newMachineAtLimit = "mac_new_machine_at_limit"
+    /// "Upgrade Plan" on a create that failed at the plan's machine limit.
+    case createFailedAtLimit = "mac_create_failed_at_limit"
     /// New machine sheet "Upgrade to Max" under the locked 32 GB / 64 GB sizes.
     case newMachineSheetMaxUpgrade = "mac_new_machine_sheet_max_upgrade"
     /// Link inside the `vm_memory_requires_plan` error text (`VMClient`).

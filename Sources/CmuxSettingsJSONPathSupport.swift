@@ -202,6 +202,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTab.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingAgentSession",
+            defaultsKey: app.warnBeforeClosingAgentSession.userDefaultsKey
+        ),
+        .init(
             jsonKey: "warnBeforeClosingTabXButton",
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
@@ -482,6 +486,10 @@ enum BrowserSettingsFileMapping {
         .init(
             jsonKey: "askWhereToSaveDownloads",
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "showLinkHoverURL",
+            defaultsKey: SettingCatalog().browser.showLinkHoverURL.userDefaultsKey
         ),
         .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",

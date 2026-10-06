@@ -5430,6 +5430,10 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs
         )
+        try validateBrowserProfileMutationCommandBeforeSocket(
+            command: command,
+            commandArgs: commandArgs
+        )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
             try validateNotificationCommandArguments(command: command, args: commandArgs)
@@ -6259,23 +6263,50 @@ struct CMUXCLI {
                 let (explicitFocus, focusRest) = try parseOpenFocusFlags(rest, command: "vm fork")
                 let (nameOpt, rem0) = parseOption(focusRest, name: "--name")
                 let (windowOpt, rem1) = parseOption(rem0, name: "--window")
-                let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
-                let vmArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
+                let (workspaceOpt, rem2) = parseOption(rem1, name: "--workspace")
+                let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
+                let vmArgs = rem2.filter { $0 != "--detach" && $0 != "-d" }
                 guard vmArgs.count == 1, let vmId = vmArgs.first, !vmId.hasPrefix("-") else {
                     throw CLIError(message: """
-                        Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--focus|--no-focus] [--detach|-d]
+                        Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--workspace <id|ref|index>] [--focus|--no-focus] [--detach|-d]
 
                         Find an id:
                           cmux vm ls
                         """)
                 }
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+                let targetWorkspace: String? = if let workspaceOpt {
+                    try normalizeWorkspaceHandle(workspaceOpt, client: client)
+                } else {
+                    nil
+                }
+                // Same store-based idempotency as `vm new`: a retry of a fork whose
+                // outcome is unknown (timeout, dropped transport, still running) joins
+                // the first attempt instead of copying the source a second time. The
+                // reserved workspace scopes the key, so separate Fork clicks differ.
+                let idempotency = try Self.activeVMCreateIdempotency(
+                    image: "fork=\(vmId)" + (nameOpt.map { " name=\($0)" } ?? ""),
+                    provider: nil,
+                    workspace: targetWorkspace
+                )
                 var params: [String: Any] = [
                     "id": vmId,
-                    "idempotency_key": UUID().uuidString.lowercased(),
+                    "idempotency_key": idempotency.key,
                 ]
                 if let nameOpt { params["name"] = nameOpt }
-                let response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                let response: [String: Any]
+                do {
+                    response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                } catch let error as CLIError {
+                    // A definitive backend failure is replayed under its key; only an
+                    // in-flight or unknown outcome keeps the key for the retry.
+                    if let backendCode = error.vmBackendCode, backendCode != "vm_create_in_progress" {
+                        Self.clearVMCreateIdempotency(idempotency)
+                    }
+                    throw error
+                }
+                // The copy exists now; a failed attach must not replay this fork.
+                Self.clearVMCreateIdempotency(idempotency)
                 if jsonOutput {
                     print(jsonString(response))
                     break
@@ -6293,10 +6324,14 @@ struct CMUXCLI {
                 }
                 print("Forked Cloud VM \(id)")
                 print("  snapshot: \(snapshotId ?? "native fork")")
+                // Same machine-readable receipt as `vm new`: the app's pending
+                // Fork row adopts the machine from this token.
+                print("OK machine=\(id)")
                 try vmOpenShell(
                     id: id,
                     workspaceName: nil,
                     windowRaw: targetWindow,
+                    targetWorkspaceId: targetWorkspace,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
                     focus: explicitFocus ?? Self.defaultFocusForUserOpen(),
@@ -10433,6 +10468,13 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: "reorder-workspace",
+            valueOptions: Self.reorderWorkspaceValueOptions,
+            flags: ["--dry-run"],
+            maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+        )
         let workspaceRaw = optionValue(commandArgs, name: "--workspace")
             ?? firstPositionalArgument(commandArgs, valueOptions: Self.reorderWorkspaceValueOptions)
         guard let workspaceRaw else {
@@ -10479,6 +10521,13 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: "reorder-workspaces",
+            valueOptions: ["--order", "--window"],
+            flags: ["--dry-run"],
+            maxPositionals: 0
+        )
         guard let orderRaw = optionValue(commandArgs, name: "--order") else {
             throw CLIError(message: String(
                 localized: "cli.reorderWorkspaces.error.missingOrder",
@@ -11094,6 +11143,14 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            flags: ["--force"],
+            // A positional target is only room for one when --workspace isn't given.
+            maxPositionals: requireWorkspaceFlag || optionValue(commandArgs, name: "--workspace") != nil ? 0 : 1
+        )
         let target: String?
         if requireWorkspaceFlag {
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
@@ -11103,7 +11160,7 @@ struct CMUXCLI {
         } else {
             let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            target = workspaceArg ?? firstPositionalArgument(rem1, valueOptions: [])
         }
 
         var params: [String: Any] = [:]
@@ -11129,6 +11186,13 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            // A positional target is only room for one when --workspace isn't given.
+            maxPositionals: requireWorkspaceFlag || optionValue(commandArgs, name: "--workspace") != nil ? 0 : 1
+        )
         let target: String?
         if requireWorkspaceFlag {
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
@@ -11138,7 +11202,7 @@ struct CMUXCLI {
         } else {
             let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            target = workspaceArg ?? firstPositionalArgument(rem1, valueOptions: [])
         }
 
         var params: [String: Any] = [:]
@@ -11172,6 +11236,13 @@ struct CMUXCLI {
 
         switch mode {
         case .legacy:
+            // Every remaining word is the title; `--` lets a title start with a dash.
+            try rejectUnexpectedArguments(
+                commandArgs,
+                commandName: commandName,
+                valueOptions: ["--workspace", "--window"],
+                maxPositionals: .max
+            )
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (windowOpt, rem1) = parseOption(rem0, name: "--window")
             let windowRaw = windowOpt ?? windowOverride
@@ -11185,10 +11256,16 @@ struct CMUXCLI {
             wsId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: winId)
 
         case .namespace:
+            try rejectUnexpectedArguments(
+                commandArgs,
+                commandName: commandName,
+                valueOptions: ["--title", "--workspace", "--window"],
+                maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+            )
             let (titleOpt, rem0) = parseOption(commandArgs, name: "--title")
             let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
             let (_, rem2) = parseOption(rem1, name: "--window")
-            let positional = rem2.first(where: { !$0.hasPrefix("--") })
+            let positional = firstPositionalArgument(rem2, valueOptions: [])
             let target = workspaceArg ?? positional
             guard let titleOpt else {
                 throw CLIError(message: "\(commandName) requires --title <new>")
@@ -11617,9 +11694,15 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: ["--workspace", "--window"],
+            maxPositionals: optionValue(commandArgs, name: "--workspace") == nil ? 1 : 0
+        )
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let positional = firstPositionalArgument(rem1, valueOptions: [])
         let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         // With an explicit --window and no workspace argument, target that
         // window's selected workspace on the server instead of the caller's
@@ -16615,6 +16698,289 @@ struct CMUXCLI {
         return (result.status, result.stdout, result.stderr)
     }
 
+    func browserProfileArguments(
+        _ values: [String],
+        allowedFlags: Set<String> = [],
+        commandName: String
+    ) throws -> (positionals: [String], flags: Set<String>) {
+        var positionals: [String] = []
+        var flags: Set<String> = []
+        var pastTerminator = false
+
+        for value in values {
+            if pastTerminator {
+                positionals.append(value)
+                continue
+            }
+            if value == "--" {
+                pastTerminator = true
+                continue
+            }
+            if allowedFlags.contains(value) {
+                flags.insert(value)
+                continue
+            }
+            if value.hasPrefix("-") {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.readSelection.error.unexpectedArguments",
+                        defaultValue: "%@: unexpected arguments: %@"
+                    ),
+                    commandName,
+                    value
+                ))
+            }
+            positionals.append(value)
+        }
+        return (positionals, flags)
+    }
+
+    func rejectBrowserProfileExtras(_ values: ArraySlice<String>, commandName: String) throws {
+        guard !values.isEmpty else { return }
+        throw CLIError(message: String(
+            format: String(
+                localized: "cli.readSelection.error.unexpectedArguments",
+                defaultValue: "%@: unexpected arguments: %@"
+            ),
+            commandName,
+            values.joined(separator: " ")
+        ))
+    }
+
+    func validateBrowserProfileMutationArguments(
+        _ values: [String],
+        valueOptions: Set<String> = [],
+        allowedFlags: Set<String> = [],
+        commandName: String
+    ) throws {
+        var index = 0
+        var pastTerminator = false
+        while index < values.count {
+            let value = values[index]
+            if pastTerminator {
+                index += 1
+                continue
+            }
+            if value == "--" {
+                pastTerminator = true
+                index += 1
+                continue
+            }
+            if allowedFlags.contains(value) {
+                index += 1
+                continue
+            }
+            if let equal = value.firstIndex(of: "="), value.hasPrefix("--") {
+                let option = String(value[..<equal])
+                let optionValue = String(value[value.index(after: equal)...])
+                if valueOptions.contains(option), !optionValue.isEmpty {
+                    index += 1
+                    continue
+                }
+            }
+            if valueOptions.contains(value) {
+                guard index + 1 < values.count, !values[index + 1].hasPrefix("-") else {
+                    throw CLIError(message: "\(value) requires a value")
+                }
+                index += 2
+                continue
+            }
+            if value.hasPrefix("-") {
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.readSelection.error.unexpectedArguments",
+                        defaultValue: "%@: unexpected arguments: %@"
+                    ),
+                    commandName,
+                    value
+                ))
+            }
+            index += 1
+        }
+    }
+
+
+    private func validateBrowserSurfaceValueBeforeSocket(_ args: [String]) throws {
+        var pastTerminator = false
+        for (index, arg) in args.enumerated() {
+            if pastTerminator {
+                continue
+            }
+            if arg == "--" {
+                pastTerminator = true
+                continue
+            }
+            if arg == "--surface" {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: "--surface requires a value")
+                }
+                let value = args[index + 1]
+                guard !value.hasPrefix("-"),
+                      !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "--surface requires a value")
+                }
+                continue
+            }
+            if arg.hasPrefix("--surface=") {
+                let value = String(arg.dropFirst("--surface=".count))
+                guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw CLIError(message: "--surface requires a value")
+                }
+            }
+        }
+    }
+
+    private func validateBrowserProfileMutationCommandBeforeSocket(
+        command: String,
+        commandArgs: [String]
+    ) throws {
+        guard command == "browser" else { return }
+
+        var browserArgs = commandArgs
+        while !browserArgs.isEmpty {
+            if browserArgs.last == "--json" {
+                browserArgs.removeLast()
+                continue
+            }
+            if browserArgs.count >= 2,
+               browserArgs[browserArgs.count - 2] == "--id-format" {
+                let raw = browserArgs.last!
+                guard try CLIIDFormat.parse(raw) != nil else {
+                    throw CLIError(message: "--id-format must be one of: refs, uuids, both")
+                }
+                browserArgs.removeLast(2)
+                continue
+            }
+            break
+        }
+
+        try validateBrowserSurfaceValueBeforeSocket(browserArgs)
+        let (_, argsWithoutSurfaceFlag) = parseOption(browserArgs, name: "--surface")
+        var args = argsWithoutSurfaceFlag
+
+        let verbsWithoutSurface: Set<String> = [
+            "open", "open-split", "new", "identify", "import", "profile", "profiles",
+            "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode",
+            "design-mode", "zoom", "history", "repl",
+        ]
+        if let first = args.first,
+           !first.hasPrefix("-"),
+           !verbsWithoutSurface.contains(first.lowercased()) {
+            args = Array(args.dropFirst())
+        }
+
+        guard let subcommandRaw = args.first else { return }
+        let subcommand = subcommandRaw.lowercased()
+        guard subcommand == "profile" || subcommand == "profiles" else { return }
+
+        let subArgs = Array(args.dropFirst())
+        let profileVerb = subArgs.first?.lowercased() ?? "list"
+        let profileArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
+        let normalizedVerb: String
+        switch profileVerb {
+        case "ls":
+            normalizedVerb = "list"
+        case "add", "new":
+            normalizedVerb = "create"
+        case "remove", "rm":
+            normalizedVerb = "delete"
+        default:
+            normalizedVerb = profileVerb
+        }
+
+        switch normalizedVerb {
+        case "create":
+            let commandName = "browser profiles \(profileVerb)"
+            try validateBrowserProfileMutationArguments(
+                profileArgs,
+                valueOptions: ["--name"],
+                commandName: commandName
+            )
+            let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
+            let parsed = try browserProfileArguments(remaining, commandName: commandName)
+            if nameOpt != nil {
+                try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+            }
+            let name = nameOpt ?? parsed.positionals.joined(separator: " ")
+            guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: "browser profiles \(profileVerb) requires a name")
+            }
+
+        case "rename":
+            let commandName = "browser profiles \(profileVerb)"
+            try validateBrowserProfileMutationArguments(
+                profileArgs,
+                valueOptions: ["--profile", "--name"],
+                commandName: commandName
+            )
+            let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+            let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+            let parsed = try browserProfileArguments(rem2, commandName: commandName)
+            let positional = parsed.positionals
+            if profileOpt != nil, nameOpt != nil {
+                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+            } else if nameOpt != nil {
+                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+            }
+            let profile = profileOpt ?? positional.first
+            let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
+            guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
+            }
+            guard let newName, !newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: "browser profiles \(profileVerb) requires a new name")
+            }
+
+        case "clear":
+            let commandName = "browser profiles \(profileVerb)"
+            try validateBrowserProfileMutationArguments(
+                profileArgs,
+                valueOptions: ["--profile"],
+                allowedFlags: ["--all", "--force"],
+                commandName: commandName
+            )
+            let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+            let parsed = try browserProfileArguments(
+                rem1,
+                allowedFlags: ["--all", "--force"],
+                commandName: commandName
+            )
+            let positional = parsed.positionals
+            if parsed.flags.contains("--all") {
+                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+            } else if profileOpt != nil {
+                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+            } else if positional.first != nil {
+                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+            } else {
+                throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
+            }
+
+        case "delete":
+            let commandName = "browser profiles \(profileVerb)"
+            try validateBrowserProfileMutationArguments(
+                profileArgs,
+                valueOptions: ["--profile"],
+                commandName: commandName
+            )
+            let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
+            let parsed = try browserProfileArguments(rem1, commandName: commandName)
+            let positional = parsed.positionals
+            if profileOpt != nil {
+                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+            } else {
+                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+            }
+            let profile = profileOpt ?? positional.first
+            guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
+            }
+
+        default:
+            return
+        }
+    }
+
     private func runBrowserCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -16863,8 +17229,18 @@ struct CMUXCLI {
                     printBrowserProfiles(payload)
                 }
             case "create":
+                let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserProfileMutationArguments(
+                    profileArgs,
+                    valueOptions: ["--name"],
+                    commandName: commandName
+                )
                 let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
-                let name = nameOpt ?? nonFlagArgs(remaining).joined(separator: " ")
+                let parsed = try browserProfileArguments(remaining, commandName: commandName)
+                if nameOpt != nil {
+                    try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+                }
+                let name = nameOpt ?? parsed.positionals.joined(separator: " ")
                 guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a name")
                 }
@@ -16878,9 +17254,21 @@ struct CMUXCLI {
                     print("Created browser profile")
                 }
             case "rename":
+                let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserProfileMutationArguments(
+                    profileArgs,
+                    valueOptions: ["--profile", "--name"],
+                    commandName: commandName
+                )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-                let positional = nonFlagArgs(rem2)
+                let parsed = try browserProfileArguments(rem2, commandName: commandName)
+                let positional = parsed.positionals
+                if profileOpt != nil, nameOpt != nil {
+                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                } else if nameOpt != nil {
+                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                }
                 let profile = profileOpt ?? positional.first
                 let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -16901,17 +17289,34 @@ struct CMUXCLI {
                     print("Renamed browser profile.")
                 }
             case "clear":
+                let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserProfileMutationArguments(
+                    profileArgs,
+                    valueOptions: ["--profile"],
+                    allowedFlags: ["--all", "--force"],
+                    commandName: commandName
+                )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let positional = nonFlagArgs(rem1)
+                let parsed = try browserProfileArguments(
+                    rem1,
+                    allowedFlags: ["--all", "--force"],
+                    commandName: commandName
+                )
+                let positional = parsed.positionals
                 var params: [String: Any] = [:]
-                if hasFlag(profileArgs, name: "--all") {
+                if parsed.flags.contains("--all") {
+                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
                     params["all"] = true
-                } else if let profile = profileOpt ?? positional.first {
+                } else if let profileOpt {
+                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    params["profile"] = profileOpt
+                } else if let profile = positional.first {
+                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
                     params["profile"] = profile
                 } else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
                 }
-                if hasFlag(profileArgs, name: "--force") {
+                if parsed.flags.contains("--force") {
                     params["force"] = true
                 }
                 let payload = try client.sendV2(method: "browser.profiles.clear", params: params, responseTimeout: 120)
@@ -16922,8 +17327,21 @@ struct CMUXCLI {
                     print("Cleared \(count) browser profile\(count == 1 ? "" : "s").")
                 }
             case "delete":
+                let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserProfileMutationArguments(
+                    profileArgs,
+                    valueOptions: ["--profile"],
+                    commandName: commandName
+                )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let profile = profileOpt ?? nonFlagArgs(rem1).first
+                let parsed = try browserProfileArguments(rem1, commandName: commandName)
+                let positional = parsed.positionals
+                if profileOpt != nil {
+                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                } else {
+                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                }
+                let profile = profileOpt ?? positional.first
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a profile")
                 }
@@ -21294,6 +21712,73 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
+    }
+
+    /// Rejects arguments a command doesn't accept, before it contacts the app,
+    /// so a typo can't fall through to a different request. A value option
+    /// needs a value that isn't another `--` flag (`--name=value` works too);
+    /// everything after `--` counts as a positional.
+    func rejectUnexpectedArguments(
+        _ args: [String],
+        commandName: String,
+        valueOptions: Set<String>,
+        flags: Set<String> = [],
+        maxPositionals: Int
+    ) throws {
+        var positionals = 0
+        var pastTerminator = false
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            if !pastTerminator {
+                if arg == "--" {
+                    pastTerminator = true
+                    continue
+                }
+                if arg.hasPrefix("--"), let equals = arg.firstIndex(of: "="),
+                   valueOptions.contains(String(arg[..<equals])) {
+                    if arg.index(after: equals) == arg.endIndex {
+                        throw missingOptionValueError(String(arg[..<equals]), commandName: commandName)
+                    }
+                    continue
+                }
+                if valueOptions.contains(arg) {
+                    guard index < args.count, !args[index].hasPrefix("--") else {
+                        throw missingOptionValueError(arg, commandName: commandName)
+                    }
+                    index += 1
+                    continue
+                }
+                if flags.contains(arg) {
+                    continue
+                }
+                if arg.hasPrefix("-"), arg.count > 1 {
+                    let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.arguments.error.unknownOption", defaultValue: "%1$@: unknown option %2$@"),
+                        commandName,
+                        name
+                    ))
+                }
+            }
+            positionals += 1
+            if positionals > maxPositionals {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.arguments.error.unexpectedArgument", defaultValue: "%1$@: unexpected argument %2$@"),
+                    commandName,
+                    arg
+                ))
+            }
+        }
+    }
+
+    func missingOptionValueError(_ option: String, commandName: String) -> CLIError {
+        CLIError(message: String.localizedStringWithFormat(
+            String(localized: "cli.arguments.error.missingValue", defaultValue: "%1$@: %2$@ requires a value"),
+            commandName,
+            option
+        ))
     }
 
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {
