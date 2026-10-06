@@ -531,6 +531,37 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    @MainActor
+    func proUpgradeFeatureFlagHidesFreeAccountOnlyWhenEnabled() throws {
+        let flags = CmuxFeatureFlags.shared
+        let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "pro-upgrade-ui-enabled-release" })
+        let previousOverride = flags.overrideValue(for: definition)
+        defer { flags.setOverride(previousOverride, for: definition) }
+
+        flags.setOverride(false, for: definition)
+        #expect(
+            !SidebarFooterPresentationPolicy.isUpgradeVisible(
+                featureFlagEnabled: flags.isProUpgradeUIEnabled,
+                isProActive: false
+            )
+        )
+
+        flags.setOverride(true, for: definition)
+        #expect(
+            SidebarFooterPresentationPolicy.isUpgradeVisible(
+                featureFlagEnabled: flags.isProUpgradeUIEnabled,
+                isProActive: false
+            )
+        )
+        #expect(
+            !SidebarFooterPresentationPolicy.isUpgradeVisible(
+                featureFlagEnabled: flags.isProUpgradeUIEnabled,
+                isProActive: true
+            )
+        )
+    }
+
+    @Test
     func sidebarAccountPictureAndIconPresentationsStayDistinct() {
         let picture = SidebarAccountButtonPresentation.resolve(
             isSignedIn: true,

@@ -89,7 +89,7 @@ enum SidebarFooterPresentationPolicy {
     }
 
     static func isUpgradeVisible(featureFlagEnabled: Bool, isProActive: Bool) -> Bool {
-        featureFlagEnabled
+        featureFlagEnabled && !isProActive
     }
 }
 
