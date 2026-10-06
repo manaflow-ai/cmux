@@ -4,6 +4,7 @@ import UIKit
 import AppKit
 #endif
 import ImageIO
+import LinkPresentation
 import UniformTypeIdentifiers
 
 /// Link previews: the page's title, site and image, fetched once per URL.
@@ -148,6 +149,84 @@ final class LinkPreviews: LinkPreviewFetching {
         let cbs = waiting.removeValue(forKey: url) ?? []
         cbs.forEach { $0(meta) }
         save()
+        // No title from the page's tags, and the guard did not refuse the URL: the
+        // LinkPresentation fallback may try (pages that build their tags in script).
+        if meta?.title == nil, LinkPreviews.fallbackAllowed(lastRefusal[url]) { enqueueFallback(url) }
+    }
+
+    // MARK: LinkPresentation fallback (bounded)
+
+    /// Rows on screen (the host sets it): the fallback runs only for a visible link.
+    var isOnScreen: (String) -> Bool = { _ in false }
+    /// A fallback result after the first answer (`done` already ran): the host
+    /// dispatches `.linkMetadata` with it.
+    var onLateMetadata: ((String, LinkMetadata) -> Void)?
+    private(set) var fallbackQueue: [String] = []
+    private var fallbackDone: Set<String> = []
+    private(set) var fallbackRunning: String?
+    private var provider: LPMetadataProvider?
+    /// Only when the guard let the URL through (a network failure or no tags), never
+    /// after a refusal (an address, a name, a port, a redirect).
+    static func fallbackAllowed(_ r: LinkGuard.Refusal?) -> Bool {
+        switch r { case nil, .network(_)?, .tooLarge?: return true; default: return false }
+    }
+    private func enqueueFallback(_ url: String) {
+        guard !fallbackDone.contains(url), !fallbackQueue.contains(url), fallbackRunning != url else { return }
+        fallbackQueue.append(url)
+        visibilityChanged()
+    }
+    /// Event-driven: the host calls it when rows scroll in or out; the next queued
+    /// URL whose row is on screen starts, one at a time.
+    func visibilityChanged() {
+        guard fallbackRunning == nil, let i = fallbackQueue.firstIndex(where: isOnScreen) else { return }
+        runFallback(fallbackQueue.remove(at: i))
+    }
+    /// Runs one LinkPresentation fetch (WebKit: about 44 main run-loop wake-ups a
+    /// second while it runs; none after). Tests call it directly.
+    func runFallback(_ url: String) {
+        guard fallbackRunning == nil, let u = URL(string: url) else { return }
+        fallbackRunning = url
+        fallbackDone.insert(url)
+        let file = dir.appendingPathComponent(String(format: "%016llx-lp.png", LinkPreviews.fnv1a(url)))
+        GuardedFetcher.shared.queue.addOperation { [weak self] in
+            let refusal = LinkGuard.check(u)        // the guard again, off main
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard refusal == nil else { self.fallbackFinished(url, nil); return }
+                let p = LPMetadataProvider()
+                self.provider = p
+                p.timeout = self.timeout
+                p.startFetchingMetadata(for: u) { m, _ in
+                    guard let m, let title = m.title else { DispatchQueue.main.async { self.fallbackFinished(url, nil) }; return }
+                    let host = (m.url ?? u).host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
+                    guard let ip = m.imageProvider else {
+                        DispatchQueue.main.async { self.fallbackFinished(url, LinkMetadata(title: title, site: host, image: nil)) }; return
+                    }
+                    ip.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { tmp, _ in
+                        var asset: String?
+                        if let tmp, let src = CGImageSourceCreateWithURL(tmp as CFURL, nil),
+                           let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                                                                  kCGImageSourceCreateThumbnailWithTransform: true,
+                                                                                  kCGImageSourceThumbnailMaxPixelSize: 600] as CFDictionary),
+                           let dest = CGImageDestinationCreateWithURL(file as CFURL, UTType.png.identifier as CFString, 1, nil) {
+                            CGImageDestinationAddImage(dest, cg, nil)
+                            if CGImageDestinationFinalize(dest) { asset = file.absoluteString }
+                        }
+                        DispatchQueue.main.async { self.fallbackFinished(url, LinkMetadata(title: title, site: host, image: asset)) }
+                    }
+                }
+            }
+        }
+    }
+    private func fallbackFinished(_ url: String, _ meta: LinkMetadata?) {
+        fallbackRunning = nil
+        provider = nil
+        if let meta {
+            cache[url] = .some(meta)
+            save()
+            onLateMetadata?(url, meta)
+        }
+        visibilityChanged()
     }
 
     private func save() {

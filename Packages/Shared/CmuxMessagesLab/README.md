@@ -83,11 +83,12 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-06): every file at 93cf61f
-(89a1c5b, 2a0805d and 93cf61f as one pin: resize anchoring like Messages, the
+that are wip checkpoints. Current pins (2026-10-06): every file at bcfffae
+(89a1c5b, 2a0805d, 93cf61f and bcfffae as one pin: resize anchoring like Messages, the
 grey loading card and its fade-in, URLSession link previews through LinkGuard,
 long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
-track click, compose hover only over the field) except SwipeReply at 0c8147b
+track click, compose hover only over the field; bcfffae's LinkPresentation
+fallback is not wired: Home never sets `isOnScreen`, so it never runs) except SwipeReply at 0c8147b
 (not installed while HomeOp has no reply). Earlier in this pin: cd2bc08's link
 rule, size cache keyed by part content, compose image previews; da2b8ae's text
 column, 358.4 - 0.654 x (628 - W) pt.

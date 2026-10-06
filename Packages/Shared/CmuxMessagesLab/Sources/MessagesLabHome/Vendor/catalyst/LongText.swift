@@ -93,14 +93,20 @@ final class LongTextIndex: @unchecked Sendable {
     let units: [Float]
     /// Estimated lines per block at `refColumn` (per paragraph, with wrap waste).
     let estRef: [Int32]
+    /// Newlines per block, and the text's hard line count ("Show all N lines").
+    let newlines: [Int32]
+    let hardLines: Int
     static var refColumn: Float { Float(Metrics(width: Fixture.windowWidth).maxTextWidth) }
     /// False while a large text is scanned off main (placeholder).
     let ready: Bool
     var blockCount: Int { max(0, starts.count - 1) }
 
-    init(lineage: Int, text: String, starts: [Int], u16Starts: [Int], pieces: [Int32], units: [Float], estRef: [Int32], ready: Bool) {
+    init(lineage: Int, text: String, starts: [Int], u16Starts: [Int], pieces: [Int32], units: [Float], estRef: [Int32],
+         newlines: [Int32] = [], ready: Bool) {
         self.lineage = lineage; self.text = text; self.count = text.utf8.count
         self.starts = starts; self.u16Starts = u16Starts; self.pieces = pieces; self.units = units; self.estRef = estRef; self.ready = ready
+        self.newlines = newlines
+        hardLines = newlines.reduce(1) { $0 + Int($1) }
     }
 
     static func placeholder(_ text: String, lineage: Int) -> LongTextIndex {
@@ -122,6 +128,7 @@ final class LongTextIndex: @unchecked Sendable {
         var pieces = Array(prefix?.pieces.prefix(keep) ?? [])
         var units = Array(prefix?.units.prefix(keep) ?? [])
         var estRef = Array(prefix?.estRef.prefix(keep) ?? [])
+        var newlines = Array(prefix?.newlines.prefix(keep) ?? [])
         let wrap = LongTextIndex.refColumn * 0.93
         let from = prefix.map { keep < $0.starts.count ? $0.starts[keep] : $0.count } ?? 0
         var u16Pos = prefix.map { keep < $0.u16Starts.count ? $0.u16Starts[keep] : 0 } ?? 0
@@ -166,12 +173,13 @@ final class LongTextIndex: @unchecked Sendable {
                 pieces.append(nl + (endsNL && end < n ? 0 : 1))
                 units.append(w)
                 estRef.append(est)
+                newlines.append(nl)
                 u16Pos += c16
                 i = end
             }
             starts.append(n); u16.append(u16Pos)
         }
-        return LongTextIndex(lineage: lineage, text: t, starts: starts, u16Starts: u16, pieces: pieces, units: units, estRef: estRef, ready: true)
+        return LongTextIndex(lineage: lineage, text: t, starts: starts, u16Starts: u16, pieces: pieces, units: units, estRef: estRef, newlines: newlines, ready: true)
     }
 
     func isFinal(_ b: Int) -> Bool { b == blockCount - 1 }
@@ -326,6 +334,9 @@ final class LongTextLayout: @unchecked Sendable {
     /// Replaced by a newer index (streaming) or a scanned one (placeholder).
     var retired = false
     private let placeholderLines: Int
+    /// Lines from the index estimate alone (deterministic per text and width: the fold
+    /// decision never flips when blocks are measured).
+    private(set) var estimatedLines = 0
 
     static let measureQueue: OperationQueue = {
         let q = OperationQueue()
@@ -356,6 +367,7 @@ final class LongTextLayout: @unchecked Sendable {
             c.lock.unlock()
         }
         tree = Fenwick(v)
+        estimatedLines = v.reduce(0) { $0 + Int($1) }
         exact = ex
         measured = ex.filter { $0 }.count
         placeholderLines = index.ready ? 0 : max(1, Int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column)))
@@ -606,6 +618,11 @@ final class LongTextStore: @unchecked Sendable {
     static let syncBytes = 512 << 10
 
     func size(_ text: String, width: CGFloat) -> CGSize { layout(text, width: width).size }
+    /// The row size of a message's long text part: folded (LongTextFold) or full.
+    func size(_ text: String, width: CGFloat, message id: ID) -> CGSize {
+        let l = layout(text, width: width)
+        return LongTextFold.isFolded(id, l) ? LongTextFold.size(l) : l.size
+    }
 
     func layout(_ text: String, width: CGFloat) -> LongTextLayout {
         let idx = index(for: text)!
@@ -729,4 +746,35 @@ final class LongTextStore: @unchecked Sendable {
     }
 
     var indexCount: Int { lock.lock(); defer { lock.unlock() }; return Set(byAddr.values.map { ObjectIdentifier($0) }).count }
+}
+
+/// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
+/// 3 screens shows its first and last 40 lines and a "Show all N lines" band between them,
+/// until the band is clicked (`MessagesWindowView.expandLongText`). The folded height is
+/// fixed (80 lines and the band), so measurement never changes it.
+enum LongTextFold {
+    static let headLines = 40, tailLines = 40
+    /// 3 screens (the 1041 pt window).
+    static var maxLines: Int { Int(3 * 1041 / Fixture.lineHeight) }
+    static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
+    static let defaultsKey = "messageslab.collapseLongMessages"
+    /// Setting (UserDefaults, default on). `--no-collapse` turns it off for one run.
+    static var enabled: Bool {
+        if ProcessInfo.processInfo.arguments.contains("--no-collapse") { return false }
+        return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
+    }
+    private static let lock = NSLock()
+    private static var expanded = Set<ID>()
+    static func expand(_ id: ID) { lock.lock(); expanded.insert(id); lock.unlock() }
+    static func isExpanded(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return expanded.contains(id) }
+    static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool {
+        enabled && l.index.ready && l.estimatedLines > maxLines && !isExpanded(id)
+    }
+    static func size(_ l: LongTextLayout) -> CGSize {
+        CGSize(width: l.column + 2 * Fixture.bubblePadX,
+               height: CGFloat(headLines + tailLines) * Fixture.lineHeight + bandHeight + 2 * Fixture.bubblePadY)
+    }
+    static func label(_ n: Int) -> String {
+        String(format: String(localized: "longtext.showAll", defaultValue: "Show all %lld lines"), n)
+    }
 }

@@ -145,10 +145,21 @@ final class TiledBody {
     private static let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(),
                                                         "hidden": NSNull(), "frame": NSNull(), "contentsCenter": NSNull()]
 
+    /// Folded (LongTextFold): head and tail lines in clipped regions, the band between.
+    let headClip = CALayer(), tailClip = CALayer(), band = CALayer()
+    private(set) var folded = false
+    /// The "Show all N lines" band in cell coordinates (zero when not folded).
+    private(set) var bandRect: CGRect = .zero
+    private var bandKey = ""
+
     init() {
-        container.actions = TiledBody.noActions
-        shape.actions = TiledBody.noActions
+        for l in [container, shape, headClip, tailClip, band] { l.actions = TiledBody.noActions }
         container.masksToBounds = false
+        headClip.masksToBounds = true
+        tailClip.masksToBounds = true
+        container.addSublayer(headClip)
+        container.addSublayer(tailClip)
+        container.addSublayer(band)
     }
 
     var isActive: Bool { spec != nil }
@@ -212,6 +223,37 @@ final class TiledBody {
         shape.frame = CGRect(x: x0, y: body.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
                              height: body.height + ih - 2 * BubbleSlices.cap)
         container.contentsScale = s
+        configureFold(p, layout: layout, scale: s)
+    }
+
+    private func configureFold(_ p: PartRow, layout: LongTextLayout, scale s: CGFloat) {
+        folded = LongTextFold.isFolded(p.ref.messageId, layout)
+        headClip.isHidden = !folded
+        tailClip.isHidden = !folded
+        band.isHidden = !folded
+        guard folded else { bandRect = .zero; return }
+        let lh = Fixture.lineHeight, textTop = body.minY + Fixture.bubblePadY
+        let headH = CGFloat(LongTextFold.headLines) * lh, tailH = CGFloat(LongTextFold.tailLines) * lh
+        // Clips reach 4 pt past their line slots (descenders), never into the other region's text.
+        headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH + 4 - body.minY)
+        let tailTop = textTop + headH + LongTextFold.bandHeight
+        tailClip.frame = CGRect(x: body.minX, y: tailTop - 4, width: body.width, height: body.maxY - (tailTop - 4))
+        bandRect = CGRect(x: body.minX, y: textTop + headH, width: body.width, height: LongTextFold.bandHeight)
+        band.frame = bandRect
+        let label = LongTextFold.label(layout.index.hardLines)
+        let key = "\(label)|\(p.outgoing)|\(body.width)|\(s)|\(Fixture.paletteGeneration)"
+        guard key != bandKey else { return }
+        bandKey = key
+        let font = UIFont.systemFont(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
+        let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
+        Reclaimer.release(band.contents)
+        band.contentsScale = s
+        band.contents = WideBitmap.make(size: bandRect.size, scale: s, opaque: false) { ctx in
+            rule.setFill()
+            ctx.fill(CGRect(x: Fixture.bubblePadX, y: lh - 0.5, width: 18, height: 1))
+            TextDraw.line(label, font: font, color: color, x: Fixture.bubblePadX + 26, baseline: lh + 4.5, in: ctx)
+        }
     }
 
     /// Tiles for the viewport plus one screen each way; measurement 3 screens each way.
@@ -227,31 +269,48 @@ final class TiledBody {
         let textTop = body.minY + Fixture.bubblePadY
         let screen = max(vis.height, 300)
         let total = layout.totalLines
-        func line(_ y: CGFloat) -> Int { Int(floor((y - textTop) / lh)) }
-        let visA = max(0, line(lo)), visB = min(total, line(hi) + 1)
-        let wantA = max(0, line(lo - screen)), wantB = min(total, line(hi + screen) + 1)
-        guard wantA < wantB else { releaseAll(); return }
-        let screenLines = Int(screen / lh)
-        layout.require(lines: max(0, wantA - 2 * screenLines)..<min(total, wantB + 2 * screenLines))
+        if !folded {
+            func line(_ y: CGFloat) -> Int { Int(floor((y - textTop) / lh)) }
+            let wantA = max(0, line(lo - screen)), wantB = min(total, line(hi + screen) + 1)
+            guard wantA < wantB else { releaseAll(); return }
+            let screenLines = Int(screen / lh)
+            layout.require(lines: max(0, wantA - 2 * screenLines)..<min(total, wantB + 2 * screenLines))
+        }
 
         let s = Fixture.renderScale, palette = Fixture.paletteGeneration
-        var wanted: [(TileCache.Key, CGRect, Bool, Int)] = []
-        var b = layout.block(containingLine: wantA)
+        // Segments: text lines shown at a display offset in a parent layer. Full: one. Folded:
+        // the first 40 lines, and the last 40 lines moved up under the band (both clipped).
+        var segments: [(lines: Range<Int>, shift: CGFloat, parent: CALayer)] = [(0..<total, 0, container)]
+        if folded {
+            let tailFirst = max(LongTextFold.headLines, total - LongTextFold.tailLines)
+            segments = [(0..<min(total, LongTextFold.headLines), 0, headClip),
+                        (tailFirst..<total, CGFloat(LongTextFold.headLines - tailFirst) * lh + LongTextFold.bandHeight, tailClip)]
+        }
+        var wanted: [(TileCache.Key, CGRect, Bool, Int, CALayer)] = []
         let n = TiledBubble.linesPerTile
-        while b < layout.blockCount {
-            let first = layout.firstLine(ofBlock: b), count = layout.lines(ofBlock: b)
-            if first >= wantB { break }
-            let c0 = max(0, (wantA - first) / n), c1 = max(c0, (min(wantB, first + count) - 1 - first) / n)
-            for c in c0...c1 where first + c * n < first + count {
-                let a = first + c * n
-                let k = TileCache.Key(lineage: layout.index.lineage, start: layout.index.starts[b], end: layout.index.starts[b + 1],
-                                      final: layout.index.isFinal(b), column: layout.column, chunk: c, outgoing: row.outgoing,
-                                      scale: s, palette: palette)
-                let r = CGRect(x: body.minX, y: textTop + CGFloat(a) * lh - TiledBubble.overflow, width: body.width,
-                               height: CGFloat(n) * lh + 2 * TiledBubble.overflow)
-                wanted.append((k, r, a < visB && a + min(n, count - c * n) > visA, b))
+        for seg in segments where !seg.lines.isEmpty {
+            func segLine(_ y: CGFloat) -> Int { Int(floor((y - seg.shift - textTop) / lh)) }
+            let visA = max(seg.lines.lowerBound, segLine(lo)), visB = min(seg.lines.upperBound, segLine(hi) + 1)
+            let wantA = max(seg.lines.lowerBound, segLine(lo - screen)), wantB = min(seg.lines.upperBound, segLine(hi + screen) + 1)
+            guard wantA < wantB else { continue }
+            if folded { layout.require(lines: max(0, wantA - 16)..<min(total, wantB + 16)) }
+            let origin = seg.parent === container ? CGPoint.zero : seg.parent.frame.origin
+            var b = layout.block(containingLine: wantA)
+            while b < layout.blockCount {
+                let first = layout.firstLine(ofBlock: b), count = layout.lines(ofBlock: b)
+                if first >= wantB { break }
+                let c0 = max(0, (wantA - first) / n), c1 = max(c0, (min(wantB, first + count) - 1 - first) / n)
+                for c in c0...c1 where first + c * n < first + count {
+                    let a = first + c * n
+                    let k = TileCache.Key(lineage: layout.index.lineage, start: layout.index.starts[b], end: layout.index.starts[b + 1],
+                                          final: layout.index.isFinal(b), column: layout.column, chunk: c, outgoing: row.outgoing,
+                                          scale: s, palette: palette)
+                    let r = CGRect(x: body.minX - origin.x, y: textTop + seg.shift + CGFloat(a) * lh - TiledBubble.overflow - origin.y,
+                                   width: body.width, height: CGFloat(n) * lh + 2 * TiledBubble.overflow)
+                    wanted.append((k, r, a < visB && a + min(n, count - c * n) > visA, b, seg.parent))
+                }
+                b += 1
             }
-            b += 1
         }
         let wantedKeys = Set(wanted.map(\.0))
         // Tiles that left: back to the pool unless a newer key takes their slot (stale pixels stay until it renders).
@@ -263,10 +322,15 @@ final class TiledBody {
         for (k, op) in pending where !wantedKeys.contains(k) { op.cancel(); pending[k] = nil; TiledStats.tilesCancelled += 1 }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         var mainTiles = 0
-        for (k, r, visible, blk) in wanted {
-            if let l = live[k] { if l.frame != r { l.frame = r }; continue }
+        for (k, r, visible, blk, parent) in wanted {
+            if let l = live[k] {
+                if l.superlayer !== parent { parent.addSublayer(l) }
+                if l.frame != r { l.frame = r }
+                continue
+            }
             let old = stale.removeValue(forKey: k.slot)
             let l = old ?? take()
+            if l.superlayer !== parent { parent.addSublayer(l) }
             l.frame = r
             l.contentsScale = s
             live[k] = l

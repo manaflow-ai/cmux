@@ -98,7 +98,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     /// Messages' pill width: 77.75 pt for "Instinct", plus the title's extra width.
     static let pillImageMode = flag("--pill-image", 1) != 0
     static let pillTitleX = flag("--pill-title-x", 11.5)
-    static let pillTitleY = flag("--pill-title-y", 3)
+    static let pillTitleY = flag("--pill-title-y", 6)
     static let chevronGap = flag("--chev-gap", 3)
     static let chevronDrop = flag("--chev-dy", 0.5)
     /// Draws the pill's title and chevron at the measured places (rect: the pill's bounds,

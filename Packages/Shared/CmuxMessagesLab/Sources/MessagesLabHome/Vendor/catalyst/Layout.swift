@@ -505,7 +505,7 @@ final class MeasureCache: @unchecked Sendable {
     func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
         // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
         if case let .text(t, _) = m.parts[pi], LongText.isLong(t) {
-            return Value(size: LongTextStore.shared.size(t, width: width), text: nil, width: width)
+            return Value(size: LongTextStore.shared.size(t, width: width, message: m.id), text: nil, width: width)
         }
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(m.parts[pi])
         let k = Key(id: m.id, part: pi, version: version, width: width)

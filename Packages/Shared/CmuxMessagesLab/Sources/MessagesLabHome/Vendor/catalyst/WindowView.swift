@@ -950,6 +950,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let r = model.range(top, top + 1)
         return min(model.count - 1, r.first { model.contentTop($0) + model.rows[$0].spec.height > top } ?? r.lowerBound)
     }
+    /// True when a link card for `url` is in a visible cell (the LinkPresentation
+    /// fallback runs only for rows on screen).
+    func linkOnScreen(_ url: String) -> Bool {
+        for case let cell as RowCell in collection.visibleCells {
+            if case let .part(pr)? = cell.spec?.kind, case let .link(u, _, _, _, _) = pr.part, u == url { return true }
+        }
+        return false
+    }
     var firstVisibleKey: String? { model.count > 0 ? model.rows[firstVisibleRow].spec.key : nil }
 
     var firstVisibleSeq: Int {
