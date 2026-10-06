@@ -3131,6 +3131,19 @@
         "proxied": "through the proxy"
       },
       "ms": 1171
+    },
+    "tabs.legacy-socket-refused": {
+      "value": {
+        "userBefore": "ok",
+        "ownEval": "refused",
+        "ownClick": "refused",
+        "ownSnapshot": "refused",
+        "listed": true,
+        "used": true,
+        "userDriven": "refused",
+        "userAfter": "ok"
+      },
+      "ms": 820
     }
   }
 }

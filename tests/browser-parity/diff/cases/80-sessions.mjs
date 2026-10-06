@@ -52,13 +52,11 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
     // opened, a user's tab it drives with tabs.use()), with an error that
     // names `cmux browser repl`. A user's tab no session drives stays
     // theirs, also once the session that drove it ends, and the tab list
-    // still shows a session's tab.
+    // still shows a session's tab. The user's tab opens in the caller's
+    // workspace, the one the session binds to.
     custom: {
       async cmux(ctx) {
         const url = `${ctx.origins.primary}/diff/lab.html?legacy=${Date.now()}`;
-        const ws = await ctx.cli(["new-workspace", "--name", "parity-legacy", "--focus", "false"]);
-        const wsRef = (ws.out.match(/workspace:\d+|[0-9A-F]{8}-[0-9A-F-]{27}/i) || [])[0];
-        if (!wsRef) return { error: `new-workspace printed no id: ${ws.out.trim()} ${ws.err.trim()}`.slice(0, 300) };
         const legacy = async (surface, ...argv) => {
           const r = await ctx.cli(["browser", surface, ...argv]);
           const text = `${r.out}\n${r.err}`;
@@ -66,13 +64,17 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
           return /browser REPL session/.test(text) && /cmux browser repl/.test(text) ? "refused" : `failed: ${text.trim().slice(0, 200)}`;
         };
         const S = ctx.session("legacy");
+        let user = null;
+        let workspace = null;
         try {
-          await ctx.cli(["new-surface", "--type", "browser", "--workspace", wsRef, "--url", url, "--focus", "false"]);
+          await ctx.cli(["new-surface", "--type", "browser", "--url", url, "--focus", "false"]);
           const opened = await ctx.repl(ctx.wrap({ path: null, code: `const own = await tabs.open(U("/diff/lab.html"));
 let row;
 for (let i = 0; i < 50 && !row; i++) { row = (await tabs.list({ all: true })).find((t) => t.url === ${JSON.stringify(url)}); if (!row) await sleep(100); }
-return { own: own.id, user: row ? row.id : null };` }), { session: S });
-          const { own, user } = opened.value ?? {};
+return { own: own.id, user: row ? row.id : null, workspace: row ? row.workspace : null };` }), { session: S });
+          const own = opened.value?.own;
+          user = opened.value?.user ?? null;
+          workspace = opened.value?.workspace ?? null;
           if (!own || !user) return { error: JSON.stringify(opened).slice(0, 300) };
           const userBefore = await legacy(user, "eval", "document.title");
           const ownEval = await legacy(own, "eval", "document.title");
@@ -86,7 +88,7 @@ return { own: own.id, user: row ? row.id : null };` }), { session: S });
           const userAfter = await legacy(user, "eval", "document.title");
           return { userBefore, ownEval, ownClick, ownSnapshot, listed, used: typeof used.value === "string", userDriven, userAfter };
         } finally {
-          await ctx.cli(["workspace-action", "--action", "close", "--workspace", wsRef]);
+          if (user && workspace) await ctx.cli(["close-surface", "--workspace", workspace, "--surface", user]);
         }
       },
     },

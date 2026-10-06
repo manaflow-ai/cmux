@@ -14,16 +14,16 @@ and any member without a same or better case.
 
 - Reference A: 1.26.916.1741, recorded 2026-09-30T14:00:25.952Z.
 - Reference B: the installed app's reference runtime, AX and legacy modes, recorded 2026-09-30T14:01:09.330Z.
-- cmux app: tagged build `brepl-in2` at 0a2c79e2ce, recorded 2026-10-02T03:52:27.727Z; 157 of 159 verdicts use the app's result, the rest the dev driver's (Playwright WebKit, the same runtime).
+- cmux app: tagged build `brepl-in2` at 0a2c79e2ce, recorded 2026-10-02T03:52:27.727Z; 158 of 160 verdicts use the app's result, the rest the dev driver's (Playwright WebKit, the same runtime).
 
 ## Totals
 
-159 cases. cmux misses its own expectation in 1.
+160 cases. cmux misses its own expectation in 1.
 
 | Reference | same | cmux-better | cmux-worse | not-applicable | out-of-scope | not-run |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Reference A | 73 | 52 | 0 | 26 | 8 | 0 |
-| Reference B | 84 | 49 | 0 | 16 | 10 | 0 |
+| Reference A | 73 | 52 | 0 | 26 | 9 | 0 |
+| Reference B | 84 | 49 | 0 | 16 | 11 | 0 |
 
 Verdicts: **same** (normalized outcomes equal), **better** (they differ and the
 case's stated reason holds on the recorded outcomes), **WORSE** (a gap),
@@ -463,6 +463,7 @@ non-loopback host for reference A, a process kill or a person's click).
 | `edge.ime-only-editor` | edge:ime-only-editor | cmux | scope | scope |
 | `edge.trusted-paste` | edge:trusted-paste | cmux-dev | scope | scope |
 | `tabs.claim-other-workspace` | BrowserUser.claimTab, BrowserUser.openTabs | cmux | n/a | same |
+| `tabs.legacy-socket-refused` | edge:legacy-socket-refused | cmux | scope | scope |
 | `edge.sessions-two-tabs` | edge:sessions-two-tabs | cmux | same | scope |
 | `edge.sessions-same-tab` | edge:sessions-same-tab | cmux-dev | n/a | n/a |
 | `edge.web-process-crash` | edge:web-process-crash | cmux | scope | scope |
@@ -612,6 +613,7 @@ non-loopback host for reference A, a process kill or a person's click).
 - `edge.ime-only-editor` (scope): reproduces WebKit's editing path; Chrome's editor accepts an IME commit without a composition.
 - `edge.trusted-paste` (scope): Reference A's paste reads the system clipboard, which these tests do not touch.
 - `tabs.claim-other-workspace` (n/a): Reference A has no user-tab claim; attachBrowserTab is covered by tabs.attach.
+- `tabs.legacy-socket-refused` (scope): Reference A has no second client protocol beside its REPL.
 - `edge.sessions-same-tab` (n/a): Reference A has no named sessions; a one-shot run cannot share a tab with another session.
 - `edge.web-process-crash` (scope): killing a browser renderer process is outside the approved reference A scope.
 - `edge.user-click-while-driving` (scope): a person acting in the user's own reference A or Chrome window is outside the approved scope.
@@ -640,6 +642,7 @@ non-loopback host for reference A, a process kill or a person's click).
 - `edge.cookies-subdomain` (scope): a different origin than the one approved for reference B (approval would be denied, so the task cannot run in scope).
 - `edge.ime-only-editor` (scope): reproduces WebKit's editing path; Chrome's editor accepts an IME commit without a composition.
 - `edge.trusted-paste` (scope): Reference B's real paste reads the system clipboard, which these tests do not touch.
+- `tabs.legacy-socket-refused` (scope): Reference B has no second client protocol beside its REPL.
 - `edge.sessions-two-tabs` (scope): the reference client drives one REPL session; a second concurrent session is outside the approved harness.
 - `edge.sessions-same-tab` (n/a): Reference B's REPL is one session per conversation.
 - `edge.web-process-crash` (scope): killing a Chrome renderer process is outside the approved reference B scope.
