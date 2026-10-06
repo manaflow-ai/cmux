@@ -872,7 +872,12 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         const reason = driver.blockReason && driver.blockReason(url);
         if (reason) throw new DriverError("blocked", `cookies.get: ${url} is blocked: ${reason}`);
       }
-      return (await context.cookies(urls)).filter((c) => !(driver.cookieBlockReason && driver.cookieBlockReason(c.domain)));
+      // Matched as the app's driver does (cookieMatchesURL), not by
+      // Playwright's URL filter, which sends Secure cookies over http only
+      // to localhost.
+      const all = await context.cookies();
+      const matched = urls && urls.length ? all.filter((c) => urls.some((u) => cookieMatchesURL(c, u))) : all;
+      return matched.filter((c) => !(driver.cookieBlockReason && driver.cookieBlockReason(c.domain)));
     },
     "cookies.set": async ({ cookies }, driver) => {
       for (const c of cookies || []) {
@@ -1304,6 +1309,39 @@ process.on("exit", () => {
     } catch {}
   }
 });
+
+// Whether a cookie goes with a request to `url`, as the app's
+// HTTPCookie.browserReplMatches: a host-only cookie (no leading dot) to its
+// exact host, a Domain cookie to the domain and its subdomains (never an IP
+// address by suffix), RFC 6265 path-match, and a Secure cookie only over
+// https or to a loopback host (localhost and its subdomains, [::1], an
+// address in 127.0.0.0/8).
+export function cookieMatchesURL(cookie, url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = u.hostname.toLowerCase();
+  const domain = String(cookie.domain || "").toLowerCase();
+  const isIP = /^\[.*\]$/.test(host) || /^\d+\.\d+\.\d+\.\d+$/.test(host);
+  if (domain.startsWith(".")) {
+    const bare = domain.slice(1);
+    if (host !== bare && (isIP || !host.endsWith("." + bare))) return false;
+  } else if (host !== domain) return false;
+  const cookiePath = cookie.path || "/";
+  const sent = u.pathname || "/";
+  if (!sent.startsWith(cookiePath)) return false;
+  if (sent.length !== cookiePath.length && !cookiePath.endsWith("/") && sent[cookiePath.length] !== "/") return false;
+  return !cookie.secure || u.protocol === "https:" || isLoopbackHost(host);
+}
+
+function isLoopbackHost(host) {
+  if (host === "localhost" || host.endsWith(".localhost") || host === "[::1]") return true;
+  const parts = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  return !!parts && parts[1] === "127" && parts.slice(2).every((p) => Number(p) <= 255);
+}
 
 // Host capabilities the app provides natively (driver-protocol.md, "Native
 // host contract").
