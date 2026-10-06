@@ -296,7 +296,11 @@ impl Brain {
             .position(|q| matches!(&q.source, Source::Spawn(r) if r.spawn == spawn));
         match queued {
             Some(k) => {
-                self.queue[k] = Queued { text, source, images: Vec::new() }
+                self.queue[k] = Queued {
+                    text,
+                    source,
+                    images: Vec::new(),
+                }
             }
             None => {
                 (self.log)(&format!("spawn {spawn}: queued its report"));
