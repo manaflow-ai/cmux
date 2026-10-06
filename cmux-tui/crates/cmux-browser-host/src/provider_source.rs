@@ -7,9 +7,9 @@ use crate::cdp::CdpDriver;
 use crate::driver::{Driver, EventSink, Reply};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
-use crate::provider::{LeaseState, TabAnnounce};
+use crate::provider::LeaseState;
 use crate::provider_link::ProviderDriver;
-use crate::tab_source::{TabCall, TabSource};
+use crate::tab_source::{TabCall, TabRow, TabSource};
 use serde_json::Value;
 use std::sync::{Arc, PoisonError};
 
@@ -207,8 +207,24 @@ impl TabSource for ProviderSource {
         self.0.unsubscribe(id);
     }
 
-    fn tab_list(&self, engine: &str) -> Vec<TabAnnounce> {
-        self.0.tab_list(Some(engine))
+    /// The app's announced tabs. `windowId` names the workspace, the
+    /// profile is the data store, a visible tab is the active one; the app
+    /// announces live tabs only.
+    fn tab_rows(&self, engine: &str) -> Vec<TabRow> {
+        self.0
+            .tab_list(Some(engine))
+            .into_iter()
+            .map(|tab| TabRow {
+                target_id: tab.target_id,
+                title: tab.title,
+                url: tab.url,
+                active: tab.visible,
+                window_id: Value::String(tab.workspace),
+                state: "live".to_owned(),
+                data_store: tab.profile,
+                opener: None,
+            })
+            .collect()
     }
 
     fn tab_engine(&self, target_id: &str) -> Option<String> {
