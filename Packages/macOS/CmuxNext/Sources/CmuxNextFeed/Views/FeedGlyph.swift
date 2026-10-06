@@ -1,47 +1,53 @@
+import CmuxNextIcons
 import Foundation
 import SwiftUI
 
-/// The kind of an item as a small symbol; color only for attention.
+/// The kind of an item as a small registry icon; color only for attention.
 struct FeedGlyph: View {
     let item: FeedItem
+    /// The point size of the text the glyph sits beside.
     var size: CGFloat = 12
     @Environment(\.feedColors) private var colors
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: size, weight: .medium))
+        Icon(Self.icon(for: item), size: Self.side(forTextSize: size))
             .foregroundStyle(tint)
             .frame(width: size + 6, height: size + 6)
     }
 
-    private var symbol: String {
+    /// The icon box beside `size` point text.
+    static func side(forTextSize size: CGFloat) -> CGFloat {
+        .iconRowSize(forLabelPointSize: size)
+    }
+
+    static func icon(for item: FeedItem) -> IconName {
         switch item.prompt {
         case .notice:
             switch item.poster.kind {
-            case .integration: "arrow.triangle.pull"
-            case .server, .vm: "server.rack"
-            case .automation: "gearshape.2"
-            case .system: item.context.terminal != nil ? "terminal" : "bell"
-            default: "bell"
+            case .integration: .integration
+            case .server, .vm: .machineRemote
+            case .automation: .automation
+            case .system: item.context.terminal != nil ? .terminal : .notification
+            default: .notification
             }
         case let .approve(approve):
             switch approve.action.type {
-            case .command: "terminal"
-            case .edit: "pencil.line"
-            case .network: "network"
-            case .install: "shippingbox"
-            case .tool, .custom: "wrench.and.screwdriver"
+            case .command: .terminal
+            case .edit: .actionEdit
+            case .network: .network
+            case .install: .package
+            case .tool, .custom: .tools
             }
-        case .question: "text.bubble"
-        case .choice: "list.bullet"
-        case .confirm: "checkmark.circle"
-        case .signIn: "person.badge.key"
-        case .passkey: "person.badge.key.fill"
-        case .review: "doc.text.magnifyingglass"
-        case .input: "rectangle.and.pencil.and.ellipsis"
-        case .file: "doc.badge.plus"
-        case .handoff: "hand.raised"
-        case .custom: "square.grid.2x2"
+        case .question: .agentQuestion
+        case .choice: .feedChoice
+        case .confirm: .actionConfirm
+        case .signIn: .accountSignin
+        case .passkey: .accountPasskey
+        case .review: .actionReview
+        case .input: .feedInput
+        case .file: .fileNew
+        case .handoff: .agentHandoff
+        case .custom: .feedCustom
         }
     }
 
@@ -49,6 +55,28 @@ struct FeedGlyph: View {
         if item.isOpenRequest { return item.priority >= .high ? colors.attention : colors.primary }
         if item.state == .expired || item.state == .cancelled { return colors.tertiary }
         return colors.secondary
+    }
+}
+
+/// A label whose icon is a registry icon at the row size of its
+/// `textSize` point text; the caller sets the font.
+struct FeedIconLabel: View {
+    let title: String
+    let icon: IconName
+    let textSize: CGFloat
+
+    init(_ title: String, icon: IconName, textSize: CGFloat) {
+        self.title = title
+        self.icon = icon
+        self.textSize = textSize
+    }
+
+    var body: some View {
+        Label {
+            Text(title)
+        } icon: {
+            Icon(icon, size: .iconRowSize(forLabelPointSize: textSize))
+        }
     }
 }
 
@@ -76,7 +104,7 @@ struct PosterLine: View {
             Text(verbatim: "·")
             Text(FeedRelativeTime.string(item.createdAt, now: now)).monospacedDigit()
             if item.home.isLocal {
-                Image(systemName: "laptopcomputer").help(FeedStrings.thisMac)
+                Icon(.machineLocal, size: .iconRowSize(forLabelPointSize: 11)).help(FeedStrings.thisMac)
             }
             if item.count > 1 {
                 Text(verbatim: "×\(item.count)").monospacedDigit()

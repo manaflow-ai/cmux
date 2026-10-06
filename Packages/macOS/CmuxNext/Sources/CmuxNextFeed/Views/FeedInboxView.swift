@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextIcons
 import SwiftUI
 
 /// The feed's wide mode. Connection and text filters are client view state;
@@ -45,7 +47,7 @@ struct FeedInboxView: View {
                     FeedInboxDetail(item: shown, thread: groups.all.first { $0.members.contains { $0.id == shown.id } }, model: model)
                 } else {
                     VStack(spacing: 12) {
-                        Image(systemName: "tray").font(.system(size: 27, weight: .light))
+                        Icon(.inboxEmpty, size: 28)
                         Text(FeedStrings.selectInboxItem).font(.system(size: 13))
                     }
                     .foregroundStyle(colors.tertiary)
@@ -133,7 +135,13 @@ struct FeedDetailToolbar: View {
                     Button(FeedStrings.snoozeHour) { model.snooze([item.id], for: 3_600) }
                     Button(FeedStrings.snoozeTomorrow) { model.snooze([item.id], for: 86_400) }
                 } label: {
-                    Label(FeedStrings.snooze, systemImage: "moon.zzz").font(.system(size: 11.5))
+                    // Menu labels render through AppKit, which keeps images but not canvases.
+                    Label {
+                        Text(FeedStrings.snooze)
+                    } icon: {
+                        Image(nsImage: .icon(.actionSnooze, size: .iconRowSize(forLabelPointSize: 11.5))).renderingMode(.template)
+                    }
+                    .font(.system(size: 11.5))
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
