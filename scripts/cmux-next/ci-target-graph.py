@@ -99,7 +99,12 @@ def literal_reads(source_dir: Path) -> list[str]:
                 continue
             for base in (ROOT, PACKAGE, source_dir, source.parent):
                 candidate = base / literal
-                if not candidate.exists():
+                try:
+                    if not candidate.exists():
+                        continue
+                except OSError:
+                    # Not a path at all: a certificate or other blob too long
+                    # for the filesystem (ENAMETOOLONG on macOS).
                     continue
                 relative = repo_relative(candidate)
                 if relative is None or relative in ("", "."):
