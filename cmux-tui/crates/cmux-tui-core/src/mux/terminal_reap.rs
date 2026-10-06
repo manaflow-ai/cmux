@@ -927,6 +927,8 @@ mod tests {
         let mux = Mux::new_for_test("terminal-end-all-layout", SurfaceOptions::default());
         let first = mux.new_workspace(Some("first".into()), Some((80, 24))).unwrap();
         let second = mux.new_workspace(Some("second".into()), Some((80, 24))).unwrap();
+        // The host identity is read before the end: an ended terminal's surface has none.
+        let (first_id, second_id) = (host_id(&mux, &first), host_id(&mux, &second));
 
         mux.end_all_terminals().unwrap();
 
@@ -934,8 +936,8 @@ mod tests {
             assert_eq!(state.workspaces.len(), 2);
             assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
         });
-        assert_eq!(lifecycle(&mux, &host_id(&mux, &first)), TerminalLifecycle::Tombstoned);
-        assert_eq!(lifecycle(&mux, &host_id(&mux, &second)), TerminalLifecycle::Tombstoned);
+        assert_eq!(lifecycle(&mux, &first_id), TerminalLifecycle::Tombstoned);
+        assert_eq!(lifecycle(&mux, &second_id), TerminalLifecycle::Tombstoned);
     }
 
     #[test]
