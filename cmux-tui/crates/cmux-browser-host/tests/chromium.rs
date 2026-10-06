@@ -809,3 +809,52 @@ console.log("stats:" + !!(cr && cr.walks >= 1 && cr.roots >= 1 && cr.walkMs >= 0
         assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
     }
 }
+
+/// One headless browser per (host, profile) (item 4b): a tab a one-shot run
+/// kept outlives the run, the next session lists and attaches it, and a tab
+/// it did not keep is gone (parity 20).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_kept_tab_outlives_its_one_shot_run() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-kept-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let origin = format!("http://127.0.0.1:{port}");
+    let first = eval(&format!(
+        "const kept = await tabs.open('{origin}/second?kept'); await kept.keep(); \
+         await tabs.open('{origin}/second?closed', {{ background: true }}); console.log('opened');"
+    ));
+    assert!(first.contains("opened"), "{first}");
+    let second = eval(&format!(
+        "const urls = (await tabs.list()).map((t) => t.url).filter((u) => u.startsWith('{origin}')).sort(); \
+         console.log('after:' + JSON.stringify(urls)); \
+         const row = (await tabs.list()).find((t) => t.url.endsWith('?kept')); \
+         if (row) {{ await tabs.use(row.id); console.log('attached:' + page.url().endsWith('?kept')); await page.close(); }}"
+    ));
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(second.contains(&format!("after:[\"{origin}/second?kept\"]")), "{second}");
+    assert!(second.contains("attached:true"), "{second}");
+}

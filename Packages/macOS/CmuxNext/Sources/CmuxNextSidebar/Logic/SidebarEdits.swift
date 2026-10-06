@@ -29,8 +29,8 @@ public nonisolated enum SidebarEdits {
             return move(ids, toGroup: group, in: &sections)
         case let .reorderGroup(group, index):
             return reorderGroup(group, index: index, in: &sections)
-        case let .createGroup(id, name, color, ids):
-            return createGroup(id, name: name, color: color, workspaces: ids, in: &sections)
+        case let .createGroup(id, name, color, ids, anchor):
+            return createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, in: &sections)
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):
@@ -165,18 +165,28 @@ public nonisolated enum SidebarEdits {
         name: String,
         color: GroupColor,
         workspaces ids: [WorkspaceID],
+        anchor target: WorkspaceID? = nil,
         in sections: inout [SidebarSection]
     ) -> Bool {
         let ordered = treeOrder(ids, in: sections)
-        guard let first = ordered.first, let anchor = locate(first, in: sections),
+        // The group forms at `target` (an onto-drop's target row), else at
+        // the first workspace in tree order.
+        guard let first = target.flatMap({ ordered.contains($0) ? $0 : nil }) ?? ordered.first,
+              let anchor = locate(first, in: sections),
               sections[anchor.section].machine != nil,
               locateGroup(id, in: sections) == nil else { return false }
         let s = anchor.section
-        // Only workspaces from the anchor's section join; nothing precedes the
-        // anchor in tree order, so removal does not shift the insertion index.
+        // Only workspaces from the anchor's section join. Loose members
+        // before the insertion point leave it, so it moves up by their count
+        // (emptied groups stay until the prune below).
         let sameSection = ordered.filter { locate($0, in: sections)?.section == s }
-        let insertion = anchor.child == nil ? anchor.node : anchor.node + 1
-        let removed = removeWorkspaces(Set(sameSection), from: &sections)
+        let joining = Set(sameSection)
+        var insertion = anchor.child == nil ? anchor.node : anchor.node + 1
+        insertion -= sections[s].nodes.prefix(insertion).count(where: { node in
+            if case let .workspace(ws) = node { return joining.contains(ws.id) }
+            return false
+        })
+        let removed = removeWorkspaces(joining, from: &sections)
         let group = SidebarGroup(id: id, name: name, color: color, workspaces: removed)
         sections[s].nodes.insert(.group(group), at: min(insertion, sections[s].nodes.count))
         pruneEmptyGroups(in: &sections, keeping: id)
