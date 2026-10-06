@@ -309,10 +309,45 @@ The old files stay in `chat/` as the start of the export, so its git
 history goes on.
 
 **Resource use.** No index lives in memory: a message or node is read by
-primary key. The start reads the largest id and the node sizes (covering
-index, no text); it is still O(T), because the core folds the view again
-from message 0 and keeps every built node's size in a map (`Memory::load`,
-unchanged: optchat-core stays sans-I/O).
+primary key. The start reads the largest message id and node rowid, the
+saved checkpoint (`memory/checkpoint`: T, the lowest unbuilt index per
+level, the view's parts), the frontier nodes above each level's low by key
+range, and the view's sizes by key; then it folds the messages logged after
+the checkpoint (fewer than 256 unless the host crashed after a long run).
+optchat-core stays sans-I/O: a lazy `Memory` holds only the frontier and the
+view's sizes and asks `Store::node_size` for a merged node's size when a
+merge needs it (`Memory::resume`, `append_in`, `complete_in`). The fold from
+message 0 (section 5.2, "At load") runs only when there is no usable
+checkpoint: the first start after the migration or an upgrade, or a
+checkpoint more than 4,096 messages behind.
+
+Start, after the checkpoint exists (`optchat-host/tests/start.rs`, ignored
+1M test; `optchat-chief memory check` on the Mac):
+
+| messages | Testbox open | Testbox RSS | Mac open | Mac max RSS |
+| --- | --- | --- | --- | --- |
+| 10k | 8 ms | 6.6 MB | 1.9 ms | 8.8 MB |
+| 100k | 10 ms | 6.9 MB | 2.0 ms | 8.9 MB |
+| 1M | 10 ms (1 ms in the 1M test) | 7.0 MB | 2.0 ms | 9.0 MB |
+
+The first start of a migrated home pays the import and one fold: on the Mac
+0.34 s, 7.8 s and 70 s (822 MB peak) at 10k, 100k and 1M, once.
+
+**Writer contention.** `tests/bench.rs contention`: four threads append
+while a reader renders the view and zooms. Reader p50/p99 were 2.6/3.4 ms
+during the writes and 3.6/3.7 ms with no writer, appends 0.14/0.73 ms; no
+contention, so the writer stays one connection behind the chat's mutex. On
+a Mac a reader can wait one commit (about 8.5 ms with F_FULLFSYNC); a
+read-only connection for the tools would remove that, a writer thread would
+not (reads need the same memory state).
+
+**The migration's copy** of the old files is imported again into a scratch
+database a week after the migration (on its own thread, the start does not
+wait); when its counts and hash are the ones recorded, it is deleted and
+the record gets `backup_deleted` (host.log says so); otherwise it is kept and
+host.log says why.
+
+The numbers before the checkpoint (2026-10-06, first SQLite commit):
 
 Measured with `optchat-host/tests/bench.rs` on a Blacksmith Testbox (Linux
 6.6, AMD EPYC, 32 vCPU, page cache warm; its fsync costs 0.2 ms, much less
