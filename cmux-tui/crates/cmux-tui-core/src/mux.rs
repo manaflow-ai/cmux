@@ -4810,7 +4810,6 @@ impl Mux {
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
             let mut plan = prepare(&mut state, &registry)?;
-            // Before the state step: v1 clients get the tab changes as deltas.
             let tabs = resource_tab_deltas::TabMembership::capture(&state, &plan.patch);
             let before = plan.stage_checked(&mut state, operation)?;
             anyhow::Ok((plan, before, tabs))
@@ -4852,8 +4851,7 @@ impl Mux {
             self.subscribers.publish_deferred_session_paths(session_paths);
         }
         plan.apply(&mut state, &commit, workspace_revision);
-        let tab_deltas =
-            tabs.filter(|_| !commit.replayed).and_then(|tabs| tabs.deltas(self, &state));
+        let tab_deltas = tabs.and_then(|tabs| tabs.deltas(self, &state, &commit));
         drop(state);
         drop(registry);
         if !commit.replayed {
@@ -4862,9 +4860,7 @@ impl Mux {
             // directory report was waiting for.
             self.publish_pending_terminal_directories();
         }
-        if let Some(tab_deltas) = tab_deltas {
-            self.emit_resource_tab_deltas(tab_deltas);
-        }
+        self.emit_resource_tab_deltas(tab_deltas);
         Ok(commit)
     }
 
@@ -30465,37 +30461,6 @@ mod tests {
             assert_eq!(pane.active_tab, 2);
             assert_eq!(s.pane_revision, pane_revision);
         });
-    }
-
-    #[test]
-    fn ordinary_tab_moves_do_not_rebuild_the_split_index() {
-        let mux = test_mux();
-        let first = mux.new_workspace(None, None).unwrap();
-        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
-        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
-        let extra = mux.new_tab(Some(first_pane), None, None).unwrap();
-        let sentinel = SplitId::MAX;
-        {
-            let mut state = mux.state.lock().unwrap();
-            state.split_screens.insert(sentinel, (usize::MAX, usize::MAX, ScreenId::MAX));
-        }
-
-        assert!(mux.move_tab(extra.id, first_pane, 0));
-        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
-        let events = mux.subscribe();
-        assert!(mux.move_tab(extra.id, second_pane, 0));
-        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
-        // The adopted tab's tab-changed, then one tree-changed.
-        let received = events.try_iter().collect::<Vec<_>>();
-        assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeDelta(TreeDelta {
-            kind: TreeDeltaKind::TabChanged, surface, pane, ..
-        }) if *surface == Some(extra.id) && *pane == Some(second_pane))));
-        assert!(matches!(received.last(), Some(MuxEvent::TreeChanged)));
-        assert_eq!(
-            received.iter().filter(|event| matches!(event, MuxEvent::TreeChanged)).count(),
-            1
-        );
     }
 
     #[test]

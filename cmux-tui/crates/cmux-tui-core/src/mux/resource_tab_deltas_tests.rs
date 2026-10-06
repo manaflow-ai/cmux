@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::mux::{Mux, MuxEvent, TreeDelta, TreeDeltaKind};
 use crate::workspace_registry::WorkspaceMutation;
-use crate::{PaneId, SurfaceId, SurfaceOptions};
+use crate::{PaneId, ScreenId, SplitDir, SplitId, SurfaceId, SurfaceOptions};
 
 /// One workspace with one pane holding `count` terminal tabs.
 fn terminal_tabs(mux: &Arc<Mux>, count: usize) -> (PaneId, Vec<SurfaceId>) {
@@ -159,4 +159,35 @@ fn terminal_move_that_empties_its_pane_emits_tree_changed() {
         events.try_iter().any(|event| matches!(event, MuxEvent::TreeChanged)),
         "a structural move resyncs delta clients"
     );
+}
+
+/// An ordinary tab move between panes keeps the split index (moved from
+/// mux.rs, which is at its godfile budget) and sends the adopted tab's
+/// `tab-changed` before one `tree-changed`.
+#[test]
+fn ordinary_tab_moves_do_not_rebuild_the_split_index() {
+    let mux = Mux::new_for_test("tab-deltas-split-index", SurfaceOptions::default());
+    let first = mux.new_workspace(None, None).unwrap();
+    let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
+    let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+    let extra = mux.new_tab(Some(first_pane), None, None).unwrap();
+    let sentinel = SplitId::MAX;
+    {
+        let mut state = mux.state.lock().unwrap();
+        state.split_screens.insert(sentinel, (usize::MAX, usize::MAX, ScreenId::MAX));
+    }
+
+    assert!(mux.move_tab(extra.id, first_pane, 0));
+    mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
+    let events = mux.subscribe();
+    assert!(mux.move_tab(extra.id, second_pane, 0));
+    mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
+    // The adopted tab's tab-changed, then one tree-changed.
+    let received = events.try_iter().collect::<Vec<_>>();
+    assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeDelta(TreeDelta {
+        kind: TreeDeltaKind::TabChanged, surface, pane, ..
+    }) if *surface == Some(extra.id) && *pane == Some(second_pane))));
+    assert!(matches!(received.last(), Some(MuxEvent::TreeChanged)));
+    assert_eq!(received.iter().filter(|event| matches!(event, MuxEvent::TreeChanged)).count(), 1);
 }
