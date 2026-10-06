@@ -122,7 +122,10 @@ impl Trace {
         let file = inner.dir.join(format!("{}.jsonl", now.format("%Y-%m-%d")));
         let mut bytes = Value::Object(line).to_string().into_bytes();
         bytes.push(b'\n');
-        let _guard = inner.write.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _guard = inner
+            .write
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let opened = std::fs::OpenOptions::new()
             .create(true)
             .append(true)

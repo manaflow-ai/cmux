@@ -614,7 +614,12 @@ impl AcpmuxCompactor {
 impl CompactModel for AcpmuxCompactor {
     fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
         let result = self.call_inner(request, followups);
-        if let Some(l) = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(&request.node) {
+        if let Some(l) = self
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_mut(&request.node)
+        {
             l.error = result.as_ref().err().map(|e| e.message.clone());
             if l.context.is_null() {
                 l.context = json!({

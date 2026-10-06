@@ -208,7 +208,11 @@ impl Spawner {
 
     /// Sends the prompt's answer (token use, cost) to the brain.
     fn forward_answer(&self, id: &str, rx: std::sync::mpsc::Receiver<TurnSignal>) {
-        let tx = self.tx.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let tx = self
+            .tx
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         let id = id.to_owned();
         std::thread::spawn(move || {
             while let Ok(signal) = rx.recv() {
