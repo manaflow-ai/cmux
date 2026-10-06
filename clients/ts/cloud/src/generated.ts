@@ -628,6 +628,7 @@ export type Install = {
   readonly bound_team?: TeamId
   readonly sso_team?: TeamId
   readonly bound_machine?: string
+  readonly capabilities?: ReadonlyArray<ServerCapability>
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -665,6 +666,7 @@ export type PairingInfo = {
   readonly os_version: string
   readonly arch: "x86_64" | "aarch64"
   readonly cmux_version: string
+  readonly capabilities?: ReadonlyArray<ServerCapability>
 }
 
 export type PairingPreview = {
@@ -755,6 +757,8 @@ export type RunError = {
 export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
+
+export type ServerCapability = string
 
 /** A Cloud machine snapshot. */
 export type SnapshotId = string

@@ -35,7 +35,7 @@ export const read = (token: string, name: string, params: unknown) => call("/v1/
 export const b64u = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 /** What a fresh `cmux server up` does: make an install key and a WireGuard key, prove possession, begin. */
-export const beginPairing = async (issuedAt = Date.now(), forge = false, ip?: string, key?: CryptoKeyPair) => {
+export const beginPairing = async (issuedAt = Date.now(), forge = false, ip?: string, key?: CryptoKeyPair, extraInfo: Record<string, unknown> = {}) => {
   const pair = key ?? ((await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair)
   const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
   const public_jwk = { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }
@@ -43,7 +43,7 @@ export const beginPairing = async (issuedAt = Date.now(), forge = false, ip?: st
   const thumb = b64u(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`{"crv":"P-256","kty":"EC","x":"${jwk.x}","y":"${jwk.y}"}`)))
   const signer = forge ? ((await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair).privateKey : pair.privateKey
   const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, signer, new TextEncoder().encode(beginProofMessage(testEnv.ENVIRONMENT, thumb, wg, issuedAt)))
-  const info = { name: "Studio", platform: "linux", os_version: "Ubuntu 24.04", arch: "x86_64", cmux_version: "0.1.0" }
+  const info = { name: "Studio", platform: "linux", os_version: "Ubuntu 24.04", arch: "x86_64", cmux_version: "0.1.0", ...extraInfo }
   const res = await call("/v1/pair/begin", undefined, { public_jwk, wg_public_key: wg, info, issued_at: issuedAt, signature: b64u(sig) }, ip ? { "cf-connecting-ip": ip } : {})
   return { res, pair, public_jwk, wg, thumb }
 }

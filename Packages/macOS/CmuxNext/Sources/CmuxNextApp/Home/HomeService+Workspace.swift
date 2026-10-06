@@ -91,7 +91,9 @@ extension HomeService {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs or local conversations"
             return
         }
-        let localChief = placed == nil ? try await chiefConversation(connection) : nil
+        // The local Chief is looked up (never created) once a chief is placed, to retire its tab.
+        let localChief = placed == nil ? try await chiefConversation(connection)
+            : (try? await ConversationClient(connection).list()).flatMap { HomeChiefName.select(from: $0)?.id }
         guard let chief = HomeChiefSource.choose(local: localChief, placed: placed) else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
@@ -106,7 +108,9 @@ extension HomeService {
         // A pane when the home has one. An empty home needs `workspace`, which
         // daemons with the raw `Workspace.kind` field accept; an older one
         // would put the tab in the focused pane, so it waits for that pin.
-        let pane = workspace.screens.first?.panes.first?.handle
+        // The Chief moved to a server: one Chief tab, where the local one was.
+        let move = HomeChiefSource.move(local: localChief, chief: chief, in: local.store.workspaces)
+        let pane = move.pane ?? workspace.screens.first?.panes.first?.handle
         guard open || pane != nil || workspace.kind != nil else {
             homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
             return
@@ -118,7 +122,8 @@ extension HomeService {
                                                     origin: Self.tabOrigin, mutationID: mutationID)
             _ = try await connection.request(request)
         }
-        homeWorkspaceStep = created ? "chief tab requested" : "chief tab present"
+        for surface in move.close { try await connection.closeTab(surface) }
+        homeWorkspaceStep = created ? (move.close.isEmpty ? "chief tab requested" : "chief tab moved to its server") : "chief tab present"
     }
 
     // MARK: Tab content
