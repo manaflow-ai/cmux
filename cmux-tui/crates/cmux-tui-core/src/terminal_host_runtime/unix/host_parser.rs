@@ -125,6 +125,9 @@ pub(super) fn run_host_parser(
                 parser_host.term.lock().unwrap().complete_clipboard_read(token, text.as_deref());
                 flush_pending_responses();
             }
+            ParserCommand::Barrier(response) => {
+                let _ = response.send(());
+            }
             ParserCommand::Drain => {
                 // FIFO reception proves every source byte published by
                 // the PTY reader has reached the authoritative parser.
