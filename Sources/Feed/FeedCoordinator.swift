@@ -70,6 +70,11 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates: [FeedAttentionTarget: AttentionOverlayState] = [:]
+    @MainActor private var pendingAttentionTargetsBySurfaceID: [UUID: Set<FeedAttentionTarget>] = [:]
+    /// Codex owns its TUI approval prompt, so its zero-wait PermissionRequest
+    /// telemetry has no Feed waiter to clear the needs-input overlay. Keep one
+    /// transient target per agent session and retire it on the next event.
+    @MainActor private var transientAttentionTargets: [String: FeedAttentionTarget] = [:]
 
     /// Tail of the serialized `CMUXFeedQuestion.` category mutation chain.
     /// `UNUserNotificationCenter` has no atomic category merge, so every
@@ -82,10 +87,10 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
-    /// Combines the two durable inputs to the mobile Feed into one monotonic
-    /// revision. The high and low 32-bit lanes preserve independent changes,
-    /// so a notification update cannot be hidden behind a larger workstream
-    /// revision (or vice versa).
+    /// Preserves the historical mobile Feed revision namespace. The Agent Feed
+    /// now contains workstream rows only, but the low notification lane keeps
+    /// a newly upgraded Mac from sending a revision lower than one cached by
+    /// an older phone. Notification changes do not emit `feed.changed`.
     static func combinedMobileFeedRevision(
         workstream: Int,
         notifications: Int
@@ -110,10 +115,9 @@ final class FeedCoordinator: @unchecked Sendable {
         // expressions evaluate outside the method's main-actor isolation.
         self.userNotificationCenter = userNotificationCenter
             ?? TerminalNotificationStore.shared.userNotificationCenter
-        // Mirror of the notification feed's `notification.feed.changed`
-        // contract: a revision-only invalidation tells subscribed phones to
-        // re-list the workstream feed (`feed.list`). Emission is a no-op
-        // without subscribers.
+        // A revision-only invalidation tells subscribed phones to re-list the
+        // workstream feed (`feed.list`). Keep the historical revision namespace
+        // so older phones do not reject the first post-upgrade snapshot.
         store.onRevisionChange = { revision in
             MobileHostService.emitEvent(
                 topic: "feed.changed",
@@ -163,12 +167,16 @@ final class FeedCoordinator: @unchecked Sendable {
 
     @MainActor
     private func acceptOnMainActor(
-        _ event: WorkstreamEvent
+        _ event: WorkstreamEvent,
+        transientAttentionTarget: (ownerId: UUID, surfaceId: UUID?)? = nil
     ) -> FeedEventAcceptance {
         switch resolveDeliveryTarget(for: [event]) {
         case .accepted(let events):
             guard let revalidatedEvent = events.first,
-                  let item = ingestRevalidatedOnMainActor(revalidatedEvent) else {
+                  let item = ingestRevalidatedOnMainActor(
+                      revalidatedEvent,
+                      transientAttentionTarget: transientAttentionTarget
+                  ) else {
                 return .unavailable
             }
             return .accepted(event: revalidatedEvent, item: item)
@@ -181,13 +189,22 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Inserts a revalidated event and returns the item the store now holds for it.
     @MainActor
-    func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> WorkstreamItem? {
+    func ingestRevalidatedOnMainActor(
+        _ event: WorkstreamEvent,
+        transientAttentionTarget: (ownerId: UUID, surfaceId: UUID?)? = nil
+    ) -> WorkstreamItem? {
         guard let store else { return nil }
         guard let item = store.ingestReturningItem(event) else { return nil }
+        retireTransientAttention(for: event)
         observeSemanticLifecycle(event)
         let retiredDecision = retirePendingDecisionsSuperseded(by: event)
         if !retiredDecision {
             clearAgentPromptNotificationsSuperseded(by: event)
+        }
+        if let transientAttentionTarget,
+           Self.shouldSurfaceTransientAttention(for: event),
+           let target = surfaceTransientAttention(event: event, resolved: transientAttentionTarget) {
+            transientAttentionTargets[Self.transientAttentionKey(for: event)] = target
         }
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
@@ -410,6 +427,9 @@ final class FeedCoordinator: @unchecked Sendable {
         onAcceptedOnMainActor: @escaping @MainActor @Sendable (WorkstreamEvent) -> Void,
         onAccepted: @escaping @Sendable (WorkstreamEvent) -> Void
     ) -> Bool {
+        let transientAttentionTarget = Self.shouldSurfaceTransientAttention(for: event)
+            ? Self.resolveAttentionTargetSynchronously(event: event)
+            : nil
         return feedIngressDeliveryLane.enqueueZeroWait(
             metadata: Self.ingressMetadata(
                 for: [event],
@@ -419,7 +439,10 @@ final class FeedCoordinator: @unchecked Sendable {
             let acceptedEvent: WorkstreamEvent? = DispatchQueue.main.sync {
                 MainActor.assumeIsolated {
                     let accept: () -> WorkstreamEvent? = {
-                        guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(event) else {
+                        guard case .accepted(let event, _) = FeedCoordinator.shared.acceptOnMainActor(
+                            event,
+                            transientAttentionTarget: transientAttentionTarget
+                        ) else {
                             return nil
                         }
                         return event
@@ -666,6 +689,19 @@ extension FeedCoordinator {
         }
     }
 
+    /// Codex keeps its approval prompt in the terminal, so its PermissionRequest
+    /// hook is zero-wait telemetry rather than a Feed waiter. Surface that one
+    /// provider's decision as transient attention until the session emits its
+    /// next lifecycle event. Other providers keep their existing blocking path.
+    static func shouldSurfaceTransientAttention(for event: WorkstreamEvent) -> Bool {
+        event.source.caseInsensitiveCompare("codex") == .orderedSame
+            && isBlockingDecisionEvent(event.hookEventName)
+    }
+
+    private static func transientAttentionKey(for event: WorkstreamEvent) -> String {
+        "\(event.source)\u{0}\(event.sessionId)"
+    }
+
     /// Maps a feed `source` (agent id) to the agent-lifecycle status key the
     /// sidebar reads. Claude reports under `claude_code`; every other agent
     /// keys its status by its own source name. Returning the agent's own key
@@ -807,10 +843,20 @@ extension FeedCoordinator {
                 .dock(id: owner.id, statusKey: statusKey)
             }
         }
-        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(owner: owner)
+        let attentionState: AttentionOverlayState
+        if let existing = pendingAttentionStates[target] {
+            attentionState = existing
+            existing.fallbackOwner = owner
+            existing.surfaceID = resolved.surfaceId ?? existing.surfaceID
+        } else {
+            attentionState = AttentionOverlayState(owner: owner, surfaceID: resolved.surfaceId)
+        }
         attentionState.fallbackOwner = owner
         attentionState.count += 1
         pendingAttentionStates[target] = attentionState
+        if let surfaceID = attentionState.surfaceID {
+            pendingAttentionTargetsBySurfaceID[surfaceID, default: []].insert(target)
+        }
 
         // Needs-input lifecycle drives the sidebar badge + hibernation state.
         owner.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
@@ -823,6 +869,85 @@ extension FeedCoordinator {
         ), key: statusKey, panelId: panelId)
 
         return target
+    }
+
+    /// Optimistically clears the Feed-owned needs-input overlay when the user
+    /// sends input to its terminal. Hook delivery remains authoritative and
+    /// will replace or remove this transient running state on the next event.
+    @MainActor
+    func noteExplicitInput(surfaceID: UUID, at: Date = Date()) {
+        for target in pendingAttentionTargetsBySurfaceID[surfaceID] ?? [] {
+            guard let attentionState = pendingAttentionStates[target] else { continue }
+            let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
+            let ownsSurface: Bool
+            switch owner {
+            case .workspace(let workspace):
+                ownsSurface = target.panelId == surfaceID
+                    || workspace.surfaceOwnershipTarget(for: surfaceID)?.containerPanelID == target.panelId
+            case .dock:
+                ownsSurface = target.panelId == surfaceID
+            }
+            guard ownsSurface else { continue }
+
+            owner.setAgentLifecycle(
+                key: target.statusKey,
+                panelId: target.panelId,
+                lifecycle: .running
+            )
+            owner.setStatusEntry(
+                SidebarStatusEntry(
+                    key: target.statusKey,
+                    value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                    icon: "bolt.fill",
+                    color: CmuxAccentColor.builtInAgentStatusHex,
+                    timestamp: at
+                ),
+                key: target.statusKey,
+                panelId: target.panelId
+            )
+            if let baseStatusKey = Self.baseStatusKey(forAttentionStatusKey: target.statusKey) {
+                owner.setAgentLifecycle(key: baseStatusKey, panelId: target.panelId, lifecycle: .running)
+                owner.setStatusEntry(
+                    SidebarStatusEntry(
+                        key: baseStatusKey,
+                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
+                        icon: "bolt.fill",
+                        color: CmuxAccentColor.builtInAgentStatusHex,
+                        timestamp: at
+                    ),
+                    key: baseStatusKey,
+                    panelId: target.panelId
+                )
+            }
+            #if DEBUG
+            cmuxDebugLog(
+                "feed.attention.input surface=\(surfaceID.uuidString.prefix(8)) "
+                + "target=\(target.statusKey) state=running"
+            )
+            #endif
+        }
+    }
+
+    @MainActor
+    private func surfaceTransientAttention(
+        event: WorkstreamEvent,
+        resolved: (ownerId: UUID, surfaceId: UUID?)
+    ) -> FeedAttentionTarget? {
+        let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.ownerId)
+            ?? AppDelegate.shared?.tabManagerFor(windowId: resolved.ownerId)
+        return surfaceBlockingDecisionAttention(
+            event: event,
+            resolved: resolved,
+            tabManager: tabManager
+        )
+    }
+
+    @MainActor
+    private func retireTransientAttention(for event: WorkstreamEvent) {
+        guard let target = transientAttentionTargets.removeValue(
+            forKey: Self.transientAttentionKey(for: event)
+        ) else { return }
+        concludeBlockingDecisionAttention(target)
     }
 
     /// Concludes a blocking decision's attention overlay. Decrements the
@@ -838,6 +963,12 @@ extension FeedCoordinator {
             return
         }
         pendingAttentionStates.removeValue(forKey: target)
+        if let surfaceID = attentionState.surfaceID {
+            pendingAttentionTargetsBySurfaceID[surfaceID]?.remove(target)
+            if pendingAttentionTargetsBySurfaceID[surfaceID]?.isEmpty == true {
+                pendingAttentionTargetsBySurfaceID.removeValue(forKey: surfaceID)
+            }
+        }
         let owner = liveAttentionOwner(for: target, fallback: attentionState.fallbackOwner)
 
         // Lifecycle is per-panel, so clearing this Feed-owned slot is safe even
@@ -868,6 +999,12 @@ extension FeedCoordinator {
         if !sharedWorkspaceStatusStillPending {
             owner.clearStatusEntry(key: target.statusKey, panelId: target.panelId)
         }
+    }
+
+    private static func baseStatusKey(forAttentionStatusKey key: String) -> String? {
+        let prefix = "cmux.feed.attention:"
+        guard key.hasPrefix(prefix) else { return nil }
+        return String(key.dropFirst(prefix.count))
     }
 
     /// Resolves a pending overlay's current mutation owner. A panel target is
@@ -1017,10 +1154,12 @@ extension FeedCoordinator {
 private final class AttentionOverlayState {
     var count: Int
     var fallbackOwner: ControlSidebarPanelOwner
+    var surfaceID: UUID?
 
-    init(owner: ControlSidebarPanelOwner) {
+    init(owner: ControlSidebarPanelOwner, surfaceID: UUID?) {
         self.count = 0
         self.fallbackOwner = owner
+        self.surfaceID = surfaceID
     }
 }
 
@@ -1068,6 +1207,20 @@ extension FeedCoordinator {
     /// `Data(contentsOf:)` or JSON parsing on the caller's thread.
     nonisolated func resolvePossibleSurfaceAsync(for workstreamId: String) async -> Bool {
         await sessionStoreLookup.resolve(workstreamId) != nil
+    }
+
+
+    nonisolated func resolveTarget(_ workstreamId: String) async -> FeedJumpResolver.Target? {
+        await sessionStoreLookup.resolve(workstreamId)
+    }
+
+    nonisolated func resolveTargets(for workstreamIDs: [String]) async -> [String: FeedJumpResolver.Target] {
+        var targets: [String: FeedJumpResolver.Target] = [:]
+        for workstreamID in workstreamIDs {
+            guard let target = await sessionStoreLookup.resolve(workstreamID) else { continue }
+            targets[workstreamID] = target
+        }
+        return targets
     }
 
     /// Fires a best-effort focus for the given `workstreamId`. Returns

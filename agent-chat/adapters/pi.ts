@@ -13,6 +13,8 @@ interface PiState {
   commands: CommandEntry[];
   initialApplied: boolean;
   initialApplying?: Promise<void>;
+  startupInFlight: boolean;
+  startupCancelled: boolean;
   activeTurn: boolean;
   activeGeneration?: number;
 }
@@ -27,22 +29,35 @@ export const piAdapter: Adapter = {
   },
   async send(sess, prompt, generation?: number) {
     const st = state(sess);
+    const startup = !st.initialApplied;
+    if (!startup) st.startupCancelled = false;
+    if (startup) st.startupInFlight = true;
     // Establish the process before checking initialization. If it exits while
     // setup is in flight, ensureProc resets initialization for the replacement
     // and this loop applies setup to that process before dispatching anything.
     let proc = ensureProc(sess);
     let initialized = false;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await applyInitialOptions(sess);
-      const current = ensureProc(sess);
-      if (current === proc && current.exitCode === null && !current.killed) {
-        initialized = true;
+    try {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await applyInitialOptions(sess);
+        const current = ensureProc(sess);
+        if (current === proc && current.exitCode === null && !current.killed) {
+          initialized = true;
+          proc = current;
+          break;
+        }
         proc = current;
-        break;
       }
-      proc = current;
+    } catch (err) {
+      st.startupInFlight = false;
+      throw err;
+    }
+    if (st.startupCancelled) {
+      st.startupInFlight = false;
+      throw new Error("pi startup cancelled");
     }
     if (!initialized || st.proc !== proc || proc.exitCode !== null || proc.killed) {
+      st.startupInFlight = false;
       throw new Error("pi process changed during startup");
     }
     const type = st.activeTurn ? "steer" : "prompt";
@@ -52,10 +67,14 @@ export const piAdapter: Adapter = {
     }
     proc.stdin.write(JSON.stringify({ type, message: prompt }) + "\n");
     proc.stdin.flush();
+    st.startupInFlight = false;
+    st.startupCancelled = false;
     sess.setStatus("running");
   },
   stop(sess) {
-    const proc = state(sess).proc;
+    const st = state(sess);
+    if (st.startupInFlight) st.startupCancelled = true;
+    const proc = st.proc;
     if (proc) {
       proc.stdin.write(JSON.stringify({ type: "abort" }) + "\n");
       proc.stdin.flush();
@@ -109,6 +128,8 @@ function state(sess: SessionCtx): PiState {
       sessionFile: typeof sess.internal.piSessionFile === "string" ? sess.internal.piSessionFile : undefined,
       commands: [],
       initialApplied: false,
+      startupInFlight: false,
+      startupCancelled: false,
       activeTurn: false,
       activeGeneration: undefined,
     };

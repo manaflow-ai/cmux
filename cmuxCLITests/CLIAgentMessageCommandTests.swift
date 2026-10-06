@@ -81,6 +81,39 @@ struct CLIAgentMessageCommandTests {
         #expect(!run.result.stderr.isEmpty)
     }
 
+    @Test func messagesOffDefaultsToTheCallersSurface() throws {
+        let run = try runCLI(arguments: ["agent", "messages", "off"])
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        let params = try #require(run.request("agent.message.settings")?["params"] as? [String: Any])
+        #expect(params["enabled"] as? Bool == false)
+        #expect(params["scope"] as? String == "surface")
+        #expect(params["surface_id"] as? String == Self.callerSurfaceID)
+        #expect(params["target"] == nil)
+    }
+
+    @Test func messagesOnForAWorkspaceTargetAndStatusSetsNothing() throws {
+        let on = try runCLI(arguments: ["agent", "messages", "on", "--workspace", "workspace:3"])
+        let params = try #require(on.request("agent.message.settings")?["params"] as? [String: Any])
+        #expect(params["enabled"] as? Bool == true)
+        #expect(params["scope"] as? String == "workspace")
+        #expect(params["target"] as? String == "workspace:3")
+        let status = try runCLI(arguments: ["agent", "messages", "status", "surface:4"])
+        let statusParams = try #require(status.request("agent.message.settings")?["params"] as? [String: Any])
+        #expect(statusParams["enabled"] == nil)
+        #expect(statusParams["target"] as? String == "surface:4")
+    }
+
+    @Test func statusSaysWhenTheSurfacesWorkspaceIsOff() throws {
+        let settings: [String: Any] = [
+            "scope": "surface", "id": "s", "ref": "surface:4", "workspace_title": "",
+            "receiving": true, "messages_enabled": true, "failed": [String](), "workspace_receiving": false
+        ]
+        let run = try runCLI(arguments: ["agent", "messages", "status"], responses: ["agent.message.settings": settings])
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr + run.result.stdout))
+        #expect(run.result.stdout.contains("Messages to surface:4 are on."))
+        #expect(run.result.stdout.contains("Its workspace has messages off, so it receives none."))
+    }
+
     @Test func messageHelpNeedsNoSocket() throws {
         let run = try runCLI(arguments: ["agent", "message", "--help"])
 
@@ -99,6 +132,11 @@ struct CLIAgentMessageCommandTests {
                         "state": "queued",
                         "sender_name": "coordinator",
                         "body": "first line\nsecond line",
+                    ], [
+                        "id": "fedcba9876543210",
+                        "state": "queued",
+                        "sender_name": "reviewer",
+                        "body": "another message",
                     ]],
                 ],
             ]
@@ -109,8 +147,9 @@ struct CLIAgentMessageCommandTests {
         #expect(listParams["surface"] as? String == "workspace:2")
         #expect(listParams["state"] as? String == "queued")
         let readParams = try #require(run.request("agent.message.mark_read")?["params"] as? [String: Any])
-        #expect(readParams["ids"] as? [String] == ["abcdef0123456789"])
+        #expect(readParams["ids"] as? [String] == ["abcdef0123456789", "fedcba9876543210"])
         #expect(run.result.stdout.contains("abcdef01  coordinator: first line"), Comment(rawValue: run.result.stdout))
+        #expect(run.result.stdout.contains("fedcba98  reviewer: another message"), Comment(rawValue: run.result.stdout))
         #expect(!run.result.stdout.contains("second line"))
     }
 
@@ -163,7 +202,7 @@ struct CLIAgentMessageCommandTests {
             standardInput: #"{"session_id":"s-7","hook_event_name":"Stop"}"#,
             responses: [
                 "agent.message.poll": ["status": "current", "queued": 1, "held": false],
-                "agent.message.claim": ["messages": [], "text": "[cmux agent message] from a\n---\nwake up\n---"],
+                "agent.message.claim": ["messages": [], "lease_id": "lease-1", "text": "[cmux agent message] from a\n---\nwake up\n---"],
             ]
         )
 
@@ -177,10 +216,18 @@ struct CLIAgentMessageCommandTests {
         #expect(poll["mark_delivered_read"] as? Bool == true)
         let claim = try #require(run.request("agent.message.claim")?["params"] as? [String: Any])
         #expect(claim["via"] as? String == "claude.wake")
-        // The poll claims nothing; the claim is a separate call made right
-        // before the message is handed to Claude.
+        #expect(claim["defer_delivery"] as? Bool == true)
+        #expect((claim["poller_key"] as? String)?.isEmpty == false)
+        let ack = try #require(run.request("agent.message.ack")?["params"] as? [String: Any])
+        #expect(ack["surface_id"] as? String == Self.callerSurfaceID)
+        #expect(ack["poller_key"] as? String == claim["poller_key"] as? String)
+        #expect(ack["lease_id"] as? String == "lease-1")
+        #expect(ack["via"] as? String == "claude.wake")
+        // The poll claims nothing; the deferred claim is followed by an ack
+        // after the message is handed to Claude.
         let methods = run.requests.compactMap { $0["method"] as? String }
         #expect(methods.firstIndex(of: "agent.message.poll")! < methods.firstIndex(of: "agent.message.claim")!)
+        #expect(methods.firstIndex(of: "agent.message.claim")! < methods.firstIndex(of: "agent.message.ack")!)
     }
 
     @Test func claudeWaitExitsQuietlyWhenANewerHookTakesOver() throws {

@@ -508,6 +508,42 @@ extension WorkspaceShellView {
         }
     }
 
+    /// New Workspace from a Cloud machine's workspace: made on that machine,
+    /// then opened through the same navigation a Mac-side create takes.
+    func createWorkspaceOnExternalHost(beside workspaceID: MobileWorkspacePreview.ID) {
+        runExternalHostWorkspaceCreate { store in
+            await store.createExternalHostWorkspace(beside: workspaceID)
+        }
+    }
+
+    /// New Workspace targeting a Cloud machine from the list's menu, or from
+    /// a computers scope naming one.
+    func createWorkspaceOnExternalHost(onHost hostID: String) {
+        runExternalHostWorkspaceCreate { store in
+            await store.createExternalHostWorkspace(onHost: hostID)
+        }
+    }
+
+    private func runExternalHostWorkspaceCreate(
+        _ create: @escaping @MainActor (CMUXMobileShellStore) async -> Result<Void, MobileWorkspaceMutationFailure>
+    ) {
+        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+        let settlesCompactNavigation = usesCompactStack
+        if settlesCompactNavigation {
+            pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
+        }
+        Task { @MainActor in
+            let result = await create(store)
+            handleWorkspaceActionResult(result, action: .createWorkspace)
+            if settlesCompactNavigation {
+                settlePendingCompactCreateNavigation(
+                    result: result,
+                    existingWorkspaceIDs: existingWorkspaceIDs
+                )
+            }
+        }
+    }
+
     func createWorkspaceGroupIfConnected() {
         guard canCreateWorkspaceForMacSelection, sshCreateHostID == nil else { return }
         Task { @MainActor in
@@ -556,9 +592,9 @@ extension WorkspaceShellView {
     }
 
     #if os(iOS)
-    /// Computers `+` offers while "All Computers" is shown: connected Macs
-    /// and every saved SSH computer (creating on one connects it). Empty
-    /// when the list is scoped to one computer.
+    /// Computers `+` offers while "All Computers" is shown: connected Macs,
+    /// Cloud machines, and every saved SSH computer (creating on one connects
+    /// it). Empty when the list is scoped to one computer.
     var newWorkspaceComputerTargets: [WorkspaceCreateComputerTarget] {
         switch macSelectionScope.visibleSelection {
         case .machine:
@@ -588,6 +624,35 @@ extension WorkspaceShellView {
                 statusText: status == .connected ? nil : status.sshStatusText,
                 statusColor: status.sshStatusColor,
                 sshKinds: store.sshComputers.kindAvailability(hostID: host.id).map(WorkspaceCreateKindOption.init)
+            ))
+        }
+        var cloudHosts = store.externalHostSummaries
+        let knownCloudHostIDs = Set(cloudHosts.map(\.hostID))
+        let cloudRowsByHost = Dictionary(
+            grouping: store.workspaces.compactMap { workspace -> (String, MobileWorkspacePreview)? in
+                guard let hostID = workspace.macDeviceID,
+                      store.externalHostOwnsHost(hostID),
+                      !store.externalHostIsHidden(hostID) else { return nil }
+                return (hostID, workspace)
+            },
+            by: { $0.0 }
+        )
+        for (hostID, rows) in cloudRowsByHost where !knownCloudHostIDs.contains(hostID) {
+            cloudHosts.append(MobileExternalHostSummary(
+                hostID: hostID,
+                displayName: rows.first?.1.macDisplayName,
+                status: store.externalHostIsConnected(hostID) ? .connected : .unavailable,
+                workspaceCount: rows.count,
+                isHidden: false
+            ))
+        }
+        for host in cloudHosts where !host.isHidden {
+            targets.append(WorkspaceCreateComputerTarget(
+                id: host.hostID,
+                kind: .cloud(hostID: host.hostID),
+                name: host.displayName ?? host.hostID,
+                statusText: host.status == .connected ? nil : host.status.label,
+                statusColor: host.status.tintColor
             ))
         }
         return targets
@@ -625,6 +690,8 @@ extension WorkspaceShellView {
         switch target.kind {
         case .ssh(let hostID):
             createSSHWorkspace(hostID: hostID, kind: kind)
+        case .cloud(let hostID):
+            createWorkspaceOnExternalHost(onHost: hostID)
         case .mac(let macDeviceID, let instanceTag):
             if isForegroundMac(macDeviceID: macDeviceID, instanceTag: instanceTag) {
                 create()

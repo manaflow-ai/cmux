@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -66,6 +67,27 @@ OUTSIDER_TRIGGER = re.compile(
 )
 HOSTED_LITERAL_RUNNER = re.compile(
     r"^\s*runs-on:\s*(?:ubuntu-\d+\.\d+|ubuntu-latest|macos-\d+)\s*(?:#.*)?$"
+)
+# The one runner selector a trusted-token job may use. CI_TRUSTED_RUNNER can
+# only choose among ephemeral labels listed here, in the base-branch workflow:
+# GitHub-hosted, or a Blacksmith VM that runs one job and is destroyed. Any
+# other value, including a persistent mini's label, falls back to Blacksmith,
+# and a fork running its own CI gets GitHub-hosted. Either provider can then
+# carry the merge-gating checks while the other is down.
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+TRUSTED_RUNNER_EXPRESSION = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
+    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+)
+TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
+TRUSTED_RUNNER_JOBS = (
+    ("backend-migrations.yml", "plan"),
+    ("backend-migrations.yml", "apply-staging"),
+    ("backend-migrations.yml", "apply-production"),
+    ("backend-migrations.yml", "gate"),
+    ("web-complexity-trusted.yml", "complexity"),
 )
 
 # A fork pull request into manaflow-ai runs with repository_owner ==
@@ -470,14 +492,15 @@ def outsider_triggered_workflows() -> list[Path]:
 
 
 def outsider_runner_errors(name: str, text: str) -> list[str]:
-    """Every runner must be a hosted literal; no runner selector may appear."""
+    """Every runner must be a hosted literal or the trusted ephemeral selector."""
     errors: list[str] = []
     for number, line in enumerate(text.splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
-        elif re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line):
+        elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
+              and not TRUSTED_RUNNER_LINE.match(line)):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 
@@ -945,6 +968,28 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         errors = outsider_runner_errors("x.yml", text)
         self.assertEqual([error.split(" ", 1)[0] for error in errors],
                          ["x.yml:5", "x.yml:7", "x.yml:9", "x.yml:11", "x.yml:15", "x.yml:16"])
+
+    def test_merge_gating_checks_route_through_the_trusted_runner(self) -> None:
+        """A GitHub Actions outage must not stop every merge; Blacksmith carries them."""
+        for workflow, job in TRUSTED_RUNNER_JOBS:
+            with self.subTest(workflow=workflow, job=job):
+                text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+                block = re.search(rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  \S|\Z)", text)
+                self.assertIsNotNone(block, f"{workflow} has no job {job}")
+                runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
+                self.assertEqual(len(runs_on), 1, runs_on)
+                self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+
+    def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
+        self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
+        for label in TRUSTED_RUNNER_LABELS:
+            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
+        widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
+        renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
+        unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
+        for variant in (widened, renamed, unforked):
+            with self.subTest(variant=variant):
+                self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.

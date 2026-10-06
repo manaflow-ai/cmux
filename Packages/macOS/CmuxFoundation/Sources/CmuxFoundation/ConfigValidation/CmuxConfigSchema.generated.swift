@@ -158,11 +158,72 @@ enum CmuxEmbeddedConfigSchema {
       "additionalProperties": false,
       "description": "Behavior of custom (user or agent authored) sidebars.",
       "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true, "description": "Enable custom sidebars in the sidebar provider picker." }
+          }
+        },
         "renderer": {
           "type": "string",
           "enum": ["inProcess", "remote"],
           "default": "inProcess",
           "description": "How a selected custom sidebar renders. \"inProcess\" renders native SwiftUI inside cmux with full hover, focus, and keyboard input; use it only for sidebars you authored. \"remote\" renders in an isolated worker process so a faulty sidebar cannot crash cmux, with input limited to clicks."
+        }
+      }
+    },
+    "extensions": {
+      "x-cmux-scopes": ["global"],
+      "title": "extensions",
+      "description": "Experimental sidebar extension settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Enable the ExtensionKit sidebar extension surface." }
+          }
+        }
+      }
+    },
+    "cloud": {
+      "x-cmux-scopes": ["global"],
+      "title": "cloud",
+      "description": "Cloud feature settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "machines": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Enable Cloud Machines." }
+              }
+            }
+          }
+        }
+      }
+    },
+    "remoteTmux": {
+      "x-cmux-scopes": ["global"],
+      "title": "remoteTmux",
+      "description": "Remote tmux mirroring settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." }
+          }
         }
       }
     },
@@ -465,6 +526,29 @@ enum CmuxEmbeddedConfigSchema {
       "type": "string",
       "description": "Legacy name of a workspace command to run when creating a new workspace. Prefer ui.newWorkspace.action for new configs."
     },
+    "sleepyMode": {
+      "type": "object",
+      "title": "sleepyMode",
+      "description": "Sleepy Mode appearance and scene preferences.",
+      "additionalProperties": false,
+      "properties": {
+        "theme": { "type": "string", "enum": ["cmux", "blossom", "mint", "mono", "custom"], "default": "cmux" },
+        "mascot": { "type": "string", "enum": ["cmux", "cat", "ghost", "logoFace"], "default": "cmux" },
+        "glow": { "type": "string", "enum": ["black", "midnight", "cmux", "aurora", "sunset", "ocean", "custom"], "default": "black" },
+        "showMoon": { "type": "boolean", "default": true },
+        "showStars": { "type": "boolean", "default": true },
+        "showZs": { "type": "boolean", "default": true },
+        "showClock": { "type": "boolean", "default": true },
+        "showStatus": { "type": "boolean", "default": true },
+        "showPets": { "type": "boolean", "default": true },
+        "customFace": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "E0EDFF" },
+        "customCap": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "5CD6FF" },
+        "customBlush": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "FF99B5" },
+        "customInk": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "333D6B" },
+        "customLogo": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "6BDEFF" },
+        "customBackground": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "060812" }
+      }
+    },
     "workspaceGroups": {
       "type": "object",
       "title": "workspaceGroups",
@@ -732,6 +816,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show a confirmation before closing a tab."
         },
+        "warnBeforeClosingAgentSession": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before closing an agent session while it is mid-turn."
+        },
         "warnBeforeClosingTabXButton": {
           "type": "boolean",
           "default": false,
@@ -770,6 +859,22 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "description": "Search every surface in the command palette switcher instead of only the active workspace."
+        }
+      }
+    },
+    "surfaceTabBar": {
+      "x-cmux-scopes": ["global"],
+      "title": "surfaceTabBar",
+      "description": "Surface tab bar typography settings from Settings > Terminal.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fontSize": {
+          "type": "number",
+          "minimum": 8.0,
+          "maximum": 14.0,
+          "default": 11.0,
+          "description": "Default surface tab bar font size in points. The legacy Ghostty key surface-tab-bar-font-size remains a fallback alias."
         }
       }
     },
@@ -828,6 +933,11 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
           "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
+        "showCopyConfirmation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Briefly show \"Copied to clipboard\" at the bottom of a terminal after selecting text copies it. Applies whether copyOnSelect or Ghostty's copy-on-select turned copying on. Copies made with a keyboard shortcut or by a program (OSC 52) never show it."
+        },
         "reflowHardWrapOnCopy": {
           "type": "boolean",
           "default": false,
@@ -862,6 +972,11 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "description": "When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted."
+        },
+        "showJumpToBottomButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a Jump to Bottom button at the bottom center of a terminal while its viewport is scrolled up into scrollback. Clicking it scrolls to the bottom and focuses the terminal. A dot marks output that arrived below the viewport. Programs on the alternate screen (vim, less, full-screen agent modes) never get the button because they draw their own scrolling."
         },
         "predictiveLocalEcho": {
           "type": "boolean",
@@ -936,6 +1051,55 @@ enum CmuxEmbeddedConfigSchema {
               "maximum": 256,
               "default": 1,
               "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
+            }
+          }
+        },
+        "titleUpdates": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Terminal title update throttling and diagnostics.",
+          "properties": {
+            "coalescing": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Throttle high-frequency terminal title updates before they reach workspace and sidebar metadata."
+                },
+                "delayMilliseconds": {
+                  "type": "integer",
+                  "minimum": 33,
+                  "maximum": 5000,
+                  "default": 1000,
+                  "description": "Delay between coalesced terminal title updates in milliseconds."
+                }
+              }
+            },
+            "diagnostics": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable DEBUG logging for terminal title update enqueue and flush events."
+            }
+          }
+        },
+        "runawayMemoryGuardrail": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-pane process-tree memory monitoring.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Monitor pane process trees for runaway memory use."
+            },
+            "thresholdGB": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 8,
+              "description": "Resident-memory threshold in gigabytes for a pane process tree."
             }
           }
         },
@@ -1170,12 +1334,30 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashDoubleBlink": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Blink the pane flash twice instead of one short pulse."
+        },
+        "paneFlashOnTyping": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the pane when terminal typing dismisses its notification."
+        },
+        "paneFlashThemeColor": {
+          "x-cmux-scopes": ["global"],
+          "type": "boolean",
+          "default": false,
+          "description": "Use the terminal theme foreground for flashes when paneFlashColor is unset. Unread rings remain cmux blue."
+        },
         "paneFlashColor": {
           "x-cmux-scopes": ["global"],
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,
           "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
-          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
+          "description": "Override the pane flash and unread ring color. Null flashes in the terminal theme's foreground and keeps unread rings in the cmux accent."
         },
         "soundWhenFocused": {
           "x-cmux-scopes": ["global"],
@@ -1334,6 +1516,13 @@ enum CmuxEmbeddedConfigSchema {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "fontSize": {
+          "type": "number",
+          "minimum": 10.0,
+          "maximum": 20.0,
+          "default": 12.5,
+          "description": "Sidebar font size in points. The legacy Ghostty key sidebar-font-size remains a fallback alias."
+        },
         "hideAllDetails": {
           "type": "boolean",
           "default": false,
@@ -1403,6 +1592,11 @@ enum CmuxEmbeddedConfigSchema {
           "enum": ["vertical", "inline"],
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
+        },
+        "branchVerticalLayout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show git branch details stacked vertically when true, or inline when false. This boolean form is the canonical setting; branchLayout remains supported as a legacy alias."
         },
         "stackBranchDirectory": {
           "type": "boolean",
@@ -1477,6 +1671,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Show progress indicators."
         },
+        "showAgentUsage": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.showAgentUsage",
+          "description": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled."
+        },
         "showAgentActivity": {
           "type": "boolean",
           "default": true,
@@ -1527,6 +1727,22 @@ enum CmuxEmbeddedConfigSchema {
           },
           "additionalProperties": false
         },
+        "activeTabIndicatorStyle": {
+          "type": "string",
+          "enum": ["leftRail", "solidFill", "rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail"],
+          "default": "leftRail",
+          "description": "Active workspace indicator style in the sidebar."
+        },
+        "selectionColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the selected workspace background color in the sidebar."
+        },
+        "notificationBadgeColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the unread notification badge color in the sidebar."
+        },
         "rightMaxWidth": {
           "type": "number",
           "exclusiveMinimum": 0,
@@ -1567,6 +1783,11 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "description": "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom selectionColor still uses a solid fill."
+        },
+        "brightenInDarkMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. false shows colors exactly as chosen. Applies to the solidFill indicator; leftRail always lightens its rail."
         },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",
@@ -1776,6 +1997,80 @@ enum CmuxEmbeddedConfigSchema {
         }
       }
     },
+    "integrations": {
+      "x-cmux-scopes": ["global"],
+      "title": "integrations",
+      "description": "Canonical external agent and search integration settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "claudeCode": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Claude Code." },
+            "customClaudePath": { "type": "string", "default": "", "description": "Custom path to the Claude Code binary." }
+          }
+        },
+        "codex": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Codex." } }
+        },
+        "pi": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Pi." } }
+        },
+        "amp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Amp." } }
+        },
+        "cursor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Cursor." } }
+        },
+        "gemini": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Gemini." } }
+        },
+        "kiro": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Kiro CLI." },
+            "notificationLevel": { "type": "string", "enum": ["minimal", "standard", "verbose"], "default": "standard", "description": "Controls how many Kiro tool events appear in Feed." }
+          }
+        },
+        "ripgrep": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "customBinaryPath": { "type": "string", "default": "", "description": "Custom path to the ripgrep binary used by project search." } }
+        },
+        "suppressSubagentNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suppress visible completion notifications from nested agent sessions."
+        }
+      }
+    },
+    "agentMessages": {
+      "x-cmux-scopes": ["global"],
+      "title": "agentMessages",
+      "description": "Agent-to-agent messages sent with cmux agent message. Per-agent and per-workspace opt-outs are set with cmux agent messages off.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow agents to message each other through cmux. When false, cmux agent message fails, nothing is stored, and messages already queued are marked failed instead of being delivered."
+        }
+      }
+    },
     "browser": {
       "x-cmux-scopes": ["global"],
       "title": "browser",
@@ -1824,20 +2119,44 @@ enum CmuxEmbeddedConfigSchema {
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
-          "description": "Allow hidden browser tabs to release page memory and restore when shown again."
+          "description": "Allow hidden browser tabs to release page memory. Scroll position, supported form input, and history are restored when recoverable."
+        },
+        "hiddenWebViewDiscardMode": {
+          "type": "string",
+          "enum": ["budget", "timer"],
+          "default": "budget",
+          "description": "How cmux picks hidden browser tabs to free. budget frees the tabs hidden longest once hidden tabs use more than hiddenWebViewMemoryBudgetMB; timer frees every tab hidden longer than hiddenWebViewDiscardDelaySeconds."
+        },
+        "hiddenWebViewMemoryBudgetMB": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 65536,
+          "default": 2048,
+          "description": "Megabytes of memory hidden browser tabs may use before cmux frees the tabs hidden longest. Applies when hiddenWebViewDiscardMode is budget."
         },
         "hiddenWebViewDiscardDelaySeconds": {
           "type": "number",
           "minimum": 0,
           "maximum": 3600,
           "default": 300,
-          "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
+          "description": "Seconds a browser tab must stay hidden before cmux may free its page memory. In timer mode, every tab hidden this long is freed."
+        },
+        "autoRestoreUnloadedPages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restore a browser page unloaded to save memory, or whose web process ended while hidden, as soon as its tab is shown. When false, the tab shows the page's last snapshot until you click Restore."
         },
         "askWhereToSaveDownloads": {
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
           "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
+        },
+        "showLinkHoverURL": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.browser.showLinkHoverURL",
+          "description": "Show a link's destination at the bottom-left of a browser pane while the pointer is over the link or the link has keyboard focus."
         },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
@@ -2074,7 +2393,22 @@ enum CmuxEmbeddedConfigSchema {
       "description": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
       "descriptionKey": "schemaDescriptions.rightSidebar",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "feed": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Enable the beta Feed mode in the right sidebar." }
+              }
+            }
+          }
+        }
+      }
     },
     "shortcuts": {
       "x-cmux-scopes": ["global"],
@@ -2114,6 +2448,7 @@ enum CmuxEmbeddedConfigSchema {
               "reopenPreviousSession",
               "goToWorkspace",
               "commandPalette",
+              "agentInbox",
               "commandPaletteNext",
               "commandPalettePrevious",
               "sendFeedback",

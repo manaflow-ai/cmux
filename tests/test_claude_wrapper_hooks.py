@@ -123,7 +123,7 @@ def generated_claude_hook_settings() -> str:
             direct(f"{direct_cli} hooks claude auto-name", 120, asynchronous=True),
             inbox_wait,
         ],
-        "StopFailure": [queued("stop")],
+        "StopFailure": [queued("stop"), inbox_wait],
         "SubagentStop": [queued("feed")],
         "SessionEnd": [queued("session-end")],
         "Notification": [queued("notification")],
@@ -505,6 +505,7 @@ def run_wrapper_terminal_env_probe(
             "CMUX_SURFACE_ID": "surface:test",
             "CMUX_TAB_ID": "tab:test",
             "CMUX_WORKSPACE_ID": "workspace:test",
+            "CMUX_CLAUDE_HEADLESS": "0",
             "TERMINFO": str(tmp / "terminfo"),
         }
         if hooks_disabled:
@@ -1757,6 +1758,14 @@ def test_explicit_prompt_modes_skip_subcommand_discovery(failures: list[str]) ->
             expect(not calls.exists(), f"session entry {argv}: unexpectedly probed help", failures)
 
 
+def test_headless_detection_ignores_option_values(failures: list[str]) -> None:
+    for argv in (["--append-system-prompt", "-p"], ["--model", "--print"], ["--append-system-prompt=-p"]):
+        code, observed_env, _, stderr, _ = run_wrapper_terminal_env_probe(argv)
+        expect(code == 0, f"option value {argv}: wrapper failed: {stderr}", failures)
+        expect(observed_env.get("CMUX_CLAUDE_HEADLESS") == "0",
+               f"option value {argv}: incorrectly marked headless: {observed_env}", failures)
+
+
 def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) -> None:
     """Interrupting a cold lookup also stops its isolated help process group."""
     for interrupt in (signal.SIGINT, signal.SIGTERM):
@@ -1974,7 +1983,6 @@ def expect_computer_use_env_scrubbed(
         "CMUX_CUA_DEFAULT_SESSION": "cmux-surface:test",
         "CMUX_CUA_MCP_FORCE_PROXY": "1",
         "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1",
-        "CMUX_CUA_SOCKET_AUTH_TOKEN": "cmux-test-auth-token",
         "CMUX_CUA_TELEMETRY_ENABLED": "false",
         "CMUX_CUA_UPDATE_CHECK": "false",
         "CMUX_CUA_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
@@ -2045,6 +2053,12 @@ def expect_cmux_cua_config(
             f"{context}: proxy command must use the bundled cmux Computer Use client, got {command}",
             failures,
         )
+    env = server.get("env", {})
+    expect(
+        "CMUX_CUA_SOCKET_AUTH_TOKEN" not in env,
+        f"{context}: socket credential must be inherited, never serialized into MCP argv config: {config}",
+        failures,
+    )
     expect_computer_use_env_scrubbed(server, failures, context, helper_owned=bundled_client)
 
 
@@ -3574,6 +3588,7 @@ def main() -> int:
     test_subcommand_cache_expires_for_unchanged_launchers(failures)
     test_subcommand_help_failure_falls_back_and_is_cached(failures)
     test_explicit_prompt_modes_skip_subcommand_discovery(failures)
+    test_headless_detection_ignores_option_values(failures)
     test_subcommand_help_cancellation_cleans_up_children(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cmux_cua_when_available(failures)

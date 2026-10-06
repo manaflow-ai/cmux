@@ -17,17 +17,23 @@ final class CloudWorkspaceRowOpenFixture {
     let operations = CloudWorkspaceOperationController(isAvailable: { true })
     let remote = SurfaceRemoteWorkspace(id: "ws-open", name: "Existing", index: 0, focused: true)
     var failures: [String] = []
+    lazy var panelModel = MachinesPanelViewModel(
+        createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+        isCloudEnabled: { true },
+        catalogProvider: { [unowned self] in base.catalog.snapshot },
+        localWorkspacesProvider: { [] }
+    )
     let defaults: UserDefaults
     let defaultsName = "cloud-row-open-\(UUID())"
     lazy var coordinator = CloudTreeOutlineView.Coordinator(
         machineActions: MachineRowActions(openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}),
+            confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}),
         nodeActions: CloudTreeNodeActions.bound(
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { [unowned self] in base.catalog },
             selectedWorkspaceID: { [unowned self] in base.manager.selectedTabId },
             selectLocalWorkspace: { [unowned self] in base.manager.selectedTabId = $0 },
-            onWillMutate: { _ in }, onDidMutate: {},
+            onDidMutate: { [weak self] in self?.panelModel.endOperation() },
             onFailure: { [unowned self] in failures.append($0) }, refresh: {}, operationController: operations,
             workspaceCreationHost: { [unowned self] in CloudWorkspaceCreationHost(manager: base.manager) }
         ),

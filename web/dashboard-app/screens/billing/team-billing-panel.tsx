@@ -58,7 +58,7 @@ function Notice({ children }: { children: ReactNode }) {
   return <div className="border border-border bg-background p-3 text-sm">{children}</div>;
 }
 
-/** Seats in use, and the add-seats nudge when members exceed them. */
+/** Seats in use, and the line for a count the subscription has not caught up with. */
 function TeamSeats({ view }: { view: ReadyTeamBillingViewJson }) {
   const t = useTranslations("dashboard.billing");
 
@@ -72,8 +72,7 @@ function TeamSeats({ view }: { view: ReadyTeamBillingViewJson }) {
       />
       {view.overSeat && view.canManageBilling ? (
         <p className="border-t border-border p-3 text-xs text-muted">
-          {t("teamPanel.overSeat", { team, members: view.memberCount ?? 0, seats })}{" "}
-          <a href={teamPortalHref(view.team.id)} className="underline">{t("teamPanel.addSeats")}</a>
+          {t("teamPanel.overSeat", { team, members: view.memberCount ?? 0, seats })}
         </p>
       ) : null}
     </section>

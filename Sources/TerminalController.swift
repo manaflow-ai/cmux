@@ -400,6 +400,7 @@ class TerminalController {
         "notification.open",
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
+        "debug.native_pricing.show",
         "debug.notification.focus",
         "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
@@ -1632,7 +1633,7 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
-        case "auth.team.list", "auth.team.use", "auth.team.create":
+        case _ where Self.authTeamSocketMethods.contains(request.method):
             return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
@@ -3156,6 +3157,16 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.cloudtree.rows":
+            // The Cloud sidebar's rows from the same builder the sidebar uses, so
+            // dogfood can assert what is listed (duplicate rows were invisible to
+            // `cloud tree --json`, which reports catalog state, not rows).
+            let rows = CloudTreeNodeBuilder.flattened(SurfaceCatalog.shared.sidebarNodes()).map { node -> [String: Any] in
+                var row: [String: Any] = ["id": node.id, "kind": node.structureTag]
+                if case .display(let resource, _, _) = node.kind { row["resource"] = resource.id.rawValue; row["title"] = resource.title }
+                return row
+            }
+            return v2Ok(id: id, result: ["rows": rows])
         case "debug.cloudtree.spacing":
             // Explicit window presentation needs AppKit; the socket awaits the main-actor lane.
             AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
@@ -3937,6 +3948,15 @@ class TerminalController {
             if case VMClientError.lifecycleUnsupported = error {
                 return v2Error(id: id, code: "vm_operation_unsupported", message: String(describing: error))
             }
+            // Network policy refusals name the offending entry; the generic
+            // Cloud VM line would hide which domain or range was wrong.
+            if let editError = error as? CloudNetworkPolicyEditError {
+                return v2Error(id: id, code: "invalid_params", message: editError.errorDescription ?? String(describing: editError))
+            }
+            if let requestError = error as? CloudNetworkPolicyRequestError {
+                let code = requestError == .unsupported ? "vm_operation_unsupported" : "invalid_network_policy"
+                return v2Error(id: id, code: code, message: requestError.errorDescription ?? String(describing: requestError))
+            }
             if let deliveryError = error as? CloudEnvDelivery.DeliveryError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: deliveryError.localizedDescription)
             }
@@ -4076,6 +4096,11 @@ class TerminalController {
         // that blocked the open; the generic Cloud VM line would hide it.
         if let rejection = error as? SurfaceTransferRejection {
             return rejection.message
+        }
+        // Remote tmux requests come through this wrapper too. Their errors are about an ssh
+        // host, and `RemoteTmuxError.message` already flattens and caps any remote text.
+        if let remoteTmuxError = error as? RemoteTmuxError {
+            return remoteTmuxError.message
         }
         guard case let VMClientError.httpStatus(status, body) = error else {
             guard let vmError = error as? VMClientError else { return fallback }
@@ -4221,6 +4246,10 @@ class TerminalController {
         controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 
+    func v2ExistingHandleRef(kind: ControlHandleKind, uuid: UUID) -> String? {
+        controlCommandCoordinator.existingRef(kind: kind, uuid: uuid)
+    }
+
     func v2ResolveHandleRef(_ handle: String) -> UUID? {
         controlCommandCoordinator.resolveRef(handle)
     }
@@ -4271,6 +4300,12 @@ class TerminalController {
         // ptrauth). A v2 socket command arriving within ~1s of launch can
         // re-enter this on the main actor mid-restore, so degrade gracefully.
         guard app.didCompleteInitialSessionRestore else { return }
+
+        // #5757: Skip the expensive full-tree scan if topology has not changed.
+        // Commands calling `controlResolveOnMain` or reading surfaces otherwise force
+        // O(windows * tabs * panes) handle sweeps on every RPC hop, freezing the MainActor
+        // during heavy multi-agent activity.
+        guard controlCommandCoordinator.needsHandleTopologyRefresh else { return }
 
         let windows = app.listMainWindowSummaries()
         for item in windows {
@@ -6323,7 +6358,8 @@ class TerminalController {
                     workspaceId: workspaceId,
                     message: event.submittedPromptMessage,
                     submittedLength: event.submittedPromptLength,
-                    iMessageModeEnabled: iMessageModeEnabled
+                    iMessageModeEnabled: iMessageModeEnabled,
+                    surfaceId: event.surfaceId
                 )
             }
         case .stop:
@@ -6497,7 +6533,7 @@ class TerminalController {
                 workspaceId: ws.id,
                 surfaceId: surfaceId,
                 browserPanel: browserPanel,
-                webView: browserPanel.webView
+                webView: browserPanel.webViewForAutomationCommand()
             ),
             nil
         )
@@ -11310,7 +11346,7 @@ class TerminalController {
                 )
             }
 
-            let result = BrowserStateLoadTransaction.run(
+            let result = BrowserStateLoadTransaction().run(
                 hasNavigation: targetURL != nil,
                 installCookies: {
                     guard let cookieRows = raw["cookies"] as? [[String: Any]] else {
@@ -12851,11 +12887,8 @@ class TerminalController {
     }
 
     private func newWindow() -> String {
-        guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
+        guard let windowId = v2MainSync({ self.controlCreateWindowAndActivate(title: nil) }) else {
             return "ERROR: Failed to create window"
-        }
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
-            setActiveTabManager(tm)
         }
         return "OK \(windowId.uuidString)"
     }
@@ -15054,8 +15087,15 @@ class TerminalController {
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
-        case "mobile.workspace.list", "workspace.list":
-            result = v2MobileWorkspaceList(params: request.params)
+        case "mobile.workspace.list":
+            // The v2 method carries the authenticated host identity with the
+            // workspace snapshot so a cold reconnect does not need a second
+            // relay round trip. Older clients continue using `workspace.list`.
+            result = v2MobileWorkspaceListWithHostStatus(params: request.params)
+        case "workspace.list":
+            result = v2Bool(request.params, "include_host_status") == true
+                ? v2MobileWorkspaceListWithHostStatus(params: request.params)
+                : v2MobileWorkspaceList(params: request.params)
         case "mobile.workspace.changes.summary",
              "mobile.workspace.changes.files",
              "mobile.workspace.changes.file_diff",
@@ -15206,6 +15246,30 @@ class TerminalController {
             ])
         }
         return mobileHostResult(result)
+    }
+
+    /// Adds the authenticated host proof to the v2 workspace snapshot. This is
+    /// called after the mobile connection has been admitted. The published v2
+    /// installation identity is authoritative for this response; the physical
+    /// device identity belongs to legacy pairing and must never replace it.
+    /// If the identity is unavailable, return the plain workspace result and
+    /// let the client use its legacy fallback request.
+    @MainActor
+    private func v2MobileWorkspaceListWithHostStatus(
+        params: [String: Any]
+    ) -> V2CallResult {
+        let workspaceResult = v2MobileWorkspaceList(params: params)
+        guard case let .ok(workspacePayload) = workspaceResult,
+              var workspaceObject = workspacePayload as? [String: Any] else {
+            return workspaceResult
+        }
+        guard case let .ok(hostStatusPayload) = MobileHostPublicStatusCache.result(
+            includeIdentity: true
+        ), let hostStatusObject = hostStatusPayload as? [String: Any] else {
+            return workspaceResult
+        }
+        workspaceObject["host_status"] = hostStatusObject
+        return .ok(workspaceObject)
     }
 
     /// Privileged agent feedback sink (the Mac↔phone feedback loop).
@@ -15432,15 +15496,21 @@ class TerminalController {
 
         let tabManager = v2ResolveTabManager(params: params)
         let workspaceCount = tabManager?.tabs.count ?? 0
-
-        return .ok([
-            "mac_device_id": MobileHostIdentity.deviceID(),
-            "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
-            "host_service": status.payload,
-            "workspace_count": workspaceCount,
-            "terminal_fidelity": "render_grid",
-            "capabilities": capabilities,
-        ])
+        guard case let .ok(identityPayload) = MobileHostPublicStatusCache.result(
+            includeIdentity: true
+        ), var payload = identityPayload as? [String: Any] else {
+            return .ok([
+                "mac_device_id": MobileHostIdentity.deviceID(),
+                "mac_display_name": v2OrNull(MobileHostIdentity.instanceDisplayName()),
+                "host_service": status.payload,
+                "workspace_count": workspaceCount,
+                "terminal_fidelity": "render_grid",
+                "capabilities": capabilities,
+            ])
+        }
+        payload["host_service"] = status.payload
+        payload["workspace_count"] = workspaceCount
+        return .ok(payload)
     }
 
     #if DEBUG

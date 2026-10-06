@@ -22,14 +22,20 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
-    @ObservationIgnored private var billingPlanRequestID = UUID()
     private(set) var isProUpgradeAvailable: Bool
-    private(set) var isProActive = false
-    /// True only after the current account's billing endpoint returned a
-    /// successful plan response. An unknown plan must not be treated as free:
-    /// doing so would briefly show an upgrade prompt to an existing Pro user.
-    private(set) var isProStatusKnown = false
-    private(set) var canManageBilling = false
+    private(set) var billingPlanState = BillingPlanState.unknown
+    var isProActive: Bool { billingPlanState.isPro }
+    var canManageBilling: Bool { billingPlanState.canManageBilling }
+    /// The account whose plan is known, or nil while the plan is unknown.
+    var billingPlanIdentityID: String? { billingPlanState.accountID }
+    /// The most recent plan request. Only it may write, so an older request
+    /// that finishes late cannot overwrite a newer answer.
+    @ObservationIgnored private var billingPlanRequestID: UUID?
+    /// Whether `isProActive` is a real answer for the signed-in account.
+    var hasLoadedBillingPlan: Bool {
+        guard let billingPlanIdentityID else { return false }
+        return billingPlanIdentityID == currentIdentity?.id
+    }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
     /// Cloud requests keep using the confirmed coordinator scope until success.
@@ -42,6 +48,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Owns the optimistic create projection so a later create cannot clear
     /// it when the earlier coordinator request has already finished.
     var pendingTeamCreateRequestID: UUID?
+    /// Invitations addressed to the signed-in user, refreshed on sign-in, by
+    /// the poll and after every invitation action. Empty while signed out.
+    var receivedInvitations: [CloudReceivedInvitation] = []
+    @ObservationIgnored var receivedInvitationsPoll: Task<Void, Never>?
+    @ObservationIgnored var receivedInvitationsLoaded = false
     var isCreatingTeam: Bool { coordinator.isCreatingTeam }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
@@ -164,8 +175,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     /// Completes an external hosted Stack callback through the shared attempt.
-    func handleCallbackURL(_ url: URL) async -> Bool {
-        await browserSignIn.handleCallbackURL(url)
+    func handleCallbackURL(_ url: URL, delivery: AuthCallbackDelivery) async -> Bool {
+        await browserSignIn.handleCallbackURL(url, delivery: delivery)
     }
 
     func openSignInInDefaultBrowser() {
@@ -186,20 +197,51 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
-        billingPlanRequestID = UUID()
-        isProActive = false
-        isProStatusKnown = false
-        canManageBilling = false
+        billingPlanState = .unknown
+    }
+
+    /// Set for the whole switch so sign-in gates show its progress instead of
+    /// an idle Sign In button that would start a second attempt.
+    private(set) var isSwitchingAccount = false
+    @ObservationIgnored private var switchAttempt: Task<Bool, Never>?
+
+    /// Signs out, then signs in again asking the hosted page to confirm the
+    /// account. The browser may still hold a cmux session; the page's chooser
+    /// offers "continue as" that account or a different one.
+    func switchAccount() async {
+        // Clicking again while a switch's window is open (it may be behind
+        // other windows) replaces that attempt with a fresh window; the
+        // sign-out already happened, so it is not repeated. A click while the
+        // sign-out is still running is dropped: there is no window yet, and
+        // starting one would race the sign-out.
+        if isSwitchingAccount {
+            if switchAttempt != nil {
+                switchAttempt = browserSignIn.beginSignIn(selectAccount: true)
+            }
+            return
+        }
+        isSwitchingAccount = true
+        defer {
+            isSwitchingAccount = false
+            switchAttempt = nil
+        }
+        await signOut()
+        var attempt = browserSignIn.beginSignIn(selectAccount: true)
+        switchAttempt = attempt
+        // Stay switching until the newest attempt settles: a replaced one
+        // ends early, cancelled, while its replacement is still open.
+        while true {
+            _ = await attempt.value
+            guard let latest = switchAttempt, latest != attempt else { break }
+            attempt = latest
+        }
     }
 
     /// Socket variant of sign-out. The underlying sign-out continues if the
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
         await browserSignIn.signOut(timeout: timeout)
-        billingPlanRequestID = UUID()
-        isProActive = false
-        isProStatusKnown = false
-        canManageBilling = false
+        billingPlanState = .unknown
     }
 
     func refreshCurrentUser() async {
@@ -209,46 +251,42 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func refreshBillingPlan() async {
+        _ = await refreshBillingPlanAndReportSuccess()
+    }
+
+    @discardableResult
+    func refreshBillingPlanAndReportSuccess() async -> Bool {
+        guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
+            billingPlanState = .unknown
+            return false
+        }
         let requestID = UUID()
         billingPlanRequestID = requestID
-        isProStatusKnown = false
-        guard coordinator.currentUser != nil else {
-            isProActive = false
-            canManageBilling = false
-            return
-        }
-        var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        guard let tokens = try? await coordinator.currentTokens(),
-              billingPlanRequestID == requestID,
-              !Task.isCancelled else { return }
-        request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        // Do not project the previous team/account's entitlement while this
+        // request is in flight. Unknown keeps Cloud enabled until a verified
+        // response arrives and avoids a false Free/Upgrade state.
+        billingPlanState = .unknown
+        let tokens = try? await coordinator.currentTokens()
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard billingPlanRequestID == requestID, !Task.isCancelled else { return }
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
-                isProActive = false
-                canManageBilling = false
-                return
-            }
-            let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
-            guard decoded.authenticated else {
-                isProActive = false
-                canManageBilling = false
-                return
-            }
-            isProActive = decoded.isPro
-            isProStatusKnown = true
-            canManageBilling = decoded.billingManagement == .stripe
+            let details = try await BillingPlanClient().fetch(
+                from: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"),
+                accessToken: tokens?.accessToken,
+                refreshToken: tokens?.refreshToken
+            )
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            billingPlanState = billingPlanState.applyingSuccess(
+                for: identityID,
+                isPro: details.isPro,
+                canManageBilling: details.canManageBilling
+            )
+            return true
         } catch {
-            guard billingPlanRequestID == requestID, !Task.isCancelled else { return }
-            isProActive = false
-            canManageBilling = false
+            // A cancelled request (the panel went away) says nothing about the plan.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
+            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            billingPlanState = billingPlanState.applyingFailure(for: identityID)
+            return false
         }
     }
 
@@ -283,16 +321,4 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             avatarURL: user.profileImageURL.flatMap(URL.init(string:))
         )
     }
-}
-
-private struct BillingPlanResponse: Decodable {
-    let authenticated: Bool
-    let isPro: Bool
-    let billingManagement: BillingManagement?
-}
-
-private enum BillingManagement: String, Decodable {
-    case stripe
-    case external
-    case none
 }

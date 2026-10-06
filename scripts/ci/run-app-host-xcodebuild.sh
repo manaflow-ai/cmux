@@ -32,6 +32,20 @@ restart_budget_exit_code=123
 export CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS:-180}"
 startup_hang_exit_code=122
 startup_hangs=0
+# Reading a finished bundle takes seconds. Bound it so a bundle xcresulttool
+# cannot parse fails this batch with a reason instead of holding the shard.
+xcresulttool_timeout_seconds="${CMUX_APP_HOST_XCRESULTTOOL_TIMEOUT_SECONDS:-120}"
+# The last XCTest or Swift Testing suite line in an attempt's log, without the
+# aggregate suites that wrap every run.
+last_suite_line() {
+  local line
+  line="$(tr -d '\r' <"$1" 2>/dev/null \
+    | grep -aE "(◇|✔|✘) Suite |Test Suite '" \
+    | grep -avE "Test Suite '(Selected tests|All tests|[^']*\.xctest)'" \
+    | tail -n 1 || true)"
+  line="${line#"${line%%[![:space:]]*}"}"
+  printf '%s\n' "${line:-none}"
+}
 # testmanagerd is this user's on-demand launchd agent; launchd starts a fresh
 # one for the next session. The app-host lock keeps other app-host runs away,
 # but other XCTest clients of this user (E2E UI tests, tmux-corpus, compat
@@ -93,6 +107,13 @@ fi
 if [ -n "${GITHUB_ACTIONS:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_GITHUB_ACTIONS=$GITHUB_ACTIONS")
 fi
+# Source-backed test fixtures resolve their repository files through this
+# runtime root. Xcode does not inherit the driver's environment, so forward
+# the path through the TEST_RUNNER_ channel when app-host tests are restored
+# from a canonical build product.
+if [ -n "${CMUX_CI_RUNTIME_SOURCE_ROOT:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT")
+fi
 # Focused app-host suites invoke Node/Bun-backed helpers from the test process.
 # Xcode does not inherit these driver variables, so carry them through the
 # TEST_RUNNER_ channel when the caller supplied them.
@@ -101,6 +122,12 @@ if [ -n "${TEST_RUNNER_PATH:-}" ]; then
 fi
 if [ -n "${TEST_RUNNER_BUN_INSTALL:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_BUN_INSTALL=$TEST_RUNNER_BUN_INSTALL")
+fi
+# SwiftTestingAssertions.sourceURL() resolves source fixtures through this
+# root; without the prefix the test host never sees it and falls back to the
+# producer's #filePath, which a consumer runner does not have.
+if [ -n "${CMUX_CI_RUNTIME_SOURCE_ROOT:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT=$CMUX_CI_RUNTIME_SOURCE_ROOT")
 fi
 # Focused opt-in suites (renderer memory regression, benchmarks) are gated on a
 # plain variable the driver receives. Xcode does not inherit it, so a caller that
@@ -413,14 +440,32 @@ while [ "$attempt" -le "$max_attempts" ]; do
     # Keep Apple's typed test-result JSON beside the raw bundle. Text output
     # remains useful for streaming diagnostics; these files are the durable,
     # machine-readable verdict evidence for later census/ratchet work.
-    xcrun xcresulttool get test-results summary \
-      --path "$result_bundle_path" --compact \
-      >"${typed_result_stem}.summary.json" \
-      2>"${typed_result_stem}.summary.err" || true
-    xcrun xcresulttool get test-results tests \
-      --path "$result_bundle_path" --compact \
-      >"${typed_result_stem}.tests.json" \
-      2>"${typed_result_stem}.tests.err" || true
+    # Name the batch and the last suite its log shows, so a suite that keeps
+    # xcodebuild from finishing stays visible in the failure.
+    typed_result_context="batch $log_tag, last suite in its log: $(last_suite_line "$log_path")"
+    if grep -Fq 'Post-test timed out after' "$log_path"; then
+      typed_result_context="$typed_result_context; xcodebuild had not exited by the post-test deadline after the test run ended"
+    fi
+    if [ ! -f "$result_bundle_path/Info.plist" ]; then
+      # xcodebuild writes Info.plist when it finalizes the bundle. Without it
+      # xcresulttool only reports a corrupt bundle and the accounting step
+      # used to fail on an empty JSON file. Name the cause instead.
+      echo "Unreadable result bundle: $result_bundle_path has no Info.plist because xcodebuild stopped before it finalized it, so this batch has no typed test results ($typed_result_context)" >&2
+    else
+      for typed_result_kind in summary tests; do
+        typed_result_status=0
+        python3 "$ci_script_dir/run_with_timeout.py" \
+          --timeout-seconds "$xcresulttool_timeout_seconds" -- \
+          xcrun xcresulttool get test-results "$typed_result_kind" \
+          --path "$result_bundle_path" --compact \
+          >"${typed_result_stem}.${typed_result_kind}.json" \
+          2>"${typed_result_stem}.${typed_result_kind}.err" || typed_result_status=$?
+        if [ "$typed_result_status" -eq 124 ]; then
+          rm -f -- "${typed_result_stem}.${typed_result_kind}.json"
+          echo "Unreadable result bundle: xcresulttool get test-results $typed_result_kind did not finish within ${xcresulttool_timeout_seconds}s on $result_bundle_path ($typed_result_context)" >&2
+        fi
+      done
+    fi
   fi
 
   require_config_evidence=0

@@ -4,6 +4,7 @@ import { memberRole, type TeamAccess } from "./access";
 import { TeamServiceUnavailableError } from "./errors";
 import { listTeamInvitations } from "./invitations";
 import { listTeamInviteLinks } from "./links";
+import { memberLimitForTeam } from "./seats";
 import type { TeamInviteStore } from "./repository";
 import type { StackTeamMember } from "./stack";
 import type { TeamDetail, TeamMember } from "./types";
@@ -57,6 +58,7 @@ export async function loadTeamDetail(access: TeamAccess, dependencies: TeamDetai
     billing: {
       planId: billingPlanIdFromMetadata(access.team.clientReadOnlyMetadata),
       seats: billingSeatsFromMetadata(access.team.clientReadOnlyMetadata),
+      memberLimit: memberLimitForTeam(access.team),
       memberCount: access.members.length,
       hasActiveSubscription: activeSubscription,
     },

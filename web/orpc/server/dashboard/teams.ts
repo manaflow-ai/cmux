@@ -99,7 +99,7 @@ const invite = teamUser
     inviteTeamMembers(context.team, {
       emails: input.emails,
       role: input.role,
-      callbackUrl: teamInviteAcceptUrl(context.request),
+      acceptUrl: (token) => teamInviteLinkUrl(context.request, token),
     })
   );
 
@@ -111,7 +111,7 @@ const resendInvitation = teamUser
   .use(teamAccess({ admin: true, permission: "inviteMembers" }), (input) => input)
   .output(z.object({ invitation: invitationSchema }))
   .handler(async ({ context, input }) => ({
-    invitation: await resendTeamInvitation(context.team, input.invitationId, teamInviteAcceptUrl(context.request)),
+    invitation: await resendTeamInvitation(context.team, input.invitationId, (token) => teamInviteLinkUrl(context.request, token)),
   }));
 
 const revokeInvitation = teamUser

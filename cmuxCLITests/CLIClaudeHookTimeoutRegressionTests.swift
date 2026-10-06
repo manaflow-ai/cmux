@@ -186,7 +186,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         )
         // Agent messages: a background wake hook after every start and stop,
         // and a synchronous prompt hook that fails open to `{}`.
-        for event in ["SessionStart", "Stop"] {
+        for event in ["SessionStart", "Stop", "StopFailure"] {
             try expectDirectHook(
                 hooks,
                 event: event,
@@ -1429,7 +1429,14 @@ struct CLIClaudeHookTimeoutRegressionTests {
     }
 
     private var repositoryRoot: URL {
-        URL(fileURLWithPath: #filePath)
+        // CI consumers run products compiled under another root; the restore
+        // step aliases this checkout at $CMUX_CI_RUNTIME_SOURCE_ROOT/src.
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            return URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                .appendingPathComponent("src", isDirectory: true)
+        }
+        return URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
     }

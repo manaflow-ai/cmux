@@ -1144,6 +1144,9 @@ jobs:
       - name: Run the contributor static preflight
         run: python3 scripts/verify-local.py
 
+      - name: Check agent hook docs against the catalog
+        run: python3 scripts/check-agent-hook-docs.py
+
   guards:
     # Not after static-preflight: the guards are the last job
     # macos-admission-gate waits for (median ~110 s after changes), and the
@@ -1708,68 +1711,72 @@ jobs:
         run: python3 scripts/ci/ui_tests_dispatch.py await-verdict
 
   dogfood-build:
-    # One sticky comment per app pull request with a link to a tagged dev build
-    # of this exact head, so anyone can try the change in one click. The build
-    # controller treats this job's success as the build request and verifies the
-    # pull request itself before building, so the job name is part of that
-    # contract. Not required and not in ci-status: a comment failure never
-    # blocks a merge.
-    # Opt-in: only pull requests labelled dev-build get it, on each push and
-    # when the label is added; app-free changes (docs, web) never do. The
-    # controller builds the newest head each time a worker frees up.
+    # Build one exact app pull-request head for trusted org members and hand
+    # the ZIP to the default-branch publisher. That publisher writes the
+    # private R2 object and keeps one short-lived signed link on the PR while
+    # the fleet controller is tailnet-only.
+    # <!-- cmux:dogfood-build -->
     name: "Dogfood build #${{ github.event.pull_request.number }}"
-    needs: changes
-    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') }}
-    runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
-    timeout-minutes: 5
-    # A failed comment must not turn the run red; the controller acts only on success.
-    continue-on-error: true
+    needs: [changes, static-preflight]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 45
+    # This job is intentionally outside ci-status, so a build or publication
+    # failure is visible without becoming a merge requirement.
     permissions:
       contents: read
       pull-requests: write
     steps:
-      - name: Post the dogfood link
+      - name: Checkout the exact pull-request head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the pinned GhosttyKit
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Build and package the production-authenticated app
+        id: artifact
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          CMUX_GHOSTTYKIT_PREPROVISIONED: '1'
+          CMUX_SKIP_ZIG_BUILD: '1'
+          CMUX_SWIFT_FRONTEND_WORKAROUND: '1'
+          CMUX_DEV_CLOUD_ENABLED: '0'
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           tag="pr-$PR-${HEAD_SHA:0:8}"
-          marker='<!-- cmux:dogfood-build -->'
-          # One comment per pull request: edit ours in place on every push.
-          existing=$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id")
-          existing=${existing%%$'\n'*}
-          # The head the previous link named, so a regression can be bisected
-          # across the pushes the controller skipped (it builds the newest head).
-          previous=""
-          if [ -n "$existing" ]; then
-            previous=$(gh api "repos/$GH_REPO/issues/comments/$existing" --jq '.body' | grep -oE '^\*\*Dogfood build\*\* of `[0-9a-f]{40}`' | grep -oE '[0-9a-f]{40}' || true)
-          fi
-          range=""
-          if [ -n "$previous" ] && [ "$previous" != "$HEAD_SHA" ]; then
-            commits=$(gh api "repos/$GH_REPO/compare/$previous...$HEAD_SHA" --jq '.total_commits' 2>/dev/null) || true
-            [[ "$commits" =~ ^[0-9]+$ ]] || commits="?"
-            range="Covers \`${previous:0:8}..${HEAD_SHA:0:8}\` ([commits: $commits](https://github.com/$GH_REPO/compare/$previous...$HEAD_SHA)) since the previous link, [cmux DEV pr-$PR-${previous:0:8}.app](http://127.0.0.1:17320/pr-$PR-${previous:0:8}); if that push was skipped, its page names the newer build. To build a commit in between: \`cmux-ci build cmux --ref <sha> --tag bisect-<sha8> --workspace https://github.com/$GH_REPO/pull/$PR\`."
-          fi
-          cat > body.md <<EOF
-          $marker
-          **Dogfood build** of \`$HEAD_SHA\`
+          ./scripts/reload.sh --tag "$tag" --prod-auth --no-global-cli-links
+          app="$(find "$HOME/Library/Developer/Xcode/DerivedData" -type d -path "*/Build/Products/Debug/cmux DEV $tag.app" -print -quit)"
+          test -d "$app"
+          archive="$RUNNER_TEMP/cmux-$tag.app.zip"
+          /usr/bin/ditto -c -k --keepParent "$app" "$archive"
+          digest="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          {
+            echo "archive=$archive"
+            echo "digest=$digest"
+            echo "tag=$tag"
+            echo "size=$(stat -f '%z' "$archive")"
+          } >> "$GITHUB_OUTPUT"
 
-          [cmux DEV $tag.app](http://127.0.0.1:17320/$tag)
-
-          The link opens this exact commit in the cmux dev menu bar app; the page waits until the build is ready. Builds run only while this PR has the \`dev-build\` label. Under load the fleet builds the newest push each time a worker frees up, so some pushes are skipped. It signs in against production, so Cloud or backend changes still need a tagged build with a development backend.
-
-          $range
-          EOF
-          if [ -n "$existing" ]; then
-            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@body.md >/dev/null
-          else
-            gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F body=@body.md >/dev/null
-          fi
-          echo "Dogfood link for $tag posted on #$PR."
+      - name: Upload the exact app for the trusted publisher
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        with:
+          name: dogfood-app-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ steps.artifact.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
 
   ci-status:
     needs:

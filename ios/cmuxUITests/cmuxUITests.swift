@@ -179,6 +179,46 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentFeedHeavyActivityScrollPacing() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "400",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_SCROLL_STRESS": "1",
+        ])
+        defer { app.terminate() }
+
+        let scrollContainer = app.descendants(matching: .any)["AgentFeedScrollContainer"]
+        XCTAssertTrue(scrollContainer.waitForExistence(timeout: 10))
+        let metrics = app.descendants(matching: .any)["AgentFeedScrollStressMetrics"]
+        XCTAssertTrue(metrics.waitForExistence(timeout: 5))
+
+        for _ in 0..<14 {
+            scrollContainer.swipeUp(velocity: .fast)
+        }
+        for _ in 0..<14 {
+            scrollContainer.swipeDown(velocity: .fast)
+        }
+
+        let complete = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value CONTAINS %@", "state=complete"),
+            object: metrics
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 15), .completed)
+        let value = try XCTUnwrap(metrics.value as? String)
+        print("AgentFeedScrollStressMetrics: \(value)")
+
+        let fields: [String: String] = value.split(separator: ";").reduce(into: [:]) { fields, component in
+            let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { return }
+            fields[pair[0]] = pair[1]
+        }
+        let frames: Int = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(frames, 120, value)
+        XCTAssertNotNil(fields["frame_p95_ms"], value)
+        XCTAssertNotNil(fields["hitches"], value)
+    }
+
+    @MainActor
     func testForegroundRemovesOnlyReadDeliveredNotifications() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
@@ -2453,6 +2493,21 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(picker.label, "All Computers")
         XCTAssertEqual(picker.value as? String, "Reconnecting…")
 
+        let statusLine = app.descendants(matching: .any)[
+            "MobileWorkspaceConnectionStatusLine"
+        ]
+        XCTAssertTrue(statusLine.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(
+            statusLine.frame.minY,
+            picker.frame.minY - 1,
+            "The connection status must stay inside the picker while it is shown."
+        )
+        XCTAssertLessThanOrEqual(
+            statusLine.frame.maxY,
+            picker.frame.maxY + 1,
+            "The connection status must not be clipped by the picker frame."
+        )
+
         picker.tap()
 
         let allComputersItem = waitForVisibleElement(
@@ -2475,6 +2530,94 @@ final class cmuxUITests: XCTestCase {
         attachment.name = "workspace-mac-picker-computer-copy"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor
+    func testComputerPickerStatusTransitionKeepsBothLayoutsVisible() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_PICKER_STATUS_TRANSITIONS": "1",
+        ])
+        defer { app.terminate() }
+
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 8))
+        let statusLine = app.descendants(matching: .any)[
+            "MobileWorkspaceConnectionStatusLine"
+        ]
+        XCTAssertTrue(statusLine.waitForExistence(timeout: 3))
+        let toggleStatus = app.buttons[
+            "MobileWorkspaceListPreviewTogglePickerStatus"
+        ]
+        XCTAssertTrue(toggleStatus.waitForExistence(timeout: 3))
+
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "computer-picker-status-before-transition"
+        before.lifetime = .keepAlways
+        add(before)
+
+        let pickerHeightWithStatus = picker.frame.height
+
+        toggleStatus.tap()
+        let heightsDuringStatusRemoval = samplePickerHeights(
+            for: 0.5,
+            picker: picker
+        )
+        XCTAssertTrue(
+            statusLine.waitForNonExistence(timeout: 3),
+            "The preview must exercise the status-to-title transition."
+        )
+        let pickerHeightWithoutStatus = picker.frame.height
+        assertPickerHeights(
+            heightsDuringStatusRemoval,
+            stayAt: [pickerHeightWithStatus, pickerHeightWithoutStatus]
+        )
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "computer-picker-status-after-transition"
+        after.lifetime = .keepAlways
+        add(after)
+
+        toggleStatus.tap()
+        let heightsDuringStatusAppearance = samplePickerHeights(
+            for: 0.5,
+            picker: picker
+        )
+        XCTAssertTrue(
+            statusLine.waitForExistence(timeout: 3),
+            "The preview must exercise the title-to-status transition."
+        )
+        assertPickerHeights(
+            heightsDuringStatusAppearance,
+            stayAt: [pickerHeightWithoutStatus, pickerHeightWithStatus]
+        )
+        XCTAssertGreaterThanOrEqual(statusLine.frame.minY, picker.frame.minY - 1)
+        XCTAssertLessThanOrEqual(statusLine.frame.maxY, picker.frame.maxY + 1)
+    }
+
+    private func samplePickerHeights(
+        for duration: TimeInterval,
+        picker: XCUIElement
+    ) -> [CGFloat] {
+        let deadline = Date().addingTimeInterval(duration)
+        var heights: [CGFloat] = []
+        while Date() < deadline {
+            heights.append(picker.frame.height)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return heights
+    }
+
+    private func assertPickerHeights(
+        _ observedHeights: [CGFloat],
+        stayAt restingHeights: [CGFloat]
+    ) {
+        XCTAssertFalse(observedHeights.isEmpty)
+        for height in observedHeights {
+            XCTAssertTrue(
+                restingHeights.contains { abs($0 - height) <= 1 },
+                "Picker height \(height) must stay at a resting layout height."
+            )
+        }
     }
 
     @MainActor
@@ -3227,6 +3370,11 @@ final class cmuxUITests: XCTestCase {
             firstRow.frame.minY,
             settingsButton.frame.maxY - 1,
             "The first workspace row \(firstRow.frame) must clear the top toolbar \(settingsButton.frame)."
+        )
+        XCTAssertLessThanOrEqual(
+            firstRow.frame.minY - settingsButton.frame.maxY,
+            32,
+            "The workspace list must not reserve an empty large-title area below the toolbar."
         )
 
         for _ in 0..<20 where !lastRow.isHittable {

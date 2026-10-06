@@ -137,6 +137,12 @@ extension TerminalController {
                         action: action
                     )
                 }
+                // REPL evaluations run for up to two minutes; they await
+                // the REPL thread and main-actor driver without holding a
+                // socket worker thread.
+                if Self.isBrowserReplMethod(authorizedRequest.method) {
+                    return await self.v2BrowserReplResponse(request: authorizedRequest)
+                }
                 if authorizedRequest.method == "surface.sync_codex_native_title" {
                     return try await self.v2MainAsync {
                         self.v2Result(
@@ -215,9 +221,7 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async throws -> String? {
-        if request.method == "auth.team.list"
-            || request.method == "auth.team.use"
-            || request.method == "auth.team.create" {
+        if Self.authTeamSocketMethods.contains(request.method) {
             return try await v2AuthTeamResponseAsync(request)
         }
         if request.method == "surface.read_selection" {

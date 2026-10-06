@@ -31,6 +31,12 @@ class FastGuardStatusTests(unittest.TestCase):
         ]
         self.assertEqual(fast_guard_status.completed_state(checks), "success")
 
+    def test_latest_completed_failure_is_a_verdict_for_propagation(self):
+        checks = [
+            {"name": "CI fast guards", "status": "completed", "conclusion": "failure", "id": 21},
+        ]
+        self.assertEqual(fast_guard_status.completed_state(checks), "failure")
+
     def test_permanent_api_errors_do_not_retry(self):
         self.assertTrue(issubclass(fast_guard_status.PermanentAPIError, Exception))
 

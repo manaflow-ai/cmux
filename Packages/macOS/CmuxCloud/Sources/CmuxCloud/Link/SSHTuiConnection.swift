@@ -72,9 +72,9 @@ public struct SSHTuiConnection: Sendable {
     }
 
     /// The caller's options plus cmux's shared ControlMaster, as 0.64.25's
-    /// connection broker used for every connect. Snapshots drop control
-    /// options, so without this a restored carrier opens its own connection,
-    /// which batch mode can't log in on a password-only host.
+    /// connection broker used for every connect. Snapshots keep only the
+    /// cmux-owned ControlPath an open used, so these defaults restore the rest;
+    /// without a shared master, batch mode can't log in on a password-only host.
     private var sshOptions: [String] {
         var routeSensitiveOptions = configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         if let agent = configuration.agentSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines), !agent.isEmpty {
@@ -107,7 +107,7 @@ public struct SSHTuiConnection: Sendable {
         ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -lc \"$1\"", "cmux-ssh", command]
     }
 
-    public func arguments(stateDirectory: String, deviceName: String) -> [String] {
+    public func arguments(stateDirectory: String, deviceName: String, upgrade: Bool = false) -> [String] {
         var arguments = ["remote", "ssh", configuration.destination, "--headless", "--json",
                          "--exit-with-parent", "--lanes", "single", "--carrier",
                          "--session", session, "--state-dir", stateDirectory]
@@ -121,6 +121,7 @@ public struct SSHTuiConnection: Sendable {
         // this launch (SSHTuiPreflight), and verification stays OpenSSH's.
         for argument in sshArguments { arguments += ["--ssh-arg", argument] }
         arguments += ["--device-name", deviceName]
+        if upgrade { arguments.append("--upgrade") }
         if !agentHookProviders.isEmpty {
             arguments += ["--agent-hooks", agentHookProviders.joined(separator: ",")]
         }

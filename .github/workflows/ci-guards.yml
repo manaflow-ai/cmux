@@ -88,6 +88,12 @@ jobs:
           HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: python3 scripts/ci/fast_guard_status.py
 
+      - name: Propagate failed independent fast guard
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.state == 'failure' }}
+        run: |
+          echo "CI fast guards already reported failure for this revision; skipping duplicate guard execution."
+          exit 1
+
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -135,6 +141,10 @@ jobs:
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_guard_attribution.py
+
+      - name: Validate main-fix merge evidence
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_gh_merge_green.py
 
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -317,6 +327,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Test private R2 URL presigner
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_r2_presign.py
+
       - name: Validate CI process-tree cancellation cleanup
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_process_tree_reaping.py
@@ -360,6 +374,11 @@ jobs:
         run: |
           python3 tests/test_localization_catalog.py
           python3 tests/test_localize_changes.py
+          python3 tests/test_localization_defaults.py
+
+      - name: Test fake-socket CLI test helpers
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_fake_socket_env.py
 
       - name: Test the PR media uploader
         if: ${{ matrix.group == 'preflight' }}
@@ -460,6 +479,49 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_testbox_broker_guard.py
 
+      # Keep the Testbox trust checks in the routed CI guard matrix. This
+      # replaces the former always-on testbox-broker-guard workflow, which
+      # repeated this work on every pull request and main push.
+      - name: Validate Testbox cleanup receipt ownership
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_cleanup_receipt_ref.sh
+      - name: Testbox keepalive counts a command in the checkout as use
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_keepalive_busy.sh
+
+      - name: Test the Testbox approval helper against fake gh and blacksmith
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_approve.sh
+
+      - name: Lint the Testbox lane helpers
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/blacksmith-testbox-busy.sh tests/test_testbox_keepalive_busy.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh
+
+      - name: Test the actionlint downloader without a network outage
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_ci_actionlint_download.sh
+
+      - name: Check that every workflow is linted
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_actionlint_covers_every_workflow.py
+
+      - name: Check that push and pull_request path filters agree
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_path_filter_parity.py
+
+      - name: Lint every workflow
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+          ACTIONLINT_ASSET_ID: "221573254"
+          # Warnings and errors gate; informational shellcheck findings do not.
+          SHELLCHECK_OPTS: "-S warning"
+        run: |
+          set -euo pipefail
+          ./scripts/ci/install-actionlint.sh
+          "$RUNNER_TEMP/actionlint"
+
       - name: Validate contributor verification receipts and selection
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: |
@@ -542,6 +604,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_simple_pool_picker.py
 
+      - name: Validate agent pane frame pacing summary
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_frame_pacing_summary.py
+
       - name: Validate manual dispatch routing guard
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_manual_dispatch_guard_workflow.py
@@ -569,6 +635,10 @@ jobs:
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_owned_build_state.py
+
+      - name: Validate canonical root ownership boundary
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_take_canonical_root.py
 
       - name: Validate warm-state distance recording and routing
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -613,6 +683,14 @@ jobs:
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
+
+      - name: Validate required checks have no paths filters
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_required_checks_have_no_path_filters.py
+
+      - name: Validate workflow write permissions are job-scoped
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
       - name: Validate triage radar scoring
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -894,6 +972,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/iroh-cached-launch.test.mjs
 
+      - name: Validate iPhone dogfood readiness modes
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 ios/tests/test_dogfood_readiness_app_receipt.py
+
       - name: Validate manual iOS workflow ref resolution
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
@@ -1005,6 +1087,10 @@ jobs:
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
+
+      - name: Validate nightly release notes and appcast summaries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_release_notes.py
 
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
@@ -1165,6 +1251,12 @@ jobs:
           python3 tests/test_ci_cli_contract_verb_guard.py
           python3 scripts/check-cli-contract-verbs.py
 
+      - name: Validate socket capability parity
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_ci_socket_capability_guard.py
+          python3 scripts/check-socket-capabilities.py
+
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}
         run: |
@@ -1185,10 +1277,24 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
-          # Manual dispatches have no synthetic parent, so retain full history
-          # and origin/main for the policy's fallback merge-base comparison.
-          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && '0' || '2' }}
+          # fetch-depth 0 would also fetch every branch of the repository
+          # (about ten thousand). That took 3-10 minutes and sometimes the
+          # whole 15 minute job (run 37374680247).
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Fetch main history for a manual dispatch
+        # A manual dispatch has no synthetic parent, so the policy falls back
+        # to merge-base(origin/main, HEAD). Fetch only those two histories,
+        # without file contents; the policy reads the few it needs on demand.
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          CHECKED_OUT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --filter=blob:none --unshallow origin \
+            +refs/heads/main:refs/remotes/origin/main "$CHECKED_OUT_SHA"
+          git merge-base origin/main HEAD
 
       - name: Bind package policy to synthetic merge base
         if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}

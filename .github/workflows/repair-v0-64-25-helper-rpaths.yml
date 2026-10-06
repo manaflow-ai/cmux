@@ -9,8 +9,7 @@ on:
         default: ""
         type: string
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: stable-appcast-publication
@@ -18,6 +17,8 @@ concurrency:
 
 jobs:
   repair:
+    permissions:
+      contents: write
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release
@@ -124,9 +125,9 @@ jobs:
 
       - name: Start helper notarization
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
@@ -153,9 +154,9 @@ jobs:
 
       - name: Finish helper notarization
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
@@ -167,17 +168,19 @@ jobs:
 
       - name: Notarize and staple repaired app
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
         run: |
           set -euo pipefail
+          notary_tmp="$(mktemp -d "$RUNNER_TEMP/cmux-notary.XXXXXX")"
+          trap 'rm -rf "$notary_tmp"' EXIT
+          source ./scripts/ci/lib/notary-auth.sh
+          notary_auth_init "$notary_tmp"
           zip_path="$REPAIR_ROOT/cmux-notary.zip"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$zip_path"
           submit_json="$(xcrun notarytool submit "$zip_path" \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            "${NOTARY_AUTH_ARGS[@]}" \
             --wait --output-format json)"
           status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$submit_json")"
           if [ "$status" != Accepted ]; then
@@ -191,12 +194,16 @@ jobs:
 
       - name: Create and notarize repaired DMG
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
+          notary_tmp="$(mktemp -d "$RUNNER_TEMP/cmux-notary.XXXXXX")"
+          trap 'rm -rf "$notary_tmp"' EXIT
+          source ./scripts/ci/lib/notary-auth.sh
+          notary_auth_init "$notary_tmp"
           dmg_dir="$REPAIR_ROOT/dmg-output"
           mkdir -p "$dmg_dir"
           create-dmg --no-code-sign "$APP_PATH" "$dmg_dir"
@@ -207,9 +214,7 @@ jobs:
             --sign "$APPLE_SIGNING_IDENTITY" "$DMG_PATH"
           codesign --verify --verbose=2 "$DMG_PATH"
           submit_json="$(xcrun notarytool submit "$DMG_PATH" \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            "${NOTARY_AUTH_ARGS[@]}" \
             --wait --output-format json)"
           status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$submit_json")"
           if [ "$status" != Accepted ]; then

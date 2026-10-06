@@ -168,23 +168,6 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sendAnonymousTelemetry"
     )
 
-    /// Whether updates download in the background and install at a quiet moment. The updater
-    /// registers the default per release channel (on for nightly), so this fallback applies
-    /// only where the updater never ran.
-    public let installUpdatesAutomatically = DefaultsKey<Bool>(
-        id: "app.installUpdatesAutomatically",
-        defaultValue: false,
-        userDefaultsKey: "updateInstallAutomatically"
-    )
-
-    /// How What's New appears after an update. Quiet by default: an indicator
-    /// the user can open, never an automatic window.
-    public let whatsNew = DefaultsKey<WhatsNewPresentationMode>(
-        id: "app.whatsNew",
-        defaultValue: .quiet,
-        userDefaultsKey: "whatsNewPresentationMode"
-    )
-
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(
         id: "app.confirmQuit",
         defaultValue: .always,
@@ -220,6 +203,27 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     /// Gates the "Close workspace?" prompts (running processes, multi-workspace
     /// close). The "Close pinned workspace?" prompt is not gated by it.
+    public let warnBeforeClosingAgentSession = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingAgentSession",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingAgentSession",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingAgentSession",
+                defaultValue: "Warn Before Closing Active Agent Session"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-agent-session",
+            searchKeywords: ["close", "agent", "session", "working", "confirmation"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingAgentSession",
+                    keywords: ["warn", "close", "agent", "session"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingWorkspace = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingWorkspace",
         defaultValue: true,

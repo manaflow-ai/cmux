@@ -422,6 +422,7 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        trackRestoredAgentNotifications(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
         // Record the identity remap for the agent journal: events journaled
         // against the previous run's runtime workspace/panel UUIDs re-attach
         // to the restored panels during replay through these aliases.
@@ -682,10 +683,7 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
-                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
-                resumeWithContinuation: localTmuxStartCommand == nil
-                    ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
-                    : nil
+                hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -713,6 +711,7 @@ extension Workspace {
                     transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewerComponents?.token,
                     diffViewerRequestPath: diffViewerComponents?.requestPath, cloudResource: browserPanel.cloudResourceForSession,
+                    interactionState: browserPanel.persistableInteractionStateForSessionSnapshot(), keepsPageActive: browserPanel.keepsPageActiveForSessionSnapshot,
                     cloudTeamID: browserPanel.cloudTeamIDForSession
                 )
             } else if let deferredPanel = panel as? DeferredBrowserPanel {
@@ -2023,11 +2022,6 @@ extension Workspace {
                 return nil
             }
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
-            UpdateRelaunchContinuationNudges.shared.registerRestoredPanel(
-                terminalPanel.id,
-                snapshot: snapshot.terminal,
-                resumesAgent: restoredAgentWillRunStartupInput
-            )
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
@@ -2129,6 +2123,7 @@ extension Workspace {
                         stablePanelID: snapshot.id,
                         restorableAgent: restorableAgent,
                         resumeBinding: resumeBinding,
+                        tmuxStartCommand: localTmuxStartCommand,
                         restoresRemoteWorkspaceTerminalSnapshot: restoresRemoteWorkspaceTerminalSnapshot,
                         remoteResumeContext: surfaceResumeBindingsByPanelId[terminalPanel.id]?.launchFlavor.remoteContext,
                         workingDirectory: workingDirectory,
@@ -2365,11 +2360,12 @@ extension Workspace {
             panelGitBranches.removeValue(forKey: panelId)
         }
 
-        if snapshot.terminal?.hibernation != nil {
-            surfaceListeningPorts.removeValue(forKey: panelId)
-        } else {
-            surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
-        }
+        // Listening ports are ephemeral runtime state: the snapshot's listeners
+        // are usually dead by relaunch, and a panel running a fullscreen agent
+        // never re-registers with PortScanner to correct them. Live listeners
+        // re-badge on the first scan burst, so restoring nothing is strictly
+        // more accurate than trusting the snapshot either way.
+        surfaceListeningPorts.removeValue(forKey: panelId)
 
         if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
             restorePersistedSurfaceTTYName(ttyName, panelId: panelId)
@@ -2551,7 +2547,7 @@ extension Workspace {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Bool? {
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+        if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: panelId,
             matching: restorableAgent
         ) {
@@ -2595,7 +2591,6 @@ extension Workspace {
             return matchingObservation.wasRunningForSnapshot(
                 restorableAgent,
                 binding: resumeBinding,
-                fallingBackTo: panelShellActivityStates[panelId],
                 confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                 currentProcessIdentity: currentAgentProcessIdentity,
                 processPresence: agentProcessPresence
@@ -2618,8 +2613,18 @@ extension Workspace {
             panelId: panelId,
             currentProcessIdentity: currentAgentProcessIdentity
         )
+        if restorableAgent.resumeCommand == nil,
+           panelShellActivityStates[panelId] == .commandRunning {
+            // A non-resumable agent snapshot is retired once the restored shell
+            // accepts a new command. Generic shell activity still never proves
+            // that a resumable agent is alive.
+            return false
+        }
         return (matchingObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: panelShellActivityStates[panelId],
+            // Shell activity is not proof that the restored agent is alive.
+            // The shell can be executing a stale restore scaffold after the
+            // owner has exited; require agent-specific process evidence.
+            fallingBackTo: panelShellActivityStates[panelId] == .promptIdle ? .promptIdle : nil,
             recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,
@@ -3039,6 +3044,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
+    /// Transient labels an automation session puts in front of a panel's
+    /// title (`<label> · <title>`); never persisted, and a custom title wins.
+    var panelAutomationLabels: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
     var pinMutationTokensByPanelId: [UUID: UUID] = [:]
     let panelUnread = WorkspacePanelUnreadModel()
@@ -3049,23 +3057,29 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    @Published private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] = [:] {
-        didSet {
-            guard restoredUnreadPanelIndicators != oldValue else { return }
+    /// Observable source for restored panel indicators; legacy views read its
+    /// computed projections while SwiftUI tracks `panelUnread` directly.
+    private var restoredUnreadPanelIndicators: [UUID: RestoredPanelUnreadIndicator] {
+        get { panelUnread.restoredIndicators }
+        set {
+            guard restoredUnreadPanelIndicators != newValue else { return }
+            panelUnread.restoredIndicators = newValue
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
+    var restoredUnreadPanelIds: Set<UUID> { panelUnread.restoredPanelIds }
 
     var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
-    /// Not `@Published`. The geometry callback posts `.workspacePaneGeometryDidChange`
+    /// Not `@Published`; the geometry callback posts `.workspacePaneGeometryDidChange`
     /// right after assigning it, and the window pane overlay reads it from that
     /// handler. Publishing it re-evaluated every view observing the workspace on each
     /// geometry change, which divider drags must not do (see `paneLayoutVersion`, #13930).
     private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
-    @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
-    @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
-    @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
+    private let tmuxWorkspaceFlash = WorkspacePaneFlashModel()
+    var tmuxWorkspaceFlashPanelId: UUID? { tmuxWorkspaceFlash.panelId }
+    var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason? { tmuxWorkspaceFlash.reason }
+    var tmuxWorkspaceFlashToken: UInt64 { tmuxWorkspaceFlash.token }
+    var tmuxOverlaySelectionRevision: UInt64 = 0
     var manualUnreadMarkedAt: [UUID: Date] = [:]
     /// The sidebar-metadata sub-model (CmuxSidebar): owns the
     /// sidebar status entries, metadata blocks, log entries, progress, and
@@ -3110,9 +3124,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         get { sidebarMetadata.panelGitBranches }
         set { sidebarMetadata.panelGitBranches = newValue }
     }
+    var panelPrompts: [UUID: SidebarPanelPromptState] {
+        get { sidebarMetadata.panelPrompts }
+        set { sidebarMetadata.panelPrompts = newValue }
+    }
     var pullRequest: SidebarPullRequestState? {
         get { sidebarMetadata.pullRequest }
         set { sidebarMetadata.pullRequest = newValue }
+    }
+    var manualPullRequest: SidebarPullRequestState? {
+        get { sidebarMetadata.manualPullRequest }
+        set { sidebarMetadata.manualPullRequest = newValue }
     }
     var panelPullRequests: [UUID: SidebarPullRequestState] {
         get { sidebarMetadata.panelPullRequests }
@@ -3309,6 +3331,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Restored notifications of panes whose agent died with the previous app
+    /// process; pruned by `pruneOrphanedRestoredAgentNotifications(store:)`.
+    var restoredAgentNotificationIdsByPanelId: [UUID: Set<UUID>] = [:]
     /// Journals agent sessions ended by closing their terminal. Tests point it
     /// at a private journal.
     var agentSessionCloseJournal = AgentSessionCloseJournal()
@@ -4949,7 +4974,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             guard let self, let terminalPanel else { return }
             let panelID = self.surfaceOwnershipTarget(for: terminalPanel.id)?.containerPanelID
                 ?? terminalPanel.id
-            self.triggerWorkspacePaneFlash(panelId: panelID, reason: reason)
+            self.tmuxWorkspaceFlash.trigger(panelId: panelID, reason: reason)
+            NotificationCenter.default.post(
+                name: .workspacePaneFlashDidChange,
+                object: self
+            )
         }
         terminalPanel.onRequestAgentHibernationResume = { [weak self, weak terminalPanel] focus in
             guard let self, let terminalPanel else { return false }
@@ -5120,12 +5149,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             },
             isBrowserAvailable: { BrowserAvailabilitySettings.isEnabled() }
         )
-    }
-
-    private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
-        tmuxWorkspaceFlashPanelId = panelId
-        tmuxWorkspaceFlashReason = reason
-        tmuxWorkspaceFlashToken &+= 1
     }
 
     /// Folds the media-device state of every browser pane into a single
@@ -5512,7 +5535,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            !custom.isEmpty {
             return custom
         }
+        if let label = panelAutomationLabels[panelId] {
+            let format = String(localized: "browser.repl.sessionTabTitle", defaultValue: "%1$@ · %2$@")
+            return String(format: format, label, fallbackTitle)
+        }
         return fallbackTitle
+    }
+
+    /// Sets or clears (`nil`/empty) the automation label shown before a
+    /// panel's title, and refreshes its tab.
+    func setPanelAutomationLabel(panelId: UUID, label: String?) {
+        guard let panel = panels[panelId] else { return }
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let next: String? = trimmed.isEmpty ? nil : trimmed
+        guard panelAutomationLabels[panelId] != next else { return }
+        panelAutomationLabels[panelId] = next
+        _ = applyFocusedPanelTitle(panelId: panelId)
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        bonsplitController.updateTab(tabId, title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle))
     }
 
     private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
@@ -6550,6 +6591,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             branch: resolvedBranch,
             isStale: isStale
         )
+        reconcileManualPullRequest(with: state)
         if existing != state {
             panelPullRequests[panelId] = state
         }
@@ -6568,7 +6610,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    /// Removes all sidebar pull-request metadata.
+    /// Removes watcher-owned sidebar pull-request metadata.
     func clearSidebarPullRequestMetadata() {
         if !panelPullRequests.isEmpty {
             panelPullRequests.removeAll()
@@ -6578,7 +6620,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    /// Removes all sidebar Git and pull-request metadata.
+    /// Removes watcher-owned sidebar Git and pull-request metadata.
     func clearSidebarGitMetadata() {
         if !panelGitBranches.isEmpty {
             panelGitBranches.removeAll()
@@ -6616,7 +6658,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         progress = nil
         gitBranch = nil
         panelGitBranches.removeAll()
+        panelPrompts.removeAll()
         pullRequest = nil
+        manualPullRequest = nil
         panelPullRequests.removeAll()
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
@@ -6661,17 +6705,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    @discardableResult
-    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
-        var discardedCount = 0
-        for browserPanel in panels.values.compactMap({ $0 as? BrowserPanel }) {
-            if browserPanel.discardHiddenWebViewForSystemMemoryPressure(now: now) {
-                discardedCount += 1
-            }
-        }
-        return discardedCount
-    }
-
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
         for panelId in Array(pendingTerminalInputObserversByPanelId.keys) where !validSurfaceIds.contains(panelId) {
             removePendingTerminalInputObservers(forPanelId: panelId)
@@ -6688,6 +6721,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         restoredUnreadPanelIndicators = restoredUnreadPanelIndicators.filter { validSurfaceIds.contains($0.key) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
+        panelPrompts = panelPrompts.filter { validSurfaceIds.contains($0.key) }
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
@@ -6726,6 +6760,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             refreshTrackedAgentPorts()
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredAgentNotificationIdsByPanelId = restoredAgentNotificationIdsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         surfaceResumeRestoreClaimsByPanelId = surfaceResumeRestoreClaimsByPanelId.filter {
@@ -6797,28 +6834,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ).first
     }
 
-    func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
-        let validPanelPullRequests = panelPullRequests.filter { panelId, state in
-            guard !cloudDirectoryProvenanceRequired(panelId: panelId) else { return false }
-            if usesRemoteDirectoryProvenance, effectivePanelDirectory(panelId: panelId) == nil {
-                return false
-            }
-            guard let pullRequestBranch = state.branch?.normalizedSidebarBranchName else {
-                return true
-            }
-            return reportedPanelGitBranch(panelId: panelId)?.branch.normalizedSidebarBranchName == pullRequestBranch
-        }
-        return SidebarBranchOrdering().orderedUniquePullRequests(
-            orderedPanelIds: orderedPanelIds,
-            panelPullRequests: validPanelPullRequests,
-            fallbackPullRequest: nil
-        )
-    }
-
-    func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
-        sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
-    }
-
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
         return sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
@@ -6842,12 +6857,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return true
     }
 
+    /// Records a submitted prompt for the workspace, and for one panel when the
+    /// caller knows which surface it came from.
+    ///
+    /// A `nil` `panelId` — an unresolved or absent hook `surface_id` — updates
+    /// only the workspace-level fields, so callers without surface routing keep
+    /// their previous behaviour.
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
+    func recordSubmittedMessage(_ message: String?, panelId: UUID? = nil) -> Bool {
         guard let preview = Self.conversationMessagePreview(from: message) else { return false }
         _ = recordConversationMessage(preview)
+        let submittedAt = Date()
         latestSubmittedMessage = preview
-        latestSubmittedAt = Date()
+        latestSubmittedAt = submittedAt
+        if let panelId {
+            panelPrompts[panelId] = SidebarPanelPromptState(
+                message: preview,
+                submittedAt: submittedAt
+            )
+        }
         return true
     }
 
@@ -6904,7 +6932,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         syncRemoteRelayIDAliasesToController()
     }
-
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
         if panels.values.contains(where: {
@@ -7494,7 +7521,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
-
     /// Normalizes a user-supplied workspace environment: trims keys and drops any entry with a
     /// blank key or blank value. Dropping blank values keeps behavior identical across the
     /// `additionalEnvironment` channel (which already skips empty values) and the
@@ -7609,7 +7635,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             surfaceAliases: aliases.surfaceAliases
         )
     }
-
     private func clearRemoteRelayIDAliases() {
         guard !remoteRelayWorkspaceIDAliases.isEmpty || !remoteRelaySurfaceIDAliases.isEmpty else { return }
         remoteRelayWorkspaceIDAliases.removeAll()
@@ -11427,6 +11452,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
+        if let promptState = detached.promptState {
+            panelPrompts[detached.panelId] = promptState
+        } else {
+            panelPrompts.removeValue(forKey: detached.panelId)
+        }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted
             ?? (detached.panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
             ?? false
@@ -11463,10 +11493,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             panelCustomTitleSources.removeValue(forKey: detached.panelId)
+            panelAutomationLabels.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
+            panelPrompts.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
             if let agentPanel = detached.panel as? AgentSessionPanel {
@@ -11677,6 +11709,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return destinationConfiguration.hasSameRemoteRelayNamespace(as: originConfiguration)
     }
     // MARK: - Focus Management
+
+    /// Converges the workspace pane selection when a mounted terminal accepts
+    /// user input. Cloud manual-mirror surfaces can receive an input event
+    /// while their portal focus callback is still being rebound; keeping this
+    /// guard at the workspace boundary makes the active pane border and the
+    /// keyboard target follow the same selected workspace.
+    @discardableResult
+    func focusPanelFromTerminalInput(_ panelId: UUID) -> Bool {
+        guard panels[panelId] != nil,
+              (owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id))?.selectedTabId == id,
+              focusedPanelId != panelId else {
+            return false
+        }
+        focusPanel(panelId, trigger: .terminalFirstResponder)
+        return true
+    }
 
     /// Focuses a panel a split just created. `previousHostedView` is the terminal that
     /// had focus before Bonsplit moved it. SwiftUI reparents that view into the new
@@ -13554,8 +13602,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         return nil
     }
-
-
 }
 
 // MARK: - BonsplitDelegate
@@ -13606,6 +13652,7 @@ extension Workspace: BonsplitDelegate {
     private func confirmClosePanel(
         for tabId: TabID,
         nameOverride: String? = nil,
+        agentName: String? = nil,
         dontAskAgain: CloseWarningKinds
     ) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
@@ -13627,7 +13674,13 @@ extension Workspace: BonsplitDelegate {
         }()
 
         let message: String
-        if let panelName {
+        if let agentName {
+            let format = String(
+                localized: "dialog.closeTab.agentWorking",
+                defaultValue: "%@ is still working. This will close the current tab."
+            )
+            message = String(format: format, locale: .current, agentName)
+        } else if let panelName {
             message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
@@ -13694,6 +13747,7 @@ extension Workspace: BonsplitDelegate {
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
+        tmuxOverlaySelectionRevision &+= 1
         let effectiveFocusTransactionId = focusTransactionId ?? activeFocusTransactionId
         pendingTabSelection = PendingTabSelectionRequest(
             tabId: tabId,
@@ -14148,6 +14202,17 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
+            // Closing an unselected tab must not move selection to its
+            // neighbor: keep the tab the user was already using so an
+            // automation caller cleaning up another agent cannot steal
+            // keyboard input. Bonsplit itself keeps the selection here.
+            if let selectedTabId = controller.selectedTab(inPane: pane)?.id,
+               selectedTabId != tab.id,
+               tabs.contains(where: { $0.id == selectedTabId }) {
+                postCloseSelectTabId[tab.id] = selectedTabId
+                return
+            }
+
             let target: TabID? = {
                 if idx + 1 < tabs.count { return tabs[idx + 1].id }
                 if idx > 0 { return tabs[idx - 1].id }
@@ -14319,9 +14384,11 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
+        let agentWarning = activeAgentCloseWarningInfo(panelId: panelId)
         let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
-            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-            source: confirmationSource
+            requiresConfirmation: panelNeedsConfirmClose(panelId: panelId) || agentWarning != nil,
+            source: confirmationSource,
+            isAgentSession: agentWarning != nil
         )
         if !warningKinds.isEmpty {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
@@ -14350,7 +14417,11 @@ extension Workspace: BonsplitDelegate {
                     // If the tab disappeared while we were scheduling, do nothing.
                     guard self.panelIdFromSurfaceId(tabId) != nil else { return }
 
-                    let confirmed = await self.confirmClosePanel(for: tabId, dontAskAgain: warningKinds)
+                    let confirmed = await self.confirmClosePanel(
+                        for: tabId,
+                        agentName: self.activeAgentCloseWarningInfo(panelId: panelId),
+                        dontAskAgain: warningKinds
+                    )
                     guard confirmed else {
                         self.clearCloseHistoryEligibility(tabId: tabId)
                         return
@@ -14454,6 +14525,7 @@ extension Workspace: BonsplitDelegate {
                     : nil,
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
+                promptState: panelPrompts[panelId],
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentLifecycle.completedGeneration(panelId: panelId),
@@ -14551,6 +14623,7 @@ extension Workspace: BonsplitDelegate {
            bonsplitController.allPaneIds.contains(pane),
            bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
            bonsplitController.focusedPaneId == pane {
+            // selectTab also focuses the pane, so only call it for the focused pane.
             bonsplitController.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
         } else if let focusedPane = bonsplitController.focusedPaneId,
@@ -14589,6 +14662,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
+        cloudLayoutDidChange()
         // A remote tmux mirror tab reorder propagates to tmux window order.
         // Mirror transactions send their desired order explicitly. Their local
         // mutations, including rollback and remote updates, must not echo it.
@@ -14648,6 +14722,7 @@ extension Workspace: BonsplitDelegate {
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
+        cloudLayoutDidChange()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
@@ -15230,6 +15305,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         let deviceLayoutExternal = remoteTmuxMirrorMutations.suppressesFocusActivation
+        // Before deferral: a graph event queued behind this edit must not re-apply the old tree.
+        if !deviceLayoutExternal { cloudLayoutDidChange() }
         // Capture the user's arrangement before deferred delivery: an incoming
         // remote snapshot must not replace the intent while this event waits.
         let deviceLayoutSnapshot = !deviceLayoutExternal

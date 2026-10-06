@@ -78,6 +78,13 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         self.assertLessEqual(set(run_ci_guards.PORTABLE_SUBSTITUTES), names)
         self.assertLessEqual(run_ci_guards.EVENT_CONDITION_STEPS, names)
 
+    def test_a_local_run_is_not_a_manual_dispatch(self) -> None:
+        history = [u for u in self.units if u.job == "workflow-guard-history"]
+        self.assertTrue(history)
+        names = {step.name for unit in history for step in unit.steps}
+        self.assertNotIn("Fetch main history for a manual dispatch", names)
+        self.assertIn("Validate SwiftPM lockfile policy", names)
+
     def test_expressions_are_resolved(self) -> None:
         for unit in self.units:
             for step in unit.steps:
