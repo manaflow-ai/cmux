@@ -758,13 +758,26 @@ class Controller:
         return self.base_failures
 
     def mini(self, mode: str, branch: str, sha: str, extra: dict[str, str]) -> tuple[dict, dict]:
+        """`mini_once`, dispatched once more when the job wrote no result.
+
+        A runner can refuse a job at setup (its host is busy with a fleet
+        build); that says nothing about the stack.
+        """
+        run, result = self.mini_once(mode, branch, sha, extra)
+        if result.get("no_result"):
+            log(f"{mode}: no result from {result.get('run')}; dispatching once more")
+            run, result = self.mini_once(mode, branch, sha, extra)
+        return run, result
+
+    def mini_once(self, mode: str, branch: str, sha: str, extra: dict[str, str]) -> tuple[dict, dict]:
         """Dispatch the mini job of this workflow and return (run, result.json)."""
         since = now()
         nonce = f"{self.batch_id}-{mode}-{sha[:12]}-{int(time.time())}"
         self.gh.dispatch(WORKFLOW, self.args.ref, {"mode": mode, "branch": branch, "sha": sha, "nonce": nonce, **extra})
         run = self.find_run(WORKFLOW, self.args.ref, lambda item: item.get("display_title") == f"{mode} {nonce}", since)
         run = self.wait_run(run["id"], timeout=150 * 60)
-        result: dict = {"ok": False, "error": f"mini run {run.get('conclusion') or run['status']}", "run": run["html_url"]}
+        result: dict = {"ok": False, "error": f"mini run {run.get('conclusion') or run['status']}",
+                        "run": run["html_url"], "no_result": True}
         with tempfile.TemporaryDirectory() as tmp:
             got = self.gh.gh("run", "download", str(run["id"]), "-R", self.args.repo,
                              "-n", f"next-batch-{mode}", "-D", tmp, check=False)
