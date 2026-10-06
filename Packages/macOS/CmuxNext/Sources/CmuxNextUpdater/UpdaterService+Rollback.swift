@@ -4,7 +4,7 @@ import Security
 
 /// What a rollback compares, read off the main actor
 /// (``UpdaterService/rollbackInputs(stateDirectories:)``).
-public struct RollbackInputs: Sendable {
+nonisolated public struct RollbackInputs: Sendable {
     /// Kept versions, newest first, each with the schemas it reads (its
     /// Info.plist, else its own CLI; nil when neither says).
     public var kept: [KeptVersion]
