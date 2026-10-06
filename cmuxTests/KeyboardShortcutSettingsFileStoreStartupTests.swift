@@ -1861,12 +1861,15 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: "sleepyMode.customFace"), "ABC123")
 
         let changed = expectation(description: "atomic config edit applies live")
+        var didObserveChangedValue = false
         let token = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: defaults,
             queue: .main
         ) { _ in
-            if defaults.string(forKey: "sleepyMode.theme") == "blossom" {
+            if !didObserveChangedValue,
+               defaults.string(forKey: "sleepyMode.theme") == "blossom" {
+                didObserveChangedValue = true
                 changed.fulfill()
             }
         }
