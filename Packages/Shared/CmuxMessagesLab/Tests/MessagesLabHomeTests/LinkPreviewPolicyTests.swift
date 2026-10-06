@@ -31,10 +31,11 @@ import Testing
 
     @Test func aTapFetchesThroughLinkGuard() async throws {
         let (p, _, previews) = projection()
-        p.apply(items: [Fixture2.item(1, them, "http://127.0.0.1:8080/admin", key: "turn:s1:1")],
+        // A fresh URL each run: LinkPreviews keeps results (and failures) on disk.
+        let url = "http://127.0.0.1:8080/admin-\(UUID().uuidString)"
+        p.apply(items: [Fixture2.item(1, them, url, key: "turn:s1:1")],
                 summary: Fixture2.summary(lastSeq: 1), typing: [], hasOlder: false)
         #expect(previews.requested.isEmpty)
-        let url = "http://127.0.0.1:8080/admin"
         p.linkTapped(PartRef(messageId: HomeMapping.rowSafe("turn:s1:1"), partIndex: 0), url: url)
         #expect(previews.requested == [url])
         await waitUntil { previews.previews.lastRefusal[url] != nil }
@@ -49,9 +50,10 @@ import Testing
         await store.open(Fixture2.id)
         let (p, c, previews) = projection(store)
         p.start()
-        c.dispatch(.setDraft("https://10.0.0.1/doc\nlook"))
+        let url = "https://10.0.0.1/doc-\(UUID().uuidString)"
+        c.dispatch(.setDraft("\(url)\nlook"))
         p.send()
-        #expect(previews.requested == ["https://10.0.0.1/doc"], "the sender makes the preview")
+        #expect(previews.requested == [url], "the sender makes the preview")
         p.stop()
         store.stop()
     }
