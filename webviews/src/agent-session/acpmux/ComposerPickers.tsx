@@ -13,6 +13,7 @@ import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { Popover } from "../../ui/Popover";
 import { registerPicker } from "./pickerOpeners";
+import { useUiAnchor } from "../../ui/anchor";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -440,7 +441,9 @@ export function Picker({
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
@@ -524,6 +527,7 @@ export function Picker({
     <span
       ref={root}
       className={`acpmux-picker ${className}`}
+      style={{ position: "relative" }}
       onBlur={(event) => {
         if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
       }}
@@ -548,7 +552,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div className={`acpmux-menu acpmux-menu-${align}`}>
+        <div ref={menu} style={menuStyle} className={`acpmux-menu acpmux-menu-${align}`}>
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (

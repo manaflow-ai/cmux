@@ -16,7 +16,7 @@
     "url": "https://cmux.dev"
   },
   "repository": "https://github.com/manaflow-ai/cmux",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later AND MIT",
   "icon": "assets/icon.svg",
   "categories": [
     "agents",

@@ -3,6 +3,7 @@ import { ChevronIcon, PICKER_LABELS } from "./ComposerPickers";
 import type { PickerLayout } from "./modelPickerLayout";
 import { registerPicker } from "./pickerOpeners";
 import { useT } from "./i18n";
+import { useUiAnchor } from "../../ui/anchor";
 
 /// The model chip, which names the effort after the model with one chevron, and the popover
 /// above it, which holds both. Focus stays on the chip while the popover is open,
@@ -33,7 +34,7 @@ export function ModelPickerShell({
   onKeyDown(event: React.KeyboardEvent): void;
   onPointerMove?(event: React.PointerEvent): void;
   trigger: React.RefObject<HTMLButtonElement | null>;
-  menu?: React.RefObject<HTMLDivElement | null>;
+  menu: React.RefObject<HTMLDivElement | null>;
   children: React.ReactNode;
 }) {
   const t = useT();
@@ -41,6 +42,7 @@ export function ModelPickerShell({
   const effortLabel = t(PICKER_LABELS.effort);
   const root = useRef<HTMLSpanElement>(null);
   const menuId = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -82,6 +84,7 @@ export function ModelPickerShell({
     <span
       ref={root}
       className="acpmux-picker acpmux-model"
+      style={{ position: "relative" }}
       onBlur={(event) => {
         if (open && !root.current?.contains(event.relatedTarget as Node | null)) onOpenChange(false);
       }}
@@ -118,6 +121,7 @@ export function ModelPickerShell({
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="menu"
           aria-label={modelLabel}
+          style={menuStyle}
           onPointerMove={onPointerMove}
         >
           {children}

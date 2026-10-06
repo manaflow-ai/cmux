@@ -6,6 +6,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronDown } from "../changeIcons";
 import { SCOPE_LABEL, SCOPE_ORDER, type ChangeScope } from "./model";
 import { useT } from "../i18n";
+import { useUiAnchor } from "../../../ui/anchor";
 
 export function ScopeMenu({
   scope,
@@ -21,6 +22,7 @@ export function ScopeMenu({
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  const menuStyle = useUiAnchor(button, menu, open, { side: "below", align: "start" });
   const close = (refocus: boolean) => {
     setOpen(false);
     if (refocus) button.current?.focus();
@@ -81,6 +83,7 @@ export function ScopeMenu({
       {open && (
         <div
           ref={menu}
+          style={menuStyle}
           role="menu"
           tabIndex={-1}
           className="acpmux-file-menu-list acpmux-scope-list"
