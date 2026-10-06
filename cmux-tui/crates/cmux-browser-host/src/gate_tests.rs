@@ -22,6 +22,8 @@ struct FakeDriver {
     fetch_cancelled: Mutex<std::collections::HashSet<String>>,
     /// net.fetch replies by URL (a redirect hop or a final response).
     fetch_routes: Mutex<std::collections::HashMap<String, Value>>,
+    /// frame.focused: the focused frame the engine reports (Null: none).
+    focused_frame: Mutex<Value>,
 }
 
 impl FakeDriver {
@@ -72,6 +74,7 @@ impl Driver for FakeDriver {
                     Ok(self.focused_url.clone())
                 }
             }
+            "frame.focused" => Ok(self.focused_frame.lock().unwrap().clone()),
             "tab.info" => Ok(json!({"title": self.page_text, "url": "https://peer.test/page"})),
             "cookies.get" => Ok(json!([
                 {"name": "p", "value": "1", "domain": ".peer.test", "path": "/"},
@@ -169,6 +172,7 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         fetch_max_in_flight: std::sync::atomic::AtomicUsize::new(0),
         fetch_cancelled: Mutex::new(std::collections::HashSet::new()),
         fetch_routes: Mutex::new(std::collections::HashMap::new()),
+        focused_frame: Mutex::new(Value::Null),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp, ..Grants::default() }), driver)
 }
@@ -232,6 +236,38 @@ fn vm_code_never_reaches_the_host_world() {
             json!({"targetId": "T", "world": "host", "source": "() => 1"}),
         )
         .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Forbidden);
+    assert!(methods(&driver).is_empty());
+}
+
+/// The host-world probe cannot look into a cross-origin frame; the engine
+/// then reports the focused frame itself, and that frame's URL is checked.
+#[test]
+fn secret_typing_follows_focus_into_cross_origin_frames() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    agent_secret(&gate, "localhost");
+    *driver.focused_frame.lock().unwrap() =
+        json!({"frameId": "F", "url": "http://127.0.0.1:4000/agent-frame.html"});
+    let refused = gate
+        .driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
+        .unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden);
+    assert!(
+        refused.message.contains("may not be typed into http://127.0.0.1:4000/agent-frame.html;"),
+        "{}",
+        refused.message
+    );
+    assert!(!methods(&driver).contains(&"input.insertText".to_owned()), "nothing was typed");
+
+    *driver.focused_frame.lock().unwrap() =
+        json!({"frameId": "F", "url": "http://localhost:4000/agent-frame.html"});
+    gate.driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
+        .unwrap();
+    assert_eq!(driver.calls.lock().unwrap().last().unwrap().1["text"], "s3cret-value");
+
+    // Sessions never call it: only the gate asks which frame has focus.
+    driver.calls.lock().unwrap().clear();
+    let error = gate.driver_call("frame.focused", json!({"targetId": "T"})).unwrap_err();
     assert_eq!(error.code, ErrorCode::Forbidden);
     assert!(methods(&driver).is_empty());
 }
