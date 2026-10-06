@@ -72,6 +72,31 @@ struct BrowserReplSessionRegistryTests {
         #expect(owned.isClosed)
     }
 
+    /// A named session is shared by name: an owner token on it would hide
+    /// it from every other client's list, attach and reset while it holds
+    /// the name (and a session slot). A token is taken only with a name a
+    /// client makes for itself (`cli-`, `mcp-`, `oneshot-`).
+    @Test("An owner token on a shared session name is refused and the name stays free")
+    func ownerTokenCannotSquatSharedName() throws {
+        let registry = BrowserReplSessionRegistry()
+        let key = BrowserReplSessionKey(workspaceID: first, name: "work")
+        var made = 0
+        #expect(throws: BrowserReplSessionRegistry.Refusal.self) {
+            try registry.session(for: key, owner: "squatter") { _ in
+                made += 1
+                return makeSession(key.name)
+            }
+        }
+        #expect(made == 0)
+        let shared = try registry.session(for: key) { _ in makeSession(key.name) }
+        defer { shared.close() }
+        #expect(registry.list(workspaceID: first).map(\.name) == ["work"])
+        for name in ["cli-1-a", "mcp-1-a", "oneshot-\(UUID().uuidString)"] {
+            let own = try registry.session(for: .init(workspaceID: first, name: name), owner: "token") { _ in makeSession(name) }
+            own.close()
+        }
+    }
+
     @Test("Resetting a name in every workspace closes each session with that name")
     func resetEverywhere() throws {
         let registry = BrowserReplSessionRegistry()
