@@ -122,8 +122,9 @@ impl ProviderEngine {
         })
     }
 
+    /// `tabs.list`: one shape for every source (driver-protocol.md).
     fn tabs_list(&self) -> Value {
-        self.provider.list_tabs(&self.engine)
+        Value::Array(self.provider.tab_rows(&self.engine).iter().map(|row| row.to_json()).collect())
     }
 }
 
