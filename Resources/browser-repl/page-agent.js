@@ -544,8 +544,23 @@
     }
     return roots;
   }
+  // The length of the CSS generated content Playwright's name computation
+  // parses for `el`: its ::before and ::after, and `content` on the
+  // element itself.
+  function generatedLength(el) {
+    let length = 0;
+    for (const pseudo of [null, "::before", "::after"]) {
+      const style = styleOf(el, pseudo);
+      const content = style && style.content;
+      if (content && content !== "none" && content !== "normal") length += content.length;
+    }
+    return length;
+  }
   // Whether the sources of el's name are small enough for Playwright to
-  // read whole; their nodes are charged to `ctx`.
+  // read whole; their nodes are charged to `ctx`. The sources are the
+  // ones Playwright reads: text, name attributes, an embedded control's
+  // value, generated content, shadow content, slotted nodes and
+  // aria-labelledby or aria-owns targets.
   function nameFits(el, roots, ctx) {
     for (const a of NAME_ATTRS) {
       const v = el.getAttribute(a);
@@ -580,6 +595,16 @@
           for (const a of NAME_ATTRS) {
             const v = n.getAttribute(a);
             if (v) chars += v.length;
+          }
+          const tag = tagOf(n);
+          if ((tag === "input" || tag === "textarea") && typeof n.value === "string") chars += n.value.length;
+          chars += generatedLength(n);
+          if (chars > NAME_CHARS) return (over = true), STOP;
+          // Playwright reads a slot's assigned nodes in place of its own.
+          // Each node the slot's list walks counts.
+          if (tag === "slot") {
+            for (const c of slotAssigned(n, () => ++nodes <= NAME_NODES)) queue.push(c);
+            if (nodes > NAME_NODES) return (over = true), STOP;
           }
           // Shadow content and aria-labelledby or aria-owns targets inside
           // the content are read too.
@@ -647,22 +672,21 @@
 
   function nodeName(el, role, includeHidden, ctx) {
     if (AUTHOR_NAMED_ONLY_ROLES.has(role)) return authorName(el, ctx);
-    if (ctx) {
-      const roots = nameRoots(el, role, tagOf(el), ctx);
-      if (!nameFits(el, roots, ctx)) return boundedName(el, roots, ctx);
-    }
-    return accessibleName(el, includeHidden);
+    const roots = nameRoots(el, role, tagOf(el), ctx);
+    if (!nameFits(el, roots, ctx)) return boundedName(el, roots, ctx);
+    return accessibleName(el, includeHidden, ctx);
   }
 
-  function accessibleName(el, includeHidden) {
+  // Playwright's name for `el`; call only once nameFits passed for it.
+  function accessibleName(el, includeHidden, ctx) {
     if (!injected) return "";
     let name = injected.utils.getElementAccessibleName(el, !!includeHidden);
     // Playwright names by ARIA role, so a <div> that is a control here (an
-    // editable or clickable one, a scroll region) gets its label attributes.
+    // editable or clickable one, a scroll region) gets its label attributes,
+    // read within the same bounds.
     if (!name && !el.getAttribute("role")) {
-      const ids = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
-      name = ids.map((id) => (el.ownerDocument.getElementById(id) || {}).textContent || "").join(" ") ||
-        el.getAttribute("aria-label") || el.getAttribute("title") || "";
+      name = labelledTargets(el, ctx).map((t) => boundedNameText(t, ctx)).join(" ") ||
+        cutAttr(el.getAttribute("aria-label")) || cutAttr(el.getAttribute("title"));
     }
     return capName(normalize(name));
   }
@@ -1635,12 +1659,14 @@
         break;
       }
     }
-    if (roleOf(target) === "iframe") return { frame: handleFor(target), box: contentBox(handleFor(target)) };
+    const role = roleOf(target);
+    if (role === "iframe") return { frame: handleFor(target), box: contentBox(handleFor(target)) };
     const r = target.getBoundingClientRect();
     return {
       ref: refFor(target),
-      role: roleOf(target),
-      name: accessibleName(target, false),
+      role,
+      // Within the name bounds and a page-read budget, as in a snapshot.
+      name: nodeName(target, role, false, readBudget()),
       box: { x: r.x, y: r.y, width: r.width, height: r.height },
       max: refCounter,
       doc: docToken,
