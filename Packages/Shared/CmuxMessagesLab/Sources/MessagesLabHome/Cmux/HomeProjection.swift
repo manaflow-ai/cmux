@@ -25,6 +25,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let controller: ChatController
     /// False while the owner is unreachable (H17: Send and tapbacks off).
     var isSendEnabled = true
+    /// The host's notice, shown as a row of the transcript (nil: none).
+    var notice: String?
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }

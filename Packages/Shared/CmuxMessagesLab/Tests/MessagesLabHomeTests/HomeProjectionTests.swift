@@ -31,6 +31,29 @@ import Testing
         #expect(c.store.state.ui.typing.isEmpty)
     }
 
+    /// A host notice (Home's "quit older builds to merge Chief history") is a
+    /// row of the transcript, MessagesLab's centered system row under the
+    /// newest message, not an overlay on top of the view.
+    @Test func aNoticeIsTheTranscriptsSystemRowUnderTheNewestMessage() throws {
+        let (p, c) = Fixture2.projection()
+        let items = Fixture2.history(3)
+        p.apply(items: items, summary: Fixture2.summary(lastSeq: 3), typing: [], hasOlder: false)
+        let text = "Quit older cmux DEV builds to merge Chief history"
+        p.notice = text
+        let row = try #require(c.demo.model.rows.last, "a row under the newest message")
+        #expect(row.spec.key == "notice")
+        guard case let .separator(bold, rest) = row.spec.kind else {
+            Issue.record("the notice is MessagesLab's system row, not \(row.spec.kind)")
+            return
+        }
+        #expect(bold.isEmpty && rest == text)
+        // A new message keeps the notice at the end; clearing it removes the row.
+        p.apply(items: items + [Fixture2.item(4, them, "Later")], summary: Fixture2.summary(lastSeq: 4), typing: [], hasOlder: false)
+        #expect(c.demo.model.rows.last?.spec.key == "notice")
+        p.notice = nil
+        #expect(!c.demo.model.rows.contains { $0.spec.key == "notice" })
+    }
+
     private func onlineStore(_ items: [CmuxHomeCore.Message] = []) async -> (HomeStore, ScriptedSource) {
         let source = ScriptedSource(me: Fixture2.people[0], summary: Fixture2.summary(lastSeq: Seq(items.count)), messages: items)
         let store = HomeStore(source: source)
