@@ -578,6 +578,105 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeClosingTab.help",
+        "text" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeClosingTab",
+      "keywords" : [
+        "close",
+        "confirm",
+        "warn",
+        "tab",
+        "workspace",
+        "running",
+        "process",
+        "cmd-w"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "app",
+        "warnBeforeClosingTab"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.warnBeforeClosingTab",
+        "text" : "Warn Before Closing a Running Program"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeClosingAgentSession.help",
+        "text" : "Ask before closing a terminal tab whose agent is still working."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeClosingAgentSession",
+      "keywords" : [
+        "close",
+        "confirm",
+        "warn",
+        "agent",
+        "claude",
+        "codex",
+        "session",
+        "working",
+        "cmd-w"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "app",
+        "warnBeforeClosingAgentSession"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.warnBeforeClosingAgentSession",
+        "text" : "Warn Before Closing a Working Agent"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "ask",
         "keep",
         "end-keep-layout",
