@@ -462,4 +462,279 @@ struct SessionContentWidthPresentationTests {
 
         #expect(presentation.contentFrame(in: bounds) == bounds)
     }
+
+    /// `remoteTmux.beta.newWorkspaceOnHost.enabled` in cmux.json reaches the same stored value the Settings toggle writes.
+    @Test
+    func settingsFileStoreAppliesRemoteTmuxNewWorkspaceOnHost() throws {
+        let defaults = UserDefaults.standard
+        let key = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost
+        #expect(key.defaultValue == true)
+        try preservingDefaults(keys: [key.userDefaultsKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try #"{"remoteTmux":{"beta":{"newWorkspaceOnHost":{"enabled":false}}}}"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+            _ = KeyboardShortcutSettingsFileStore(primaryPath: settingsFileURL.path, fallbackPath: nil, additionalFallbackPaths: [], startWatching: false)
+            #expect(defaults.object(forKey: key.userDefaultsKey) as? Bool == false)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func canonicalSidebarAndIntegrationEditsApplyThroughWatcher() async throws {
+        let suite = "cmux-catalog-live-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        let catalog = SettingCatalog()
+        try #"{"sidebar":{"activeTabIndicatorStyle":"leftRail"},"integrations":{"codex":{"hooksEnabled":true}}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        let indicatorKey = catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey
+        let hooksKey = catalog.integrations.codexHooksEnabled.userDefaultsKey
+        let (updates, continuation) = AsyncStream<(String?, Bool)>.makeStream()
+        defer { continuation.finish() }
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: file.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: true,
+            onWatchedFileReload: { _ in
+                continuation.yield((defaults.string(forKey: indicatorKey), defaults.bool(forKey: hooksKey)))
+            }
+        )
+        #expect(defaults.string(forKey: catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey) == "leftRail")
+        try #"{"workspaceColors":{"indicatorStyle":"leftRail"},"sidebar":{"activeTabIndicatorStyle":"solidFill"},"automation":{"codexIntegration":true},"integrations":{"codex":{"hooksEnabled":false}}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        var iterator = updates.makeAsyncIterator()
+        let update = await iterator.next()
+        #expect(update?.0 == "solidFill")
+        #expect(update?.1 == false)
+        #expect(defaults.string(forKey: catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey) == "solidFill")
+        #expect(store.configurationIssues.isEmpty)
+        withExtendedLifetime(store) {}
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func cmuxJSONFontSettingsOverrideGhosttyAliasesThroughWatcher() async throws {
+        let suite = "cmux-font-live-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        let ghosttyDirectory = directory.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDirectory, withIntermediateDirectories: true)
+        try "font-size = 14\nsidebar-font-size = 11\nsurface-tab-bar-font-size = 9\n"
+            .write(
+                to: ghosttyDirectory.appendingPathComponent("config.ghostty"),
+                atomically: true,
+                encoding: .utf8
+            )
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", directory.path, 1)
+        defer {
+            if let originalFixedHome { setenv("CFFIXED_USER_HOME", originalFixedHome, 1) }
+            else { unsetenv("CFFIXED_USER_HOME") }
+        }
+        try #"{"sidebar":{"fontSize":13.5},"surfaceTabBar":{"fontSize":12.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        let (updates, continuation) = AsyncStream<Void>.makeStream()
+        let (diagnostics, diagnosticContinuation) = AsyncStream<[String]>.makeStream()
+        defer { continuation.finish() }
+        defer { diagnosticContinuation.finish() }
+        var reportedInvalidFont = false
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: file.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: true,
+            onWatchedFileReload: { _ in continuation.yield() },
+            onConfigurationIssue: { messages in
+                diagnosticContinuation.yield(messages)
+            }
+        )
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).fontSize - 14.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 13.5) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 12.0) < 0.001)
+        try #"{"sidebar":{"fontSize":15.0},"surfaceTabBar":{"fontSize":10.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        var iterator = updates.makeAsyncIterator()
+        _ = await iterator.next()
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).fontSize - 14.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 15.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 10.0) < 0.001)
+        try #"{"sidebar":{},"surfaceTabBar":{"fontSize":10.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        _ = await iterator.next()
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).fontSize - 14.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 11.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 10.0) < 0.001)
+        try #"{"sidebar":{"fontSize":14.0},"surfaceTabBar":{}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        _ = await iterator.next()
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).fontSize - 14.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 14.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 9.0) < 0.001)
+        try #"{"sidebar":{"fontSize":999.0},"surfaceTabBar":{"fontSize":10.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        _ = await iterator.next()
+        var diagnosticIterator = diagnostics.makeAsyncIterator()
+        while let messages = await diagnosticIterator.next() {
+            if messages.contains(where: { $0.contains("sidebar.fontSize") }) {
+                reportedInvalidFont = true
+                break
+            }
+        }
+        #expect(reportedInvalidFont)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).fontSize - 14.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 14.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 10.0) < 0.001)
+        withExtendedLifetime(store) {}
+    }
+
+    @Test
+    func cmuxJSONMigrationLeavesGhosttyTerminalFontDefaultAtThirteen() throws {
+        let suite = "cmux-font-default-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        let ghosttyDirectory = directory.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDirectory, withIntermediateDirectories: true)
+        try "sidebar-font-size = 11\nsurface-tab-bar-font-size = 9\n"
+            .write(
+                to: ghosttyDirectory.appendingPathComponent("config.ghostty"),
+                atomically: true,
+                encoding: .utf8
+            )
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", directory.path, 1)
+        defer {
+            if let originalFixedHome { setenv("CFFIXED_USER_HOME", originalFixedHome, 1) }
+            else { unsetenv("CFFIXED_USER_HOME") }
+        }
+        try #"{"sidebar":{"fontSize":14.0},"surfaceTabBar":{"fontSize":10.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: file.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+        let loaded = GhosttyConfig.loadForCmux(useCache: false, defaults: defaults)
+        #expect(abs(loaded.fontSize - 13.0) < 0.001)
+        #expect(abs(loaded.sidebarFontSize - 14.0) < 0.001)
+        #expect(abs(loaded.surfaceTabBarFontSize - 10.0) < 0.001)
+        withExtendedLifetime(store) {}
+    }
+
+
+    private func loadSettings(
+        maxWidthJSON: String,
+        alignmentJSON: String,
+        verify: (UserDefaults) throws -> Void
+    ) throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            SessionContentWidthSettings.maxWidthKey,
+            SessionContentWidthSettings.alignmentKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "terminal": {
+                "sessionContentMaxWidth": \(maxWidthJSON),
+                "sessionContentAlignment": \(alignmentJSON)
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            try verify(defaults)
+        }
+    }
+
+    private func preservingDefaults(keys: [String], _ body: () throws -> Void) throws {
+        let defaults = UserDefaults.standard
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        for key in keys { defaults.removeObject(forKey: key) }
+        defer {
+            for (key, value) in saved {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        try body()
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-session-content-width-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+}
+
+@Suite("Session content width presentation")
+struct SessionContentWidthPresentationTests {
+    private let bounds = CGRect(x: 10, y: 20, width: 1000, height: 600)
+
+    @Test
+    func disabledPresentationUsesFullPaneBounds() {
+        #expect(SessionContentWidthPresentation.disabled.contentFrame(in: bounds) == bounds)
+    }
+
+    @Test(arguments: [
+        (SessionContentAlignment.left, 10.0),
+        (SessionContentAlignment.center, 210.0),
+        (SessionContentAlignment.right, 410.0),
+    ])
+    func cappedPresentationAlignsInsidePane(
+        alignment: SessionContentAlignment,
+        expectedX: CGFloat
+    ) {
+        let presentation = SessionContentWidthPresentation(
+            storedMaximumWidth: 600,
+            storedAlignment: alignment.rawValue
+        )
+
+        #expect(
+            presentation.contentFrame(in: bounds) ==
+                CGRect(x: expectedX, y: 20, width: 600, height: 600)
+        )
+    }
+
+    @Test
+    func narrowPaneUsesFullPaneBounds() {
+        let presentation = SessionContentWidthPresentation(
+            storedMaximumWidth: 1200,
+            storedAlignment: SessionContentAlignment.right.rawValue
+        )
+
+        #expect(presentation.contentFrame(in: bounds) == bounds)
+    }
 }

@@ -59,6 +59,13 @@ extension CmuxSettingsFileStore {
         )
         parseBetaToggle(
             root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "newWorkspaceOnHost", "enabled"],
+            setting: SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
             nestedPath: ["beta", "originColors", "enabled"],
             setting: beta.remoteTmuxOriginColors,
             sourcePath: sourcePath,
