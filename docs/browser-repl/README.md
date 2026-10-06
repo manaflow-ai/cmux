@@ -466,8 +466,9 @@ rest. Measurements: [performance.md](performance.md).
   A new tab is added behind the pane's selected tab. Two things show
   something: `page.bringToFront()` selects the tab in its pane, and
   `sites.browserAuth.request` puts a sign-in sheet on the window the user
-  works in (it needs the user to type), naming the site and the tab and
-  workspace that ask; neither changes the selected workspace. Tab or
+  works in (it needs the user to type), naming only the origin WebKit
+  records for the frame that holds the fields (no page or agent text);
+  neither changes the selected workspace. Tab or
   Shift+Tab past a page's last or first control keeps the focus in the
   page (it wraps, as in a headless browser) instead of moving AppKit's
   first responder to the next view, which belongs to the user. A key no

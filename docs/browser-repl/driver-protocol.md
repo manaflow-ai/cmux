@@ -153,7 +153,7 @@ events) without changing the user's key window or first responder.
 No driver method moves the user's focus or selection except
 `tabs.activate` and `tab.bringToFront`, which select the tab in its pane
 (`tabs.open` adds the tab behind the pane's selected tab), and
-`auth.request`, whose sheet names the tab and workspace that ask. While
+`auth.request`, whose sheet names only the frame's WebKit-recorded origin. While
 `input.key` runs, WebKit's request to move AppKit focus out of the page
 (`_webView:takeFocus:`, Tab past the last control) is refused, so the focus
 stays in the web view and the window's first responder stays the user's.

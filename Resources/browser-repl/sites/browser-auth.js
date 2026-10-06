@@ -1,11 +1,15 @@
 // sites.browserAuth: a secure sign-in handoff (reference B's
 // browserAuth). The agent names the visible credential fields; cmux shows
 // its own sheet on the browser window, naming the origin of the frame that
-// holds them, the user types there, and the app fills the fields in the page
-// (sites/auth-fill.js). Only password, username and one-time-code fields are
-// filled, checked here and again by the app. No value passes through the
-// REPL and the result never contains one; the page itself, and code the
-// agent runs in the page, can read a filled field like any other.
+// holds them and labeling each field by its kind, the user types there, and
+// the app fills the fields in the page (sites/auth-fill.js). Only password,
+// username and one-time-code fields are filled, checked here and again by
+// the app, and only in a tab this session opened under a domain policy
+// within the page's site (session.allowedDomains). No value passes through
+// the REPL and the result never contains one; the app records each value
+// as the tab's typed secret, so whatever the agent reads back from the page
+// (values, results, captures) shows it masked. The page itself can read a
+// filled field like any other.
 (function (root) {
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
@@ -151,6 +155,6 @@
         }
       },
     }),
-    { summary: "Secure sign-in: a cmux sheet collects credentials and fills the page; values never reach the agent" },
+    { summary: "Secure sign-in: a cmux sheet collects credentials and fills the page; values reach the agent only masked" },
   );
 })(typeof globalThis !== "undefined" ? globalThis : this);

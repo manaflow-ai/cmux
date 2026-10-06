@@ -307,10 +307,18 @@ selector is one visible, enabled credential field (a password input, or a
 username or one-time-code input by type, `autocomplete` or name; a
 requested password only into a password input) in the tab's origin and that
 all are in one frame, marks them with a random attribute, and calls the
-driver's `auth.request`. The app shows a sheet on the browser pane's window
-naming the origin of the frame that holds the fields, from WebKit's record of
-it (and the page's origin when the frame is embedded from another), with one
-field per request (secure text for passwords). Before the sheet shows, the
+driver's `auth.request`. It asks only in a tab the session opened
+(`tabs.open`), under a domain policy that keeps the session's tabs on the
+page's site (`*.<registrable domain>`): the session refuses the call
+otherwise, sends that site to the driver as the credential's domains, and
+from then on refuses a policy that reaches past it, as for a typed secret;
+the driver refuses a frame outside it. The app shows a sheet on the browser
+pane's window naming the origin of the frame that holds the fields, from
+WebKit's record of it (and the page's origin when the frame is embedded from
+another), with one field per request (secure text for passwords), labeled
+by the credential kind the app found on the bound element (username or
+email, password, one-time code). Nothing on the sheet is text the page or
+the agent chose: not the tab title, not the agent's `label`. Before the sheet shows, the
 app runs `sites/auth-fill.js` in its own content world of that frame, which
 agent code cannot script, to bind the request: it keeps the one element
 that holds each marker, and the frame's document, there. On Fill the same
@@ -332,9 +340,16 @@ another control in the user's name. The REPL receives only a status:
 `page_changed`, `locator_invalid` (`not_credential_field` among the reasons)
 or `submission_failed`. The fill script is read from the signed app bundle,
 never from the REPL, so an agent cannot substitute code that receives the
-values. The sheet says what holds: the agent does not receive the values,
-but the page's scripts, and code the agent runs in the page, can read a
-filled field. Under a domain policy the driver refuses the request
+values. Right before the fill the app records each non-empty value as a
+typed secret of the tab with no typing session
+(`BrowserReplTypedSecrets.recordCredential`): every session that reads the
+tab, the asking one included, gets it masked as
+`<secret:browserAuth.<field id>>` in results, events, files and output,
+and capture masks hide it in screenshots and PDFs, until the tab closes.
+The masking matches values, so agent code that transforms a field's value
+in the page before returning it is the remaining limit, as for typed
+secrets. The sheet says what holds: cmux masks what the user types in what
+the agent reads back, and the page's scripts can read a filled field. Under a domain policy the driver refuses the request
 (`blocked`) when the tab's page, or the frame that holds the fields (by
 WebKit's record of it and by the document it shows when the request
 arrives), is on a domain the policy blocks. The sheet lasts only as long as

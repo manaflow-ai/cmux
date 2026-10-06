@@ -14,9 +14,15 @@ import WebKit
 /// which fills only those elements of that document, and only password,
 /// username and one-time-code inputs, passing the typed values as call
 /// arguments. The REPL receives a status and never a value. The REPL is
-/// untrusted, so every parameter is validated here again. The page itself,
-/// and code the agent runs in the page, can read a filled field like any
-/// other, and the sheet says so.
+/// untrusted, so every parameter is validated here again. The values are
+/// recorded as typed secrets of the tab before the fill
+/// (``BrowserReplTypedSecrets/recordCredential(tab:field:value:domains:)``),
+/// so every session that reads the tab, the asking one included, gets them
+/// masked; the page itself can read a filled field, and the sheet says so.
+/// The sheet shows only what cmux verified: the frame's origin (and the
+/// page's, when they differ), and each field labeled by the credential
+/// kind auth-fill.js found on the bound element, never text the page or
+/// the agent chose.
 @MainActor
 enum BrowserReplCredentialRequest {
     struct Field {
@@ -32,9 +38,9 @@ enum BrowserReplCredentialRequest {
     static let defaultTimeoutMilliseconds = 110_000
     static let maxTimeoutMilliseconds = 600_000
 
-    /// - Parameter requester: The tab and workspace whose agent asks, shown
-    ///   on the sheet: the sheet appears on whichever cmux window the user
-    ///   works in, which may show another workspace.
+    /// - Parameter record: Records the values the user typed, by field id,
+    ///   as the tab's typed secrets; called after the user's Fill and the
+    ///   checks, right before the fill. A refusal fills nothing.
     /// - Parameter stillAllowed: Whether the session that asks still drives
     ///   the tab; checked again after the user's Fill, before anything is
     ///   filled.
@@ -43,7 +49,7 @@ enum BrowserReplCredentialRequest {
         frameInfo: WKFrameInfo?,
         params: [String: Any],
         fillSource: String?,
-        requester: (tab: String, workspace: String),
+        record: @MainActor ([String: String]) throws -> Void,
         stillAllowed: @MainActor () -> Bool
     ) async -> [String: Any] {
         guard let fillSource else { return ["status": "unavailable"] }
@@ -68,9 +74,17 @@ enum BrowserReplCredentialRequest {
         let binding = UUID().uuidString
         let fieldArguments = fields.map { ["id": $0.id, "type": $0.type, "marker": $0.marker] }
         let bound = await runFill(fillSource, phase: "bind", binding: binding, fields: fieldArguments, values: [:], origin: fieldsOrigin, webView: webView, frameInfo: frameInfo)
-        guard bound == "bound" else { return ["status": bound] }
+        let boundStatus = bound["status"] as? String ?? "page_changed"
+        guard boundStatus == "bound" else { return ["status": boundStatus] }
+        // The credential kind of each bound element, as auth-fill.js found
+        // it in the driver's world: the sheet labels fields by these, not
+        // by the agent's labels.
+        guard let kinds = bound["kinds"] as? [String], kinds.count == fields.count,
+              kinds.allSatisfy(BrowserReplCredentialSheet.knownKinds.contains) else {
+            return ["status": "page_changed"]
+        }
 
-        let sheet = BrowserReplCredentialSheet(origin: fieldsOrigin, pageOrigin: origin, fields: fields, requester: requester)
+        let sheet = BrowserReplCredentialSheet(origin: fieldsOrigin, pageOrigin: origin, fields: fields, kinds: kinds)
         let answer = await sheet.present(on: window, timeout: timeout)
         guard case .filled(let values) = answer else {
             return ["status": answer == .expired ? "expired" : "cancelled"]
@@ -79,17 +93,22 @@ enum BrowserReplCredentialRequest {
         // then the sheet was taken down and nothing is filled.
         guard !Task.isCancelled, stillAllowed() else { return ["status": "cancelled"] }
         guard currentOrigin(webView) == origin else { return ["status": "origin_changed"] }
+        do {
+            try record(values)
+        } catch {
+            return ["status": "unavailable"]
+        }
         // `frameInfo` records the frame as it was before the sheet opened, so
         // its origin cannot show a navigation since. auth-fill.js compares
         // the origin the sheet named with the frame's document as it runs,
         // in the driver's world, and the document and elements with the ones
         // it bound, and fills nothing on a mismatch.
-        let status = await runFill(fillSource, phase: "fill", binding: binding, fields: fieldArguments, values: values, origin: fieldsOrigin, webView: webView, frameInfo: frameInfo)
-        return ["status": status]
+        let filled = await runFill(fillSource, phase: "fill", binding: binding, fields: fieldArguments, values: values, origin: fieldsOrigin, webView: webView, frameInfo: frameInfo)
+        return ["status": filled["status"] as? String ?? "page_changed"]
     }
 
     /// Runs one phase of `sites/auth-fill.js` in the driver's world of the
-    /// frame that holds the fields and returns its status (`page_changed`
+    /// frame that holds the fields and returns its answer (`page_changed`
     /// when the script did not answer: its document was replaced).
     private static func runFill(
         _ source: String,
@@ -100,7 +119,7 @@ enum BrowserReplCredentialRequest {
         origin: String,
         webView: WKWebView,
         frameInfo: WKFrameInfo?
-    ) async -> String {
+    ) async -> [String: Any] {
         let arguments: [String: Any] = [
             "__phase": phase,
             "__binding": binding,
@@ -116,9 +135,10 @@ enum BrowserReplCredentialRequest {
                 contentWorld: BrowserReplDriverWorld.world,
                 userGesture: false
             )
-            return (result as? [String: Any])?["status"] as? String ?? "page_changed"
+            guard let answer = result as? [String: Any], answer["status"] is String else { return ["status": "page_changed"] }
+            return answer
         } catch {
-            return "page_changed"
+            return ["status": "page_changed"]
         }
     }
 
@@ -182,7 +202,9 @@ enum BrowserReplCredentialRequest {
 
 /// The credential sheet: the origin of the frame that receives the values,
 /// the page's origin when that frame is embedded from another, a note on who
-/// can read the values, one field per requested credential, Cancel and Fill.
+/// can read the values, one field per requested credential labeled by its
+/// verified kind, Cancel and Fill. No text on it comes from the page or the
+/// agent.
 @MainActor
 final class BrowserReplCredentialSheet: NSObject {
     enum Answer: Equatable {
@@ -191,7 +213,11 @@ final class BrowserReplCredentialSheet: NSObject {
         case expired
     }
 
+    /// The credential kinds auth-fill.js reports for a bound element.
+    static let knownKinds: Set<String> = ["username", "password", "one-time-code"]
+
     private let fields: [BrowserReplCredentialRequest.Field]
+    private let kinds: [String]
     private let panel: NSWindow
     private var inputs: [NSTextField] = []
     /// The wait for the user's answer; it also ends when the call that
@@ -200,11 +226,12 @@ final class BrowserReplCredentialSheet: NSObject {
     private var prompt: BrowserReplPendingPrompt<Answer>?
     private weak var parent: NSWindow?
 
-    init(origin: String, pageOrigin: String, fields: [BrowserReplCredentialRequest.Field], requester: (tab: String, workspace: String)) {
+    init(origin: String, pageOrigin: String, fields: [BrowserReplCredentialRequest.Field], kinds: [String]) {
         self.fields = fields
+        self.kinds = kinds
         panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
         super.init()
-        build(origin: origin, pageOrigin: pageOrigin, requester: requester)
+        build(origin: origin, pageOrigin: pageOrigin)
     }
 
     func present(on window: NSWindow, timeout: Duration) async -> Answer {
@@ -222,7 +249,7 @@ final class BrowserReplCredentialSheet: NSObject {
         return await prompt.wait(timeout: timeout, expired: .expired, cancelled: .cancelled)
     }
 
-    private func build(origin: String, pageOrigin: String, requester: (tab: String, workspace: String)) {
+    private func build(origin: String, pageOrigin: String) {
         let title = NSTextField(labelWithString: String(
             format: String(localized: "browser.repl.auth.title", defaultValue: "Sign in to %@"),
             origin
@@ -230,17 +257,6 @@ final class BrowserReplCredentialSheet: NSObject {
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         title.lineBreakMode = .byTruncatingMiddle
         var notes: [NSTextField] = []
-        // The sheet comes up on the window the user works in, which may show
-        // another workspace than the agent's tab; name the tab that asks.
-        let asker = NSTextField(wrappingLabelWithString: String(
-            format: String(
-                localized: "browser.repl.auth.requester",
-                defaultValue: "Asked by an agent working in the tab “%1$@” of the workspace “%2$@”."
-            ),
-            requester.tab, requester.workspace
-        ))
-        asker.preferredMaxLayoutWidth = 380
-        notes.append(asker)
         if pageOrigin != origin {
             let framed = NSTextField(wrappingLabelWithString: String(
                 format: String(
@@ -254,7 +270,7 @@ final class BrowserReplCredentialSheet: NSObject {
         }
         let note = NSTextField(wrappingLabelWithString: String(
             localized: "browser.repl.auth.notice",
-            defaultValue: "An agent asked cmux to fill this sign-in form. The agent does not receive what you type, but scripts on the page, and code the agent runs in the page, can read the filled fields."
+            defaultValue: "An agent asked cmux to fill this sign-in form. cmux masks what you type wherever the agent reads it back, but scripts on the page can read the filled fields."
         ))
         note.textColor = .secondaryLabelColor
         note.preferredMaxLayoutWidth = 380
@@ -263,11 +279,11 @@ final class BrowserReplCredentialSheet: NSObject {
         let grid = NSGridView(numberOfColumns: 2, rows: 0)
         grid.columnSpacing = 8
         grid.rowSpacing = 8
-        for field in fields {
-            let label = NSTextField(labelWithString: field.label)
+        for kind in kinds {
+            let label = NSTextField(labelWithString: Self.label(for: kind))
             label.alignment = .right
-            let input: NSTextField = field.type == "password" ? NSSecureTextField() : NSTextField()
-            input.contentType = Self.contentType(for: field)
+            let input: NSTextField = kind == "password" ? NSSecureTextField() : NSTextField()
+            input.contentType = Self.contentType(for: kind)
             input.widthAnchor.constraint(equalToConstant: 260).isActive = true
             inputs.append(input)
             grid.addRow(with: [label, input])
@@ -304,12 +320,19 @@ final class BrowserReplCredentialSheet: NSObject {
         panel.setContentSize(stack.fittingSize)
     }
 
-    private static func contentType(for field: BrowserReplCredentialRequest.Field) -> NSTextContentType? {
-        switch field.autocomplete {
+    private static func label(for kind: String) -> String {
+        switch kind {
+        case "password": return String(localized: "browser.repl.auth.field.password", defaultValue: "Password")
+        case "one-time-code": return String(localized: "browser.repl.auth.field.oneTimeCode", defaultValue: "One-time code")
+        default: return String(localized: "browser.repl.auth.field.username", defaultValue: "Username or email")
+        }
+    }
+
+    private static func contentType(for kind: String) -> NSTextContentType? {
+        switch kind {
         case "one-time-code": return .oneTimeCode
-        case "current-password", "new-password": return .password
-        case "username", "email": return .username
-        default: return field.type == "password" ? .password : nil
+        case "password": return .password
+        default: return .username
         }
     }
 
