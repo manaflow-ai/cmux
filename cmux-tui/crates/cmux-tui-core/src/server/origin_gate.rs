@@ -30,8 +30,10 @@ pub(super) fn handle_resource_line(
 fn check(mux: &Mux, client: u64, message: &str) -> Option<Value> {
     // Fast path: a connection that is not a page relay, with no claim and
     // no A2 operation, needs no parse. Each test is a superset of the
-    // condition it stands for.
+    // condition it stands for. A `\u` escape can spell any name, so a line
+    // with one always takes the slow path.
     if role(mux, client) != HelloRole::PageRelay
+        && !message.contains("\\u")
         && !message.contains("\"origin")
         && !message.contains("\"apps.")
     {
