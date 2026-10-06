@@ -13,7 +13,9 @@ public import Foundation
 /// requesting page's origin) and `omit` (none sent, none stored). The
 /// session's domain policy is checked for the first URL, for every
 /// redirect hop and for the URL the response came from (an HSTS upgrade
-/// moves a request without a redirect hop). A body larger than `maxBodyBytes` fails the fetch, and so
+/// moves a request without a redirect hop), and an `http` URL whose
+/// `https` form it blocks is sent without cookies, since that upgrade
+/// takes them along before the delegate hears of it. A body larger than `maxBodyBytes` fails the fetch, and so
 /// does a body that would take the bodies all of the fetcher's requests
 /// hold at once past its `BrowserReplFetchBudget`. A fetch that has not
 /// finished after `resourceTimeout` fails, so a body that never ends (an
@@ -223,7 +225,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             }
             if let data = Data(base64Encoded: body) { urlRequest.httpBody = data }
         }
-        if Self.sendsCookies(info, to: url) {
+        if Self.sendsCookies(info, to: url), !cookiesMayBeUpgraded(url) {
             if urlRequest.value(forHTTPHeaderField: "Cookie") == nil,
                let cookie = await cookieHeader(for: url, targetID: info.targetID) {
                 urlRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
@@ -290,6 +292,32 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             }
             return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch failed: \(error.localizedDescription)")), 0)
         }
+    }
+
+    /// Whether cookies for `url` could reach a URL the domain policy
+    /// blocks: CFNetwork upgrades an `http` request to a host it has an
+    /// HSTS entry for (one a response set, or the preloaded list) to
+    /// `https` before it is sent, with the headers already on it, and tells
+    /// the delegate only once the response arrives. An `http` URL whose
+    /// `https` form the policy blocks therefore goes without cookies.
+    /// HSTS never applies to an IP address (RFC 6797 section 8.1.1), and a
+    /// loopback host's cookies stay on this machine whichever scheme takes
+    /// them, so those keep theirs.
+    private func cookiesMayBeUpgraded(_ url: URL) -> Bool {
+        guard let upgraded = Self.hstsUpgraded(url) else { return false }
+        return reason(upgraded) != nil
+    }
+
+    /// The URL an HSTS upgrade sends `url` to (RFC 6797 section 8.3: the
+    /// scheme becomes `https` and port 80 becomes 443), or nil when no
+    /// upgrade applies to it.
+    static func hstsUpgraded(_ url: URL) -> URL? {
+        guard url.scheme?.lowercased() == "http", let host = BrowserReplHostName.host(of: url),
+              !BrowserReplHostName.isIPAddress(host), !BrowserReplHostName.isLoopback(host),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        parts.scheme = "https"
+        if parts.port == 80 { parts.port = nil }
+        return parts.url
     }
 
     private static func origin(of url: URL) -> String? {
@@ -414,7 +442,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             // The Cookie header goes on every hop; cookies for the new URL
             // come from the tab by the credentials rules.
             Self.removeCookieHeaders(from: &next)
-            if let url = next.url, Self.sendsCookies(info, to: url),
+            if let url = next.url, Self.sendsCookies(info, to: url), !self.cookiesMayBeUpgraded(url),
                let cookie = await self.cookieHeader(for: url, targetID: info.targetID) {
                 next.setValue(cookie, forHTTPHeaderField: "Cookie")
             }
