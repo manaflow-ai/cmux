@@ -622951,6 +622951,381 @@
         }
       }
     },
+    "settings.browser.showLinkHoverURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Link URLs on Hover"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار عنوان الرابط عند التمرير فوقه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link-URLs beim Überfahren anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la URL de los enlaces al pasar el puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’URL des liens au survol"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクにポインタを置いたときに URL を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크에 포인터를 올리면 URL 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "悬停时显示链接网址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑鼠懸停時顯示連結網址"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži URL linka pri prelasku pokazivačem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis linkets URL, når markøren holdes over"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra l’URL dei link al passaggio del puntatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ URL របស់តំណនៅពេលដាក់ទស្សន៍ទ្រនិចលើ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis lenkens URL når pekeren holdes over"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj adres URL linku po najechaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar URL do link ao passar o cursor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать URL ссылки при наведении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดง URL ของลิงก์เมื่อวางเมาส์เหนือลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Üzerine gelindiğinde bağlantı URL’sini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати URL посилання при наведенні"
+          }
+        }
+      }
+    },
+    "settings.browser.showLinkHoverURL.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a link's destination at the bottom of a browser pane while the pointer is over it or it has keyboard focus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض وجهة الرابط أسفل لوحة المتصفح عندما يكون المؤشر فوقه أو عندما يكون التركيز عليه من لوحة المفاتيح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt das Ziel eines Links unten im Browserbereich an, solange sich der Zeiger darüber befindet oder der Link den Tastaturfokus hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el destino de un enlace en la parte inferior del panel del navegador mientras el puntero está sobre él o cuando el enlace recibe el foco del teclado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche la destination d’un lien en bas du panneau du navigateur lorsque le pointeur le survole ou que le lien a le focus clavier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポインタがリンク上にある間、またはリンクにキーボードフォーカスがある間、ブラウザペインの下部にリンク先を表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포인터가 링크 위에 있거나 링크에 키보드 포커스가 있는 동안 브라우저 패널 하단에 링크의 대상 주소를 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指针停留在链接上或链接获得键盘焦点时，在浏览器面板底部显示链接的目标地址。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標停留在連結上或連結取得鍵盤焦點時，在瀏覽器面板底部顯示連結的目的地。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje odredište linka na dnu panela preglednika dok je pokazivač iznad njega ili dok link ima fokus tastature."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser linkets destination nederst i browserpanelet, mens markøren er over det, eller mens linket har tastaturfokus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra la destinazione di un link nella parte inferiore del pannello del browser mentre il puntatore è sopra di esso o quando il link ha il focus della tastiera."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញទិសដៅរបស់តំណនៅផ្នែកខាងក្រោមនៃផ្ទាំងកម្មវិធីរុករក ខណៈពេលដែលទស្សន៍ទ្រនិចស្ថិតនៅលើវា ឬនៅពេលតំណទទួលបានការផ្ដោតពីក្ដារចុច។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser lenkens mål nederst i nettleserpanelet mens pekeren er over den, eller mens lenken har tastaturfokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje adres docelowy linku u dołu panelu przeglądarki, gdy wskaźnik znajduje się nad nim lub gdy link ma fokus klawiatury."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o destino de um link na parte inferior do painel do navegador enquanto o cursor está sobre ele ou quando o link tem o foco do teclado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает адрес ссылки в нижней части панели браузера, пока указатель находится над ней или пока ссылка находится в фокусе клавиатуры."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงปลายทางของลิงก์ที่ด้านล่างของแผงเบราว์เซอร์ขณะที่ตัวชี้อยู่เหนือลิงก์หรือเมื่อลิงก์ได้รับโฟกัสจากแป้นพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İmleç bir bağlantının üzerindeyken veya bağlantı klavye odağındayken bağlantının hedefini tarayıcı panelinin altında gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує адресу посилання в нижній частині панелі браузера, поки вказівник знаходиться над ним або поки посилання має фокус клавіатури."
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.link-hover-url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview رابط تمرير وجهة عنوان شريط الحالة معاينة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link überfahren ziel adresse statusleiste vorschau"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview enlace pasar puntero destino dirección barra de estado vista previa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview lien survol destination adresse barre d’état aperçu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview リンク ホバー URL リンク先 ステータスバー プレビュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 링크 호버 주소 대상 상태 표시줄 미리보기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 链接 悬停 网址 目标 状态栏 预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 連結 懸停 網址 目的地 狀態列 預覽"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link prelazak pokazivačem odredište adresa statusna traka pregled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link markør over destination adresse statuslinje forhåndsvisning"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link passaggio puntatore destinazione indirizzo barra di stato anteprima"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview តំណ ទស្សន៍ទ្រនិច ទិសដៅ អាសយដ្ឋាន របារស្ថានភាព មើលជាមុន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview lenke peker over mål adresse statuslinje forhåndsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link najechanie adres docelowy pasek stanu podgląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link passar cursor destino endereço barra de status pré-visualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview ссылка наведение адрес назначение строка состояния предпросмотр"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview ลิงก์ วางเมาส์ ปลายทาง ที่อยู่ แถบสถานะ ดูตัวอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview bağlantı üzerine gelme hedef adres durum çubuğu önizleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.showLinkHoverURL link hover url destination address status bar preview посилання наведення адреса призначення рядок стану попередній перегляд"
+          }
+        }
+      }
+    },
     "cli.browser.help.replDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -624009,381 +624384,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "登入 %@"
-          }
-        }
-      }
-    },
-    "settings.browser.showLinkHoverURL": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Link URLs on Hover"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار عنوان الرابط عند التمرير فوقه"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Link-URLs beim Überfahren anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar la URL de los enlaces al pasar el puntero"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’URL des liens au survol"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リンクにポインタを置いたときに URL を表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "링크에 포인터를 올리면 URL 표시"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "悬停时显示链接网址"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "滑鼠懸停時顯示連結網址"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži URL linka pri prelasku pokazivačem"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis linkets URL, når markøren holdes over"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra l’URL dei link al passaggio del puntatore"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញ URL របស់តំណនៅពេលដាក់ទស្សន៍ទ្រនិចលើ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis lenkens URL når pekeren holdes over"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuj adres URL linku po najechaniu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar URL do link ao passar o cursor"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать URL ссылки при наведении"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดง URL ของลิงก์เมื่อวางเมาส์เหนือลิงก์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Üzerine gelindiğinde bağlantı URL’sini göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати URL посилання при наведенні"
-          }
-        }
-      }
-    },
-    "settings.browser.showLinkHoverURL.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows a link's destination at the bottom of a browser pane while the pointer is over it or it has keyboard focus."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يعرض وجهة الرابط أسفل لوحة المتصفح عندما يكون المؤشر فوقه أو عندما يكون التركيز عليه من لوحة المفاتيح."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt das Ziel eines Links unten im Browserbereich an, solange sich der Zeiger darüber befindet oder der Link den Tastaturfokus hat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra el destino de un enlace en la parte inferior del panel del navegador mientras el puntero está sobre él o cuando el enlace recibe el foco del teclado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche la destination d’un lien en bas du panneau du navigateur lorsque le pointeur le survole ou que le lien a le focus clavier."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ポインタがリンク上にある間、またはリンクにキーボードフォーカスがある間、ブラウザペインの下部にリンク先を表示します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "포인터가 링크 위에 있거나 링크에 키보드 포커스가 있는 동안 브라우저 패널 하단에 링크의 대상 주소를 표시합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "指针停留在链接上或链接获得键盘焦点时，在浏览器面板底部显示链接的目标地址。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "指標停留在連結上或連結取得鍵盤焦點時，在瀏覽器面板底部顯示連結的目的地。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikazuje odredište linka na dnu panela preglednika dok je pokazivač iznad njega ili dok link ima fokus tastature."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser linkets destination nederst i browserpanelet, mens markøren er over det, eller mens linket har tastaturfokus."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra la destinazione di un link nella parte inferiore del pannello del browser mentre il puntatore è sopra di esso o quando il link ha il focus della tastiera."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញទិសដៅរបស់តំណនៅផ្នែកខាងក្រោមនៃផ្ទាំងកម្មវិធីរុករក ខណៈពេលដែលទស្សន៍ទ្រនិចស្ថិតនៅលើវា ឬនៅពេលតំណទទួលបានការផ្ដោតពីក្ដារចុច។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser lenkens mål nederst i nettleserpanelet mens pekeren er over den, eller mens lenken har tastaturfokus."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuje adres docelowy linku u dołu panelu przeglądarki, gdy wskaźnik znajduje się nad nim lub gdy link ma fokus klawiatury."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra o destino de um link na parte inferior do painel do navegador enquanto o cursor está sobre ele ou quando o link tem o foco do teclado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывает адрес ссылки в нижней части панели браузера, пока указатель находится над ней или пока ссылка находится в фокусе клавиатуры."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงปลายทางของลิงก์ที่ด้านล่างของแผงเบราว์เซอร์ขณะที่ตัวชี้อยู่เหนือลิงก์หรือเมื่อลิงก์ได้รับโฟกัสจากแป้นพิมพ์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İmleç bir bağlantının üzerindeyken veya bağlantı klavye odağındayken bağlantının hedefini tarayıcı panelinin altında gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показує адресу посилання в нижній частині панелі браузера, поки вказівник знаходиться над ним або поки посилання має фокус клавіатури."
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.browser.link-hover-url": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview رابط تمرير وجهة عنوان شريط الحالة معاينة"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link überfahren ziel adresse statusleiste vorschau"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview enlace pasar puntero destino dirección barra de estado vista previa"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview lien survol destination adresse barre d’état aperçu"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview リンク ホバー URL リンク先 ステータスバー プレビュー"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 링크 호버 주소 대상 상태 표시줄 미리보기"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 链接 悬停 网址 目标 状态栏 预览"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview 連結 懸停 網址 目的地 狀態列 預覽"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link prelazak pokazivačem odredište adresa statusna traka pregled"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link markør over destination adresse statuslinje forhåndsvisning"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link passaggio puntatore destinazione indirizzo barra di stato anteprima"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview តំណ ទស្សន៍ទ្រនិច ទិសដៅ អាសយដ្ឋាន របារស្ថានភាព មើលជាមុន"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview lenke peker over mål adresse statuslinje forhåndsvisning"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link najechanie adres docelowy pasek stanu podgląd"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview link passar cursor destino endereço barra de status pré-visualização"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview ссылка наведение адрес назначение строка состояния предпросмотр"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview ลิงก์ วางเมาส์ ปลายทาง ที่อยู่ แถบสถานะ ดูตัวอย่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview bağlantı üzerine gelme hedef adres durum çubuğu önizleme"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "browser.showLinkHoverURL link hover url destination address status bar preview посилання наведення адреса призначення рядок стану попередній перегляд"
           }
         }
       }
