@@ -74,6 +74,22 @@ import Testing
         #expect(model.row(.codex).phase == .idle)
     }
 
+    /// Leo, 2026-10-06: signed out, Accounts shows one "Sign In to cmux"
+    /// button at the top and no sentence about CodeRouter, in the banner or
+    /// in Connect's tooltip.
+    @Test func signedOutIsOneSignInButton() async throws {
+        let services = MockAccountsServices()
+        services.isSignedInToCmux = false
+        let model = AccountsModel(services: services)
+        model.refresh()
+        await settle { !model.isRefreshing }
+        let data = try JSONEncoder().encode(model.pageState)
+        let page = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(page["signIn"] as? String == AccountsStrings.signInToCmux)
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(!text.contains("CodeRouter, so"), "an explanation is still on the page")
+    }
+
     @Test func reauthRedetectsOnActivation() async {
         let services = MockAccountsServices()
         let model = AccountsModel(services: services)
