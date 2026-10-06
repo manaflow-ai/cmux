@@ -206,6 +206,19 @@ test("browserAuth.request: submit presses only a submit control of the fields' o
   assert.match(await s.value('page.locator("#out").textContent()'), /^submitted as ada@example\.com/);
 });
 
+// r15 tabs#2: the sheet shows only what cmux verified. The agent's labels
+// (and the page's title) are not shown; each field is labeled by the
+// credential kind the app's bind found on the bound element itself.
+test("browserAuth.request: the app's bind answers each bound element's credential kind for the sheet's labels", async () => {
+  await s.run('await page.goto("https://login.example/")');
+  let bound = null;
+  globalThis.__authAnswer = fillLike({}, { onBound: (b) => (bound = b) });
+  await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [
+    { id: "a", label: "Your favorite color", type: "email", selector: 'input[name="email"]' },
+    { id: "b", label: "Confirm to continue", type: "password", selector: 'input[name="password"]' } ] })`);
+  assert.deepEqual(bound, { status: "bound", kinds: ["username", "password"] });
+});
+
 test("browserAuth.request: only credential fields (password, username, one-time code) are filled", async () => {
   await s.run('await page.goto("https://login.example/")');
   globalThis.__authAnswer = fillLike({ note: "correct horse", comment: "correct horse" });
