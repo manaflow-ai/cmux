@@ -1361,3 +1361,43 @@ fn a_proxy_session_opens_tabs_in_a_private_store() {
     let back = open_tab(format!("{origin}/second?back"));
     assert_eq!(cookie(&back), "");
 }
+
+/// Leases on the shared headless browser (item 4e, automation-lease.md):
+/// an act takes the tab's lease, another session's act is refused with
+/// lease_held while a read never is, and a closed tab takes its lease
+/// with it (the table stays bounded, as the app's tab.gone does).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn headless_leases_follow_the_contract_and_go_with_the_tab() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource, SharedHeadless};
+    use cmux_browser_host::tab_source::TabSource;
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let shared = SharedHeadless(source.clone());
+    let a = headless_session(&source, &browsers, "a");
+    let b = headless_session(&source, &browsers, "b");
+    let target = a
+        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/second")}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let evaluate = json!({"targetId": target, "world": "agent", "source": "() => 1"});
+    a.call("frame.evaluate", &evaluate).unwrap();
+    assert!(shared.lease_state(&target).is_some(), "a's act took the lease");
+    let refused = b.call("frame.evaluate", &evaluate).unwrap_err();
+    assert_eq!(refused.error_name.as_deref(), Some("lease_held"), "{refused}");
+    b.call("tab.info", &json!({"targetId": target})).expect("a read is never blocked");
+    a.call("tabs.close", &json!({"targetId": target})).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while shared.lease_state(&target).is_some() {
+        assert!(Instant::now() < deadline, "the closed tab kept its lease");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}

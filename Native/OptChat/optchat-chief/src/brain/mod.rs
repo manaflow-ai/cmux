@@ -19,6 +19,7 @@
 //! everything the stopped turn did. A turn that hangs is stopped by
 //! `Settings::turn_limit`.
 
+mod approvals;
 mod children;
 pub mod images;
 mod inbox;
@@ -86,6 +87,8 @@ pub enum Input {
     SubagentStarted {
         id: String,
         session_id: String,
+        /// `ask` under the spawn floor.
+        policy: Option<String>,
     },
     /// A subagent's cmux workspace exists.
     SubagentWorkspace {
@@ -108,6 +111,21 @@ pub enum Input {
         id: String,
         message: String,
         reply: Sender<Result<String, String>>,
+    },
+    /// Changes a per-Chief setting (`chief_settings`); refused for
+    /// `remote.autoApprove` on during a remote-origin turn.
+    Setting {
+        key: String,
+        value: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// The per-Chief settings as JSON.
+    Settings {
+        reply: Sender<serde_json::Value>,
+    },
+    /// The policy floor for a child spawned now (`Brain::spawn_policy`).
+    SpawnPolicy {
+        reply: Sender<Option<String>>,
     },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
@@ -179,6 +197,20 @@ pub struct Settings {
     /// cached layout's system prompt, and the session directory's CLAUDE.md
     /// in the old layout.
     pub system_text: String,
+    /// `$MUX_HOME/optchat/engine.json` (engine.rs), read at each turn start:
+    /// harness, model and effort swap between turns. None: the fields above.
+    pub engine_file: Option<PathBuf>,
+    /// Every acpmux harness's family (`_acpmux/harnesses` at host start).
+    /// Empty: the default harness is Claude when `turn_preset` is set.
+    pub families: std::collections::BTreeMap<String, crate::acpmux::Family>,
+    /// The codex turn preset (`optchat-chief-codex-<home id>`), when a codex
+    /// harness exists: a turn on codex starts with it.
+    pub codex_preset: Option<String>,
+    /// The per-Chief settings file (`chief_settings`), read at start.
+    pub settings_file: PathBuf,
+    /// The monitoring trace's directory, where approvals are recorded
+    /// (None: not recorded).
+    pub trace_dir: Option<PathBuf>,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation
@@ -209,8 +241,9 @@ struct Queued {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Source {
-    /// A human message of the Chief conversation.
-    Message { seq: u64 },
+    /// A human message of the Chief conversation; `remote` names the paired
+    /// install that sent it (the relay's origin), None for a local one.
+    Message { seq: u64, remote: Option<String> },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
@@ -280,6 +313,20 @@ pub struct Brain {
     /// When the current settle wait and turn began.
     settle_clock: Option<Instant>,
     turn_clock: Option<Instant>,
+    /// The running turn's engine (engine.rs), for the trace.
+    turn_engine: Option<crate::engine::TurnEngine>,
+    /// The per-Chief settings (`chief_settings`), owned by the host.
+    chief: crate::chief_settings::ChiefSettings,
+    /// The running turn has a remote origin (a paired device's message, or
+    /// a remote turn it supersedes): the strictest origin wins until it ends.
+    turn_remote: bool,
+    /// The running turn runs with policy `ask` (remote, no auto-approve).
+    turn_ask: bool,
+    /// A remote-origin turn was stopped for a newer message: the turn that
+    /// answers both keeps its origin.
+    remote_taint: bool,
+    /// The running turn's permission requests waiting for a person.
+    approvals: VecDeque<crate::approval::Pending>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// Images being described now (`conversation/hash`), started once each.
@@ -306,6 +353,7 @@ impl Brain {
         let own = format!("{}-", settings.turn_prefix);
         stale_sessions.retain(|name| name.starts_with(&own));
         let handled = state.logged_seq;
+        let chief = crate::chief_settings::ChiefSettings::load(&settings.settings_file);
         let brain = Brain {
             chat,
             agents,
@@ -330,6 +378,11 @@ impl Brain {
             stop_wanted: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            chief,
+            turn_remote: false,
+            turn_ask: false,
+            remote_taint: false,
+            approvals: VecDeque::new(),
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
@@ -338,6 +391,7 @@ impl Brain {
             prev_view: None,
             settle_clock: None,
             turn_clock: None,
+            turn_engine: None,
             describer: None,
             describing: HashSet::new(),
         };
@@ -458,13 +512,26 @@ impl Brain {
                 let plan = self.register_spawn(&tasks);
                 let _ = reply.send(plan);
             }
-            Input::SubagentStarted { id, session_id } => self.sub_started(&id, session_id),
+            Input::SubagentStarted {
+                id,
+                session_id,
+                policy,
+            } => self.sub_started(&id, session_id, policy),
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
             Input::Tell { id, message, reply } => {
                 let answer = self.tell(&id, &message);
                 let _ = reply.send(answer);
+            }
+            Input::Setting { key, value, reply } => {
+                let _ = reply.send(self.set_setting(&key, &value));
+            }
+            Input::Settings { reply } => {
+                let _ = reply.send(self.chief.to_json());
+            }
+            Input::SpawnPolicy { reply } => {
+                let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
             Input::Described { image, description } => self.described(&image, description),
         }
@@ -540,6 +607,49 @@ impl Brain {
         if let Err(e) = self.file.save_with(&self.state, extra) {
             (self.log)(&format!("saving the host state failed: {e}"));
         }
+    }
+
+    /// Whether `remote.autoApprove` is on.
+    pub fn remote_auto_approve(&self) -> bool {
+        self.chief.remote_auto_approve
+    }
+
+    /// Changes a per-Chief setting and saves it. `remote.autoApprove` can be
+    /// turned on only when no remote-origin work is running, settling or
+    /// queued: never by a paired device, nor by a command a remote turn runs
+    /// (an approved shell command reaches the host the same way). Turning
+    /// it off is always allowed.
+    pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
+        use crate::chief_settings::{REMOTE_AUTO_APPROVE, parse_bool};
+        if key != REMOTE_AUTO_APPROVE {
+            return Err(format!(
+                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE})"
+            ));
+        }
+        let on = parse_bool(value)?;
+        let remote_queued = self.queue.iter().any(|q| {
+            matches!(
+                q.source,
+                Source::Message {
+                    remote: Some(_),
+                    ..
+                }
+            )
+        });
+        if on && (self.turn_remote || self.remote_taint || remote_queued || self.ask_child_live()) {
+            (self.log)("refused: remote.autoApprove on during remote-origin work");
+            return Err(
+                "refused: remote.autoApprove can be turned on only from the Mac, outside a turn a paired device started"
+                    .to_owned(),
+            );
+        }
+        let mut next = self.chief;
+        next.remote_auto_approve = on;
+        next.save(&self.settings.settings_file)
+            .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+        self.chief = next;
+        (self.log)(&format!("setting {key} = {on}"));
+        Ok(format!("{key} = {on}"))
     }
 
     fn queue(&mut self, text: String, source: Source) {
