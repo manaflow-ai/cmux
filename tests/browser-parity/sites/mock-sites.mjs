@@ -917,6 +917,8 @@ function login(req, url) {
       <label>Note <input id="note" name="note" type="text"></label>
       <label>Comment <textarea id="comment" name="comment"></textarea></label>
       <button type="submit">Sign in</button></form><p id="out"></p>
+      <button id="danger" onclick="document.getElementById('out').textContent = 'danger pressed'">Delete account</button>
+      <form id="g" onsubmit="event.preventDefault(); document.getElementById('out').textContent = 'other form submitted';"><button id="other" type="submit">Subscribe</button></form>
       <script>
         // A React-style controlled field: the framework reads values through input events.
         window.seen = [];

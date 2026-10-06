@@ -185,6 +185,27 @@ test("browserAuth.request: cancel, wrong origin, bad selectors, and no native sh
   assert.equal(await s.value("page.evaluate(() => document.querySelectorAll('[data-cmux-auth]').length)"), 0);
 });
 
+// r15 sites#5: after the user fills the sheet, cmux activates only the
+// submit control of the form that holds the filled fields (a submit
+// button or input of that form; Enter only in a filled field). Any other
+// control the agent names is refused before the sheet opens, and nothing
+// is filled or pressed.
+test("browserAuth.request: submit presses only a submit control of the fields' own form", async () => {
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" });
+  const field = `{ id: "email", label: "Email", type: "email", selector: 'input[name="email"]' }`;
+  for (const submit of ['{ selector: "#danger" }', '{ selector: "#other" }', '{ selector: "#note", action: "press_enter" }', '{ selector: "label" }']) {
+    const count = s.auth.length;
+    const r = await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: ${submit} })`);
+    assert.equal(r.status, "locator_invalid", submit);
+    assert.equal(r.locator_error.field_id, "submit", submit);
+    assert.equal(s.auth.length, count, `the sheet opened for ${submit}`);
+    assert.deepEqual(await s.value(`page.evaluate(() => [document.getElementById("out").textContent, document.querySelector('input[name="email"]').value, document.querySelectorAll("[data-cmux-auth], [data-cmux-auth-form]").length])`), ["", "", 0], submit);
+  }
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: { selector: 'input[name="email"]', action: "press_enter" } })`), { status: "submitted" });
+  assert.match(await s.value('page.locator("#out").textContent()'), /^submitted as ada@example\.com/);
+});
+
 test("browserAuth.request: only credential fields (password, username, one-time code) are filled", async () => {
   await s.run('await page.goto("https://login.example/")');
   globalThis.__authAnswer = fillLike({ note: "correct horse", comment: "correct horse" });
