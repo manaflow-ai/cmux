@@ -188,9 +188,15 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             }
             if let data = Data(base64Encoded: body) { urlRequest.httpBody = data }
         }
-        if urlRequest.value(forHTTPHeaderField: "Cookie") == nil, Self.sendsCookies(info, to: url),
-           let cookie = await cookieHeader(for: url, targetID: info.targetID) {
-            urlRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
+        if Self.sendsCookies(info, to: url) {
+            if urlRequest.value(forHTTPHeaderField: "Cookie") == nil,
+               let cookie = await cookieHeader(for: url, targetID: info.targetID) {
+                urlRequest.setValue(cookie, forHTTPHeaderField: "Cookie")
+            }
+        } else {
+            // The credentials mode sends no cookies here: not the tab's,
+            // and not a Cookie header the caller set (as on redirect hops).
+            Self.removeCookieHeaders(from: &urlRequest)
         }
 
         // The cookie lookup above awaited; the session may have closed since.
@@ -372,13 +378,20 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             var next = redirected
             // The Cookie header goes on every hop; cookies for the new URL
             // come from the tab by the credentials rules.
-            next.setValue(nil, forHTTPHeaderField: "Cookie")
+            Self.removeCookieHeaders(from: &next)
             if let url = next.url, Self.sendsCookies(info, to: url),
                let cookie = await self.cookieHeader(for: url, targetID: info.targetID) {
                 next.setValue(cookie, forHTTPHeaderField: "Cookie")
             }
             completionHandler(next)
         }
+    }
+
+    /// Removes `Cookie` and `Cookie2`, whose cookies the credentials mode
+    /// decides.
+    static func removeCookieHeaders(from request: inout URLRequest) {
+        request.setValue(nil, forHTTPHeaderField: "Cookie")
+        request.setValue(nil, forHTTPHeaderField: "Cookie2")
     }
 
     /// Header names that carry credentials: the standard ones, and custom
