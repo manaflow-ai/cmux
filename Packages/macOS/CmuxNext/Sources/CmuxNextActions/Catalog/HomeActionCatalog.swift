@@ -33,6 +33,8 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "message", "dm", "direct message", "chat", "group", "conversation", "people", "team"],
                 category: .window, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .menu],
                 arguments: [ActionArgument(name: "to", title: t("argument.home.message.to", "Person or Email Address"), kind: .string,
+                                           isRequired: false),
+                            ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string,
                                            isRequired: false)],
                 mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)

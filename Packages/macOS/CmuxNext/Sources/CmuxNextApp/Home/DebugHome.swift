@@ -39,6 +39,7 @@ enum DebugHome {
             "conversation_tabs": .bool(local.supports(caps.conversationTabs)),
             "local_conversations": .bool(local.supports(caps.localConversations)),
         ])
-        return .object(["available": .bool(home.isAvailable), "home_workspace": setup, "conversations": .array(conversations)])
+        return .object(["available": .bool(home.isAvailable), "home_workspace": setup, "conversations": .array(conversations),
+                        "page": page(services: services)])
     }
 }

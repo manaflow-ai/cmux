@@ -16,8 +16,10 @@ extension AppActions {
                 homePage(services)?.presentNewMessage()
                 return
             }
-            let recipient = recipient(for: to, services: services)
-            runHome(services) { await services.home.startConversation([recipient], title: "") }
+            // Comma-separated: several people make a group (`title` names it).
+            let recipients = to.split(separator: ",").map { recipient(for: $0.trimmingCharacters(in: .whitespaces), services: services) }
+            let title = invocation["title"]?.stringValue ?? ""
+            runHome(services) { await services.home.startConversation(recipients, title: title) }
         })
         registry.bind("home.invite", invoke: { invocation in
             guard let text = invocation["email"]?.stringValue, !text.isEmpty else {
