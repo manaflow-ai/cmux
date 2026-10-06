@@ -85,7 +85,7 @@ def launch(which, extra=None):
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,818,1060",
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_HOME": CHIEF}
     env.update(extra or {})
-    binary = os.path.join(app, "Contents/MacOS", os.path.basename(app)[:-4])
+    binary = os.path.join(app, "Contents/MacOS", "cmux DEV")
     log = open(os.path.join(opts.out, f"app-{tag}.log"), "a")
     proc = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     ok = wait(lambda: (chief_row(rpc(tag, "debug.home")) or {}).get("id") and rpc(tag, "debug.home").get("chief_owner", {}).get("connected"), 180)

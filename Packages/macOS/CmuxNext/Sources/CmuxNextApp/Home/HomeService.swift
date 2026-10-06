@@ -27,6 +27,9 @@ final class HomeService {
     @ObservationIgnored private var listing: Task<Void, Never>?
     /// The brain host was started on this app launch (it outlives the app).
     @ObservationIgnored private var startedBrainHost = false
+    /// Home opened in a window this launch; the host starts once the Chief
+    /// owner is connected, even when Home opened first.
+    @ObservationIgnored private var homeWasOpened = false
     /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
     var homeWorkspaceID: ResourceID?
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
@@ -78,6 +81,8 @@ final class HomeService {
                 homeSource.connectionChanged(connection)
                 guard let connection else { continue }
                 reloadList(connection)
+                // Home opened before the owner answered: start the host now.
+                if homeWasOpened { homeDidOpen() }
                 for session in sessions.values {
                     session.load(from: connection) { [weak self, weak session] in
                         guard let self, let session else { return }
@@ -95,6 +100,7 @@ final class HomeService {
     /// launch. Its lock keeps one host per home, so a host another build
     /// started keeps running and this launch's exits at once.
     func homeDidOpen() {
+        homeWasOpened = true
         guard !startedBrainHost, let connection else { return }
         // task-owner: reads the endpoint, then spawns the detached host once
         Task { [weak self] in
