@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTabs
 import Testing
 @testable import CmuxNextApp
 
@@ -54,5 +55,39 @@ import Testing
             // The window growing later (the parking view keeps its origin) still leaves it outside.
             #expect(!NSRect(origin: frame.origin, size: NSSize(width: 20_000, height: 20_000)).intersects(bounds))
         }
+    }
+
+    /// hqacp-v2 proof (120 Hz, 5 runs): for about 40 ms after Cmd-T the page showed at the parked
+    /// width, the window content's, wider than its pane (the field ran past the right edge), until
+    /// WebKit laid it out at the pane's width. The spare waits at the size of the pane content it
+    /// fills, so the adoption changes no size and WebKit has nothing to lay out again.
+    @MainActor @Test func theParkedSpareHasThePaneSizeSoTheAdoptionChangesNoSize() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = window.contentView!
+        // A pane narrower than the window: the sidebar takes the left.
+        let pane = PaneContentView(stripModel: TabStripModel())
+        pane.frame = NSRect(x: 220, y: 0, width: 880, height: 720)
+        content.addSubview(pane)
+        pane.layoutSubtreeIfNeeded()
+        let target = pane.contentHost.bounds.size
+        #expect(target.width == 880 && target.height < 720)
+
+        let parking = NewTabSpareParking(frame: .zero)
+        content.addSubview(parking, positioned: .below, relativeTo: nil)
+        let spare = NSView(frame: parking.bounds)
+        spare.autoresizingMask = [.width, .height]
+        parking.addSubview(spare)
+        parking.fit(to: target)
+        #expect(spare.frame.size == target, "parked at \(spare.frame.size), the pane is \(target)")
+        #expect(!parking.frame.intersects(content.bounds), "never under the pointer")
+        #expect(NewTabSpareParking.frame(in: content.bounds, size: target).size == target)
+
+        // The adoption: the pane shows the spare at the size it waited at.
+        pane.show(spare)
+        #expect(spare.superview === pane.contentHost)
+        #expect(spare.frame.size == target)
     }
 }

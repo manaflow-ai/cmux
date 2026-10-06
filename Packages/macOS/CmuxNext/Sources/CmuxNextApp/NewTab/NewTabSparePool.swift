@@ -47,6 +47,9 @@ final class NewTabSparePool {
         var crossWindow: Bool
         /// Main-thread time from the open action to the page in its pane.
         var milliseconds: Double
+        /// The spare waited at another size than its pane's: the adoption resized it, and WebKit
+        /// showed it at the old size until it laid it out again (the hqacp-v2 flash).
+        var refit = false
     }
 
     static let idleInput: Duration = .milliseconds(750)
@@ -132,13 +135,13 @@ final class NewTabSparePool {
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).
     /// The caller adopts it at once; the next spare follows when input is quiet.
-    func take(for window: NSWindow?) -> (view: AgentPaneView, crossWindow: Bool)? {
+    func take(for window: NSWindow?, size: NSSize) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
         usedThisSession = true
         observeWindows()
         if target == nil, let window { retarget(window) }
         defer { scheduleWarm() }
         guard let view = slot.take() else { return nil }
-        return (view, window !== target)
+        return (view, window !== target, view.frame.size != size)
     }
 
     /// A closed new tab page that never became a chat or a terminal: reset to
@@ -253,6 +256,17 @@ final class NewTabSpareParking: NSView {
     /// cards hovered and set the cursor under the tab in front of it.
     static func frame(in bounds: NSRect) -> NSRect {
         NSRect(origin: NSPoint(x: bounds.minX - 100_000, y: bounds.minY - 100_000), size: bounds.size)
+    }
+
+    /// Where the spare waits to fill a pane content of `size` (nil: the window content's size).
+    static func frame(in bounds: NSRect, size: NSSize?) -> NSRect {
+        frame(in: bounds)
+    }
+
+    /// Sizes the parked spare to `size`.
+    func fit(to size: NSSize) {
+        guard let superview else { return }
+        frame = Self.frame(in: superview.bounds, size: size)
     }
 
     override init(frame: NSRect) {

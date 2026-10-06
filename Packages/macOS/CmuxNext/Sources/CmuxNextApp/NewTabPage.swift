@@ -220,7 +220,7 @@ extension PaneController {
         let handler = NewTabPage.handler(services, cwd: cwd) { [weak self] key, request in
             if let self { BenchSpans.measure("newTab.replace") { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) } }
         }
-        let spare = seed == nil ? services.newTabSpares.take(for: view.window) : nil
+        let spare = seed == nil ? services.newTabSpares.take(for: view.window, size: view.contentHost.bounds.size) : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view) else { return }
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
@@ -229,7 +229,7 @@ extension PaneController {
             services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
         }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
-                                           milliseconds: NewTabSparePool.milliseconds(since: start)))
+                                           milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
     }
 
     /// Focus Location Bar: a browser tab's address bar; the field of a new tab

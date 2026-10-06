@@ -5,6 +5,12 @@ import QuartzCore
 extension TabStripView {
     // MARK: - Model sync
 
+    /// Applies the model now, in this turn, for a tab this window just opened (Cmd-T): the
+    /// strip and the tab's content then go to the screen in one commit.
+    public func presentNow() {
+        sync(fromModel: true)
+    }
+
     func sync(fromModel: Bool) {
         let modelOrdered = model.orderedTabs
         groups.byID = Dictionary(model.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
