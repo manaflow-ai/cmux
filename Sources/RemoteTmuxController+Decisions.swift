@@ -414,7 +414,13 @@ extension RemoteTmuxController {
         requested: RemoteTmuxTransportBroker?,
         live: RemoteTmuxTransportBroker?
     ) -> String? {
-        nil
+        guard requested != live else { return nil }
+        func describe(_ broker: RemoteTmuxTransportBroker?) -> String {
+            guard let broker else { return "a direct connection" }
+            return "the broker " + ([broker.executable] + broker.leadingArguments).joined(separator: " ")
+        }
+        return "\(destination) is already connected through \(describe(live)); "
+            + "detach it before attaching through \(describe(requested))"
     }
 }
 
