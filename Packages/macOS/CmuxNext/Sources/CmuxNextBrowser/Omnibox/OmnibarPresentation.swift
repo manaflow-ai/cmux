@@ -23,8 +23,8 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
     public var chip: Chip
 
     /// The leading button: the page's security indicator, or while user
-    /// input is in progress an icon for that input (Chrome's location icon
-    /// shows the match type and opens nothing then).
+    /// input is in progress an icon for that input (it shows the match type
+    /// and opens nothing then).
     public enum Chip: Equatable, Sendable {
         /// User input, or nothing to describe: search, or the highlighted
         /// suggestion's kind.

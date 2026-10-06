@@ -51,14 +51,14 @@ enum BrowserProfileOpenHandlers {
             let (workspace, _) = try context.workspace(invocation)
             try profiles.setWorkspaceDefault(nil, for: workspace.id)
         }
-        bind("browserProfile.setRoomDefault") { invocation in
+        bind("browserProfile.setSpaceDefault") { invocation in
             try context.requireRooms()
             let record = try context.requiredBrowserProfile(invocation)
             let room = try context.room(invocation)
             let key = BrowserProfileKey(rawValue: record.id)
             RoomHandlers.update(room.id, context) { try await $0.updateProfile($1, browserProfileID: .set(key)) }
         }
-        bind("browserProfile.clearRoomDefault") { invocation in
+        bind("browserProfile.clearSpaceDefault") { invocation in
             try context.requireRooms()
             let room = try context.room(invocation)
             RoomHandlers.update(room.id, context) { try await $0.updateProfile($1, browserProfileID: .clear) }

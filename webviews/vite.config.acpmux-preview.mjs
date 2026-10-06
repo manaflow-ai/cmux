@@ -1,4 +1,4 @@
-import react from "@vitejs/plugin-react";
+import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -16,10 +16,10 @@ export default defineConfig({
     watch: {
       usePolling: true,
       interval: 250,
-      ignored: ["**/node_modules/**", "**/src/agent-session/solid/**", "**/src/agent-session/react/**"],
+      ignored: ["**/node_modules/**"],
     },
   },
-  plugins: [react({ babel: { plugins: [["babel-plugin-react-compiler", { target: "19" }]] } })],
+  plugins: [...reactWithCompiler()],
   build: {
     outDir: path.join(webviewsRoot, "dist/acpmux-agent-session-preview"),
     emptyOutDir: true,

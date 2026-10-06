@@ -19,7 +19,7 @@ public final class KeyboardShortcutsPaletteProvider: PaletteProvider {
         let editShortcut = editShortcut
         return registry.entries.compactMap { entry -> PaletteItem? in
             let id = entry.descriptor.id
-            guard let keycaps = registry.shortcutKeycaps(for: id) else { return nil }
+            guard registry.disabledFeature(for: id) == nil, let keycaps = registry.shortcutKeycaps(for: id) else { return nil }
             var keywords = entry.descriptor.keywords + [id.rawValue]
             if let shortcut = registry.effectiveShortcut(for: id) { keywords += shortcut.searchTokens }
             keywords.append(keycaps.joined())

@@ -22,7 +22,7 @@ import os
 ///   the old link and reattaches for a fresh replay.
 /// - Closing during an attach ends the view at once and detaches the link
 ///   the attach returns, with its lease, as soon as it completes.
-/// - Geometry follows tmux "window-size latest" (`TerminalAttachMachine`):
+/// - Geometry follows the latest active client (`TerminalAttachMachine`):
 ///   a visible view claims on each settled resize and, after another client
 ///   sized the terminal, on its next key press or focus.
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only
@@ -31,7 +31,8 @@ import os
 ///   screen and a status label) until an event re-attaches it: shown again,
 ///   a key press, a click or focus, or the App's ``reconnect()`` (terminal or
 ///   connection back). A re-attach after failed ones waits a capped backoff.
-///   ``processExited()`` ends it for good.
+///   ``processExited()`` ends it until the daemon reports the terminal
+///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
     struct Target: Sendable {
         var attachment: TerminalAttachment.Target
@@ -43,7 +44,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
 
-    init(target: Target, visible: Bool = true, endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+    /// - Parameter policyBlocked: true while an administrator turned off the
+    ///   feature that reaches this terminal's machine: every disconnect shows
+    ///   "Turned off by your organization" and the endpoint refuses re-attaches.
+    init(target: Target, visible: Bool = true, policyBlocked: @escaping @Sendable () -> Bool = { false },
+         endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
         let driver = TerminalAttachDriver<TerminalAttachment>(
@@ -51,7 +56,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             visible: visible,
             opener: { size in
                 try await TerminalAttachment.attach(endpoint: try await endpoint(), target: target.attachment,
-                                                    size: size, claimGeometry: false)
+                                                    size: size, claimGeometry: false,
+                                                    snapshotVersion: Self.attachSnapshotVersion,
+                                                    localHistory: Self.attachLocalHistory,
+                                                    images: Self.attachImages)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -64,7 +72,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
         )
         self.driver = driver
-        events = AsyncStream(unfolding: { await driver.nextStep().map(Self.event(for:)) },
+        events = AsyncStream(unfolding: {
+            await driver.nextStep().map { step in
+                let event = Self.event(for: step)
+                guard case .status(.disconnected) = event, policyBlocked() else { return event }
+                return .status(.disconnected(.turnedOffByOrganization, reconnecting: false))
+            }
+        },
                              onCancel: { driver.cancelSteps() })
         driver.start()
     }
@@ -91,6 +105,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// A click in a disconnected view re-attaches it.
     func reconnectRequested() async {
         driver.reconnect()
+    }
+
+    /// The surface's local history did not match the host's: ask for a
+    /// fresh READY + history.
+    func resyncRequested() async {
+        driver.requestResync()
     }
 
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
@@ -124,6 +144,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.processExited()
     }
 
+    /// The daemon reports the terminal running again after a dead report:
+    /// an exited view re-attaches.
+    @MainActor func processRevived() {
+        driver.processRevived()
+    }
+
     /// Capped backoff before the `failed + 1`th re-attach in a row. Only a
     /// user or App event starts a re-attach; this only spaces them.
     nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
@@ -145,14 +171,23 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     // MARK: Steps
 
-    private static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
+    /// The GHOSTSNP version the surface restores (`terminal-snapshot-v1`);
+    /// nil when the linked libghostty cannot restore snapshots.
+    static let attachSnapshotVersion: UInt16? = TerminalSession.snapshotVersion == 0 ? nil : TerminalSession.snapshotVersion
+    /// The surface restores local-history READYs (S2c).
+    static let attachLocalHistory = TerminalSession.restoresLocalHistory
+    /// The surface applies Kitty image replays (S3k).
+    static let attachImages = TerminalSession.appliesKittyReplay
+
+    static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
         switch step {
-        case .replay, .output: DebugTimings.markLaunch("first_terminal_content")
+        case .replay, .output, .snapshot: DebugTimings.markLaunch("first_terminal_content")
         default: break
         }
         return switch step {
         case .grid(let columns, let rows): .resize(cols: columns, rows: rows)
         case .replay(let replay): replayEvent(replay)
+        case .snapshot(let frame): .snapshot(frame.data, phase: snapshotPhase(frame))
         case .output(let data): .output(data)
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
@@ -174,6 +209,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .attachFailed: .attachFailed
         case .fellBehind: .fellBehind
         }
+    }
+
+    private static func snapshotPhase(_ frame: TerminalSnapshotFrame) -> TerminalSnapshotPhase {
+        if frame.phase == .images { return .images(skipped: frame.skippedImages ?? 0) }
+        guard frame.phase == .ready else { return .history }
+        guard let check = frame.localHistory, let cols = frame.cols, let rows = frame.rows else { return .ready }
+        return .readyLocalHistory(TerminalLocalHistory(columns: cols, rows: rows, historyRows: check.rows, digest: check.digest))
     }
 
     /// A replay with usable Kitty graphics state restores it; otherwise the

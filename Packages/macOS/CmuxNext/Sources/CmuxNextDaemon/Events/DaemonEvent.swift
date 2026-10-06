@@ -44,11 +44,27 @@ public enum DaemonEvent: Sendable, Hashable {
     case notification(DaemonNotification)
     case agentChanged(AgentStatus)
 
+    /// A `session.events` item: the state resources the daemon owns
+    /// (state-ownership.md 2), which `DaemonStore.session` mirrors.
+    case sessionState(SessionStreamItem)
+
     // Registries and clients.
     case frontendProjectionChanged(ProjectionChange)
     case terminalRegistryChanged(revision: UInt64)
     /// A browser profile's bookmarks changed (`bookmarks-v1`): refetch them.
     case bookmarksChanged(browserProfileID: String, revision: UInt64)
+    /// One committed op on a local conversation (`local-conversations-v1`).
+    case conversationChanged(ConversationEvent)
+    /// A participant started or stopped typing (ephemeral).
+    case conversationTyping(ConversationTyping)
+    /// A `cloud-*` event of `cloud-conversations-v1` (cloud conversations,
+    /// the account inbox, socket states and lease requests).
+    case cloudConversations(CloudConversationsEvent)
+    /// `terminal-clipboard-read` (targeted at this connection): a program asks
+    /// for the clipboard (`TerminalClipboardBroker`).
+    case terminalClipboardRead(TerminalClipboardRead)
+    /// `terminal-clipboard-read-cancelled`: that read ended unanswered.
+    case terminalClipboardReadCancelled(requestID: String)
     /// `client-attached/changed/detached/list-invalidated`.
     case client(name: String, payload: JSONValue)
     /// The subscription ended because this client fell behind. The connection
@@ -56,4 +72,18 @@ public enum DaemonEvent: Sendable, Hashable {
     case overflow(String)
     case daemonShutdown
     case unknown(name: String, payload: JSONValue)
+}
+
+extension DaemonEvent {
+    /// Applies even when a tree snapshot covers its sequence: connection
+    /// lifecycle, and `session.events` items, which `list-workspaces` does
+    /// not carry.
+    var outlivesSnapshot: Bool {
+        switch self {
+        case .connected, .disconnected, .daemonShutdown, .sessionState: true
+        // Transient questions to this connection; a snapshot never holds them.
+        case .terminalClipboardRead, .terminalClipboardReadCancelled: true
+        default: false
+        }
+    }
 }

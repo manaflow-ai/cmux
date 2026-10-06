@@ -12,7 +12,8 @@ final class FindBarView: NSView {
     private var findTask: Task<Void, Never>?
     private let density = DensityBinding()
     private let icon = NSImageView()
-    private var glass: NSGlassEffectView?
+    /// The bar's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -35,7 +36,7 @@ final class FindBarView: NSView {
 
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
         self.glass = glass
         NSLayoutConstraint.activate([
@@ -83,7 +84,7 @@ final class FindBarView: NSView {
         performWithTheme {
             icon.contentTintColor = Palette.textSecondary
             countLabel.textColor = Palette.textSecondary
-            glass?.tintColor = Palette.glassTint
+            glass?.applyTheme()
         }
     }
 

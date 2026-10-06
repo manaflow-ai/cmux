@@ -1,3 +1,0 @@
-[4]<button id=inner-btn />
-	Inside frame
-|SHADOW(open)|[2]<input id=inner-input aria-label=Frame field />

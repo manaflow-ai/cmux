@@ -30,6 +30,16 @@ public final class LayoutRootView: NSView {
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
     var dragTab: TabID?
+    /// The drop preview's rect for the current tab drag target, in screen
+    /// coordinates; nil when nothing is highlighted. The drag session flies
+    /// the ghost to it, so the ghost lands where the preview showed (R47).
+    public internal(set) var tabDragHighlightOnScreen: CGRect?
+    /// The zone hit the drop preview shows now; the next hit test holds it
+    /// near its line (`DropZoneGeometry.zone`). Nil while nothing shows.
+    var tabDropHit: DropTarget?
+    /// Overlay sync observers by id (`observeOverlaySync`).
+    var overlaySyncObservers: [Int: () -> Void] = [:]
+    var nextOverlaySyncObserver = 0
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -102,7 +112,7 @@ public final class LayoutRootView: NSView {
         return view.splitPlacement(splitting: pane, axis: axis, removing: removing)
     }
 
-    /// Pane frames of the active screen for directional focus: sticky
+    /// Pane frames of the active screen for directional focus: docked
     /// columns placed before and after the strip (one logical line).
     public var navigationFrames: [PaneID: CGRect] {
         guard let active = model.activeScreenID, let view = screenViews[active] else { return [:] }
@@ -155,6 +165,15 @@ public final class LayoutRootView: NSView {
         }
     }
 
+    /// Mirrors the model now instead of on the observation's next turn.
+    /// The App calls it after applying a daemon tree, so the frame that
+    /// shows a workspace (or a split, close or new tab in it) already has
+    /// its panes and tab strips; the observation then finds nothing new.
+    public func syncWithModel() {
+        let current = snapshot()
+        if current != lastSnapshot { sync(current) }
+    }
+
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
     private func sync(_ snapshot: Snapshot) {
@@ -199,8 +218,11 @@ public final class LayoutRootView: NSView {
             // on layout changes, reveals focus, and springs back after a close.
             let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
             let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
+            // Only a snap that stands in for Reduce Motion's spring shows the
+            // scrollbar, not one at launch or while out of the window.
             if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive) {
+                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive,
+                               showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                 needsFrames = true
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),

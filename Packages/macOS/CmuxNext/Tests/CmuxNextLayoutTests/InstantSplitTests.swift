@@ -19,6 +19,9 @@ struct InstantSplitTests {
         let context = LayoutViewContext(model: model, provider: provider)
         let view = ScreenContentView(screenID: "s", layout: layout, context: context)
         view.frame = CGRect(origin: .zero, size: size)
+        // Seed the initial presentation so a later ratio update retargets an
+        // existing spring instead of creating an already-settled frame.
+        view.reconcile(animated: false, structural: true)
         return (view, model)
     }
 

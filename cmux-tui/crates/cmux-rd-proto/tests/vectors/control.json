@@ -1,0 +1,11 @@
+[
+  {"name": "hello", "json": {"t": "hello", "user": "u", "install": "i", "class": "user", "interactive": true, "udp_port": null, "max_datagram": 1152, "token": "abababababababababababababababababababababababababababababababab", "service": "desktop", "caps": ["stream.open"]}},
+  {"name": "hello_before_c1", "json": {"t": "hello", "user": "u", "install": "i", "class": "user", "interactive": true, "udp_port": 50000, "max_datagram": 1332}, "service": "desktop"},
+  {"name": "start", "json": {"t": "start", "key": "display:0", "mode": "control"}},
+  {"name": "stop", "json": {"t": "stop"}},
+  {"name": "welcome", "json": {"t": "welcome", "encoder": "x264", "width": 1920, "height": 1080, "max_datagram": 1152, "carrier": "stream", "service": "desktop", "caps": []}},
+  {"name": "started", "json": {"t": "started", "session": 7}},
+  {"name": "refused", "json": {"t": "refused", "reason": "service"}},
+  {"name": "ended", "json": {"t": "ended", "reason": "stop"}},
+  {"name": "stats", "json": {"t": "stats", "kbps": 900, "frames": 10, "keyframes": 1, "cpu_pct": 12.5, "encode_ms_p50": 4.0, "loss_pct": 0.0}}
+]

@@ -32,7 +32,12 @@
 (* clamped final index) resolves to no operation (cancel). The drag ends   *)
 (* on cancel, reject, lost connection, or when its intent settles (echo,  *)
 (* barrier, snapshot), and release must show the tab again on every end.   *)
-(* A split of the tab's own pane when it is the only tab is also no op.    *)
+(* A split of the tab's own pane when it is the only tab is also no op,    *)
+(* unless RESPAWN = TRUE (tab-split-respawn-v1): then it is the typed op   *)
+(* SplitRespawn, which moves the tab into a new pane and creates one fresh *)
+(* tab (id from SpawnTabs, never reused) in the old pane, in one commit.   *)
+(* Creation is explicit, so I1 counts created tabs: live tabs are the     *)
+(* initial and created tabs minus closed ones.                             *)
 (* BUGGY_DETACH = TRUE: release only when the mirror removes the tab from  *)
 (* the source strip, so a landed drop that keeps the tab in its own strip  *)
 (* (own pane, other index) never ends the hidden state. The bug was        *)
@@ -45,9 +50,12 @@
 (***************************************************************************)
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
-CONSTANTS NTabs, NPanes, NWorkspaces, NClients, MaxOps, MaxFaults, BUGGY_DETACH
+CONSTANTS NTabs, NPanes, NWorkspaces, NClients, MaxOps, MaxFaults, BUGGY_DETACH,
+          NSpawn, RESPAWN
 
 Tabs       == 1..NTabs
+SpawnTabs  == (NTabs + 1)..(NTabs + NSpawn)   \* ids for tabs a respawn creates
+AllTabs    == Tabs \cup SpawnTabs
 Panes      == 1..NPanes
 Workspaces == 1..NWorkspaces
 Clients    == 1..NClients
@@ -63,7 +71,7 @@ NoDrag == [tab |-> 0, src |-> 0]     \* dragging[c] when no gesture is held
 
 VARIABLES
   \* owner (workspace store)
-  layout, alive, wsOf, closed, log, doneOps, rejectedOps, requests,
+  layout, alive, wsOf, closed, created, log, doneOps, rejectedOps, requests,
   \* channels
   inbox, replies, faults,
   \* client projections
@@ -71,9 +79,10 @@ VARIABLES
   \* ids ever used (never reused) and bound
   usedPanes, usedWs, opCount
 
-ownerVars  == <<layout, alive, wsOf, closed, log, doneOps, rejectedOps, usedPanes, usedWs>>
+ownerVars  == <<layout, alive, wsOf, closed, created, log, doneOps, rejectedOps, usedPanes,
+               usedWs>>
 clientVars == <<mirror, mirrorAlive, mirrorWs, applied, pending, dragging, landing, hidden, stale>>
-vars == <<layout, alive, wsOf, closed, log, doneOps, rejectedOps, requests,
+vars == <<layout, alive, wsOf, closed, created, log, doneOps, rejectedOps, requests,
           inbox, replies, faults, mirror, mirrorAlive, mirrorWs, applied,
           pending, dragging, landing, hidden, stale, usedPanes, usedWs, opCount>>
 
@@ -123,7 +132,7 @@ HeldTab(c)      == (IF Dragging(c) THEN {dragging[c].tab} ELSE {})
 -----------------------------------------------------------------------------
 Init ==
   /\ layout = InitLayout /\ alive = InitAlive /\ wsOf = InitWs
-  /\ closed = {} /\ log = <<>> /\ doneOps = {} /\ rejectedOps = {}
+  /\ closed = {} /\ created = {} /\ log = <<>> /\ doneOps = {} /\ rejectedOps = {}
   /\ requests = {}
   /\ inbox = [c \in Clients |-> {}] /\ replies = [c \in Clients |-> {}]
   /\ faults = 0
@@ -212,9 +221,14 @@ DropSplit(c, p) ==
   /\ DragReady(c)
   /\ p \in mirrorAlive[c]
   /\ IF PaneOf(v, mirrorAlive[c], t) = p /\ Len(v[p]) = 1
-     THEN \* split of its own pane when it is the only tab: no operation (I4)
-          /\ Release(c)
-          /\ UNCHANGED <<pending, requests, opCount>>
+     THEN IF RESPAWN
+          THEN \* split of its own pane with a fresh tab of the same kind left behind
+               /\ CanCommit(c)
+               /\ Commit(c, "splitRespawn", t, p, 0)
+               /\ Land(c)
+          ELSE \* split of its own pane when it is the only tab: no operation (I4)
+               /\ Release(c)
+               /\ UNCHANGED <<pending, requests, opCount>>
      ELSE /\ CanCommit(c)
           /\ Commit(c, "split", t, p, 0)
           /\ Land(c)
@@ -244,6 +258,7 @@ CloseTab(c, t) ==
 \* names a removed pane cannot land in a new pane with the same id.
 FreePanes == Panes \ usedPanes
 FreeWs    == Workspaces \ usedWs
+FreeTabs  == SpawnTabs \ created
 
 Valid(r) ==
   /\ r.tab \notin closed
@@ -252,6 +267,13 @@ Valid(r) ==
             /\ r.pane \in alive
             /\ FreePanes # {}
             /\ ~(PaneOf(layout, alive, r.tab) = r.pane /\ Len(layout[r.pane]) = 1)
+       [] r.kind = "splitRespawn" ->
+            \* only the pane's only tab; a concurrent op that added a tab rejects it
+            /\ RESPAWN
+            /\ r.pane \in alive
+            /\ FreePanes # {}
+            /\ FreeTabs # {}
+            /\ layout[r.pane] = <<r.tab>>
        [] r.kind = "tearoff" ->
             LET src == PaneOf(layout, alive, r.tab) IN
             /\ FreePanes # {}
@@ -295,7 +317,7 @@ ApplyOk(r) ==
          LET lay == MoveIn(layout, alive, t, r.pane, r.idx) IN
          /\ Commit3(lay, Reap(lay, alive, wsOf, src),
                     <<Event("TabChanged", t, r.pane, IndexOf(lay[r.pane], t), 0)>>, r)
-         /\ UNCHANGED closed
+         /\ UNCHANGED <<closed, created>>
     [] r.kind = "split" ->
          LET w    == wsOf[r.pane]
              live == alive \cup {q}
@@ -303,6 +325,18 @@ ApplyOk(r) ==
              lay  == MoveIn(layout, live, t, q, 1)
          IN /\ Commit3(lay, Reap(lay, live, ws, src),
                        <<Event("PaneAdded", 0, q, 0, w), Event("TabChanged", t, q, 1, 0)>>, r)
+            /\ UNCHANGED <<closed, created>>
+    [] r.kind = "splitRespawn" ->
+         \* the fresh tab first, so the pane keeps a tab throughout; then the split
+         LET n    == CHOOSE x \in FreeTabs : TRUE
+             w    == wsOf[r.pane]
+             live == alive \cup {q}
+             ws   == [wsOf EXCEPT ![q] = w]
+             lay  == [layout EXCEPT ![r.pane] = <<n>>, ![q] = <<t>>]
+         IN /\ Commit3(lay, Reap(lay, live, ws, src),
+                       <<Event("TabChanged", n, r.pane, 1, 0), Event("PaneAdded", 0, q, 0, w),
+                         Event("TabChanged", t, q, 1, 0)>>, r)
+            /\ created' = created \cup {n}
             /\ UNCHANGED closed
     [] r.kind = "tearoff" ->
          LET w    == CHOOSE x \in FreeWs : TRUE
@@ -312,23 +346,25 @@ ApplyOk(r) ==
          IN /\ Commit3(lay, Reap(lay, live, ws, src),
                        <<Event("WorkspaceAdded", 0, 0, 0, w), Event("PaneAdded", 0, q, 0, w),
                          Event("TabChanged", t, q, 1, 0)>>, r)
-            /\ UNCHANGED closed
+            /\ UNCHANGED <<closed, created>>
     [] r.kind = "close" ->
          LET lay == [layout EXCEPT ![src] = Remove(@, t)] IN
          /\ Commit3(lay, Reap(lay, alive, wsOf, src), <<Event("TabClosed", t, src, 0, 0)>>, r)
          /\ closed' = closed \cup {t}
+         /\ UNCHANGED created
 
 OwnerApply(r) ==
   /\ requests' = requests \ {r}
   /\ IF r.op \in doneOps THEN
           \* idempotent replay: no effect, settle with the recorded result
           /\ Settle(r, Len(log), r.op \in rejectedOps)
-          /\ UNCHANGED <<layout, alive, wsOf, closed, log, inbox, doneOps, rejectedOps,
-                         usedPanes, usedWs>>
+          /\ UNCHANGED <<layout, alive, wsOf, closed, created, log, inbox, doneOps,
+                         rejectedOps, usedPanes, usedWs>>
      ELSE IF Valid(r) /\ NoChange(r) THEN
           /\ doneOps' = doneOps \cup {r.op}
           /\ Settle(r, Len(log), FALSE)
-          /\ UNCHANGED <<layout, alive, wsOf, closed, log, inbox, rejectedOps, usedPanes, usedWs>>
+          /\ UNCHANGED <<layout, alive, wsOf, closed, created, log, inbox, rejectedOps,
+                         usedPanes, usedWs>>
      ELSE IF Valid(r) THEN
           /\ ApplyOk(r)
           /\ doneOps' = doneOps \cup {r.op}
@@ -337,7 +373,7 @@ OwnerApply(r) ==
      ELSE /\ doneOps' = doneOps \cup {r.op}
           /\ rejectedOps' = rejectedOps \cup {r.op}
           /\ Settle(r, Len(log), TRUE)
-          /\ UNCHANGED <<layout, alive, wsOf, closed, log, inbox, usedPanes, usedWs>>
+          /\ UNCHANGED <<layout, alive, wsOf, closed, created, log, inbox, usedPanes, usedWs>>
   /\ UNCHANGED <<faults, clientVars, opCount>>
 
 -----------------------------------------------------------------------------
@@ -467,9 +503,9 @@ OwnerRestart ==
 -----------------------------------------------------------------------------
 UserNext ==
   \E c \in Clients :
-     \/ \E t \in Tabs : StartDrag(c, t) \/ CloseTab(c, t)
+     \/ \E t \in AllTabs : StartDrag(c, t) \/ CloseTab(c, t)
      \/ CancelDrag(c)
-     \/ \E p \in Panes : DropSplit(c, p) \/ \E i \in 1..NTabs : DropMove(c, p, i)
+     \/ \E p \in Panes : DropSplit(c, p) \/ \E i \in 1..(NTabs + NSpawn) : DropMove(c, p, i)
      \/ DropTearOff(c)
 
 SystemNext ==
@@ -502,10 +538,13 @@ Spec == Init /\ [][Next]_vars /\ Fairness
    and OWNERSHIP-PRINCIPLES.md 4-6 (Convergence, Idempotency,
    ConcurrentSerializable). *)
 
-LiveTabs == Tabs \ closed
+LiveTabs == (Tabs \cup created) \ closed
 
-\* I1: no op but Close changes the set of tabs.
-I1_TabConservation == UNION {Range(layout[p]) : p \in alive} = LiveTabs
+\* I1: no op but Close changes the set of tabs, and no op but SplitRespawn
+\* adds one (explicitly, with a never-used id).
+I1_TabConservation ==
+  /\ UNION {Range(layout[p]) : p \in alive} = LiveTabs
+  /\ created \subseteq SpawnTabs
 
 \* I2: every tab is in exactly one pane, once.
 I2_ExactlyOnePane ==
@@ -523,18 +562,19 @@ I3_NoEmptyPaneOrWorkspace ==
 \* I4: a drop on the tab's own place sends nothing (action property).
 \* Own place is defined by effect, not by the resolver's own condition: a
 \* move whose result equals the visible layout, or a split of the tab's own
-\* pane when it is the only tab.
+\* pane when it is the only tab (with RESPAWN that split is the real op
+\* SplitRespawn, not an own place).
 OwnPlaceMove(c, p, i) ==
   LET t == dragging[c].tab  v == Visible(c) IN
   /\ Dragging(c) /\ p \in mirrorAlive[c] /\ HasTab(v, mirrorAlive[c], t)
   /\ MoveIn(v, mirrorAlive[c], t, p, i) = v
 OwnSplit(c, p) ==
   LET t == dragging[c].tab  v == Visible(c) IN
-  /\ Dragging(c) /\ HasTab(v, mirrorAlive[c], t)
+  /\ ~RESPAWN /\ Dragging(c) /\ HasTab(v, mirrorAlive[c], t)
   /\ PaneOf(v, mirrorAlive[c], t) = p /\ Len(v[p]) = 1
 I4_OwnPlaceNoOp ==
   [][\A c \in Clients : \A p \in Panes :
-       /\ \A i \in 1..NTabs : (OwnPlaceMove(c, p, i) /\ DropMove(c, p, i))
+       /\ \A i \in 1..(NTabs + NSpawn) : (OwnPlaceMove(c, p, i) /\ DropMove(c, p, i))
                              => UNCHANGED <<requests, pending, opCount>>
        /\ (OwnSplit(c, p) /\ DropSplit(c, p)) => UNCHANGED <<requests, pending, opCount>>]_vars
 
@@ -558,8 +598,8 @@ Convergence ==
 
 \* The visible state never shows a tab twice.
 VisibleNoDuplicate ==
-  \A c \in Clients : \A t \in Tabs :
-    Cardinality({pk \in mirrorAlive[c] \X (1..NTabs) :
+  \A c \in Clients : \A t \in AllTabs :
+    Cardinality({pk \in mirrorAlive[c] \X (1..(NTabs + NSpawn)) :
                    pk[2] \in DOMAIN Visible(c)[pk[1]] /\ Visible(c)[pk[1]][pk[2]] = t}) <= 1
 
 \* DP1: a strip hides a tab only while the drag or landing that holds it is
@@ -571,7 +611,7 @@ DP1_DragPresentation == \A c \in Clients : hidden[c] = HeldTab(c)
 \* tab in the same step, exactly once: a tab is shown again only when its
 \* hold ends, and a hold that ends shows its tab (action part).
 DP1_EndsExactlyOnce ==
-  [][\A c \in Clients : \A t \in Tabs :
+  [][\A c \in Clients : \A t \in AllTabs :
        /\ (t \in hidden[c] /\ t \notin hidden'[c]) => (t \in HeldTab(c) /\ t \notin HeldTab(c)')
        /\ (t \in HeldTab(c) /\ t \notin HeldTab(c)') => t \notin hidden'[c]]_vars
 

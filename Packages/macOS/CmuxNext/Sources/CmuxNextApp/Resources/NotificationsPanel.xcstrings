@@ -400,13 +400,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No notifications yet"
+            "value": "You're all caught up"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لا توجد إشعارات بعد"
+            "state": "translated",
+            "value": "لا توجد عناصر جديدة"
           }
         },
         "bs": {
@@ -423,20 +423,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Noch keine Benachrichtigungen"
+            "state": "translated",
+            "value": "Du bist auf dem neuesten Stand"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aún no hay notificaciones"
+            "state": "translated",
+            "value": "Estás al día"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucune notification pour le moment"
+            "state": "translated",
+            "value": "Vous êtes à jour"
           }
         },
         "it": {
@@ -448,7 +448,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まだ通知はありません"
+            "value": "すべて確認済みです"
           }
         },
         "km": {
@@ -459,8 +459,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "아직 알림이 없습니다"
+            "state": "translated",
+            "value": "모든 알림을 확인했습니다"
           }
         },
         "nb": {
@@ -513,14 +513,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "暂无通知"
+            "state": "translated",
+            "value": "暂无新通知"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "尚無通知"
+            "state": "translated",
+            "value": "目前沒有未讀通知"
           }
         }
       }
@@ -531,13 +531,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desktop notifications will appear here."
+            "value": "New activity will appear here."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ستظهر إشعارات سطح المكتب هنا."
+            "state": "translated",
+            "value": "ستظهر الأنشطة الجديدة هنا."
           }
         },
         "bs": {
@@ -554,20 +554,20 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Desktop-Benachrichtigungen werden hier angezeigt."
+            "state": "translated",
+            "value": "Neue Aktivitäten werden hier angezeigt."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Las notificaciones de escritorio aparecerán aquí."
+            "state": "translated",
+            "value": "La actividad nueva aparecerá aquí."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Les notifications de bureau apparaîtront ici."
+            "state": "translated",
+            "value": "Les nouvelles activités apparaîtront ici."
           }
         },
         "it": {
@@ -579,7 +579,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デスクトップ通知がここに表示されます。"
+            "value": "新しいアクティビティがここに表示されます。"
           }
         },
         "km": {
@@ -590,8 +590,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "데스크톱 알림이 여기에 표시됩니다."
+            "state": "translated",
+            "value": "새 활동이 여기에 표시됩니다."
           }
         },
         "nb": {
@@ -644,14 +644,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "桌面通知将在此处显示。"
+            "state": "translated",
+            "value": "新活动会显示在此处。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "桌面通知將在這裡顯示。"
+            "state": "translated",
+            "value": "新活動會顯示在這裡。"
           }
         }
       }

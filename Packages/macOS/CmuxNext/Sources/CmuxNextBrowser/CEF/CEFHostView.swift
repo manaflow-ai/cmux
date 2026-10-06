@@ -31,11 +31,12 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
-    /// Until Chromium's page window shows its first frame, the page area is
-    /// the theme color, never white (`PageBackground`).
+    /// Until Chromium's page window shows its first frame, the page area
+    /// follows the shared pane ground. It stays clear over Liquid Glass so
+    /// the window backdrop remains visible.
     private func updateBackground() {
         performWithTheme {
-            layer?.backgroundColor = Palette.pageBackground.cgColor
+            layer?.backgroundColor = Palette.paneFill.cgColor
         }
     }
 
@@ -146,7 +147,7 @@ final class CEFTabContentView: NSView {
         for subview in subviews {
             let frame: CGRect
             if subview is SidePanelHeaderView {
-                frame = tab?.sidePanelHeaderFrame ?? .zero
+                frame = tab?.sidePanel.headerFrame ?? .zero
             } else if subview === devToolsHost {
                 frame = frames.devTools
             } else if subview is CEFDevToolsDivider {

@@ -1,5 +1,5 @@
 /// cmux.json `layout.stripScrollbar`: the thin scrollbar under the column
-/// strip (plans/cmux-next/sticky-column.md, B4).
+/// strip (plans/cmux-next/dock-column.md, B4).
 public nonisolated enum StripScrollbarMode: String, Hashable, Sendable, CaseIterable {
     /// Fades in while the strip scrolls or the pointer is over it, then out.
     case auto

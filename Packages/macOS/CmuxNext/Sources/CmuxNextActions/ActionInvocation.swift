@@ -37,6 +37,11 @@ public nonisolated enum ActionOrigin: String, Sendable, Hashable, CaseIterable {
     case script
     /// Another client (a phone, another Mac).
     case remote
+    /// A first-party web page in this app (a control the page drew). Never the user's own gesture
+    /// by itself: rules that need the user (destructive confirmation, view changes without a
+    /// focus request) treat it like automation; only a native confirmation sheet raises a page
+    /// call to `user` (PageCallContext.confirmed).
+    case page
 }
 
 /// Everything a handler needs for one run: the target (right-clicked object,
@@ -48,6 +53,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var origin: ActionOrigin
     /// The run asked to change this client's view (`action.run` `focus: true`).
     public var focusRequested: Bool
+    /// The context of the window whose key-down runs this (the key
+    /// dispatcher), checked instead of the registry's process-wide context.
+    public var keyContext: ActionContext?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

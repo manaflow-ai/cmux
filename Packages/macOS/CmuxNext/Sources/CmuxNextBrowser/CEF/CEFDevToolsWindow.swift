@@ -27,10 +27,10 @@ final class CEFDevToolsWindow: NSPanel {
         level = .normal
         collectionBehavior = [.fullScreenAuxiliary]
         minSize = NSSize(width: 360, height: 240)
-        contentView = NSView(frame: CGRect(origin: .zero, size: frame.size))
-        contentView?.wantsLayer = true
+        let content = NSView(frame: CGRect(origin: .zero, size: frame.size))
+        content.wantsLayer = true
         setAccessibilityIdentifier("browser.devtools.window")
-        (owner?.themeScope ?? .app).adopt(self)
+        install(kind: .devTools, content: content, scope: owner?.themeScope ?? .app)
         // The initializer places the rect relative to the main screen; set
         // the global frame so the window opens over the cmux window's screen.
         setFrame(frame, display: false)
@@ -38,11 +38,11 @@ final class CEFDevToolsWindow: NSPanel {
 
     /// Puts `host` in the window, filling it.
     func adopt(_ host: NSView) {
-        guard let contentView else { return }
+        guard let content = installedContent else { return }
         host.removeFromSuperview()
-        host.frame = contentView.bounds
+        host.frame = content.bounds
         host.autoresizingMask = [.width, .height]
-        contentView.addSubview(host)
+        content.addSubview(host)
     }
 
     override func performClose(_ sender: Any?) {

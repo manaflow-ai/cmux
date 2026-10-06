@@ -27,6 +27,11 @@
 #               *Store / Cloud files): a fire-and-forget `Task {` statement.
 #               Store the handle and cancel it with its owner, or say who
 #               owns it with `// task-owner: <reason>` (plans/cmux-next/state-audit.md).
+#   model checks (Tests/**/*ModelCheckTests.swift): every suite is declared
+#               `nonisolated`. An exhaustive exploration is seconds to minutes
+#               of CPU; in a main-actor test target it runs on the main actor
+#               and stalls every main-actor test in the `swift test` process
+#               past its time limit (feat-cmux-next CI, 2026-10-02).
 #   isolated deinit: the class must say `@MainActor` itself or inherit it from
 #               an AppKit view, window or controller. Isolation inferred only
 #               from `.defaultIsolation(MainActor.self)` is lost when another
@@ -187,6 +192,23 @@ for dirpath, _, files in os.walk(sources):
                             "Xcode 26 reject it across modules; write @MainActor on the class)")
             for name in hits:
                 print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
+                print(f"    {line.strip()}")
+                failures += 1
+
+# Model checks run off the main actor (see the header).
+SUITE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|internal|package|fileprivate|private|final)\s+)*(struct|final class|class|enum)\s+\w+ModelCheckTests\b")
+tests = os.path.join(root, "Tests")
+for dirpath, _, files in os.walk(tests):
+    for filename in sorted(files):
+        if not filename.endswith("ModelCheckTests.swift"):
+            continue
+        path = os.path.join(dirpath, filename)
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().split("\n")
+        for index, line in enumerate(lines):
+            if SUITE_DECL.match(line) and not re.search(r"\bnonisolated\b", line):
+                print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: model check suite on the main actor "
+                      "(declare it `@Suite(.serialized) nonisolated struct`)")
                 print(f"    {line.strip()}")
                 failures += 1
 

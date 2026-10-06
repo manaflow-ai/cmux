@@ -51,7 +51,7 @@ import Testing
         let stall = await stallMainThread(for: .milliseconds(800))
         let started = ContinuousClock.now
         let result = await Task.detached {
-            await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "tab-group create", "target": "tab:t1"]))
+            await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "tab-group create", "target": "tab:tab-1"]))
         }.value
         let elapsed = ContinuousClock.now - started
         #expect(result.failure?.code == "timeout")
@@ -70,7 +70,7 @@ import Testing
         let republished = Atomic<Int>(0)
         router.workQueue.setAfterFrame { republished.add(1, ordering: .relaxed) }
         let result = try await router.handle(ControlRequest(id: "1", method: "action.run",
-                                                            params: ["action": "tab-group create", "target": "tab:t1"])).get()
+                                                            params: ["action": "tab-group create", "target": "tab:tab-1"])).get()
         #expect(result["ran"] == true)
         let calls = executor.calls.load(ordering: .relaxed)
         #expect(calls == 1)

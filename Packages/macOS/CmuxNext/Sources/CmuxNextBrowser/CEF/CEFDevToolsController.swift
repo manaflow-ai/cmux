@@ -1,6 +1,6 @@
 import AppKit
 
-/// DevTools of one Chromium tab (Chrome parity): docked below or beside
+/// DevTools of one Chromium tab: docked below or beside
 /// the page inside the pane, resizable, or in its own window. The docked
 /// DevTools is a Chromium child window over `views.host`, a subview of the
 /// tab's content view, so it follows the pane's layout, clipping and moves
@@ -137,7 +137,7 @@ final class CEFDevToolsController {
     // MARK: Shim events (CEFRuntime)
 
     /// Chromium is about to create DevTools for this page (any path:
-    /// shortcut, Chrome command, context menu Inspect). Decides its place
+    /// shortcut, Chromium command, context menu Inspect). Decides its place
     /// now; the shim reads it when this returns.
     func willOpen() {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }

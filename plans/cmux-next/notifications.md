@@ -84,7 +84,7 @@ once and write cmux.json. cmux-next has no Settings window yet.
 
 ## Panel
 
-Show Notifications (Cmd-I, `cmux notification show`) toggles a panel at the top right of
+Show Feed (`cmux feed show`; Cmd-Shift-I, feed.md FD8) toggles a panel at the top right of
 the active window: the daemon ledger (`list-notifications`), newest first, each row with
 an unread dot, title, time, source workspace and body. A click opens the source tab and
 closes the panel; the row menu runs Open, Copy, Mark Read and Dismiss with the row's id;

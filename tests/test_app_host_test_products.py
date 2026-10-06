@@ -5,6 +5,7 @@ import importlib.util
 import os
 import plistlib
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,8 +17,27 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
+# The real profile has no test scheme left, so the manifest handoff is
+# exercised through a synthetic host-free test scheme.
+FIXTURE_SCHEME = "fixture-tests"
+FIXTURE_OUTPUT = "FIXTURE_TESTS_XCTESTRUN"
+
+
 class TestProductHandoff(unittest.TestCase):
     def setUp(self):
+        for patch in (
+            mock.patch.dict(module.product_inputs.PRODUCT_PROFILES, {"app-host": ("cmux", FIXTURE_SCHEME)}),
+            mock.patch.object(module.product_inputs, "TEST_SCHEMES", frozenset({FIXTURE_SCHEME})),
+            mock.patch.dict(module.SCHEME_OUTPUTS, {FIXTURE_SCHEME: FIXTURE_OUTPUT}),
+            mock.patch.dict(os.environ, {"CMUX_PRODUCT_PROFILE": "app-host"}),
+            # reuse_app_host_products imports its own copy of this module.
+            *([mock.patch.dict(sys.modules["app_host_test_products"].SCHEME_OUTPUTS,
+                               {FIXTURE_SCHEME: FIXTURE_OUTPUT})]
+              if "app_host_test_products" in sys.modules
+              and sys.modules["app_host_test_products"] is not module else []),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name).resolve()
@@ -31,31 +51,28 @@ class TestProductHandoff(unittest.TestCase):
         executable = products / "Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
         executable.parent.mkdir(parents=True)
         executable.write_text("binary")
-        self.bundle = Path("Debug/cmuxCLITests.xctest")
+        self.bundle = Path("Debug/FixtureTests.xctest")
         (products / self.bundle).mkdir(parents=True)
         # A unit-test target without TEST_HOST is loaded by the platform's own
         # xctest agent, which is not in Build/Products.
         target = {
             "TestHostPath": "__PLATFORMS__/MacOSX.platform/Developer/Library/Xcode/Agents/xctest",
-            "TestBundlePath": "__TESTROOT__/Debug/cmuxCLITests.xctest",
+            "TestBundlePath": "__TESTROOT__/Debug/FixtureTests.xctest",
             "EnvironmentVariables": {"SOURCE": "/producer/work/cmux/fixtures"},
             "DependentProductPaths": [str(products / self.bundle)],
         }
         value = {"TestConfigurations": [{"TestTargets": [target]}]}
-        (products / "cmux-cli-tests_macosx26.5-arm64.xctestrun").write_bytes(plistlib.dumps(value))
+        (products / f"{FIXTURE_SCHEME}_macosx26.5-arm64.xctestrun").write_bytes(plistlib.dumps(value))
 
-    def test_every_profile_needs_only_the_cli_test_manifest(self):
-        # The app scheme compiles with a plain build, so both profiles expect
-        # exactly the CLI test manifest, and a product without it is partial.
+    def test_profile_needs_exactly_its_test_manifests(self):
+        # The app scheme compiles with a plain build, so the profile expects
+        # exactly its test scheme's manifest, and a product without it is partial.
         products = self.producer / "Build/Products"
-        for profile in ("cli", "app-host"):
-            with self.subTest(profile=profile), mock.patch.dict(os.environ, {"CMUX_PRODUCT_PROFILE": profile}):
-                self.assertEqual(list(module.manifests(products)), ["cmux-cli-tests"])
-        (products / "cmux-cli-tests_macosx26.5-arm64.xctestrun").unlink()
-        with mock.patch.dict(os.environ, {"CMUX_PRODUCT_PROFILE": "app-host"}):
-            with self.assertRaises(ValueError) as caught:
-                module.manifests(products)
-        self.assertIn("cmux-cli-tests", str(caught.exception))
+        self.assertEqual(list(module.manifests(products)), [FIXTURE_SCHEME])
+        (products / f"{FIXTURE_SCHEME}_macosx26.5-arm64.xctestrun").unlink()
+        with self.assertRaises(ValueError) as caught:
+            module.manifests(products)
+        self.assertIn(FIXTURE_SCHEME, str(caught.exception))
 
     def transfer(self):
         module.stamp(self.producer, self.identity)
@@ -66,7 +83,7 @@ class TestProductHandoff(unittest.TestCase):
         self.transfer()
         current = {**self.identity, "checkout": "/consumer/work/cmux", "developer": "/consumer/Xcode.app/Contents/Developer"}
         outputs = module.restore(self.consumer, current)
-        self.assertEqual(set(outputs), {"CMUX_CLI_TESTS_XCTESTRUN"})
+        self.assertEqual(set(outputs), {FIXTURE_OUTPUT})
         for path in outputs.values():
             value = plistlib.loads(Path(path).read_bytes())
             target = list(module.targets(value))[0]
@@ -75,8 +92,6 @@ class TestProductHandoff(unittest.TestCase):
             self.assertEqual(target["DependentProductPaths"], [str(self.consumer / "Build/Products" / self.bundle)])
             self.assertTrue(Path(target["DependentProductPaths"][0]).exists())
 
-    def test_manifest_outputs_name_the_cli_tests(self):
-        self.assertEqual(module.SCHEME_OUTPUTS, {"cmux-cli-tests": "CMUX_CLI_TESTS_XCTESTRUN"})
 
     def test_canonical_producer_relocates_through_admission_then_shard(self):
         canonical = {**self.identity, "checkout": "/private/tmp/cmux-ci/src"}
@@ -128,20 +143,35 @@ class TestProductHandoff(unittest.TestCase):
 
     def test_missing_or_ambiguous_manifest_is_rejected(self):
         products = self.producer / "Build/Products"
-        manifest = next(products.glob("cmux-cli-tests_*.xctestrun"))
-        shutil.copy2(manifest, products / "cmux-cli-tests_old.xctestrun")
+        manifest = next(products.glob(f"{FIXTURE_SCHEME}_*.xctestrun"))
+        shutil.copy2(manifest, products / f"{FIXTURE_SCHEME}_old.xctestrun")
         with self.assertRaisesRegex(ValueError, "found 2"):
             module.stamp(self.producer, self.identity)
-        for path in products.glob("cmux-cli-tests_*.xctestrun"):
+        for path in products.glob(f"{FIXTURE_SCHEME}_*.xctestrun"):
             path.unlink()
         with self.assertRaisesRegex(ValueError, "found 0"):
             module.stamp(self.producer, self.identity)
 
     def test_empty_manifest_cannot_claim_success(self):
         products = self.producer / "Build/Products"
-        next(products.glob("cmux-cli-tests_*.xctestrun")).write_bytes(plistlib.dumps({}))
+        next(products.glob(f"{FIXTURE_SCHEME}_*.xctestrun")).write_bytes(plistlib.dumps({}))
         with self.assertRaisesRegex(ValueError, "no test targets"):
             module.stamp(self.producer, self.identity)
+
+
+class RealProfileTests(unittest.TestCase):
+    def test_app_only_product_needs_no_manifest(self):
+        # Every real test scheme publishes a manifest output; the app scheme
+        # builds plainly, so an app-only product stamps and restores its receipt alone.
+        self.assertEqual(set(module.SCHEME_OUTPUTS), set(module.product_inputs.TEST_SCHEMES))
+        with tempfile.TemporaryDirectory() as temp:
+            derived = Path(temp) / "derived"
+            (derived / "Build/Products").mkdir(parents=True)
+            identity = {"revision": "abc", "architecture": "arm64", "xcode": "Xcode 26.5\nBuild 1",
+                        "developer": "/Xcode.app/Contents/Developer", "checkout": "/work"}
+            with mock.patch.dict(os.environ, {"CMUX_PRODUCT_PROFILE": "app-host"}):
+                module.stamp(derived, identity)
+                self.assertEqual(module.restore(derived, identity), {})
 
 
 if __name__ == "__main__":

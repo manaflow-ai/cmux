@@ -15,10 +15,18 @@ final class AccountsService: AccountsServices {
     unowned let services: AppServices
     private(set) lazy var model = AccountsModel(services: self)
     let keys: any ProviderKeyStoring
+    /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).
+    let labels: AccountLabelerStore
     /// Test launches: detect in this fixture home, with the app's own
     /// environment and no Keychain probe, so no real sign-in is read.
     let fixtureHome: URL?
+    /// The showcase profile uses the package's deterministic account fixture;
+    /// it must never read or mutate a user's real credentials.
+    private let showcaseMock: MockAccountsServices?
     private var loginEnvironment: [String: String]?
+    /// False once the Keychain salt failed: `acct_…` handles then last for
+    /// this launch only (`accounts.list` says `handles_stable: false`).
+    private(set) var handlesStable = true
     private var activation: (any NSObjectProtocol)?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.accounts")
 
@@ -27,9 +35,16 @@ final class AccountsService: AccountsServices {
     init(services: AppServices) {
         self.services = services
         let environment = ProcessInfo.processInfo.environment
+        #if DEBUG
+        showcaseMock = services.environment.showcase ? MockAccountsServices() : nil
+        #else
+        showcaseMock = nil
+        #endif
         fixtureHome = environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let bundleID = services.environment.launch.bundleID
-        keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"))
+        let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
+        keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
+        labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.model.appDidBecomeActive() }
@@ -39,22 +54,37 @@ final class AccountsService: AccountsServices {
     /// The detection inputs. The login env is captured once per launch
     /// (keys exported in shell rc files count); only presence is used.
     func detectionEnvironment() async -> DetectionEnvironment {
+        if showcaseMock != nil {
+            return DetectionEnvironment(home: FileManager.default.homeDirectoryForCurrentUser, environment: [:], files: LiveFileReader(), keychain: NoKeychain(), servers: HTTPServerProbe(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)), savedKeys: [])
+        }
         let keys = keys
         let saved = await Task.detached { keys.savedProviders() }.value
+        let labeler = await labeler()
         if let fixtureHome {
             return DetectionEnvironment(home: fixtureHome, environment: ProcessInfo.processInfo.environment, files: LiveFileReader(),
-                                        keychain: NoKeychain(), servers: HTTPServerProbe(), savedKeys: saved)
+                                        keychain: NoKeychain(), servers: HTTPServerProbe(), labeler: labeler, savedKeys: saved)
         }
         if loginEnvironment == nil { loginEnvironment = await LoginEnvironment.shared.capture() ?? ProcessInfo.processInfo.environment }
         return DetectionEnvironment(home: FileManager.default.homeDirectoryForCurrentUser, environment: loginEnvironment ?? [:],
-                                    files: LiveFileReader(), keychain: SystemKeychainProbe(), servers: HTTPServerProbe(), savedKeys: saved)
+                                    files: LiveFileReader(), keychain: SystemKeychainProbe(), servers: HTTPServerProbe(),
+                                    labeler: labeler, savedKeys: saved)
+    }
+
+    /// The account labeler; the first call reads or creates the Keychain salt.
+    func labeler() async -> AccountLabeler {
+        let labeler = await labels.labeler()
+        if handlesStable, let failure = await labels.saltFailure {
+            handlesStable = false
+            logger.error("account label salt unavailable (\(failure, privacy: .public)); handles last for this launch only")
+        }
+        return labeler
     }
 
     var client: CodeRouterClient? {
         guard let cloud = services.cloud else { return nil }
-        let auth = cloud.auth
+        let auth = cloud.auth, labels = labels
         return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, tokens: { try await auth.tokens() },
-                                teamID: { await auth.teamID })
+                                teamID: { await auth.teamID }, labeler: { await labels.labeler() })
     }
 
     // MARK: AccountsServices
@@ -64,9 +94,10 @@ final class AccountsService: AccountsServices {
         return await Task.detached { await ProviderDetector(environment: environment).detectAll() }.value
     }
 
-    var isSignedInToCmux: Bool { services.cloud?.isSignedIn ?? false }
+    var isSignedInToCmux: Bool { showcaseMock?.isSignedInToCmux ?? (services.cloud?.isSignedIn ?? false) }
 
     func signInToCmux() {
+        if let showcaseMock { showcaseMock.signInToCmux(); model.refresh(); return }
         guard let cloud = services.cloud else { return }
         // task-owner: one hosted sign-in; ends when the browser flow returns
         Task { [weak self] in
@@ -76,11 +107,13 @@ final class AccountsService: AccountsServices {
     }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
+        if let showcaseMock { return try await showcaseMock.linkedAccounts() }
         guard let client else { throw CodeRouterError.notSignedIn }
         return try await client.linkedAccounts()
     }
 
     func connect(_ provider: AIProvider, pasted: String?) async throws {
+        if let showcaseMock { try await showcaseMock.connect(provider, pasted: pasted); return }
         guard let client else { throw CodeRouterError.notSignedIn }
         let resolver = CredentialResolver(environment: await detectionEnvironment(), keys: keys)
         // File and Keychain reads stay off the main actor.
@@ -90,12 +123,14 @@ final class AccountsService: AccountsServices {
     }
 
     func remove(_ account: LinkedAccount) async throws {
+        if let showcaseMock { try await showcaseMock.remove(account); return }
         guard let client else { throw CodeRouterError.notSignedIn }
         try await client.remove(account)
         logger.info("removed a \(account.provider.rawValue, privacy: .public) account from CodeRouter")
     }
 
     func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) {
+        if let showcaseMock { showcaseMock.reauthenticate(provider, plan: plan); return }
         switch plan {
         case .command:
             guard let line = plan.shellLine else { return }
@@ -107,16 +142,21 @@ final class AccountsService: AccountsServices {
         }
     }
 
-    func runClaudeSetupToken() { runInTerminal("claude setup-token") }
+    func runClaudeSetupToken() { if let showcaseMock { showcaseMock.runClaudeSetupToken() } else { runInTerminal("claude setup-token") } }
 
     func openConsole(_ url: URL) {
+        if let showcaseMock { showcaseMock.openConsole(url); return }
         guard let pane = services.windows.active?.focusedPane else { return logger.info("no window for a browser tab") }
         pane.newBrowserTab(url: url)
     }
 
-    func saveKey(_ key: String, for provider: AIProvider) throws { try keys.save(key, for: provider) }
+    func saveKey(_ key: String, for provider: AIProvider) throws {
+        if let showcaseMock { try showcaseMock.saveKey(key, for: provider) } else { try keys.save(key, for: provider) }
+    }
 
-    func deleteSavedKey(for provider: AIProvider) throws { try keys.delete(for: provider) }
+    func deleteSavedKey(for provider: AIProvider) throws {
+        if let showcaseMock { try showcaseMock.deleteSavedKey(for: provider) } else { try keys.delete(for: provider) }
+    }
 
     /// Types `line` and Return into a new terminal tab of the focused pane,
     /// so the provider's own login runs where the user can see and answer it.

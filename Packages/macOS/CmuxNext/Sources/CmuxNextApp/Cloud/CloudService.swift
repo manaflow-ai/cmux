@@ -21,6 +21,8 @@ final class CloudService {
     @ObservationIgnored private let binary: URL?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
+    /// The local side event subscription for `cloud.link.changed` (app link).
+    @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
@@ -55,10 +57,15 @@ final class CloudService {
         return "cmux-" + String(String(cleaned).prefix(40))
     }
 
+    func localDeviceID() throws -> String { try paths.loadOrCreateDeviceID() }
+
     var isSignedIn: Bool { auth.isSignedIn }
 
     /// Why Cloud cannot run in this build, or nil.
     var unavailableReason: String? {
+        if policyDisabled { return RefusalStrings.turnedOffByOrganization }
+        // RestrictToManagedTeam (P17-3): no request goes out without the managed team.
+        if auth.managedTeamID != nil, auth.teamID == nil { return RefusalStrings.turnedOffByOrganization }
         if case .localOnly = configuration.backend { return CloudStrings.localBackend }
         if binary == nil { return CloudStrings.noClient }
         return nil
@@ -66,6 +73,22 @@ final class CloudService {
 
     func start() {
         auth.start()
+        if configuration.linkSource == .appServer, linkEvents == nil {
+            // `cloud.link.changed` arrives on the local daemon as an app server event.
+            let machines = machines
+            linkEvents = machines.local.store.sideEvents.subscribe { event in
+                guard let change = CloudAppLinks.change(in: event) else { return }
+                machines.session(change.key.machine)?.linkChanged(change)
+            }
+            // task-owner: observers; cancelled in stop()
+            observers.append(Task {
+                // A reconnected local connection is a new daemon client: subscribe it again.
+                for await state in Observations({ machines.local.store.connectionState }) {
+                    guard case .connected = state, machines.cloud.contains(where: { $0.appLink != nil }) else { continue }
+                    await CloudAppLinks.resubscribe(local: machines.local)
+                }
+            })
+        }
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
@@ -87,9 +110,39 @@ final class CloudService {
         })
     }
 
+    /// Set while an administrator turned Cloud off (`DisabledFeatures`).
+    private(set) var policyDisabled = false
+
+    /// Turning Cloud off disconnects every machine and keeps its workspaces
+    /// (their terminals show "Turned off by your organization"); the VMs
+    /// keep running. Turning it on again reconnects from a fresh list.
+    func applyPolicy(disabled: Bool) {
+        guard disabled != policyDisabled else { return }
+        policyDisabled = disabled
+        if disabled {
+            for session in machines.cloud {
+                session.daemon.policyBlock.set(true)
+                session.disconnect()
+            }
+            // The local tunnel hub stops too; nothing is revoked remotely.
+            // task-owner: one teardown hop; hub.stop() is idempotent
+            if let hub { Task { await hub.stop() } }
+        } else {
+            dropAllMachines()
+            // task-owner: one list fetch after the policy lifted
+            Task { [weak self] in
+                guard let self, auth.isSignedIn else { return }
+                await hub?.resume()
+                await refresh()
+            }
+        }
+    }
+
     func stop() {
         for observer in observers { observer.cancel() }
         observers.removeAll()
+        if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
+        linkEvents = nil
         for session in machines.cloud { session.disconnect() }
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
@@ -114,12 +167,18 @@ final class CloudService {
     }
 
     private func reconcile(_ list: [CloudMachine]) {
+        // A list that arrives after Cloud was turned off connects nothing.
+        guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
                 let wasLive = session.machine.status.isLive
                 session.machine = machine
-                if !wasLive, machine.status.isLive { session.connect() }
+                if wasLive, !machine.status.isLive {
+                    session.suspend()
+                } else if !wasLive, machine.status.isLive {
+                    session.connect()
+                }
             } else {
                 addSession(machine)
             }
@@ -132,9 +191,19 @@ final class CloudService {
 
     @discardableResult
     private func addSession(_ machine: CloudMachine) -> CloudMachineSession? {
-        guard let hub, let binary else { return nil }
-        let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
-        let session = CloudMachineSession(machine: machine, link: link)
+        guard !policyDisabled else { return nil }
+        let session: CloudMachineSession
+        switch configuration.linkSource {
+        case .appServer:
+            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local))
+            let local = machines.local
+            session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
+                                          localIdentity: { [weak local] in local?.identity })
+        case .legacy:
+            guard let hub, let binary else { return nil }
+            let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
+            session = CloudMachineSession(machine: machine, link: link)
+        }
         session.daemon.workTracker = machines.local.workTracker
         machines.add(session)
         session.connect()
@@ -165,6 +234,18 @@ final class CloudService {
         try await api.deleteMachine(machineID)
         machines.remove(machineID)?.disconnect()
         logger.info("deleted machine \(machineID, privacy: .public)")
+    }
+
+    func pauseMachine(_ machineID: String) async throws {
+        try await api.pauseMachine(machineID)
+        await refresh()
+        logger.info("paused machine \(machineID, privacy: .public)")
+    }
+
+    func resumeMachine(_ machineID: String) async throws {
+        try await api.resumeMachine(machineID)
+        await refresh()
+        logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {

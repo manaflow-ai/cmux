@@ -17,6 +17,8 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "./lib/fixture-server.mjs";
 import { normalize, diffValues } from "./lib/normalize.mjs";
+import { makeTestDir, removeTestDir } from "./lib/test-dirs.mjs";
+import { startOwnHost } from "./lib/parity-host.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PARITY@@";
@@ -80,9 +82,9 @@ function wrapCell(origins, cell) {
   return `${prelude(origins)};\n${cell.body}`;
 }
 
-function exec(cmd, argv, { input, timeoutMs = 180_000, env } = {}) {
+function exec(cmd, argv, { input, timeoutMs = 180_000, env, cwd } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env });
+    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env, cwd });
     let out = "";
     let err = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
@@ -128,7 +130,7 @@ const backends = {
 // host-headless (headless Chromium over the CDP pipe), host-cef (in-app CEF
 // tabs relayed by a tagged no-activate app), host-webkit (in-app WebKit tabs
 // through the app's driver). Same scenarios and goldens on every engine; a
-// deliberate engine difference goes into capabilities.json with a reason.
+// deliberate engine difference is recorded in the golden with a reason.
 //
 // PARITY_HOST_CLI=cmux (default once the Rust CLI verb exists) runs
 //   cmux browser repl --engine E [--session S] --eval -
@@ -140,21 +142,58 @@ for (const engine of HOST_ENGINES) {
     const viaCli = process.env.PARITY_HOST_CLI;
     const bin = viaCli || process.env.PARITY_HOST_BIN || "cmux-browser-host";
     const env = { ...process.env, CMUX_BROWSER_HOST_ENGINE: engine };
+    // The run's own host (lib/parity-host.mjs), one for all scenarios;
+    // `cmux browser repl` manages the daemon's host itself.
+    if (!viaCli) env.CMUX_BROWSER_HOST_SOCKET = (await ownHost(bin)).socket;
     return runCliCells(cells, scenario, {
       evalArgv: viaCli
         ? (session) => ["browser", "repl", "--engine", engine, ...(session ? ["--session", session] : []), "--eval", "-"]
         : (session) => ["eval", ...(session ? ["--session", session] : []), "--engine", engine, "-"],
       resetArgv: viaCli ? (session) => ["browser", "repl", "close", session] : (session) => ["close", "--session", session],
       exec: (argv, opts) => exec(bin, argv, { ...opts, env }),
+      closeKeptTabs: true,
     });
   };
 }
 
-// One CLI call per cell; output lines without the CLI's status line.
-async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) {
+// The run's own `cmux-browser-host serve`, started on first use and stopped
+// when main ends (stopOwnHost), also when the run fails.
+let ownHostStarted = null;
+function ownHost(bin) {
+  ownHostStarted ??= startOwnHost({ cmd: bin });
+  return ownHostStarted;
+}
+async function stopOwnHost() {
+  if (!ownHostStarted) return;
+  const started = ownHostStarted;
+  ownHostStarted = null;
+  await started.then((host) => host.stop(), () => {});
+}
+
+// The marker of the tab-id list a host run prints before a scenario.
+const TABS_MARK = "__PARITY_TABS__";
+
+// One CLI call per cell; output lines without the CLI's status line. With
+// `closeKeptTabs` (host backends) the tabs open before the scenario are
+// listed first, and every other tab still open after it (the tabs it kept)
+// is closed, also when a cell fails: a host reused across scenarios does
+// not pile them up.
+export async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run, closeKeptTabs = false }) {
   const suffix = Math.random().toString(36).slice(2, 8);
   const sessions = new Set();
   const outputs = [];
+  // A new working directory for the scenario: the session's fs root, where
+  // scenarios write and remove their files, never the checkout.
+  const workDir = makeTestDir("parity-cmux-");
+  let before = null;
+  if (closeKeptTabs) {
+    const listed = await run(evalArgv(null), {
+      input: `console.log(${JSON.stringify(TABS_MARK)} + JSON.stringify((await tabs.list()).map((t) => t.id)));`,
+      cwd: workDir,
+    });
+    const line = listed.out.split("\n").find((l) => l.startsWith(TABS_MARK));
+    before = line ? JSON.parse(line.slice(TABS_MARK.length)) : null;
+  }
   try {
     for (const cell of cells) {
       let name = null;
@@ -162,13 +201,20 @@ async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) 
         name = `parity-${scenario}-${cell.session}-${suffix}`;
         sessions.add(name);
       }
-      const r = await run(evalArgv(name), { input: cell.code });
+      const r = await run(evalArgv(name), { input: cell.code, cwd: workDir });
       const lines = r.out.split("\n").filter((l) => !/^\[(ok|error) \| \d+ms\]$/.test(l.trim()));
       while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
       outputs.push({ output: lines.join("\n"), error: r.code === 0 ? null : r.err.trim() || `exit ${r.code}` });
     }
   } finally {
     for (const name of sessions) await run(resetArgv(name), {});
+    if (before) {
+      await run(evalArgv(null), {
+        input: `const open = new Set(${JSON.stringify(before)}); for (const t of await tabs.list()) if (!open.has(t.id)) { try { await (await tabs.use(t.id)).close(); } catch {} }`,
+        cwd: workDir,
+      });
+    }
+    removeTestDir(workDir);
   }
   return outputs;
 }
@@ -195,6 +241,52 @@ function parseEmits(outputs, cells) {
   return emits;
 }
 
+// The values a backend must emit. The Rust host backends (host-*) follow
+// cmux-next's automation lease (plans/cmux-next/automation-lease.md); where
+// that intentionally differs from classic, the golden's `lease` section
+// overrides a value (`{"$absent": true}`: the key is not emitted) and names
+// the lease rule in `lease.reasons` (README, "Intentional cmux-next
+// differences"). The `backends` section does the same for one backend.
+export function expectedValues(backend, golden) {
+  if (backend === "oracle") return { ...golden.oracle };
+  const expected = { ...golden.oracle, ...golden.cmux };
+  if (backend.startsWith("host-") && golden.lease) {
+    for (const [key, value] of Object.entries(golden.lease.values || {})) {
+      if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+      else expected[key] = value;
+    }
+  }
+  // One engine's deliberate difference (README, same section): only that
+  // backend gets it.
+  for (const [key, value] of Object.entries(golden.backends?.[backend]?.values || {})) {
+    if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+    else expected[key] = value;
+  }
+  return expected;
+}
+
+// known-failures.json: a scenario whose differing keys are exactly the
+// keys recorded for this platform and backend fails for a known
+// environment reason; returns that reason, else null.
+export function knownFailure(backend, name, problems, platform = process.platform) {
+  if (!problems.length) return null;
+  const file = path.join(root, "known-failures.json");
+  const known = JSON.parse(fs.readFileSync(file, "utf8"));
+  // "*" lists engine differences that hold on every platform.
+  const entry = known[platform]?.[backend]?.[name] ?? known["*"]?.[backend]?.[name];
+  if (!entry) return null;
+  // A scenario that tests a behavior this backend's engine does not have:
+  // any difference is known.
+  if (entry.notApplicable === true) return entry.reason;
+  // Otherwise only value differences can be known: a missing or unexpected
+  // key (an error included) is always a failure.
+  if (problems.some((p) => !p.startsWith('"'))) return null;
+  const keys = problems.map((p) => (/"([^"]+)"/.exec(p) || [])[1]);
+  const listed = new Set(entry.keys);
+  const same = keys.every((k) => k && listed.has(k)) && new Set(keys).size === listed.size;
+  return same ? entry.reason : null;
+}
+
 const goldenPath = (name) => path.join(root, "goldens", `${name}.json`);
 const readGolden = (name) => (fs.existsSync(goldenPath(name)) ? JSON.parse(fs.readFileSync(goldenPath(name), "utf8")) : null);
 
@@ -205,6 +297,7 @@ async function main() {
   const server = await startFixtureServers();
   let failures = 0;
   let total = 0;
+  let knownCount = 0;
   try {
     for (const file of files) {
       const scenario = loadScenario(path.join(dir, file));
@@ -253,7 +346,7 @@ async function main() {
         console.log(`FAIL ${scenario.name}: no golden`);
         continue;
       }
-      const expected = args.backend === "oracle" ? { ...golden.oracle } : { ...golden.oracle, ...golden.cmux };
+      const expected = expectedValues(args.backend, golden);
       const actual = {};
       const problems = [];
       for (const e of emits) {
@@ -262,7 +355,11 @@ async function main() {
         actual[e.k] = e.v;
       }
       problems.push(...diffValues(expected, actual));
-      if (problems.length) {
+      const known = knownFailure(args.backend, scenario.name, problems);
+      if (known) {
+        knownCount++;
+        console.log(`KNOWN ${scenario.name}: ${known}`);
+      } else if (problems.length) {
         failures++;
         console.log(`FAIL ${scenario.name}`);
         for (const p of problems) console.log(`  ${p}`);
@@ -270,10 +367,11 @@ async function main() {
       } else console.log(`PASS ${scenario.name}`);
     }
   } finally {
+    await stopOwnHost();
     await server.close();
   }
   if (args.mode !== "run") {
-    console.log(`\n${total - failures}/${total} scenarios ${args.mode === "record" ? "recorded" : "match"}`);
+    console.log(`\n${total - failures - knownCount}/${total} scenarios ${args.mode === "record" ? "recorded" : "match"}${knownCount ? ` (${knownCount} known environment failure${knownCount > 1 ? "s" : ""}, known-failures.json)` : ""}`);
     process.exitCode = failures ? 1 : 0;
   }
 }

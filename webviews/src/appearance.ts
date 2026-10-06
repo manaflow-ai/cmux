@@ -97,15 +97,11 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   const darkTheme = appearance.themes?.dark ?? {};
   const rootStyle = document.documentElement.style;
 
-  // `--cmux-diff-bg` stays opaque: it is the base color the page blends against
-  // for text, borders, and floating overlays (menus).
+  // `--cmux-diff-bg` is the opaque terminal theme color. styles.css derives
+  // `--cmux-diff-viewer-bg` from it, the one background of the whole viewer
+  // (page, toolbar, file headers, files sidebar and tree).
   rootStyle.setProperty("--cmux-diff-bg-light", colorString(lightTheme.background, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-bg-dark", colorString(darkTheme.background, "#000000"));
-  // The diff viewer page stays transparent. The native browser panel behind
-  // the WebView owns the themed fill for opaque terminal themes, while clear
-  // terminal themes can show the window backdrop through the same path.
-  rootStyle.setProperty("--cmux-diff-surface-fill-light", "transparent");
-  rootStyle.setProperty("--cmux-diff-surface-fill-dark", "transparent");
   rootStyle.setProperty("--cmux-diff-fg-light", colorString(lightTheme.foreground, "#000000"));
   rootStyle.setProperty("--cmux-diff-fg-dark", colorString(darkTheme.foreground, "#ffffff"));
   rootStyle.setProperty("--cmux-diff-addition-fg-light", semanticPaletteColor(lightTheme, ["10", "2"], "#257a3e"));

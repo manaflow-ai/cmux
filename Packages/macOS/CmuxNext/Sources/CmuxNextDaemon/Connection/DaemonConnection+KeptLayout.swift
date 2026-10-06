@@ -1,17 +1,5 @@
 import Foundation
 
-/// What `endSessionsAndStop` did.
-public struct EndedSessions: Sendable, Equatable {
-    public var endedTerminals: UInt64
-    /// The placed terminals kept their tabs (`end-terminals-keep-layout-v1`).
-    public var keptLayout: Bool
-
-    public init(endedTerminals: UInt64, keptLayout: Bool) {
-        self.endedTerminals = endedTerminals
-        self.keptLayout = keptLayout
-    }
-}
-
 /// One kept tab to restart: a new shell opens next to the dead tab in the
 /// same pane (so the pane, its split and ratio never change), takes its
 /// name, pin and group, and the dead tab closes.

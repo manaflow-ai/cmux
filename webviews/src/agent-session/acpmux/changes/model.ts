@@ -1,8 +1,10 @@
-// What the changes view shows beyond one turn: a git scope of the session's repository, after
-// the Codex Changes pane in manaflow-ai/codex-atlas-clone (src/changes/model.ts). The session
-// host answers `git.scope.diff {scope}` with a ChangeSet and `git.status` with a GitStatus
-// (cmux-next-spec spec/acp-ui.md); the mock daemon answers both from its fixture.
+// What the changes view shows beyond one turn: a git scope of the session's repository, ported
+// from the changes pane in the agent-pane reference prototype (src/changes/model.ts). The session
+// host answers `git.diff {scope, include_patch}` and `git.status` in the shapes of cmux-tui's
+// resource catalog (GitDiffResult, GitStatusResult); the mock daemon answers both from its
+// fixture. The wire is snake_case; the view's types are not.
 import type { DiffHunk, DiffLine, TurnFile } from "../diff";
+import type { StringKey } from "../i18n";
 
 export type ChangeScope = "lastTurn" | "uncommitted" | "unstaged" | "staged" | "committed" | "branch";
 
@@ -16,6 +18,8 @@ export type ChangedFile = {
   /// The file's unified diff, from its `@@` hunks on; absent for a binary file.
   patch?: string;
   binary?: boolean;
+  /// The patch stopped short of the whole diff.
+  patchTruncated?: boolean;
 };
 
 export type ChangeSet = {
@@ -34,6 +38,7 @@ export type ChangeSet = {
 };
 
 export type GitStatus = {
+  root?: string;
   branch?: string;
   upstream?: string;
   base?: string;
@@ -48,7 +53,22 @@ export type ChangesLoad =
   | { state: "loaded"; changeSet: ChangeSet };
 
 /// Where the view reads a scope from: the session host, or the mock daemon in mock mode.
-export type ChangesSource = { scopeDiff: (scope: ChangeScope) => Promise<unknown> };
+/// `status` names the branch the Branch scope compares with its base.
+/// `turn` reads a turn's checkpoint pair (turnCheckpoint.ts), when the host keeps them.
+export type ChangesSource = {
+  diff: (scope: ChangeScope) => Promise<unknown>;
+  status?: () => Promise<unknown>;
+  turn?: (turn: { rowId: string }) => Promise<unknown>;
+};
+
+/// The checked-out branch and the base the Branch scope compares it with, from `git.status`,
+/// or undefined on a detached head or without a base.
+export function readBranch(value: unknown): { branch: string; base: string } | undefined {
+  const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const branch = text(raw.branch);
+  const base = text(raw.base);
+  return raw.detached !== true && branch && base ? { branch, base } : undefined;
+}
 
 /// The scope menu, top to bottom; `null` is a separator.
 export const SCOPE_ORDER: (ChangeScope | null)[] = [
@@ -62,14 +82,15 @@ export const SCOPE_ORDER: (ChangeScope | null)[] = [
   "branch",
 ];
 
-export const SCOPE_LABEL: Record<ChangeScope, string> = {
-  lastTurn: "Last turn",
-  uncommitted: "Uncommitted",
-  unstaged: "Unstaged",
-  staged: "Staged",
-  committed: "Committed",
-  branch: "Branch",
-};
+/// Each scope's label key in the pane's string table (render with `t(SCOPE_LABEL[scope])`).
+export const SCOPE_LABEL = {
+  lastTurn: "changes.scope.lastTurn",
+  uncommitted: "changes.scope.uncommitted",
+  unstaged: "changes.scope.unstaged",
+  staged: "changes.scope.staged",
+  committed: "changes.scope.committed",
+  branch: "changes.scope.branch",
+} as const satisfies Record<ChangeScope, StringKey>;
 
 const STATUSES = new Set<ChangedFile["status"]>(["added", "modified", "deleted", "renamed", "untracked"]);
 const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
@@ -89,12 +110,13 @@ export function readChangeSet(value: unknown, scope: ChangeScope): ChangeSet | u
     return [
       {
         path,
-        previousPath: text(file.previousPath),
+        previousPath: text(file.previous_path),
         status,
         additions: count(file.additions),
         deletions: count(file.deletions),
         patch: text(file.patch),
         binary: file.binary === true,
+        patchTruncated: file.patch_truncated === true,
       },
     ];
   });
@@ -106,9 +128,9 @@ export function readChangeSet(value: unknown, scope: ChangeScope): ChangeSet | u
     files,
     additions: count(raw.additions),
     deletions: count(raw.deletions),
-    untrackedSkipped: count(raw.untrackedSkipped),
-    totalFiles: count(raw.totalFiles),
-    filesOmitted: count(raw.filesOmitted),
+    untrackedSkipped: count(raw.untracked_skipped),
+    totalFiles: count(raw.total_files),
+    filesOmitted: count(raw.files_omitted),
   };
 }
 
@@ -163,5 +185,6 @@ export function changeSetFiles(changeSet: ChangeSet): TurnFile[] {
     created: file.status === "added" || file.status === "untracked",
     deleted: file.status === "deleted",
     binary: file.binary,
+    patchTruncated: file.patchTruncated,
   }));
 }

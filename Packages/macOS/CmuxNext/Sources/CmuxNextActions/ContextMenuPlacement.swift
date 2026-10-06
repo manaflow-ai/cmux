@@ -16,7 +16,7 @@ public nonisolated enum MenuGroup: Int, CaseIterable, Sendable, Hashable, Compar
     case organize
     /// Move or reorder to another place.
     case move
-    /// Size, zoom, equalize, sticky.
+    /// Size, zoom, equalize, docked.
     case layout
     /// Reconnect, disconnect, hibernate, swap a session.
     case connection

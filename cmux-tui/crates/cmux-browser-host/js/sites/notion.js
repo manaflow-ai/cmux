@@ -140,16 +140,24 @@
   S.register(
     "notion",
     (t) => {
-      const origin = (o) => (o && o.origin) || ORIGIN;
       // Notion's app and session live on app.notion.com; older sessions on www.notion.so.
       const API_ORIGINS = ["https://app.notion.com", ORIGIN];
+      // { origin } pins one of API_ORIGINS (exactly); null when not given.
+      // Calls run with the user's Notion cookies, so no other origin is accepted.
+      const pinned = (o) => {
+        if (!o || o.origin === undefined || o.origin === null) return null;
+        if (!API_ORIGINS.includes(o.origin)) throw new S.SiteError("invalid", `notion: origin: expected one of ${API_ORIGINS.join(", ")}, got ${JSON.stringify(o.origin)}`);
+        return o.origin;
+      };
+      const origin = (o) => pinned(o) || ORIGIN;
       let apiOrigin = null;
       async function calls(list, options = {}) {
+        const fixed = pinned(options);
         let rs;
-        for (const o of options.origin ? [options.origin] : apiOrigin ? [apiOrigin] : API_ORIGINS) {
+        for (const o of fixed ? [fixed] : apiOrigin ? [apiOrigin] : API_ORIGINS) {
           rs = await t.inOrigin(o, notionCall, { calls: list, userId: options.userId });
           if (rs[0] && rs[0].status !== 401) {
-            if (!options.origin) apiOrigin = o;
+            if (!fixed) apiOrigin = o;
             break;
           }
         }
@@ -220,6 +228,7 @@
           const isDraft = typeof page === "string" && /^draft-\d+-[0-9a-f]+$/.test(page);
           return t.write("notion", "append", isDraft ? page : { page, markdown, ...(options || {}) }, isDraft ? markdown : undefined, (input) => {
             const id = pageId(input.page);
+            pinned(input);
             if (typeof input.markdown !== "string" || !input.markdown.trim()) throw new S.SiteError("invalid", "notion.append: markdown: expected non-empty text");
             const newBlocks = blocksFromMarkdown(input.markdown);
             return {

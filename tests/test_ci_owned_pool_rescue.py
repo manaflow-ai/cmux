@@ -1127,14 +1127,28 @@ class SideLanes(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
         self.assertNotIn("rerun", api.calls)
-        # Attempt 2 takes the lane's Blacksmith default, so the watch ends.
+        # Other side lanes retain their existing Blacksmith fallback.
         self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
         self.assertNotIn("jobs:2", api.calls)
 
     def test_a_side_lane_retry_takes_blacksmith(self):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
         self.assertIn("Blacksmith default", rescue.next_attempt(target))
-        self.assertIn("Blacksmith default", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
+        target = rescue.target_from_event(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH), "manaflow-ai/cmux")
+        self.assertIn("stays on the side lane's owned label", rescue.next_attempt(target))
+        self.assertIn("Blacksmith overflow", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
+
+    def test_side_lane_budget_is_ten_minutes_not_the_ninety_second_default(self):
+        self.assertEqual(rescue.SIDE_DEFAULT_BUDGET_SECONDS, 600)
+
+    def test_side_lane_bot_attempt_two_is_watched_but_attempt_three_overflows(self):
+        path = ".github/workflows/cmux-next.yml"
+        self.assertTrue(rescue.owned_rerun({"path": path, "run_attempt": 2,
+                                            "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
+        self.assertFalse(rescue.owned_rerun({"path": path, "run_attempt": 3,
+                                             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
+        self.assertTrue(rescue.owned_rerun({"path": path, "run_attempt": 3,
+                                           "triggering_actor": {"login": "teamleaderleo"}}))
 
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
@@ -1145,8 +1159,8 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=side_event())
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("refused", summary)
-        # Attempt 2 is on the lane's Blacksmith default: not watched.
-        self.assertNotIn("jobs:2", api.calls)
+        # Other side lanes still overflow on attempt 2.
+        self.assertNotIn("attempt 2 stays on the side lane's owned label", summary)
 
 
 TRUSTED = "glaeda-trusted-std-xcode-26.6"

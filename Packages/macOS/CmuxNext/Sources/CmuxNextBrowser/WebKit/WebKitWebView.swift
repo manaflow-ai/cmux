@@ -12,16 +12,19 @@ final class WebKitWebView: WKWebView {
 
     override func mouseDown(with event: NSEvent) {
         lastUserInput = .now
+        owner?.automaticDownloads.userGesture()
         super.mouseDown(with: event)
     }
 
     override func rightMouseDown(with event: NSEvent) {
         lastUserInput = .now
+        owner?.automaticDownloads.userGesture()
         super.rightMouseDown(with: event)
     }
 
     override func otherMouseDown(with event: NSEvent) {
         lastUserInput = .now
+        owner?.automaticDownloads.userGesture()
         super.otherMouseDown(with: event)
     }
 
@@ -33,23 +36,39 @@ final class WebKitWebView: WKWebView {
             return
         }
         lastUserInput = .now
+        owner?.automaticDownloads.userGesture()
         super.keyDown(with: event)
     }
 
-    /// Whether the user gave input within `window` (default: Chrome's
+    /// Whether the user gave input within `window` (default: Chromium's
     /// 5-second transient activation).
     func hadRecentUserInput(within window: Duration = .seconds(5)) -> Bool {
         lastUserInput.map { ContinuousClock.now - $0 <= window } ?? false
     }
 
-    /// "Open Link in New Window" opens a cmux tab (the request arrives at
-    /// `createWebViewWith`), so it is renamed to match.
+    /// The host's link, image and selection rows replace WebKit's
+    /// (`adjustContextMenu`); WebKit's other "Open … in New Window" items
+    /// open cmux tabs (the request arrives at `createWebViewWith`), so they
+    /// are renamed to match.
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
+        adjustContextMenu(menu)
+    }
+
+    /// The host rows for the last right-click's hit (none when the hit
+    /// script did not report, such as on a PDF: WebKit's rows stay) and
+    /// the renames.
+    func adjustContextMenu(_ menu: NSMenu) {
+        if let owner, owner.hasDelegate, let hit = owner.takeContextHit() {
+            WebKitContextHit.removeEngineRows(from: menu, for: hit)
+            owner.emit(.contextMenu(BrowserContextMenuRequest(
+                items: [], target: hit, location: .zero,
+                insertLeading: { [weak menu] rows in if let menu { WebKitContextHit.insert(rows, into: menu) } },
+                completion: { _ in }
+            )))
+        }
         for item in menu.items {
             switch item.identifier?.rawValue {
-            case "WKMenuItemIdentifierOpenLinkInNewWindow":
-                item.title = Strings.openLinkInNewTab
             case "WKMenuItemIdentifierOpenImageInNewWindow":
                 item.title = Strings.openImageInNewTab
             case "WKMenuItemIdentifierOpenMediaInNewWindow":

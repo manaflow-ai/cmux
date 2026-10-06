@@ -4,7 +4,8 @@ import Security
 /// Supplies a Chromium browser's "<Name> Safe Storage" password.
 public protocol SafeStorageKeyProviding: Sendable {
     /// Blocks while macOS shows its Keychain prompt; call off the main thread.
-    func password(service: String) throws(CookieImportError) -> Data
+    /// The password is `SecretBytes`: zeroed when the last holder lets it go.
+    func password(service: String) throws(CookieImportError) -> SecretBytes
 }
 
 /// The login Keychain. Reading another app's item makes macOS ask the user
@@ -14,7 +15,7 @@ public protocol SafeStorageKeyProviding: Sendable {
 public struct KeychainSafeStorage: SafeStorageKeyProviding {
     public init() {}
 
-    public func password(service: String) throws(CookieImportError) -> Data {
+    public func password(service: String) throws(CookieImportError) -> SecretBytes {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -25,8 +26,9 @@ public struct KeychainSafeStorage: SafeStorageKeyProviding {
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         switch status {
         case errSecSuccess:
+            // Security's reply is copied once and released here; it is not ours to zero.
             guard let data = item as? Data else { throw .keyNotFound(service: service) }
-            return data
+            return SecretBytes(copying: data)
         case errSecItemNotFound: throw .keyNotFound(service: service)
         default: throw .keychainDenied(service: service)
         }

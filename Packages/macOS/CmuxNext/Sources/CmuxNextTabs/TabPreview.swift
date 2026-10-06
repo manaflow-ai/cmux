@@ -7,7 +7,7 @@ public protocol TabPreviewProvider: AnyObject {
     func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage?
 }
 
-/// Chrome-like timing for the hover card.
+/// Timing for the hover card.
 public struct HoverCardPolicy: Equatable, Sendable {
     /// Delay over the narrowest tabs, where the card is the only way to read the title.
     public var minimumDelay: Duration

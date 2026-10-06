@@ -25,8 +25,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         super.init(frame: frame)
         drawsBackground = false
         hasVerticalScroller = true
-        autohidesScrollers = true
-        scrollerStyle = .overlay
+        SystemScrollers.follow(self)
         automaticallyAdjustsContentInsets = false
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("palette.column"))
         table.addTableColumn(column)

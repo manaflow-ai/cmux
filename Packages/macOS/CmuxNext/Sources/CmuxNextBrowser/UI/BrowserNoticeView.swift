@@ -6,11 +6,24 @@ import CmuxNextDesign
 /// Chromium cannot start). It never takes focus.
 final class BrowserNoticeView: NSView {
     var onClose: (() -> Void)?
+    /// The notice's one action (a button before the close button), if any.
+    var action: (title: String, run: () -> Void)? {
+        didSet {
+            actionButton.title = action?.title ?? ""
+            actionButton.isHidden = action == nil
+        }
+    }
+    private lazy var actionButton: ChromeTextButton = {
+        let button = ChromeTextButton(title: "", prominent: false, action: #selector(runAction), target: self)
+        button.isHidden = true
+        return button
+    }()
     /// Set while the close animation runs; a new notice then gets a new view.
     var isDismissing = false
     private let label = NSTextField(labelWithString: "")
     private let density = DensityBinding()
-    private var glass: NSGlassEffectView?
+    /// The card's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -19,11 +32,11 @@ final class BrowserNoticeView: NSView {
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let close = ChromeIconButton(symbol: "xmark", label: Strings.dismissNotice, action: #selector(close), target: self)
 
-        let stack = NSStackView(views: [label, close])
+        let stack = NSStackView(views: [label, actionButton, close])
         stack.translatesAutoresizingMaskIntoConstraints = false
         let content = OverlayBackingView()
         content.addSubview(stack)
-        let glass = Glass.makePanel(content: content, style: .regular, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
         addSubview(glass)
         self.glass = glass
         NSLayoutConstraint.activate([
@@ -62,7 +75,7 @@ final class BrowserNoticeView: NSView {
     private func applyColors() {
         performWithTheme {
             label.textColor = Palette.textSecondary
-            glass?.tintColor = Palette.glassTint
+            glass?.applyTheme()
         }
     }
 
@@ -75,4 +88,6 @@ final class BrowserNoticeView: NSView {
     }
 
     @objc private func close() { onClose?() }
+
+    @objc private func runAction() { action?.run() }
 }

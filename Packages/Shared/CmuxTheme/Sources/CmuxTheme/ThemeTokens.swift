@@ -24,10 +24,16 @@ public struct ThemeTokens: Hashable, Sendable {
     public var chromeBackground: ThemeRGB
     /// Floating cards (palette, hover card, editors) under or instead of glass.
     public var elevatedBackground: ThemeRGB
-    /// Every pane's tab strip: a shade darker than the window in light
-    /// themes too, so the strips read as quiet bands (a pure black window
-    /// has no darker shade; there the strip matches it).
+    /// Every pane's tab strip: the same ground as the window. Focus and
+    /// selection fills provide hierarchy without introducing a second
+    /// background token.
     public var stripBackground: ThemeRGB
+    /// The sidebar's tonal step: a translucent layer over the window's one
+    /// backdrop (the solid background, or the material and its tint), the
+    /// foreground at the same 4% the agent pane's sidebar uses.
+    public var sidebarStep: ThemeRGB
+    /// Reserved for the sidebar rules; tab strips do not add a tonal step.
+    public var stripStep: ThemeRGB
 
     // Text
     /// Titles and body text: the foreground, pushed to 4.5:1 when needed.
@@ -75,6 +81,9 @@ public struct ThemeTokens: Hashable, Sendable {
     /// Glyphs and labels on `highlight`, at least 4.5:1: the opaque
     /// background or foreground, whichever contrasts more, else black or white.
     public var highlightText: ThemeRGB
+    /// The theme names its own ANSI palette, so `highlight` is the theme's
+    /// accent; false when it fell back to Ghostty's default palette.
+    public var hasThemeAccent: Bool
     /// ANSI 0...15.
     public var ansi: [ThemeRGB]
 
@@ -82,6 +91,17 @@ public struct ThemeTokens: Hashable, Sendable {
     public var backgroundOpacity: Double
     /// `background-blur` as Ghostty encodes it (0 off, >0 radius, <0 macOS glass).
     public var backgroundBlur: Int
+
+    /// Theme-derived tint opacity used when a wallpaper is selected.
+    ///
+    /// Dark themes keep a denser tint for readable text; lighter and higher
+    /// contrast themes can reveal more of the wallpaper without losing legibility.
+    public var wallpaperTintOpacity: Double {
+        let contrastHeadroom = min(max((textPrimary.contrast(with: windowBackground) - Self.minimumTextContrast) / 8, 0), 1)
+        let luminanceBias = min(max((windowBackground.relativeLuminance - 0.18) * 0.12, -0.03), 0.08)
+        let themeFloor = isDark ? 0.62 : 0.56
+        return min(max(themeFloor + (1 - contrastHeadroom) * 0.10 + luminanceBias, 0.52), 0.76)
+    }
 
     /// Minimum contrast for primary and secondary chrome text.
     public static let minimumTextContrast = 4.5
@@ -133,7 +153,9 @@ public struct ThemeTokens: Hashable, Sendable {
             contentBackground: surface,
             chromeBackground: bg.mixed(toward: fg, isDark ? 0.05 : 0.035),
             elevatedBackground: bg.mixed(toward: fg, isDark ? 0.07 : 0.02),
-            stripBackground: bg.mixed(toward: .black, isDark ? 0.22 : 0.05).withAlpha(input.backgroundOpacity),
+            stripBackground: surface,
+            sidebarStep: fg.withAlpha(0.04),
+            stripStep: ThemeRGB.black.withAlpha(0),
             textPrimary: primary,
             textSecondary: secondary,
             textTertiary: tertiary,
@@ -153,6 +175,7 @@ public struct ThemeTokens: Hashable, Sendable {
             success: status(2),
             highlight: highlight,
             highlightText: highlightText,
+            hasThemeAccent: input.palette.count >= 8,
             ansi: palette,
             backgroundOpacity: input.backgroundOpacity,
             backgroundBlur: input.backgroundBlur

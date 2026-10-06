@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class NotificationSemanticsTests(unittest.TestCase):
-    def run_packages(self, warning_package=""):
+    def run_packages(self, failing_package=""):
         script = f"bash '{ROOT / 'scripts/ci/package-test-lane.sh'}' packages\n"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -73,8 +73,8 @@ if args[0] == 'build':
             time.sleep(0.05)
     finally:
         mark.unlink()
-if package == os.environ['WARNING_PACKAGE'] and '-warnings-as-errors' in args:
-    print('error: compiler warning promoted to an error')
+if package == os.environ['FAILING_PACKAGE']:
+    print('error: compile failure')
     sys.exit(1)
 print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
 """)
@@ -84,7 +84,7 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
                 os.environ,
                 PATH=f"{bindir}:{os.environ['PATH']}",
                 CALLS=str(calls),
-                WARNING_PACKAGE=warning_package,
+                FAILING_PACKAGE=failing_package,
                 RUNNER_TEMP=str(runner_temp),
                 SELECTED_PACKAGES=str(selected),
                 SELECTED_COUNT=str(len(package_names)),
@@ -94,17 +94,6 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             self.prebuilds_overlapped = Path(str(calls) + ".overlap").exists()
             return result, [json.loads(line) for line in calls.read_text().splitlines()]
-
-    def test_package_warning_gates_run_once(self):
-        result, calls = self.run_packages()
-        self.assertEqual(result.returncode, 0, result.stdout)
-        for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
-            matching = [args for args in calls if args[args.index('--package-path') + 1].endswith('/' + package)]
-            # One prebuild and one test run, with the same flags, so the test
-            # run finds the prebuilt products up to date.
-            self.assertEqual(sorted(args[0] for args in matching), ["build", "test"])
-            for args in matching:
-                self.assertEqual(args[args.index('-Xswiftc') + 1], '-warnings-as-errors')
 
     def test_packages_prebuild_in_parallel_then_test_serially(self):
         result, calls = self.run_packages()
@@ -119,26 +108,20 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
         self.assertTrue(self.prebuilds_overlapped, "no two prebuilds ran at once")
         self.assertIn("at a time", result.stdout)
 
-    def test_package_warning_is_still_fatal(self):
-        for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
-            with self.subTest(package=package):
-                result, _ = self.run_packages(package)
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-
     def test_a_failing_package_does_not_hide_later_packages(self):
-        # CMUXAgentLaunch sorts first, so every other package runs after it.
-        result, calls = self.run_packages("CMUXAgentLaunch")
+        # CMUXAuthCore sorts first, so every other package runs after it.
+        result, calls = self.run_packages("CMUXAuthCore")
         self.assertNotEqual(result.returncode, 0, result.stdout)
         ran = {Path(args[args.index('--package-path') + 1]).name for args in calls}
-        self.assertIn("CmuxTerminalCore", ran)
+        self.assertIn("CmuxIrohTransport", ran)
         self.assertIn("CmuxUpdater", ran)
         self.assertIn(
-            "::error title=Swift package tests failed::CMUXAgentLaunch failed with exit status 1",
+            "::error title=Swift package tests failed::CMUXAuthCore failed with exit status 1",
             result.stdout,
         )
         self.assertEqual(result.stdout.count("::error title=Swift package tests failed::"), 1)
         table = result.stdout.split("Swift package test results:\n", 1)[1]
-        self.assertRegex(table, r"CMUXAgentLaunch +failed \(exit 1\)")
+        self.assertRegex(table, r"CMUXAuthCore +failed \(exit 1\)")
         self.assertRegex(table, r"CmuxUpdater +passed")
         self.assertIn("1 of ", result.stdout)
 

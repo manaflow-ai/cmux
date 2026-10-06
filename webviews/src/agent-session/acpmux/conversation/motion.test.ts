@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 // With Reduce Motion on (as on the macOS CI VMs and for users who turn it on), the
 // transcript must not animate: every transition and animation sits inside
 // `@media (prefers-reduced-motion: no-preference)`, so it runs only when the setting is off.
-const sheets = ["./conversation.css", "../styles.css"].map((file) => ({
+const sheets = ["./conversation.css", "../styles.css", "../composerStates.css"].map((file) => ({
   file,
   css: readFileSync(new URL(file, import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, ""),
 }));

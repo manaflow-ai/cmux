@@ -121,7 +121,7 @@ import Testing
 
     /// An extension's popup window (`chrome.windows.update` with bounds):
     /// the panel takes the new content size and keeps its title bar.
-    @Test func resizePopupResizesThePanel() throws {
+    @Test(.requiresGUISession) func resizePopupResizesThePanel() throws {
         let panels = BrowserPopupPanels()
         panels.ordersPanelsIn = false
         let parent = makeParent()

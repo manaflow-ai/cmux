@@ -334,18 +334,12 @@ def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
     """The bundled set is derived, not listed, so a new resource cannot slip."""
     detect, nightly = ci_scripts()
 
-    # The cmux-next target copies only built products (the CLI) and package
-    # resources, so no repository path is bundled directly today. Whatever a
-    # later resource phase adds must name a path that exists and must rebuild.
+    # The cmux-next target bundles built products, package resources and a
+    # few SOURCE_ROOT resources. Every bundled path must exist and rebuild.
     bundled = nightly.bundled_paths(ROOT)
     for path in bundled:
         assert (ROOT / path).exists(), f"{path} is bundled but missing"
         assert nightly.build_inputs_changed([path])[0], f"{path} is bundled but does not rebuild"
-
-    # The cmux-cli product is copied into the bundle, so CLI sources ship
-    # without a Release compile ever covering them.
-    assert not detect.classify_files(["CLI/cmux_open.swift"]).release_build
-    assert nightly.build_inputs_changed(["CLI/cmux_open.swift"])[0]
 
     # The resolver's path list decides which client gets bundled.
     tui = nightly.tui_client_paths(ROOT)
@@ -451,6 +445,46 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     assert should_build(
         run_decide(event="push", ref="refs/heads/rc/v1.2.3", tag_age_hours=0.1)
     )
+
+
+NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next"}
+
+
+def test_nightly_next_publishes_its_own_track() -> None:
+    # A push to nightly-next (moved only by the promote workflow) builds and
+    # publishes the cmux-next track: NIGHTLY's identity, its own release,
+    # feed and environment, and no main push throttle.
+    result = run_decide(event="push", ref="refs/heads/nightly-next",
+                        tag_age_hours=0.1, extra_env=NEXT_ENV)
+    outputs = result["outputs"]
+    assert should_build(result)
+    assert outputs["should_publish"] == "true"
+    assert outputs["track"] == "nightly-next"
+    assert outputs["channel"] == "nightly"
+    assert outputs["environment"] == "release-next"
+    assert outputs["bundle_id"] == "com.cmuxterm.app.nightly"
+    assert outputs["app_name"] == "cmux NIGHTLY"
+    assert outputs["release_tag"] == "nightly-next"
+    assert outputs["dmg_prefix"] == "cmux-nightly-next-macos"
+    assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next"
+    # The same commit is not rebuilt.
+    assert not should_build(run_decide(event="push", ref="refs/heads/nightly-next",
+                                       tag_sha=HEAD_SHA, extra_env=NEXT_ENV))
+
+
+def test_main_and_rc_keep_the_release_environment_and_feeds() -> None:
+    main_outputs = run_decide(event="push", tag_age_hours=2.5, extra_env=NEXT_ENV)["outputs"]
+    assert main_outputs["track"] == "nightly"
+    assert main_outputs["environment"] == "release"
+    assert main_outputs["feed_base"] == "https://files.cmux.com/nightly"
+    assert main_outputs["release_tag"] == "nightly"
+    rc_outputs = run_decide(event="push", ref="refs/heads/rc/v1.2.3", extra_env=NEXT_ENV)["outputs"]
+    assert rc_outputs["environment"] == "release"
+    assert rc_outputs["feed_base"] == "https://files.cmux.com/rc"
+    # Any other branch is an unpublished dogfood run.
+    other = run_decide(event="workflow_dispatch", ref="refs/heads/feat-cmux-next", extra_env=NEXT_ENV)["outputs"]
+    assert other["should_publish"] == "false"
+    assert other["environment"] == "release"
 
 
 def main() -> None:

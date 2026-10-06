@@ -1,5 +1,5 @@
 /// One entry of a declared context menu.
-public enum ContextMenuEntry: Sendable, Hashable {
+public nonisolated enum ContextMenuEntry: Sendable, Hashable {
     case action(ActionID)
     case separator
     /// A submenu titled by an action's title (without its ellipsis).
@@ -18,7 +18,7 @@ public enum ContextMenuEntry: Sendable, Hashable {
 /// so a menu cannot drift from the catalog. The registry renders the
 /// entries (`ActionRegistry.makeContextMenu`) with titles, shortcuts and
 /// enabled state.
-public struct ContextMenuCatalog: Sendable {
+public nonisolated struct ContextMenuCatalog: Sendable {
     public static let shared = Self(descriptors: ActionCatalog.all)
 
     private let menus: [ActionMenuContext: [ContextMenuEntry]]

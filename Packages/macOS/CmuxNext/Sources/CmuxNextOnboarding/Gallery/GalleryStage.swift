@@ -55,6 +55,8 @@ final class GalleryStage: NSView {
         box.show(screen, fullSize: size, interactive: !inert)
         if inert { box.makeInert(label: letter) }
         model.stepDidAppear()
+        // The gallery's sample services hold canned browsers: show them as after Find Browsers.
+        if variant.step == .importData { model.importer.detect() }
         let badge = OnboardingLabel.make(letter, font: .systemFont(ofSize: 13, weight: .bold), color: Palette.textPrimary)
         badge.wantsLayer = true
         let column = NSStackView(views: [box, badge])

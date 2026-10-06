@@ -20,6 +20,11 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
     case browserProfile = "browser-profile"
     /// A bookmark or bookmark folder (`bookmark:bm_…`; plans/cmux-next/bookmarks.md).
     case bookmark
+    /// An item of a sidebar section (`sidebar-item:itm_…`, or a built-in
+    /// name such as `sidebar-item:home`; plans/cmux-next/sidebar-sections.md).
+    case sidebarItem = "sidebar-item"
+    /// A sidebar section (`sidebar-section:sec_…`).
+    case sidebarSection = "sidebar-section"
 }
 
 extension ActionTargetKind {
@@ -77,6 +82,12 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case sidebarBackground
     case terminalSelection
     case browserPage
+    /// A link in a page (both engines; `BrowserHitMenu` in the App).
+    case browserLink
+    /// An image in a page.
+    case browserImage
+    /// Selected text in a page (not in an editable field).
+    case browserSelection
     /// A Cloud machine's sidebar section header.
     case cloudMachine
     /// An SSH machine's sidebar section header.
@@ -95,6 +106,10 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case screenBar
     /// A row of the notifications panel.
     case notification
+    /// An item of a docked sidebar section (Home, Settings, a pinned row).
+    case sidebarItem
+    /// The header of a titled sidebar section.
+    case sidebarSection
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -105,7 +120,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .screenGroup: .screenGroup
         // A terminal or page right-click targets its tab (the App passes the
         // tab; a tab names its pane).
-        case .terminalSelection, .browserPage: .tab
+        case .terminalSelection, .browserPage, .browserLink, .browserImage, .browserSelection: .tab
         case .pane, .newTab: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
@@ -115,6 +130,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
         case .bookmarksBar, .screenBar, .notification: nil
+        case .sidebarItem: .sidebarItem
+        case .sidebarSection: .sidebarSection
         }
     }
 }

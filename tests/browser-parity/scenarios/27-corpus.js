@@ -1,9 +1,8 @@
 // Real-site corpus (fixtures/corpus, frozen by lib/corpus.mjs): on each page
 // the snapshot must hold every interactive element of Chrome's Playwright AI
 // snapshot with the same role and name (recall), print no text Chrome does
-// not render (leaks), and stay within 10% of the size of Aside's snapshot of
-// the same page (Aside drops some visible text cmux keeps, such as card
-// descriptions). Recall is judged in the engine that renders cmux: each
+// not render (leaks), and stay within the page's byte budget
+// (fixtures/corpus/size-budgets.json). Recall is judged in the engine that renders cmux: each
 // recorded element is found by its path and fixtures/corpus/gt.js, which is
 // independent of the page agent, decides whether a user can see it here; an
 // element Playwright gave no ref (no visible box in Chrome) is not required.
@@ -11,7 +10,7 @@
 // oracle: skip (compares cmux snapshots against Chrome records made by lib/corpus.mjs)
 // ---- cell session=corpus
 const squash = (s) => String(s).replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "").toLowerCase();
-const aside = await (await fetch(`${PRIMARY}/corpus/aside-sizes.json`)).json();
+const budgets = await (await fetch(`${PRIMARY}/corpus/size-budgets.json`)).json();
 globalThis.corpusCheck = async (name) => {
   const oracle = await (await fetch(`${PRIMARY}/corpus/${name}.oracle.json`)).json();
   // The Chrome records were made at 1280x800; a tab shown in a pane would
@@ -72,27 +71,27 @@ globalThis.corpusCheck = async (name) => {
   const shown = squash(texts.join("\n"));
   const leaks = oracle.hidden.filter((t) => shown.includes(squash(t)));
   const bytes = Buffer.byteLength(tree);
-  console.log(`${name}: ${notShownHere} recorded elements not shown in this engine; cmux ${bytes} bytes, Aside ${aside[name]} bytes, Chrome AI snapshot ${oracle.chromeAiSnapshotBytes} bytes; ${oracle.interactive.length} interactive`);
-  return { missing, leaks, withinAside: bytes <= 1.1 * aside[name] };
+  console.log(`${name}: ${notShownHere} recorded elements not shown in this engine; cmux ${bytes} bytes, budget ${budgets[name]} bytes, Playwright AI snapshot ${oracle.chromeAiSnapshotBytes} bytes; ${oracle.interactive.length} interactive`);
+  return { missing, leaks, withinBudget: bytes <= budgets[name] };
 };
 // ---- cell session=corpus
 for (const name of ["wikipedia", "hackernews", "github"]) {
   const r = await corpusCheck(name);
   emitCmux(`${name}:missing`, r.missing);
   emitCmux(`${name}:leaks`, r.leaks);
-  emitCmux(`${name}:within-aside-10pct`, r.withinAside);
+  emitCmux(`${name}:within-budget`, r.withinBudget);
 }
 // ---- cell session=corpus
 for (const name of ["mdn", "mdn-iframe", "npr"]) {
   const r = await corpusCheck(name);
   emitCmux(`${name}:missing`, r.missing);
   emitCmux(`${name}:leaks`, r.leaks);
-  emitCmux(`${name}:within-aside-10pct`, r.withinAside);
+  emitCmux(`${name}:within-budget`, r.withinBudget);
 }
 // ---- cell session=corpus
 for (const name of ["bbc", "books", "vercel"]) {
   const r = await corpusCheck(name);
   emitCmux(`${name}:missing`, r.missing);
   emitCmux(`${name}:leaks`, r.leaks);
-  emitCmux(`${name}:within-aside-10pct`, r.withinAside);
+  emitCmux(`${name}:within-budget`, r.withinBudget);
 }

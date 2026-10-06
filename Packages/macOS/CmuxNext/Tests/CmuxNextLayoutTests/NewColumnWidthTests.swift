@@ -4,14 +4,13 @@ import Testing
 @testable import CmuxNextLayout
 
 /// Width of a new column and the lone full-width column rule
-/// (plans/cmux-next/niri.md, "Column widths").
+/// (plans/cmux-next/column-scroll.md, "Column widths").
 @Suite struct NewColumnWidthTests {
     private func lone(_ width: Double) -> [LayoutColumn] {
         [LayoutColumn(id: "c0", width: width, root: .leaf("p0"))]
     }
 
-    @Test func builtInDefaultIsHalfTheViewportLikeNiri() {
-        // niri-config `Layout::default()`: default_column_width Proportion(0.5).
+    @Test func builtInDefaultIsHalfTheViewport() {
         #expect(ColumnWidthPreset.defaultWidth == 0.5)
         #expect(LayoutColumn(id: "c", root: .leaf("p")).width == 0.5)
     }
@@ -29,7 +28,7 @@ import Testing
         #expect(abs((twoThirds.resize?.width ?? 0) - 1.0 / 3.0) < 1e-9)
     }
 
-    @Test func otherLayoutsKeepTheirWidthsLikeNiri() {
+    @Test func otherLayoutsKeepTheirWidths() {
         #expect(NewColumnWidth.plan(columns: lone(0.5), width: 0.5).resize == nil)
         #expect(NewColumnWidth.plan(columns: lone(2.0 / 3.0), width: 0.5).resize == nil)
         let two = [LayoutColumn(id: "c0", width: 1.0, root: .leaf("p0")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))]

@@ -153,6 +153,50 @@ struct TerminalReattachRuleTests {
         #expect(machine.phase == .exited)
     }
 
+    /// R41: the daemon said the tab was dead (a tab briefly without a
+    /// surface, a host being re-adopted), then that it lives. The view must
+    /// re-attach; a live shell never stays "Process exited".
+    @Test func anExitedViewReattachesWhenTheDaemonRevivesTheTerminal() {
+        var machine = Machine(initialSize: CellSize(cols: 80, rows: 24))
+        _ = machine.reduce(.start)
+        _ = machine.reduce(.opened(7, attempt: 1))
+        _ = machine.reduce(.replayDelivered(7))
+        _ = machine.reduce(.processExited)
+        let effects = machine.reduce(.processRevived)
+        #expect(effects.contains(.status(.disconnected(.streamEnded, reconnecting: true))))
+        guard case .open(let attempt, _)? = effects.first(where: { if case .open = $0 { true } else { false } }) else {
+            Issue.record("revived view did not re-attach: \(effects)")
+            return
+        }
+        _ = machine.reduce(.opened(8, attempt: attempt))
+        #expect(machine.reduce(.replayDelivered(8)).contains(.status(.connected)))
+        #expect(machine.liveLink == 8)
+        #expect(machine.reduce(.input(Data("x".utf8))).contains(.send(8, Data("x".utf8))))
+    }
+
+    /// An exit reported while an attach was pending is withdrawn by a revive:
+    /// the replay lands and the view goes live, not exited.
+    @Test func aReviveDuringTheAttachCancelsThePendingExit() {
+        var machine = Machine(initialSize: CellSize(cols: 80, rows: 24))
+        _ = machine.reduce(.start)
+        _ = machine.reduce(.processExited)
+        _ = machine.reduce(.processRevived)
+        _ = machine.reduce(.opened(7, attempt: 1))
+        let effects = machine.reduce(.replayDelivered(7))
+        #expect(!effects.contains(.status(.exited)))
+        #expect(!effects.contains(.detach(7)))
+        #expect(machine.liveLink == 7)
+    }
+
+    /// A revive is a daemon fact: it never re-attaches a live view.
+    @Test func aReviveOfALiveViewDoesNothing() {
+        var machine = Machine(initialSize: CellSize(cols: 80, rows: 24))
+        _ = machine.reduce(.start)
+        _ = machine.reduce(.opened(7, attempt: 1))
+        _ = machine.reduce(.replayDelivered(7))
+        #expect(machine.reduce(.processRevived) == [])
+    }
+
     @Test func anExitWhileReattachingEndsExitedWhenTheAttachFails() {
         var machine = disconnected()
         _ = machine.reduce(.reconnect)

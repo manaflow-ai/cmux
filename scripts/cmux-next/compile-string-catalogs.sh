@@ -5,7 +5,7 @@
 # their English default values and plural rules are lost.
 # Run from Packages/macOS/CmuxNext after `swift build --build-tests`.
 set -euo pipefail
-bin="$(swift build --show-bin-path)"
+bin="$(swift build -c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" --show-bin-path)"
 count=0
 while IFS= read -r -d '' catalog; do
   xcrun xcstringstool compile "$catalog" --output-directory "$(dirname "$catalog")"

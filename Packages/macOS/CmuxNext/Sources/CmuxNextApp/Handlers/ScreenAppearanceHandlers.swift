@@ -44,9 +44,13 @@ enum ScreenAppearanceHandlers {
             if let icon = invocation["icon"]?.stringValue.flatMap(ScreenHandlers.nonEmpty) {
                 return ScreenCommands.setIcon(ref.screen, icon, daemon: ref.daemon)
             }
-            guard let window = ctx.services.windows.active?.window ?? ctx.refuse(ScreenStrings.iconArgumentRequired) else { return }
-            RenamePrompt.run(title: ScreenStrings.iconPromptTitle, initial: ref.screen.icon ?? "", in: window) { icon in
-                ScreenCommands.setIcon(ref.screen, ScreenHandlers.nonEmpty(icon), daemon: ref.daemon)
+            guard let anchor = ctx.services.iconPicker.activeWindowAnchor() ?? ctx.refuse(ScreenStrings.iconArgumentRequired) else { return }
+            ctx.services.iconPicker.pick(current: ref.screen.icon, target: "screen:\(ref.screen.id)", at: anchor) { result in
+                switch result {
+                case .set(let icon): ScreenCommands.setIcon(ref.screen, icon, daemon: ref.daemon)
+                case .clear: ScreenCommands.setIcon(ref.screen, nil, daemon: ref.daemon)
+                case .cancel: break
+                }
             }
         })
         registry.bind("screen.clearIcon", invoke: { invocation in

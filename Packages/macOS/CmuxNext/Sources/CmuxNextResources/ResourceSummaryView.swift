@@ -6,7 +6,8 @@ import CmuxNextDesign
 /// - Tab: one line, "CPU 2.3% · Memory 145.2 MB" (dashes until the first
 ///   sample, the CPU dash until the second).
 /// - Workspace: the total line, the heaviest tabs (title and compact
-///   numbers), and the shared processes on their own line.
+///   numbers) when there is more than one, and the shared processes on
+///   their own line.
 public final class ResourceSummaryView: NSView {
     public enum Style: Equatable {
         case tab
@@ -103,7 +104,7 @@ public final class ResourceSummaryView: NSView {
             } else {
                 totalLabel.stringValue = Strings.cpuMemory(cpu: Strings.pending, memory: Strings.pending)
             }
-            let top = report?.topConsumers(limit) ?? []
+            let top = report?.breakdown(limit) ?? []
             setRowCount(top.count)
             for (row, tab) in zip(rows, top) {
                 row.title.stringValue = tab.title.isEmpty ? Strings.untitled : tab.title

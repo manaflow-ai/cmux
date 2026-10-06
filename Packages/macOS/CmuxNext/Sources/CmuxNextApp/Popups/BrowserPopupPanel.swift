@@ -31,14 +31,14 @@ final class BrowserPopupPanel: NSPanel {
         becomesKeyOnlyIfNeeded = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
-        standardWindowButton(.miniaturizeButton)?.isHidden = true
-        standardWindowButton(.zoomButton)?.isHidden = true
         standardWindowButton(.closeButton)?.toolTip = Strings.popupCloseHelp
         minSize = CGSize(width: BrowserPopupPanelGeometry.minimumContent.width,
                          height: BrowserPopupPanelGeometry.minimumContent.height + Self.titleHeight)
         animationBehavior = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? .none : .utilityWindow
         tabbingMode = .disallowed
-        contentView = makeContent()
+        // Kind `.browserPopup`: only the close button, the one surface
+        // background; the opener's scope is adopted when it opens.
+        install(kind: .browserPopup, content: makeContent(), scope: .app)
         observeTitle()
     }
 
@@ -120,7 +120,6 @@ final class BrowserPopupPanel: NSPanel {
     private func applyColors() {
         guard let root = contentView else { return }
         root.performWithTheme {
-            backgroundColor = Palette.windowBackground
             titleLabel.textColor = Palette.textPrimary
             originLabel.textColor = Palette.textSecondary
             separator.fillColor = Palette.separator

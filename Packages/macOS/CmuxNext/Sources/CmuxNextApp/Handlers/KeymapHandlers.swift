@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextSettings
 
@@ -29,21 +30,18 @@ enum KeymapHandlers {
         })
     }
 
+    /// The preview as a cmux dialog on the window, else app-wide (never an
+    /// app-modal run loop). An empty plan only reports.
     private static func confirm(_ plan: ShortcutKeymapPlan, registry: ActionRegistry, in window: NSWindow?, apply: @escaping () -> Void) {
-        let alert = NSAlert()
-        alert.messageText = KeymapStrings.title(presetName(plan.preset, registry))
-        alert.informativeText = summary(plan, registry: registry).joined(separator: "\n")
-        if plan.isEmpty {
-            alert.addButton(withTitle: KeymapStrings.ok)
-        } else {
-            alert.addButton(withTitle: KeymapStrings.apply)
-            alert.addButton(withTitle: KeymapStrings.cancel)
+        let buttons: [CmuxDialogButton] = plan.isEmpty
+            ? [.ok(KeymapStrings.ok)]
+            : [.cancel(KeymapStrings.cancel), CmuxDialogButton(id: "apply", title: KeymapStrings.apply, role: .default)]
+        let spec = CmuxDialogSpec(title: KeymapStrings.title(presetName(plan.preset, registry)),
+                                  lines: summary(plan, registry: registry), buttons: buttons, identifier: "cmux.dialog.keymap")
+        let scope: CmuxDialogScope = (window ?? NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app
+        CmuxDialogCenter.shared.present(spec, in: scope) { answer in
+            if answer.button == "apply" { apply() }
         }
-        let finish = { (response: NSApplication.ModalResponse) in
-            if !plan.isEmpty, response == .alertFirstButtonReturn { apply() }
-        }
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return finish(alert.runModal()) }
-        alert.beginSheetModal(for: window, completionHandler: finish)
     }
 
     /// One line per change (`New Tab: ⌘N → ⌃B C`), then one per binding

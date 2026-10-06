@@ -48,6 +48,17 @@ public struct ControlMethod: Sendable {
     public let name: String
     let body: Body
     public private(set) var deadline: Deadline = .controlPlane
+    /// The body claims ``ControlCall/progress`` itself when its work starts
+    /// (after queueing), so a timeout before that says `not_run`. Otherwise
+    /// the router claims it when the body starts.
+    public private(set) var claimsProgress = false
+
+    /// This method, whose body calls `call.progress.begin()` when its work starts.
+    public func claimingProgress() -> ControlMethod {
+        var method = self
+        method.claimsProgress = true
+        return method
+    }
 
     /// This method with `deadline` instead of the control-plane one.
     public func withDeadline(_ deadline: Deadline) -> ControlMethod {
@@ -114,14 +125,17 @@ public struct ControlCall: Sendable {
     /// The request waits for a terminal to start: it has the terminal start
     /// deadline, and its timeout says the terminal may still appear.
     public let startsTerminal: Bool
+    /// Whether the request's work started (`not_run` vs `in_progress`).
+    public let progress: ControlCallProgress
 
     public init(request: ControlRequest, snapshot: ControlSnapshot, connection: ControlConnectionID,
-                deadline: ContinuousClock.Instant, startsTerminal: Bool = false) {
+                deadline: ContinuousClock.Instant, startsTerminal: Bool = false, progress: ControlCallProgress = ControlCallProgress()) {
         self.request = request
         self.snapshot = snapshot
         self.connection = connection
         self.deadline = deadline
         self.startsTerminal = startsTerminal
+        self.progress = progress
     }
 
     public var method: String { request.method }

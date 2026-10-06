@@ -142,7 +142,10 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func capturesRealLoginShellEnvironment() async throws {
         let env = try #require(await LoginEnvironment.shared.capture(timeout: .seconds(15)))
         #expect(env["PATH"]?.isEmpty == false)
-        #expect(env["HOME"] == NSHomeDirectory())
+        // capture() seeds HOME from this process's environment (rc files need
+        // it), so the login shell reports that HOME. A CI step may set HOME
+        // to its own directory, which differs from the account's home.
+        #expect(env["HOME"] == (ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()))
     }
 
     @Test(.timeLimit(.minutes(1))) func processTimeoutKillsTheChild() async throws {

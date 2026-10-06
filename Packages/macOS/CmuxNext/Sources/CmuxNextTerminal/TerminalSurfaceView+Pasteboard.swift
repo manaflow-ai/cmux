@@ -1,6 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
-import GhosttyKit
+import GhosttyNextKit
 import UniformTypeIdentifiers
 
 // MARK: - Copy/paste, context menu, drag and drop (clipboard requests: TerminalClipboardRequests)

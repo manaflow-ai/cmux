@@ -7,6 +7,8 @@ import QuartzCore
 final class SidebarDecorationView: NSView {
     private let pill = CALayer()
     private let gap = CALayer()
+    /// The selection pill (tests).
+    var pillLayer: CALayer { pill }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -53,9 +55,27 @@ final class SidebarDecorationView: NSView {
         CATransaction.commit()
     }
 
+    /// Where the active row's pill goes: the sidebar's one selection
+    /// highlight (`SidebarSelectionHighlight`) draws it; this view then draws
+    /// no pill of its own.
+    var onPill: ((CGRect?, Bool) -> Void)?
+
     /// Moves the pill under the active row (nil hides it).
     func setPill(_ frame: CGRect?, animated: Bool) {
+        if let onPill { return onPill(frame, animated) }
         move(pill, to: frame, animated: animated, spring: .selection)
+    }
+
+    /// Moves the pill and gap by `dy` at once, from where they show now,
+    /// with the rows and the scroll offset (the sidebar keeping what the
+    /// user sees after a close; close-focus.md): no visible change.
+    func shift(by dy: CGFloat) {
+        for layer in [pill, gap] {
+            let current = layer.presentation()?.frame ?? layer.frame
+            layer.removeAnimation(forKey: "position")
+            layer.removeAnimation(forKey: "bounds")
+            Motion.transaction(nil) { layer.frame = current.offsetBy(dx: 0, dy: dy) }
+        }
     }
 
     /// Shows the drag gap placeholder (nil hides it).

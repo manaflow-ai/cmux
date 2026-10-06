@@ -122,7 +122,7 @@ import Testing
         tab.handle(.renderTerminated(browser: 1, status: 2, code: 11, text: ""))
         #expect(tab.state.processExit != nil)
         tab.contentDidAppear(in: CEFTabContentView(frame: NSRect(x: 0, y: 0, width: 100, height: 100)))
-        #expect(tab.state.processExit == nil, "Chrome reloads a tab that crashed in the background when it is shown")
+        #expect(tab.state.processExit == nil, "a tab that crashed in the background reloads when it is shown")
         #expect(tab.state.isLoading)
     }
 
@@ -135,8 +135,8 @@ import Testing
         #expect(tab.state.processExit != nil, "a crash the user saw stays until Reload")
     }
 
-    /// chrome://crash never commits: Reload must reload the committed page
-    /// (Chrome), not load chrome://crash into a renderer-less tab, which
+    /// chrome://crash never commits: Reload must reload the committed page,
+    /// not load chrome://crash into a renderer-less tab, which
     /// left it loading forever over Chromium's own Aw, Snap! page.
     @Test func reloadAfterADebugURLCrashReloadsTheCommittedPage() {
         let tab = makeTab()

@@ -379,6 +379,10 @@ build_helper() {
     -Dcrash-report-subdir=cmux/crash
     -Demit-macos-app=false
     -Demit-xcframework=false
+    # No build fetches packages it does not use, so each source archive equals
+    # the real fetch list: the helper never installs the iTerm2 theme set
+    # (the app ships its own checked-in themes, Resources/ghostty/themes).
+    -Demit-themes=false
     -Doptimize=ReleaseFast
     --prefix
     "$prefix"

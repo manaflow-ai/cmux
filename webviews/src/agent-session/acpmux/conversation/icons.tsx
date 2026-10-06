@@ -1,4 +1,4 @@
-// Icons used by the conversation transcript, from manaflow-ai/codex-atlas-clone
+// Icons used by the conversation transcript, from the agent-pane reference prototype
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";
@@ -58,6 +58,15 @@ export const Globe = (p: CvIconProps) => (
   </Svg>
 );
 
+/// A picture: a framed landscape (a web image the pane links to, Markdown.tsx).
+export const ImageIcon = (p: CvIconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="3" width="11" height="10" rx="1.75" />
+    <circle cx="6" cy="6.5" r="1.1" />
+    <path d="m3 12 3.5-3.5 2.25 2.25L10.5 9l3 3" />
+  </Svg>
+);
+
 export const Copy = (p: CvIconProps) => (
   <Svg {...p}>
     <rect x="5.25" y="5.25" width="8.25" height="8.25" rx="2" />
@@ -94,6 +103,14 @@ export const Undo = (p: CvIconProps) => (
   <Svg {...p}>
     <path d="M5.5 3.25 3 5.75l2.5 2.5" />
     <path d="M3 5.75h6.25a3.75 3.75 0 0 1 0 7.5H7.5" />
+  </Svg>
+);
+
+/// A counterclockwise arrow: send the prompt again.
+export const Retry = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M3.25 8a4.75 4.75 0 1 0 1.4-3.36" />
+    <path d="M3.25 2.75v2.5h2.5" />
   </Svg>
 );
 
@@ -259,7 +276,7 @@ export const TurnCopy = () => <TurnStrip slot={0} />;
 export const TurnFork = () => <TurnStrip slot={1} />;
 export const TurnAnchor = () => <TurnStrip slot={2} />;
 
-/** arXiv favicon as Codex shows it before "Paper" citation links. */
+/** arXiv favicon shown before "Paper" citation links. */
 export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   <svg className={className} style={style} width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
     <path d="M3.2 2.2 12.8 13.8" stroke="#b31b1b" strokeWidth="2.2" strokeLinecap="round" />
@@ -314,5 +331,20 @@ export const FileDoc = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <path d="M4.25 2.25h5l3 3v8.5h-8Z" />
     <path d="M9.25 2.25v3h3" />
+  </Svg>
+);
+
+/** Envelope of agent-to-agent message cards ("Coordinator · cmux-ci to leo"). */
+export const Envelope = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.75" />
+    <path d="m2.75 4.75 5.25 4 5.25-4" />
+  </Svg>
+);
+
+/** Arrow between a message's sender and recipient. */
+export const ArrowRight = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
   </Svg>
 );

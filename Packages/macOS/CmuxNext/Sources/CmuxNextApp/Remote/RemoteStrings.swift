@@ -13,6 +13,13 @@ enum RemoteStrings {
     static func placeholderUnknown(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.unknown", defaultValue: "%@ is not connected on this Mac", table: "Remote", bundle: .module), machine)
     }
+    // An agent chat tab whose session another Mac's acpmux runs.
+    static func agentTabElsewhere(_ machine: String) -> String {
+        String(format: String(localized: "remote.agentTab.elsewhere", defaultValue: "This chat runs on %@", table: "Remote", bundle: .module), machine)
+    }
+    static var agentTabElsewhereUnknown: String {
+        String(localized: "remote.agentTab.elsewhereUnknown", defaultValue: "This chat runs on another Mac", table: "Remote", bundle: .module)
+    }
     static var placeholderConnect: String {
         String(localized: "remote.terminal.connect", defaultValue: "Connect", table: "Remote", bundle: .module)
     }
@@ -82,7 +89,7 @@ enum RemoteStrings {
         String(format: String(localized: "remote.forget.title", defaultValue: "Forget %@?", table: "Remote", bundle: .module), name)
     }
     static var forgetBody: String {
-        String(localized: "remote.forget.body", defaultValue: "Removes the machine from the saved list with its personal order, groups and room pins. Nothing on the machine changes.", table: "Remote", bundle: .module)
+        String(localized: "remote.forget.body", defaultValue: "Removes the machine from the saved list with its personal order, groups and space pins. Nothing on the machine changes.", table: "Remote", bundle: .module)
     }
     static var forget: String { String(localized: "remote.button.forget", defaultValue: "Forget", table: "Remote", bundle: .module) }
 

@@ -34,15 +34,13 @@ public final class OnboardingGalleryController: NSWindowController, NSWindowDele
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 1000, height: 700)
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding.gallery")
-        window.backgroundColor = Palette.windowBackground
-        ThemeStore.shared.adopt(window)
         super.init(window: window)
         window.delegate = self
         barView = GalleryBottomBar(target: self, pick: #selector(pickPressed), compare: #selector(comparePressed),
                                copy: #selector(copyPressed), run: #selector(runPressed))
         barView.onNote = { [weak self] text in self?.setNote(text) }
         sidebarView.onSelect = { [weak self] step in self?.go(step: step, index: 0) }
-        window.contentView = makeContent()
+        window.install(kind: .onboardingGallery, content: makeContent(), scope: .app)
         (window as GalleryWindow).onKey = { [weak self] key in self?.handle(key) ?? false }
         if let dark = store.review.darkPreview { previewAppearance(dark) }
         render()

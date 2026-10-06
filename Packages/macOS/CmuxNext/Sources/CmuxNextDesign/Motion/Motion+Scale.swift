@@ -1,7 +1,7 @@
 public import QuartzCore
 
 extension Motion {
-    /// Scale a floating panel opens from (Linear's command menu, Spotlight):
+    /// Scale a floating panel opens from,
     /// with an `appear` spring and a `fadeIn`, about the panel's center.
     public static var panelOpenScale: CGFloat { CGFloat(MotionTunables.panelOpenScale.value) }
     /// Scale a floating panel closes to, with `fadeOut`: a slight shrink.

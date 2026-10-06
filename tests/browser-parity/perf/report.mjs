@@ -1,7 +1,6 @@
-// Markdown tables from perf/results/*.json (bench.mjs), for
-// plans/cmux-next/browser-repl/performance.md.
+// Markdown tables from perf/results/*.json (bench.mjs).
 //
-//   node tests/browser-parity/perf/report.mjs before-cmux-dev after-cmux-dev after-cmux ref-chrome ref-aside
+//   node tests/browser-parity/perf/report.mjs before-cmux-dev after-cmux-dev after-cmux
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +8,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runs = process.argv.slice(2).map((name) => ({ name, data: JSON.parse(fs.readFileSync(path.join(here, "results", `${name}.json`), "utf8")) }));
 
-// label -> page -> result, one column per tool and run.
+// label -> page -> result, one column per tool and run. A column exists only
+// for tools a run recorded, so runs without the older reference B AX entries (or
+// pages a tool skipped) leave no column or an empty cell.
 const columns = [];
 for (const { name, data } of runs) {
   const tools = new Map();
@@ -20,7 +21,7 @@ for (const { name, data } of runs) {
       tools.get(tool)[page] = v;
     }
   }
-  const names = { cmux: "cmux app", "cmux-dev": "cmux dev", "pw-mcp": "Playwright MCP", "chatgpt-ax": "ChatGPT AX", aside: "Aside" };
+  const names = { cmux: "cmux app", "cmux-dev": "cmux dev" };
   const when = name.split("-")[0];
   for (const [tool, pages] of tools) columns.push({ label: `${names[tool] || tool}${when === "ref" ? "" : ` ${when}`}`, pages });
 }

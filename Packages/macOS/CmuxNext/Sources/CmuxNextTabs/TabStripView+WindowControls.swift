@@ -18,15 +18,15 @@ extension TabStripView {
     /// the traffic lights; 0 when the strip is not under them.
     func computeWindowControlsInset() -> CGFloat {
         guard let window else { return 0 }
-        return Self.windowControlsInset(strip: convert(bounds, to: nil), lights: WindowTitlebar.trafficLightsFrame(in: window),
-                                        accessory: (window as? TitlebarAccessoryHosting)?.titlebarAccessoryFrame,
-                                        padding: metrics.stripHorizontalPadding)
+        let host = window as? TitlebarAccessoryHosting
+        return Self.windowControlsInset(strip: convert(bounds, to: nil), lights: WindowTitlebar.trafficLightsFrame(in: window), accessory: host?.titlebarAccessoryFrame,
+                                        padding: metrics.stripHorizontalPadding, collapsed: host?.windowControlsCollapsed ?? false)
     }
 
     /// Leading points a strip at `strip` (window coordinates) keeps clear of
-    /// the traffic lights and the window's titlebar accessory (pure).
-    static func windowControlsInset(strip: CGRect, lights: CGRect?, accessory: CGRect?, padding: CGFloat) -> CGFloat {
-        let obstacles = [lights, accessory].compactMap { $0 }.filter { frame in
+    /// the traffic lights and the window's titlebar accessory (pure); 0 while they are collapsed.
+    static func windowControlsInset(strip: CGRect, lights: CGRect?, accessory: CGRect?, padding: CGFloat, collapsed: Bool = false) -> CGFloat {
+        let obstacles = (collapsed ? [] : [lights, accessory]).compactMap { $0 }.filter { frame in
             strip.minY < frame.maxY && strip.maxY > frame.minY && strip.minX < frame.maxX && strip.maxX > frame.minX
         }
         guard let right = obstacles.map(\.maxX).max() else { return 0 }

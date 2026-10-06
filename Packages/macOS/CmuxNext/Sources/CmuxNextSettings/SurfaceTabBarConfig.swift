@@ -37,12 +37,11 @@ public struct SurfaceTabBarConfig: Sendable, Hashable {
         self.usesDefaults = usesDefaults
     }
 
-    /// New terminal tab, split right, split down.
-    public static let defaultButtons: [TabBarButtonSpec] = [
-        TabBarButtonSpec(id: "cmux.newTerminal", actionID: "newSurface", icon: .symbol("terminal")),
-        TabBarButtonSpec(id: "cmux.splitRight", actionID: "splitRight", icon: .symbol("square.split.2x1")),
-        TabBarButtonSpec(id: "cmux.splitDown", actionID: "splitDown", icon: .symbol("square.split.1x2")),
-    ]
+    /// No buttons by default. cmux-next's tab strip draws none at all
+    /// (TAB-STRIP-TRAILING-BUTTONS-REMOVED): the list is still parsed, so a
+    /// cmux.json shared with the old app loads cleanly and its inline
+    /// command entries stay palette actions.
+    public static let defaultButtons: [TabBarButtonSpec] = []
 
     public static let defaults = SurfaceTabBarConfig(buttons: defaultButtons, usesDefaults: true)
 }

@@ -119,10 +119,12 @@ struct TabDropPropertyTests {
         for run in 0..<Self.cases {
             let model = randomLayout(&rng)
             let tab = model.allTabs.randomElement(using: &rng)!
-            guard let context = model.context(dragging: tab, windowWorkspaceCount: Int.random(in: 1...2, using: &rng)) else {
+            guard var context = model.context(dragging: tab, windowWorkspaceCount: Int.random(in: 1...2, using: &rng)) else {
                 Issue.record("run \(run): no context")
                 return
             }
+            let respawns = Bool.random(using: &rng)
+            context.respawnsOnSplit = respawns
             let inside = Int.random(in: 0..<8, using: &rng) != 0
             let kind = randomKind(model, &rng)
             let outcome = TabDragResolver.outcome(for: TabDropProposal(kind: kind, highlightFrame: .zero), insideWindow: inside,
@@ -134,7 +136,7 @@ struct TabDropPropertyTests {
                     return
                 }
             }
-            guard let after = model.applying(outcome, dragging: tab) else {
+            guard let after = model.applying(outcome, dragging: tab, respawns: respawns) else {
                 Issue.record("run \(run): \(outcome) for \(tab) names a target the layout rejects (\(model.workspaces))")
                 return
             }

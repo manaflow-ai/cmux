@@ -74,12 +74,14 @@ cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 # ships the browser as unavailable.
 echo "Building app..."
 rm -rf build/
-./scripts/cmux-next/pin-cmux-tui.sh fetch
+./scripts/cmux-next/pin-cmux-tui.sh fetch --pin
 xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 if [ ! -d "$APP_PATH/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
   echo "WARNING: no Chromium engine embedded; this release ships the browser as unavailable" >&2
 fi
+# Chromium's license notices must ship with the engine (passes when no CEF is embedded).
+./scripts/cmux-next/check-cef-credits.sh "$APP_PATH"
 
 # The universal cmux-tui client of the pinned commit, as release.yml installs it.
 CMUX_TUI_COMMIT="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.pin)"
@@ -88,6 +90,8 @@ CMUX_TUI_COMMIT="$(awk -F= '$1=="commit"{print $2}' scripts/cmux-next/cmux-tui.p
   --expected-commit "$CMUX_TUI_COMMIT" \
   --require-capability wireguard-hub
 ./scripts/cmux-next/write-cmux-tui-version.sh "$APP_PATH" "$CMUX_TUI_COMMIT"
+# The pinned daemon must serve every capability the app relies on.
+./scripts/cmux-next/check-daemon-capabilities.sh --binary "$APP_PATH/Contents/Resources/bin/cmux-tui"
 
 # The cmux-next target does not build the Ghostty CLI helper (theme picker);
 # release.yml and nightly.yml inject a prebuilt one, this script builds it.

@@ -1,8 +1,8 @@
 public import AppKit
 
-/// Vertical rubber band only when there is something to scroll to, like
-/// Finder's sidebar: a list whose content fits neither scrolls nor bounces,
-/// and bounces again once it overflows. macOS's `.automatic` is always
+/// Vertical rubber band only when there is something to scroll to: a list
+/// whose content fits neither scrolls nor bounces, and bounces again once
+/// it overflows. macOS's `.automatic` is always
 /// elastic vertically. Updates from the clip view's and the document's
 /// frame notifications (no polling).
 @MainActor

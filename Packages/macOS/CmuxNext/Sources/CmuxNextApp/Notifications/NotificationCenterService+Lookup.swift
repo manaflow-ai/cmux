@@ -10,7 +10,7 @@ extension NotificationCenterService {
     static func contentTab(_ resolved: FocusState.Resolved) -> String? {
         switch resolved {
         case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab),
-             .agentPage(_, let tab): tab
+             .agentPage(_, let tab), .page(_, let tab), .conversation(_, let tab): tab
         default: nil
         }
     }
@@ -73,6 +73,46 @@ extension NotificationCenterService {
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         NSApp.dockTile.badgeLabel = label
+    }
+
+    /// The feed bridge over `feed`'s owner calls (nil without a feed service).
+    static func makeFeedBridge(_ feed: FeedService?) -> FeedNotificationBridge? {
+        guard let feed else { return nil }
+        return FeedNotificationBridge(
+            owner: { [weak feed] path, body in
+                guard let feed else { throw FeedServiceError.signedOut }
+                return try await feed.call(path, body)
+            },
+            isSignedIn: { [weak feed] in feed?.isSignedIn ?? false }
+        )
+    }
+
+    /// Posts `notification` to the feed as a notice (local daemon only), as
+    /// far as `feed.mirrorNotifications` allows for its source.
+    func mirrorToFeed(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab) {
+        guard let feedBridge, let session = services?.daemon.identity?.session, !session.isEmpty,
+              let content = Self.feedContent(notification, source: source, mirror: preferences.feedMirror) else { return }
+        feedBridge.post(.init(
+            notification: notification.notification.rawValue, daemonSession: session,
+            title: content.title, body: content.body, level: notification.level,
+            tab: located.tab.id, workspace: located.workspace.id, label: source.rawValue
+        ))
+    }
+
+    /// What `feed.mirrorNotifications` lets leave the Mac: nil for nothing.
+    /// The tab title is never sent (it can hold a command line).
+    nonisolated static func feedContent(_ notification: DaemonNotification, source: NotificationSource,
+                                        mirror: FeedMirrorPreferences) -> (title: String, body: String)? {
+        switch source {
+        case .terminal:
+            switch mirror.terminal {
+            case .off: return nil
+            case .title: return (notification.title, "")
+            case .full: return (notification.title, notification.body)
+            }
+        default:
+            return mirror.agents ? (notification.title, notification.body) : nil
+        }
     }
 
     static func seconds(_ duration: Duration) -> Double {

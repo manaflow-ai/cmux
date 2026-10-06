@@ -34,7 +34,8 @@ import Testing
         let compat = DaemonCompatibility(identity: Self.identity(Self.cloudImage3412812))
         #expect(compat.level == .limited)
         #expect(compat.missingRequired.isEmpty)
-        #expect(compat.missingOptional == DaemonCapabilities.shared.optional)
+        #expect(compat.missingOptional == DaemonCapabilities.shared.optional.filter { !Self.cloudImage3412812.contains($0) })
+        #expect(!compat.missingOptional.isEmpty)
         #expect(compat.buildCommit == "3412812eae76")
     }
 

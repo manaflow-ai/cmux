@@ -2,7 +2,7 @@ import CmuxNextDesign
 import SwiftUI
 
 /// The `cmux://bookmarks` page: folder tree on the left, the folder's
-/// bookmarks (or search results) on the right, Chrome's manager verbs.
+/// bookmarks (or search results) on the right, the usual manager verbs.
 /// Undesigned on purpose: system controls, theme colors, density tokens.
 struct BookmarkManagerView: View {
     @Bindable var model: BookmarkManagerModel

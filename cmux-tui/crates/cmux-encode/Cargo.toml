@@ -1,0 +1,24 @@
+[package]
+name = "cmux-encode"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux remote desktop and remote browser video encoders behind one trait: I420 pictures, OpenH264 from source (tests and the bench only) or Cisco's prebuilt library loaded at runtime after a pinned SHA-256 check; VideoToolbox on macOS"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# OpenH264 compiled from source: tests and the bench decoder only, never a
+# shipped binary (plans/cmux-next/remote-desktop-c7.md section 4).
+openh264-source = ["dep:openh264-sys2", "openh264-sys2/source"]
+# Cisco's prebuilt OpenH264, downloaded from Cisco at first use and loaded
+# with a pinned SHA-256 check (Cisco's patent license covers only that binary).
+openh264-runtime = ["dep:openh264-sys2", "openh264-sys2/libloading", "dep:sha2"]
+
+[dependencies]
+openh264-sys2 = { version = "=0.9.8", default-features = false, optional = true }
+sha2 = { version = "0.10", optional = true }

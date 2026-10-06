@@ -1,0 +1,170 @@
+name: Dogfood artifact publish
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    environment: artifacts
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Find the trusted org-member dogfood artifact
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq '.pull_requests[0].number // empty')"
+          if [ -z "$pr" ]; then
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          payload="$(gh api "repos/$GH_REPO/pulls/$pr")"
+          PR_JSON="$payload" PR_NUMBER="$pr" HEAD_SHA="$HEAD_SHA" python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          pr = json.loads(os.environ["PR_JSON"])
+          expected_repo = os.environ["GH_REPO"]
+          head = pr.get("head") or {}
+          repo = (head.get("repo") or {}).get("full_name")
+          labels = {label.get("name") for label in pr.get("labels") or []}
+          trusted = (
+              pr.get("state") == "open"
+              and repo == expected_repo
+              and head.get("sha") == os.environ["HEAD_SHA"]
+              and pr.get("author_association") in {"MEMBER", "OWNER"}
+              and "dev-build" in labels
+          )
+          if not trusted:
+              print("workflow run is not a current trusted org-member dev build; skipping")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("publish=false\n")
+              sys.exit(0)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("publish=true\n")
+              output.write(f"pr={os.environ['PR_NUMBER']}\n")
+              output.write(f"sha={os.environ['HEAD_SHA']}\n")
+          PY
+
+      - name: Checkout trusted publisher scripts
+        if: steps.pr.outputs.publish == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download the exact PR app archive
+        id: artifact
+        if: steps.pr.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          PR: ${{ steps.pr.outputs.pr }}
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dogfood"
+          gh run download "$RUN_ID" --repo "$GH_REPO" \
+            --name "dogfood-app-$PR-$HEAD_SHA" \
+            --dir "$RUNNER_TEMP/dogfood"
+          archive="$(find "$RUNNER_TEMP/dogfood" -type f -name '*.zip' -print -quit)"
+          test -f "$archive"
+          digest="$(sha256sum "$archive" | awk '{print $1}')"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the immutable app to the current R2 artifact store
+        if: steps.pr.outputs.publish == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-fleet-artifacts
+          ARCHIVE: ${{ steps.artifact.outputs.archive }}
+          DIGEST: ${{ steps.artifact.outputs.digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/upload-r2-object.py \
+            --file "$ARCHIVE" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket "$R2_BUCKET" \
+            --key "artifacts/$DIGEST" \
+            --content-type application/zip \
+            --cache-control 'private, no-store' \
+            --write-once
+
+      - name: Sign and verify the download URL
+        id: signed-url
+        if: steps.pr.outputs.publish == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: cmux-fleet-artifacts
+          DIGEST: ${{ steps.artifact.outputs.digest }}
+        run: |
+          set -euo pipefail
+          url="$(python3 scripts/ci/presign-r2-url.py \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket "$R2_BUCKET" \
+            --key "artifacts/$DIGEST" \
+            --expires-in 900)"
+          curl --fail --silent --show-error --head "$url" >/dev/null
+          printf 'url=%s\n' "$url" >> "$GITHUB_OUTPUT"
+
+      - name: Post the signed dogfood link
+        if: steps.pr.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.pr }}
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+          TAG: pr-${{ steps.pr.outputs.pr }}-${{ steps.pr.outputs.sha }}
+          DIGEST: ${{ steps.artifact.outputs.digest }}
+          DOWNLOAD_URL: ${{ steps.signed-url.outputs.url }}
+          MARKER: '<!-- cmux-fleet-dogfood-artifact -->'
+        run: |
+          set -euo pipefail
+          existing="$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.body | contains(\\\"$MARKER\\\")) | .id" | head -n1)"
+          BODY_PATH="$RUNNER_TEMP/dogfood-comment.md" \
+            python3 - <<'PY'
+          import os
+          from pathlib import Path
+          body = (
+              f"{os.environ['MARKER']}\n"
+              f"**cmux dogfood artifact** for `{os.environ['HEAD_SHA']}`\n\n"
+              f"[Download cmux DEV artifact]({os.environ['DOWNLOAD_URL']})\n\n"
+              f"SHA-256: `{os.environ['DIGEST']}`\n"
+              f"Tag: `{os.environ['TAG']}`\n\n"
+              "The download URL expires after 15 minutes."
+          )
+          Path(os.environ['BODY_PATH']).write_text(body + "\n", encoding="utf-8")
+          PY
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@"$RUNNER_TEMP/dogfood-comment.md" >/dev/null
+          else
+            gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F body=@"$RUNNER_TEMP/dogfood-comment.md" >/dev/null
+          fi
+          echo "Dogfood artifact link posted on #$PR."

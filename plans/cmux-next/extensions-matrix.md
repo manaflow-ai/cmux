@@ -195,8 +195,8 @@ Counts: pass 133, unverified 2, unsupported 2, fail 3
 | mv3 | devtools | devtools_page_loaded | pass | inspected tab 593328241 |
 | mv3 | devtools | inspectedWindow.eval | pass | cxt page |
 | mv3 | devtools | panels.create | pass |  |
-| mv3 | downloads | download_complete | pass | /Users/lawrence/Downloads/cmux-conformance-1790807109.bin |
-| mv3 | downloads | page_download | pass | /Users/lawrence/Downloads/cxt (1).bin |
+| mv3 | downloads | download_complete | pass | $HOME/Downloads/cmux-conformance-1790807109.bin |
+| mv3 | downloads | page_download | pass | $HOME/Downloads/cxt (1).bin |
 | mv3 | fontSettings | getFont | pass | {"fontId":"Times","levelOfControl":"controllable_by_this_extension"} |
 | mv3 | fontSettings | getFontList | pass | 249 fonts |
 | mv3 | history | addUrl_search_delete | pass | 1 visits |

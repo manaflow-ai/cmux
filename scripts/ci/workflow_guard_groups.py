@@ -104,7 +104,6 @@ PATH_OWNERS = {
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
-    "scripts/generate-cmux-config-schema.py": frozenset(("ci",)),
     # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
     # above and borrows union_pbxproj from the local resolver.
     "scripts/merge-pbxproj.py": frozenset(("preflight",)),
@@ -188,8 +187,7 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("cmuxCLITests/", "cmuxCLITestSupport/", "ios/cmuxUITests/",
-                        "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
+    if path.startswith(("tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
     return path.startswith("Packages/") and "/Tests/" in path
 

@@ -1,7 +1,0 @@
-<!doctype html><html><head><title>Ref stability</title></head><body>
-<!-- The ref-stability page for runtimes whose page evaluation is read-only
-     (ChatGPT for Chrome): the page applies the same mutation as run.mjs's
-     REF_MUTATE when "Mutate" is clicked. -->
-<ul id=L><li><button id=a>Alpha</button></li><li><button id=b>Beta</button></li></ul><button id=out onclick="this.textContent='Out clicked'">Out</button>
-<button id=mutate onclick="document.getElementById('b').textContent='Beta renamed';document.getElementById('L').insertAdjacentHTML('afterbegin','<li><button>Zero</button></li><li><button>Minus</button></li>');document.getElementById('a').closest('li').remove()">Mutate</button>
-</body></html>

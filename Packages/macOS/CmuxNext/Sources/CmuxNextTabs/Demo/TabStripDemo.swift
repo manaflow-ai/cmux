@@ -28,7 +28,7 @@ public struct TabStripDemo {
 
     private static var groupCounter = 0
 
-    /// A new demo group with the next Chrome color.
+    /// A new demo group with the next group color.
     public static func makeGroup(name: String = "") -> TabGroupItem {
         groupCounter += 1
         let color = GroupColor.allCases[groupCounter % GroupColor.allCases.count]

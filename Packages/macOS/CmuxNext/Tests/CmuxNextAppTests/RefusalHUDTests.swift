@@ -27,6 +27,29 @@ struct RefusalHUDTests {
         #expect(view.hitTest(CGPoint(x: view.frame.midX, y: view.frame.midY)) == nil)
     }
 
+    /// tab-dnd review (2026-10-04): a drop refusal shown behind a Chromium
+    /// page says nothing. Pages are child windows the CEF fork orders above
+    /// the parent's content, so the reason must draw in a window above
+    /// them (the R84 window overlay layer). Known issue until the HUD moves
+    /// into that layer (R84 core).
+    @Test func theReasonDrawsAboveAChromiumPageWindow() throws {
+        let window = window()
+        defer { window.close() }
+        let page = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
+        page.isReleasedWhenClosed = false
+        defer { page.close() }
+        window.addChildWindow(page, ordered: .above)
+        let hud = RefusalHUD()
+        hud.show("Not enough room to split this column", in: window)
+        withKnownIssue("R84: the HUD is in the parent content view, below Chromium page child windows") {
+            let host = try #require(hud.hostWindow)
+            let children = window.childWindows ?? []
+            let pageIndex = try #require(children.firstIndex(of: page))
+            let hostIndex = try #require(children.firstIndex(of: host), "the HUD draws in the parent, under the page")
+            #expect(hostIndex > pageIndex)
+        }
+    }
+
     @Test func hidesAfterItsLifetime() async {
         let window = window()
         defer { window.close() }

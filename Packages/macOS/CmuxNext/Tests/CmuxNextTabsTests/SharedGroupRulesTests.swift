@@ -133,7 +133,7 @@ import Testing
                 let orderBefore = Self.groupOrder(model)
                 model.apply(intent) { TabItem(id: TabID("fresh"), title: "") }
                 steps += 1
-                // A collapse over every visible item opens a fresh one (Chrome); it joins the set.
+                // A collapse over every visible item opens a fresh one; it joins the set.
                 let current = ids.union(model.orderedTabs.map(\.id).filter { $0.rawValue == "fresh" })
                 let bad = Self.violations(model, ids: current)
                 if !bad.isEmpty { failure = "seed \(seed) after \(intent): \(bad)" }

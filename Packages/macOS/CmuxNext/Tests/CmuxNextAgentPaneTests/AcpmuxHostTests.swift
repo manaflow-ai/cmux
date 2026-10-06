@@ -36,6 +36,23 @@ import Testing
         let (environment, root) = try stoppedDaemon()
         defer { try? FileManager.default.removeItem(at: root) }
         let handshake = try await AcpmuxHost(environment: environment).handshake(sessionId: nil)
-        #expect(handshake.endpoint == "ws://127.0.0.1:5123/")
+        #expect(handshake.connection?.url.absoluteString == "ws://127.0.0.1:5123/")
+        #expect(handshake.connection?.dashboardToken == "tok")
+        #expect(handshake.connection?.localAppToken == nil, "no token file: remote-origin")
+    }
+
+    /// The LocalApp token changes at every daemon launch, so each handshake reads the file again.
+    @Test func everyHandshakeReadsTheLocalAppTokenAgain() async throws {
+        let (environment, root) = try stoppedDaemon()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = AcpmuxLocalAppToken.path(home: environment.home)
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let first = String(repeating: "1a", count: 32)
+        let second = String(repeating: "2b", count: 32)
+        try first.write(to: file, atomically: true, encoding: .utf8)
+        let host = AcpmuxHost(environment: environment)
+        #expect(try await host.handshake(sessionId: nil).connection?.localAppToken == first)
+        try second.write(to: file, atomically: true, encoding: .utf8)
+        #expect(try await host.handshake(sessionId: nil).connection?.localAppToken == second)
     }
 }

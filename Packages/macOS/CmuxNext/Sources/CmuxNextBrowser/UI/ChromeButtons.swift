@@ -10,7 +10,7 @@ final class ChromeIconButton: NSButton {
     private var isHovering = false { didSet { updateFill() } }
     private var tracking: NSTrackingArea?
 
-    /// Toolbar buttons use Helium's geometry (`OmnibarStyle`); others the
+    /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
     /// A menu for right-click and long-press (Back / Forward entries).
@@ -72,6 +72,12 @@ final class ChromeIconButton: NSButton {
         didSet { updateFill() }
     }
 
+    /// A toggle that is on (design mode, open DevTools) keeps the pressed
+    /// fill; the app accent is a neutral gray, so a tint would not read.
+    var isOn = false {
+        didSet { if isOn != oldValue { updateFill() } }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
@@ -88,7 +94,7 @@ final class ChromeIconButton: NSButton {
     }
 
     /// A press held for 0.4 s shows the menu under the button instead of
-    /// clicking (Chrome's long-press Back and Forward).
+    /// clicking (long-press Back and Forward).
     override func mouseDown(with event: NSEvent) {
         showedHoldMenu = false
         if menuProvider != nil, isEnabled {
@@ -106,7 +112,7 @@ final class ChromeIconButton: NSButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -123,7 +129,7 @@ final class ChromeIconButton: NSButton {
         performWithTheme {
             let color: NSColor = if !isEnabled {
                 .clear
-            } else if isHighlighted {
+            } else if isHighlighted || isOn {
                 Palette.selectionFill
             } else if isHovering {
                 Palette.hoverFill

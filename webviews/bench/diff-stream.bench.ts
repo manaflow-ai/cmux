@@ -1,9 +1,7 @@
 import { parsePatchFiles, processFile } from "@pierre/diffs";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { JumpSelect } from "../src/App";
+import { jumpToFileRows } from "../src/toolbar-model";
 import { createDiffViewerLabelResolver } from "../src/labels";
 import { streamPatch, type DiffItem, type StreamMetrics } from "../src/diff-stream";
 import { makeMixedPatch } from "./diff-fixture";
@@ -139,19 +137,11 @@ function createAppRenderMetrics() {
     render(batch: DiffItem[]) {
       items = [...items, ...batch];
       const startedAt = performance.now();
-      const markup = renderToStaticMarkup(
-        createElement(JumpSelect, {
-          items,
-          label,
-          onJump: () => {},
-          onOpenSearch: () => {},
-          searchOpen: false,
-          selectedItemId: items[0]?.id ?? "",
-        }),
-      );
+      // The jump-to-file palette builds its capped row list only while open.
+      const { rows } = jumpToFileRows(items, "", label("untitled"));
       renderMs += performance.now() - startedAt;
       renderCount += 1;
-      maxJumpOptionCount = Math.max(maxJumpOptionCount, markup.match(/<option(?:\s|>)/g)?.length ?? 0);
+      maxJumpOptionCount = Math.max(maxJumpOptionCount, rows.length);
     },
   };
 }

@@ -5,8 +5,12 @@ use std::fmt;
 use std::sync::OnceLock;
 
 use crate::{PaneId, ScreenId, SplitId, SurfaceId, WorkspaceId};
+use scope::canonical_resource_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+
+mod error;
+pub use error::*;
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -67,47 +71,6 @@ impl<'de> Deserialize<'de> for RequestId {
         D: serde::Deserializer<'de>,
     {
         Self::parse(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WireDecimal(u64);
-
-impl WireDecimal {
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-impl Serialize for WireDecimal {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.0.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for WireDecimal {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        if value.len() > 20
-            || value.starts_with('+')
-            || (value.starts_with('0') && value.len() != 1)
-        {
-            return Err(serde::de::Error::custom("invalid unsigned decimal string"));
-        }
-        value
-            .parse::<u64>()
-            .map(Self)
-            .map_err(|_| serde::de::Error::custom("invalid unsigned decimal string"))
     }
 }
 
@@ -199,12 +162,32 @@ pub enum ResourceOperation {
     FrontendProjectionGet,
     #[serde(rename = "frontend_projection.put")]
     FrontendProjectionPut,
+    #[serde(rename = "git.checkpoint.create")]
+    GitCheckpointCreate,
+    #[serde(rename = "git.checkpoint.diff")]
+    GitCheckpointDiff,
+    #[serde(rename = "git.checkpoint.get")]
+    GitCheckpointGet,
+    #[serde(rename = "git.checkpoint.list")]
+    GitCheckpointList,
+    #[serde(rename = "git.checkpoint.pin")]
+    GitCheckpointPin,
+    #[serde(rename = "git.checkpoint.unpin")]
+    GitCheckpointUnpin,
+    #[serde(rename = "git.diff")]
+    GitDiff,
+    #[serde(rename = "git.files.search")]
+    GitFilesSearch,
+    #[serde(rename = "git.status")]
+    GitStatus,
     #[serde(rename = "workspace.list")]
     WorkspaceList,
     #[serde(rename = "workspace.get")]
     WorkspaceGet,
     #[serde(rename = "workspace.create")]
     WorkspaceCreate,
+    #[serde(rename = "workspace.ensure_home")]
+    WorkspaceEnsureHome,
     #[serde(rename = "workspace.rename")]
     WorkspaceRename,
     #[serde(rename = "workspace.move")]
@@ -257,6 +240,8 @@ pub enum ResourceOperation {
     PaneSplitRatioSet,
     #[serde(rename = "pane.viewport_width.set")]
     PaneViewportWidthSet,
+    #[serde(rename = "column.update")]
+    ColumnUpdate,
     #[serde(rename = "pane.close")]
     PaneClose,
     #[serde(rename = "pane.run")]
@@ -379,6 +364,116 @@ pub enum ResourceOperation {
     SidebarViewReload,
     #[serde(rename = "stream.cancel")]
     StreamCancel,
+    #[serde(rename = "origin.confirmation.issue")]
+    OriginConfirmationIssue,
+    #[serde(rename = "closed.list")]
+    ClosedList,
+    #[serde(rename = "closed.reopen")]
+    ClosedReopen,
+    #[serde(rename = "window_record.list")]
+    WindowRecordList,
+    #[serde(rename = "window_record.put")]
+    WindowRecordPut,
+    #[serde(rename = "window_record.delete")]
+    WindowRecordDelete,
+    #[serde(rename = "room.create")]
+    RoomCreate,
+    #[serde(rename = "room.delete")]
+    RoomDelete,
+    #[serde(rename = "room.follow")]
+    RoomFollow,
+    #[serde(rename = "room.list")]
+    RoomList,
+    #[serde(rename = "room.move")]
+    RoomMove,
+    #[serde(rename = "room.pin")]
+    RoomPin,
+    #[serde(rename = "room.unpin")]
+    RoomUnpin,
+    #[serde(rename = "room.update")]
+    RoomUpdate,
+    #[serde(rename = "saved_tab_group.delete")]
+    SavedTabGroupDelete,
+    #[serde(rename = "saved_tab_group.list")]
+    SavedTabGroupList,
+    #[serde(rename = "saved_tab_group.reopen")]
+    SavedTabGroupReopen,
+    #[serde(rename = "saved_tab_group.save")]
+    SavedTabGroupSave,
+    #[serde(rename = "screen.move")]
+    ScreenMove,
+    #[serde(rename = "screen.update")]
+    ScreenUpdate,
+    #[serde(rename = "screen_group.add_screens")]
+    ScreenGroupAddScreens,
+    #[serde(rename = "screen_group.create")]
+    ScreenGroupCreate,
+    #[serde(rename = "screen_group.get")]
+    ScreenGroupGet,
+    #[serde(rename = "screen_group.list")]
+    ScreenGroupList,
+    #[serde(rename = "screen_group.remove_screens")]
+    ScreenGroupRemoveScreens,
+    #[serde(rename = "screen_group.ungroup")]
+    ScreenGroupUngroup,
+    #[serde(rename = "screen_group.update")]
+    ScreenGroupUpdate,
+    #[serde(rename = "tab.pin")]
+    TabPin,
+    #[serde(rename = "tab.unpin")]
+    TabUnpin,
+    #[serde(rename = "tab.update")]
+    TabUpdate,
+    #[serde(rename = "tab_group.add_tabs")]
+    TabGroupAddTabs,
+    #[serde(rename = "tab_group.close")]
+    TabGroupClose,
+    #[serde(rename = "tab_group.create")]
+    TabGroupCreate,
+    #[serde(rename = "tab_group.get")]
+    TabGroupGet,
+    #[serde(rename = "tab_group.list")]
+    TabGroupList,
+    #[serde(rename = "tab_group.move")]
+    TabGroupMove,
+    #[serde(rename = "tab_group.remove_tabs")]
+    TabGroupRemoveTabs,
+    #[serde(rename = "tab_group.ungroup")]
+    TabGroupUngroup,
+    #[serde(rename = "tab_group.update")]
+    TabGroupUpdate,
+    #[serde(rename = "workspace.place")]
+    WorkspacePlace,
+    #[serde(rename = "workspace.placement.list")]
+    WorkspacePlacementList,
+    #[serde(rename = "workspace.update")]
+    WorkspaceUpdate,
+    #[serde(rename = "workspace_group.create")]
+    WorkspaceGroupCreate,
+    #[serde(rename = "workspace_group.delete")]
+    WorkspaceGroupDelete,
+    #[serde(rename = "workspace_group.list")]
+    WorkspaceGroupList,
+    #[serde(rename = "workspace_group.move")]
+    WorkspaceGroupMove,
+    #[serde(rename = "workspace_group.update")]
+    WorkspaceGroupUpdate,
+    #[serde(rename = "workspace_log.append")]
+    WorkspaceLogAppend,
+    #[serde(rename = "workspace_log.clear")]
+    WorkspaceLogClear,
+    #[serde(rename = "workspace_log.list")]
+    WorkspaceLogList,
+    #[serde(rename = "workspace_progress.clear")]
+    WorkspaceProgressClear,
+    #[serde(rename = "workspace_progress.set")]
+    WorkspaceProgressSet,
+    #[serde(rename = "workspace_status.clear")]
+    WorkspaceStatusClear,
+    #[serde(rename = "workspace_status.list")]
+    WorkspaceStatusList,
+    #[serde(rename = "workspace_status.set")]
+    WorkspaceStatusSet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -428,6 +523,7 @@ impl ResourceOperation {
             self,
             Self::RequestCancel
                 | Self::StreamCancel
+                | Self::OriginConfirmationIssue
                 | Self::ClientMetadataUpdate
                 | Self::ClientSizingSet
                 | Self::ClientSizingRelease
@@ -458,6 +554,12 @@ impl ResourceOperation {
                 | Self::ClientGet
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
+                | Self::GitCheckpointDiff
+                | Self::GitCheckpointGet
+                | Self::GitCheckpointList
+                | Self::GitDiff
+                | Self::GitFilesSearch
+                | Self::GitStatus
                 | Self::WorkspaceList
                 | Self::WorkspaceGet
                 | Self::ScreenList
@@ -483,6 +585,18 @@ impl ResourceOperation {
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::SidebarViewGet
+                | Self::ClosedList
+                | Self::WindowRecordList
+                | Self::RoomList
+                | Self::SavedTabGroupList
+                | Self::ScreenGroupGet
+                | Self::ScreenGroupList
+                | Self::TabGroupGet
+                | Self::TabGroupList
+                | Self::WorkspacePlacementList
+                | Self::WorkspaceGroupList
+                | Self::WorkspaceLogList
+                | Self::WorkspaceStatusList
         ) {
             OperationClass::Read
         } else {
@@ -495,259 +609,16 @@ impl ResourceOperation {
     }
 }
 
+mod envelope;
 #[cfg(test)]
-mod resource_operation_wire_name_tests {
-    use super::ResourceOperation;
+#[path = "resource/wire_name_tests.rs"]
+mod resource_operation_wire_name_tests;
+mod scope;
+mod wire_decimal;
+mod wire_name;
 
-    #[test]
-    fn wire_name_round_trips_through_serde() {
-        for name in [
-            "machine.list",
-            "session.journal.append",
-            "workspace.create",
-            "terminal.output_read",
-            "browser.close",
-            "stream.cancel",
-        ] {
-            let operation: ResourceOperation =
-                serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
-            assert_eq!(operation.wire_name(), name);
-            assert_eq!(serde_json::to_string(&operation).unwrap(), format!("\"{name}\""));
-        }
-    }
-}
-
-impl ResourceOperation {
-    pub const fn wire_name(self) -> &'static str {
-        match self {
-            Self::MachineList => "machine.list",
-            Self::MachineGet => "machine.get",
-            Self::SessionList => "session.list",
-            Self::SessionOpen => "session.open",
-            Self::SessionGet => "session.get",
-            Self::SessionSnapshot => "session.snapshot",
-            Self::SessionCreationResolve => "session.creation.resolve",
-            Self::SessionEvents => "session.events",
-            Self::SessionJournalSubscribe => "session.journal.subscribe",
-            Self::SessionJournalProducerList => "session.journal.producer.list",
-            Self::SessionJournalProducerPut => "session.journal.producer.put",
-            Self::SessionJournalAppend => "session.journal.append",
-            Self::SessionJournalCheckpointCreate => "session.journal.checkpoint.create",
-            Self::SessionJournalCheckpointList => "session.journal.checkpoint.list",
-            Self::SessionJournalHookList => "session.journal.hook.list",
-            Self::SessionJournalHookPut => "session.journal.hook.put",
-            Self::SessionJournalRestorePreview => "session.journal.restore.preview",
-            Self::SessionJournalSegmentList => "session.journal.segment.list",
-            Self::SessionJournalSegmentSeal => "session.journal.segment.seal",
-            Self::SessionPing => "session.ping",
-            Self::SessionShutdown => "session.shutdown",
-            Self::SessionReloadConfig => "session.reload_config",
-            Self::SessionTerminalDefaultsUpdate => "session.terminal_defaults.update",
-            Self::ClientList => "client.list",
-            Self::ClientGet => "client.get",
-            Self::ClientMetadataUpdate => "client.metadata.update",
-            Self::ClientSizingSet => "client.sizing.set",
-            Self::ClientSizingRelease => "client.sizing.release",
-            Self::ClientCellPixelsSet => "client.cell_pixels.set",
-            Self::ClientDetach => "client.detach",
-            Self::SessionWindowTitleSet => "session.window.title.set",
-            Self::SessionWindowTitleClear => "session.window.title.clear",
-            Self::PairingRequestList => "pairing_request.list",
-            Self::PairingRequestResolve => "pairing_request.resolve",
-            Self::RequestCancel => "request.cancel",
-            Self::FrontendProjectionGet => "frontend_projection.get",
-            Self::FrontendProjectionPut => "frontend_projection.put",
-            Self::WorkspaceList => "workspace.list",
-            Self::WorkspaceGet => "workspace.get",
-            Self::WorkspaceCreate => "workspace.create",
-            Self::WorkspaceRename => "workspace.rename",
-            Self::WorkspaceMove => "workspace.move",
-            Self::WorkspaceFocus => "workspace.focus",
-            Self::WorkspaceClose => "workspace.close",
-            Self::WorkspaceRun => "workspace.run",
-            Self::WorkspaceLayoutApply => "workspace.layout.apply",
-            Self::ScreenList => "screen.list",
-            Self::ScreenGet => "screen.get",
-            Self::ScreenCreate => "screen.create",
-            Self::ScreenRename => "screen.rename",
-            Self::ScreenFocus => "screen.focus",
-            Self::ScreenClose => "screen.close",
-            Self::ScreenLayoutExport => "screen.layout.export",
-            Self::ScreenLayoutUndo => "screen.layout.undo",
-            Self::PaneList => "pane.list",
-            Self::PaneGet => "pane.get",
-            Self::PaneCreate => "pane.create",
-            Self::PaneSplit => "pane.split",
-            Self::PaneRename => "pane.rename",
-            Self::PaneFocus => "pane.focus",
-            Self::PaneFocusDirection => "pane.focus_direction",
-            Self::PaneNeighborGet => "pane.neighbor.get",
-            Self::PaneSwap => "pane.swap",
-            Self::PaneZoom => "pane.zoom",
-            Self::PaneSplitRatioSet => "pane.split_ratio.set",
-            Self::PaneViewportWidthSet => "pane.viewport_width.set",
-            Self::PaneClose => "pane.close",
-            Self::PaneRun => "pane.run",
-            Self::TabList => "tab.list",
-            Self::TabGet => "tab.get",
-            Self::TabCreateTerminal => "tab.create_terminal",
-            Self::TabCreateBrowser => "tab.create_browser",
-            Self::TabRename => "tab.rename",
-            Self::TabMove => "tab.move",
-            Self::TabFocus => "tab.focus",
-            Self::TabClose => "tab.close",
-            Self::TerminalList => "terminal.list",
-            Self::TerminalGet => "terminal.get",
-            Self::TerminalInputWrite => "terminal.input.write",
-            Self::TerminalInputKeys => "terminal.input.keys",
-            Self::TerminalInputMouse => "terminal.input.mouse",
-            Self::TerminalInputFocus => "terminal.input.focus",
-            Self::TerminalScreenRead => "terminal.screen.read",
-            Self::TerminalStateRead => "terminal.state.read",
-            Self::TerminalHistoryRead => "terminal.history.read",
-            Self::TerminalHistoryClear => "terminal.history.clear",
-            Self::TerminalOutputRead => "terminal.output_read",
-            Self::TerminalWait => "terminal.wait",
-            Self::TerminalWaitExit => "terminal.wait_exit",
-            Self::TerminalCopy => "terminal.copy",
-            Self::TerminalProcessGet => "terminal.process.get",
-            Self::TerminalRendererGrantCreate => "terminal.renderer_grant.create",
-            Self::TerminalViewerResize => "terminal.viewer.resize",
-            Self::TerminalViewerRelease => "terminal.viewer.release",
-            Self::TerminalViewportScroll => "terminal.viewport.scroll",
-            Self::TerminalMove => "terminal.move",
-            Self::TerminalProject => "terminal.project",
-            Self::TerminalAttach => "terminal.attach",
-            Self::TerminalClose => "terminal.close",
-            Self::BrowserList => "browser.list",
-            Self::BrowserGet => "browser.get",
-            Self::BrowserNavigate => "browser.navigate",
-            Self::BrowserBack => "browser.back",
-            Self::BrowserForward => "browser.forward",
-            Self::BrowserReload => "browser.reload",
-            Self::BrowserActivate => "browser.activate",
-            Self::BrowserInputKey => "browser.input.key",
-            Self::BrowserInputText => "browser.input.text",
-            Self::BrowserInputMouse => "browser.input.mouse",
-            Self::BrowserInputWheel => "browser.input.wheel",
-            Self::BrowserViewerResize => "browser.viewer.resize",
-            Self::BrowserViewerRelease => "browser.viewer.release",
-            Self::BrowserAttach => "browser.attach",
-            Self::BrowserClose => "browser.close",
-            Self::NotificationList => "notification.list",
-            Self::NotificationCreate => "notification.create",
-            Self::NotificationAck => "notification.ack",
-            Self::NotificationClear => "notification.clear",
-            Self::AgentList => "agent.list",
-            Self::AgentReport => "agent.report",
-            Self::SidebarViewGet => "sidebar_view.get",
-            Self::SidebarViewEnsure => "sidebar_view.ensure",
-            Self::SidebarViewAttach => "sidebar_view.attach",
-            Self::SidebarViewInput => "sidebar_view.input",
-            Self::SidebarViewResize => "sidebar_view.resize",
-            Self::SidebarViewReload => "sidebar_view.reload",
-            Self::StreamCancel => "stream.cancel",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RequestEnvelope {
-    pub protocol: String,
-    #[serde(rename = "type")]
-    pub envelope_type: EnvelopeType,
-    pub id: RequestId,
-    pub operation: ResourceOperation,
-    pub params: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub idempotency_key: Option<String>,
-}
-
-impl RequestEnvelope {
-    pub fn validate(&self) -> Result<(), ResourceError> {
-        if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Request {
-            return Err(ResourceError::validation_invalid(
-                Some("protocol"),
-                "expected a cmux.protocol/2 request envelope",
-            ));
-        }
-        if !self.params.is_object() {
-            return Err(ResourceError::validation_invalid(
-                Some("params"),
-                "request params must be an object",
-            ));
-        }
-        match (&self.idempotency_key, self.operation.class()) {
-            (None, OperationClass::Mutation) => Err(ResourceError::validation_invalid(
-                Some("idempotency_key"),
-                "mutations require idempotency_key",
-            )),
-            (Some(_), class) if class != OperationClass::Mutation => {
-                Err(ResourceError::validation_invalid(
-                    Some("idempotency_key"),
-                    "only mutations accept idempotency_key",
-                ))
-            }
-            (Some(key), OperationClass::Mutation) => validate_idempotency_key(key),
-            _ => Ok(()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResponseEnvelope {
-    pub protocol: String,
-    #[serde(rename = "type")]
-    pub envelope_type: EnvelopeType,
-    pub id: RequestId,
-    pub ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ResourceError>,
-}
-
-impl ResponseEnvelope {
-    pub fn success(id: RequestId, result: Value) -> Self {
-        Self {
-            protocol: PROTOCOL.to_string(),
-            envelope_type: EnvelopeType::Response,
-            id,
-            ok: true,
-            result: Some(result),
-            error: None,
-        }
-    }
-
-    pub fn failure(id: RequestId, error: ResourceError) -> Self {
-        Self {
-            protocol: PROTOCOL.to_string(),
-            envelope_type: EnvelopeType::Response,
-            id,
-            ok: false,
-            result: None,
-            error: Some(error),
-        }
-    }
-
-    pub fn validate(&self) -> Result<(), ResourceError> {
-        if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Response {
-            return Err(ResourceError::validation_invalid(
-                Some("protocol"),
-                "expected a cmux.protocol/2 response envelope",
-            ));
-        }
-        match (self.ok, self.result.is_some(), self.error.is_some()) {
-            (true, true, false) | (false, false, true) => Ok(()),
-            _ => Err(ResourceError::validation_invalid(
-                None,
-                "response must contain exactly one matching result or error",
-            )),
-        }
-    }
-}
+pub use envelope::{RequestEnvelope, ResponseEnvelope};
+pub use wire_decimal::WireDecimal;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -934,341 +805,6 @@ fn encode_hex(bytes: [u8; 16]) -> String {
     }
     output
 }
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ResourceError {
-    pub code: String,
-    pub message: String,
-    pub details: Value,
-    pub retryable: bool,
-}
-
-impl ResourceError {
-    pub fn new(
-        code: impl Into<String>,
-        message: impl Into<String>,
-        details: Value,
-        retryable: bool,
-    ) -> Self {
-        let code = code.into();
-        assert!(
-            is_catalog_error_code(&code),
-            "resource error code {code:?} is absent from spec/resource-operations-v2.json"
-        );
-        assert!(
-            catalog_error_contract_matches(&code, &details, retryable),
-            "resource error {code:?} violates its catalog details or retryable contract: {details}"
-        );
-        Self { code, message: message.into(), details, retryable }
-    }
-
-    pub fn operation_failed(
-        operation: impl Into<String>,
-        reason: impl Into<String>,
-        extra: Value,
-    ) -> Self {
-        let operation = operation.into();
-        let reason = reason.into();
-        assert!(extra.is_object(), "operation.failed extra must be an object");
-        let mut details = json!({
-            "operation":operation,
-            "reason":reason,
-        });
-        if extra.as_object().is_some_and(|extra| !extra.is_empty()) {
-            details["extra"] = extra;
-        }
-        Self::new("operation.failed", reason, details, false)
-    }
-
-    fn invalid_id(kind: &str, value: &str) -> Self {
-        let scope = canonical_resource_scope(kind);
-        Self::new(
-            "selector.invalid",
-            format!("invalid {kind} {value:?}"),
-            json!({
-                "scope":scope,
-                "selector":value,
-                "reason":format!("invalid {kind} resource identity"),
-            }),
-            false,
-        )
-    }
-
-    pub fn not_found(kind: &str, selector: &str) -> Self {
-        let scope = canonical_resource_scope(kind);
-        Self::new(
-            "selector.not_found",
-            format!("no {kind} matches {selector:?}"),
-            json!({"scope":scope,"selector":selector}),
-            false,
-        )
-    }
-
-    pub fn ambiguous(kind: &str, selector: &str, candidates: Vec<String>) -> Self {
-        let scope = canonical_resource_scope(kind);
-        Self::new(
-            "selector.ambiguous",
-            format!("more than one {kind} is named {selector:?}"),
-            json!({"scope":scope,"selector":selector,"candidates":candidates}),
-            false,
-        )
-    }
-
-    pub fn allocation(kind: &str) -> Self {
-        Self::operation_failed(
-            "resource.allocate",
-            format!("could not allocate {kind} identity"),
-            json!({"kind":kind}),
-        )
-    }
-
-    pub fn selector_invalid(scope: &str, selector: &str, reason: impl Into<String>) -> Self {
-        let reason = reason.into();
-        Self::new(
-            "selector.invalid",
-            reason.clone(),
-            json!({
-                "scope":canonical_resource_scope(scope),
-                "selector":selector,
-                "reason":reason,
-            }),
-            false,
-        )
-    }
-
-    pub fn validation_invalid(field: Option<&str>, reason: impl Into<String>) -> Self {
-        let reason = reason.into();
-        let mut details = json!({"reason":reason});
-        if let Some(field) = field {
-            details["field"] = json!(field);
-        }
-        Self::new("validation.invalid", reason, details, false)
-    }
-
-    pub fn transport_closed(reason: impl Into<String>) -> Self {
-        let reason = reason.into();
-        Self::new("transport.closed", reason.clone(), json!({"reason":reason}), true)
-    }
-
-    pub fn terminal_closed(terminal_id: &TerminalPublicId) -> Self {
-        Self::new(
-            "terminal.closed",
-            format!("terminal {terminal_id} is closed"),
-            json!({"terminal_id":terminal_id}),
-            false,
-        )
-    }
-
-    pub fn idempotency_conflict(idempotency_key: &str, committed_operation: &str) -> Self {
-        Self::new(
-            "idempotency.conflict",
-            "the idempotency key was already committed with different input",
-            json!({
-                "idempotency_key":idempotency_key,
-                "committed_operation":committed_operation,
-            }),
-            false,
-        )
-    }
-
-    pub fn creation_conflict(
-        correlation_key: &str,
-        existing_operation: &str,
-        requested_operation: &str,
-        existing_fingerprint: &str,
-        requested_fingerprint: &str,
-    ) -> Self {
-        Self::new(
-            "creation.conflict",
-            "the creation correlation key is bound to different semantics",
-            json!({
-                "correlation_key":correlation_key,
-                "existing_operation":existing_operation,
-                "requested_operation":requested_operation,
-                "existing_fingerprint":existing_fingerprint,
-                "requested_fingerprint":requested_fingerprint,
-            }),
-            false,
-        )
-    }
-
-    pub fn revision_conflict(expected: u64, actual: u64) -> Self {
-        Self::new(
-            "revision.conflict",
-            "the resource revision changed",
-            json!({
-                "expected":expected.to_string(),
-                "actual":actual.to_string(),
-            }),
-            true,
-        )
-    }
-}
-
-fn canonical_resource_scope(kind: &str) -> &'static str {
-    match kind.trim_end_matches('s') {
-        "machine" | "MachinePublicId" => "machine",
-        "session" | "SessionPublicId" => "session",
-        "client" | "ClientPublicId" => "client",
-        "workspace" | "WorkspacePublicId" | "ws" => "workspace",
-        "screen" | "ScreenPublicId" => "screen",
-        "pane" | "PanePublicId" => "pane",
-        "split" | "SplitPublicId" => "split",
-        "tab" | "TabPublicId" => "tab",
-        "terminal" | "TerminalPublicId" | "term" => "terminal",
-        "browser" | "BrowserPublicId" => "browser",
-        "notification" | "NotificationPublicId" => "notification",
-        "agent" | "AgentPublicId" => "agent",
-        "frontend_projection" | "FrontendProjectionPublicId" | "projection" => {
-            "frontend_projection"
-        }
-        "pairing_request" | "PairingRequestPublicId" | "pairing" => "pairing_request",
-        "sidebar_view" | "SidebarViewPublicId" => "sidebar_view",
-        "sidebar_plugin" | "SidebarPluginPublicId" => "sidebar_plugin",
-        "stream" | "StreamPublicId" => "stream",
-        other => panic!("unknown catalog resource scope {other:?}"),
-    }
-}
-
-pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
-    "confirmation.required",
-    "creation.conflict",
-    "cursor.gap",
-    "cursor.invalid",
-    "idempotency.conflict",
-    "local.io",
-    "mutation.indeterminate",
-    "operation.failed",
-    "operation.unsupported",
-    "resource.not_found",
-    "revision.conflict",
-    "selector.ambiguous",
-    "selector.invalid",
-    "selector.not_found",
-    "selector.wrong_parent",
-    "terminal.closed",
-    "transport.closed",
-    "validation.invalid",
-];
-
-pub(crate) fn is_catalog_error_code(code: &str) -> bool {
-    RESOURCE_ERROR_CODES.contains(&code)
-}
-
-fn error_catalog() -> &'static Value {
-    static CATALOG: OnceLock<Value> = OnceLock::new();
-    CATALOG.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
-            .expect("checked-in resource operation catalog")
-    })
-}
-
-fn catalog_error_contract_matches(code: &str, details: &Value, retryable: bool) -> bool {
-    let Some(error) = error_catalog()["errors"].get(code) else { return false };
-    error["retryable"].as_bool() == Some(retryable)
-        && catalog_value_matches(details, &error["details"])
-}
-
-fn catalog_value_matches(value: &Value, descriptor: &Value) -> bool {
-    match descriptor["kind"].as_str() {
-        Some("primitive") => match descriptor["name"].as_str() {
-            Some("json") => true,
-            Some("string") => {
-                let Some(value) = value.as_str() else { return false };
-                descriptor["min_length"]
-                    .as_u64()
-                    .is_none_or(|minimum| value.len() >= minimum as usize)
-                    && descriptor["max_length"]
-                        .as_u64()
-                        .is_none_or(|maximum| value.len() <= maximum as usize)
-            }
-            Some("decimal") => value.as_str().is_some_and(|value| {
-                value == "0"
-                    || (!value.starts_with('0')
-                        && value.len() <= 20
-                        && value.bytes().all(|byte| byte.is_ascii_digit())
-                        && value.parse::<u64>().is_ok())
-            }),
-            Some("boolean") => value.is_boolean(),
-            Some("uint32") => value.as_u64().is_some_and(|value| u32::try_from(value).is_ok()),
-            Some("uint64") => value.is_u64(),
-            _ => false,
-        },
-        Some("resource_id") => {
-            let Some(value) = value.as_str() else { return false };
-            let Some(resource) = descriptor["resource"].as_str() else { return false };
-            resource_id_has_kind(value, resource)
-        }
-        Some("enum") => {
-            descriptor["values"].as_array().is_some_and(|values| values.contains(value))
-        }
-        Some("array") => {
-            let Some(values) = value.as_array() else { return false };
-            descriptor["min_items"].as_u64().is_none_or(|minimum| values.len() >= minimum as usize)
-                && descriptor["max_items"]
-                    .as_u64()
-                    .is_none_or(|maximum| values.len() <= maximum as usize)
-                && values.iter().all(|value| catalog_value_matches(value, &descriptor["items"]))
-        }
-        Some("map") => value.as_object().is_some_and(|values| {
-            values.values().all(|value| catalog_value_matches(value, &descriptor["values"]))
-        }),
-        Some("object") => {
-            let Some(value) = value.as_object() else { return false };
-            let Some(fields) = descriptor["fields"].as_object() else { return false };
-            if descriptor["extra"] == Value::Bool(false)
-                && value.keys().any(|name| !fields.contains_key(name))
-            {
-                return false;
-            }
-            fields.iter().all(|(name, field)| match value.get(name) {
-                Some(value) => catalog_value_matches(value, &field["type"]),
-                None => field["required"] != Value::Bool(true),
-            })
-        }
-        Some("ref") => descriptor["name"]
-            .as_str()
-            .and_then(|name| error_catalog()["types"].get(name))
-            .is_some_and(|descriptor| catalog_value_matches(value, descriptor)),
-        _ => false,
-    }
-}
-
-fn resource_id_has_kind(value: &str, kind: &str) -> bool {
-    let prefix = match kind {
-        "machine" => "machine_",
-        "session" => "session_",
-        "client" => "client_",
-        "workspace" => "ws_",
-        "screen" => "screen_",
-        "pane" => "pane_",
-        "split" => "split_",
-        "tab" => "tab_",
-        "terminal" => "term_",
-        "browser" => "browser_",
-        "notification" => "notification_",
-        "agent" => "agent_",
-        "frontend_projection" => "projection_",
-        "pairing_request" => "pairing_",
-        "sidebar_view" => "sidebar_view_",
-        "stream" => "stream_",
-        _ => return false,
-    };
-    value.strip_prefix(prefix).is_some_and(is_lower_hex_128)
-}
-
-fn is_lower_hex_128(value: &str) -> bool {
-    value.len() == 32
-        && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-impl fmt::Display for ResourceError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for ResourceError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Selector {
@@ -1587,421 +1123,4 @@ pub struct PublicSlotIndexes {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn locally_emittable_error_codes_exactly_match_the_catalog() {
-        let catalog: Value =
-            serde_json::from_str(include_str!("../../../spec/resource-operations-v2.json"))
-                .unwrap();
-        let mut declared =
-            catalog["errors"].as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>();
-        let mut emitted = RESOURCE_ERROR_CODES.to_vec();
-        declared.sort_unstable();
-        emitted.sort_unstable();
-        assert_eq!(emitted, declared);
-        for code in declared {
-            assert!(is_catalog_error_code(code));
-        }
-    }
-
-    #[test]
-    fn catalog_error_details_and_retryability_are_recursively_enforced() {
-        let cursor = json!({"generation":"generation","revision":"4"});
-        let cases = [
-            (
-                "confirmation.required",
-                json!({
-                    "confirmation_token":"layout-confirmation-token",
-                    "revision":"4",
-                    "closes_panes":[format!("pane_{}", "0".repeat(32))]
-                }),
-                false,
-            ),
-            (
-                "creation.conflict",
-                json!({
-                    "correlation_key":"create-42",
-                    "existing_operation":"workspace.create",
-                    "requested_operation":"screen.create",
-                    "existing_fingerprint":"fingerprint-a",
-                    "requested_fingerprint":"fingerprint-b",
-                }),
-                false,
-            ),
-            (
-                "cursor.gap",
-                json!({
-                    "requested":cursor,
-                    "current":cursor,
-                    "oldest_revision":"2",
-                }),
-                true,
-            ),
-            (
-                "cursor.invalid",
-                json!({"requested":cursor,"current":cursor,"reason":"ahead"}),
-                false,
-            ),
-            (
-                "idempotency.conflict",
-                json!({"idempotency_key":"key","committed_operation":"workspace.rename"}),
-                false,
-            ),
-            ("local.io", json!({"path":"/tmp/socket","reason":"closed"}), false),
-            (
-                "mutation.indeterminate",
-                json!({
-                    "idempotency_key":"key",
-                    "operation":"browser.navigate",
-                    "recovery":"inspect_state_then_retry_with_new_key",
-                }),
-                false,
-            ),
-            (
-                "operation.failed",
-                json!({"operation":"workspace.close","reason":"failed","extra":{"errno":5}}),
-                false,
-            ),
-            (
-                "operation.unsupported",
-                json!({"capability":"session-journal-v1","action":"restart_session"}),
-                false,
-            ),
-            (
-                "resource.not_found",
-                json!({"scope":"terminal","id":format!("term_{}", "0".repeat(32))}),
-                false,
-            ),
-            ("revision.conflict", json!({"expected":"3","actual":"4"}), true),
-            (
-                "selector.ambiguous",
-                json!({"scope":"workspace","selector":"name:api","candidates":["a","b"]}),
-                false,
-            ),
-            (
-                "selector.invalid",
-                json!({"scope":"workspace","selector":"_","reason":"invalid"}),
-                false,
-            ),
-            ("selector.not_found", json!({"scope":"workspace","selector":"name:missing"}), false),
-            (
-                "selector.wrong_parent",
-                json!({
-                    "scope":"pane",
-                    "selector":"current",
-                    "parent_scope":"screen",
-                    "expected_parent":"screen-a",
-                    "actual_parent":"screen-b",
-                }),
-                false,
-            ),
-            ("transport.closed", json!({"reason":"closed"}), true),
-            ("validation.invalid", json!({"field":"rows","reason":"must be positive"}), false),
-        ];
-        for (code, details, retryable) in cases {
-            assert!(catalog_error_contract_matches(code, &details, retryable), "{code}: {details}");
-        }
-        assert!(!catalog_error_contract_matches(
-            "operation.failed",
-            &json!({"operation":"workspace.close","required_context":"connection"}),
-            false,
-        ));
-        assert!(!catalog_error_contract_matches(
-            "transport.closed",
-            &json!({"reason":"closed"}),
-            false,
-        ));
-    }
-
-    #[test]
-    fn ids_reject_uppercase_wrong_prefix_and_wrong_width() {
-        let id = WorkspacePublicId::random().unwrap();
-        assert_eq!(WorkspacePublicId::parse(id.to_string()).unwrap(), id);
-        assert!(WorkspacePublicId::parse(format!("ws_{}", "A".repeat(32))).is_err());
-        assert!(WorkspacePublicId::parse(format!("term_{}", "a".repeat(32))).is_err());
-        assert!(WorkspacePublicId::parse(format!("ws_{}", "a".repeat(31))).is_err());
-    }
-
-    #[test]
-    fn projection_and_pairing_ids_use_the_canonical_prefix_registry() {
-        let payload = "0".repeat(32);
-        assert_eq!(
-            FrontendProjectionPublicId::parse(format!("projection_{payload}")).unwrap().as_str(),
-            format!("projection_{payload}")
-        );
-        assert!(PairingRequestPublicId::parse(format!("pairing_{payload}")).is_ok());
-    }
-
-    #[test]
-    fn name_escape_selects_reserved_and_id_shaped_names() {
-        assert_eq!(Selector::parse("current").unwrap(), Selector::Current);
-        assert_eq!(Selector::parse("name:current").unwrap(), Selector::Name("current".into()));
-        assert!(matches!(
-            Selector::parse(&WorkspacePublicId::random().unwrap().to_string()).unwrap(),
-            Selector::Id(_)
-        ));
-        assert_eq!(
-            Selector::parse(&format!("name:ws_{}", "a".repeat(32))).unwrap(),
-            Selector::Name(format!("ws_{}", "a".repeat(32)))
-        );
-        assert_eq!(
-            Selector::parse("name:hello_world").unwrap(),
-            Selector::Name("hello_world".into())
-        );
-        assert_eq!(Selector::parse("hello_world").unwrap_err().code, "validation.invalid");
-        for reserved in ["create", "show", "close", "screen", "pane", "tab"] {
-            assert_eq!(Selector::parse(reserved).unwrap_err().code, "validation.invalid");
-            assert_eq!(
-                Selector::parse(&format!("name:{reserved}")).unwrap(),
-                Selector::Name(reserved.into())
-            );
-        }
-        for legacy in ["send-key", "clear-history", "vt-state", "focus-direction"] {
-            assert_eq!(Selector::parse(legacy).unwrap(), Selector::Name(legacy.into()));
-        }
-    }
-
-    #[test]
-    fn terminal_public_identity_is_independent_from_host_uuid_bits() {
-        let terminal = TerminalPublicId::parse("term_ffffffffffffffffffffffffffffffff").unwrap();
-        let tab = TabPublicId::parse("tab_00000000000000000000000000000001").unwrap();
-        let identity = TabResourceIdentity::persisted_terminal(tab, terminal.clone());
-        assert_eq!(identity.content_id, ContentPublicId::Terminal(terminal));
-    }
-
-    #[test]
-    fn duplicate_names_return_every_candidate_without_selecting() {
-        let result = resolve_name(
-            "workspace",
-            "api",
-            [("ws_1".into(), Some("api".into()), 1), ("ws_2".into(), Some("api".into()), 2)],
-        )
-        .unwrap_err();
-        assert_eq!(result.code, "selector.ambiguous");
-        assert_eq!(result.details["candidates"], json!(["ws_1", "ws_2"]));
-    }
-
-    #[test]
-    fn journal_revision_is_per_atomic_commit_and_detects_gaps() {
-        let mut journal = ResourceJournal::new("generation".into(), 8);
-        assert_eq!(
-            journal
-                .commit(vec![
-                    ("pane.created".into(), json!({"id":"pane"})),
-                    ("tab.created".into(), json!({"id":"tab"})),
-                ])
-                .unwrap(),
-            9
-        );
-        let batches = journal.after(8).unwrap();
-        assert_eq!(batches.len(), 1);
-        assert_eq!(batches[0].previous_revision.get(), 8);
-        assert_eq!(batches[0].revision.get(), 9);
-        assert_eq!(batches[0].deltas[0].sequence, 0);
-        assert_eq!(batches[0].deltas[1].sequence, 1);
-    }
-
-    #[test]
-    fn wire_decimals_are_strings_and_reject_noncanonical_values() {
-        assert_eq!(serde_json::to_value(WireDecimal::new(42)).unwrap(), json!("42"));
-        assert_eq!(serde_json::from_value::<WireDecimal>(json!("0")).unwrap().get(), 0);
-        for invalid in
-            [json!(42), json!(""), json!("01"), json!("-1"), json!("18446744073709551616")]
-        {
-            assert!(serde_json::from_value::<WireDecimal>(invalid).is_err());
-        }
-    }
-
-    #[test]
-    fn terminal_multiview_uses_a_new_public_protocol_version() {
-        assert_eq!(PROTOCOL, "cmux.protocol/2");
-    }
-
-    #[test]
-    fn requests_enforce_envelope_and_idempotency_rules() {
-        let read: RequestEnvelope = serde_json::from_value(json!({
-            "protocol": PROTOCOL,
-            "type": "request",
-            "id": "read-1",
-            "operation": "workspace.list",
-            "params": {}
-        }))
-        .unwrap();
-        read.validate().unwrap();
-
-        let mutation: RequestEnvelope = serde_json::from_value(json!({
-            "protocol": PROTOCOL,
-            "type": "request",
-            "id": "write-1",
-            "operation": "workspace.create",
-            "params": {"name":"api"},
-            "idempotency_key": "create-api"
-        }))
-        .unwrap();
-        mutation.validate().unwrap();
-
-        let mut missing_key = mutation;
-        missing_key.idempotency_key = None;
-        assert_eq!(missing_key.validate().unwrap_err().code, "validation.invalid");
-
-        let mut read_with_key = read;
-        read_with_key.idempotency_key = Some("unexpected".into());
-        assert_eq!(read_with_key.validate().unwrap_err().code, "validation.invalid");
-
-        for invalid in [
-            "".to_string(),
-            " \u{00a0}\u{3000}".to_string(),
-            "key\nwith-control".to_string(),
-            "key\u{0085}with-control".to_string(),
-            "\u{00e9}".repeat(65),
-        ] {
-            let invalid_request: RequestEnvelope = serde_json::from_value(json!({
-                "protocol": PROTOCOL,
-                "type": "request",
-                "id": "write-invalid",
-                "operation": "workspace.create",
-                "params": {"name":"api"},
-                "idempotency_key": invalid,
-            }))
-            .unwrap();
-            let error = invalid_request.validate().unwrap_err();
-            assert_eq!(error.code, "validation.invalid");
-            assert_eq!(error.details["field"], "idempotency_key");
-        }
-
-        for valid in [
-            "key".to_string(),
-            " \u{00a0}key\u{3000} ".to_string(),
-            "\u{feff}".to_string(),
-            "\u{00e9}".repeat(64),
-        ] {
-            let request: RequestEnvelope = serde_json::from_value(json!({
-                "protocol": PROTOCOL,
-                "type": "request",
-                "id": "write-valid",
-                "operation": "workspace.create",
-                "params": {"name":"api"},
-                "idempotency_key": valid,
-            }))
-            .unwrap();
-            request.validate().unwrap();
-        }
-    }
-
-    #[test]
-    fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempotency() {
-        for operation in [
-            ResourceOperation::SessionEvents,
-            ResourceOperation::SessionJournalSubscribe,
-            ResourceOperation::TerminalAttach,
-            ResourceOperation::BrowserAttach,
-            ResourceOperation::SidebarViewAttach,
-        ] {
-            assert_eq!(operation.class(), OperationClass::StreamOpen);
-        }
-        assert_eq!(ResourceOperation::RequestCancel.class(), OperationClass::ConnectionControl);
-        assert_eq!(ResourceOperation::StreamCancel.class(), OperationClass::ConnectionControl);
-        let connection_control = [
-            ResourceOperation::ClientMetadataUpdate,
-            ResourceOperation::ClientSizingSet,
-            ResourceOperation::ClientSizingRelease,
-            ResourceOperation::ClientCellPixelsSet,
-            ResourceOperation::ClientDetach,
-            ResourceOperation::TerminalRendererGrantCreate,
-            ResourceOperation::TerminalViewerResize,
-            ResourceOperation::TerminalViewerRelease,
-            ResourceOperation::BrowserViewerResize,
-            ResourceOperation::BrowserViewerRelease,
-        ];
-        for operation in connection_control {
-            assert_eq!(operation.class(), OperationClass::ConnectionControl);
-        }
-        assert_eq!(ResourceOperation::WorkspaceList.class(), OperationClass::Read);
-        assert_eq!(ResourceOperation::WorkspaceCreate.class(), OperationClass::Mutation);
-        assert_eq!(ResourceOperation::TabCreateTerminal.class(), OperationClass::Mutation);
-        assert_eq!(ResourceOperation::TabCreateBrowser.class(), OperationClass::Mutation);
-        assert_eq!(ResourceOperation::TerminalCopy.class(), OperationClass::Read);
-        assert_eq!(LocalOperation::SidebarPluginUseBuiltin.class(), OperationClass::Local);
-
-        for operation in [
-            ResourceOperation::SessionEvents,
-            ResourceOperation::SessionJournalSubscribe,
-            ResourceOperation::RequestCancel,
-            ResourceOperation::StreamCancel,
-            ResourceOperation::ClientMetadataUpdate,
-            ResourceOperation::ClientDetach,
-        ] {
-            let request = RequestEnvelope {
-                protocol: PROTOCOL.into(),
-                envelope_type: EnvelopeType::Request,
-                id: RequestId::parse("class").unwrap(),
-                operation,
-                params: json!({}),
-                idempotency_key: None,
-            };
-            request.validate().unwrap();
-            let mut keyed = request;
-            keyed.idempotency_key = Some("forbidden".into());
-            assert_eq!(keyed.validate().unwrap_err().code, "validation.invalid");
-        }
-    }
-
-    #[test]
-    fn envelopes_reject_unknown_fields_and_non_string_request_ids() {
-        assert!(
-            serde_json::from_value::<RequestEnvelope>(json!({
-                "protocol": PROTOCOL,
-                "type": "request",
-                "id": "request",
-                "operation": "workspace.list",
-                "params": {},
-                "extra": true
-            }))
-            .is_err()
-        );
-        assert!(
-            serde_json::from_value::<RequestEnvelope>(json!({
-                "protocol": PROTOCOL,
-                "type": "request",
-                "id": 1,
-                "operation": "workspace.list",
-                "params": {}
-            }))
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn response_invariant_is_checked() {
-        ResponseEnvelope::success(RequestId::parse("ok").unwrap(), json!({"value":1}))
-            .validate()
-            .unwrap();
-        ResponseEnvelope::failure(
-            RequestId::parse("error").unwrap(),
-            ResourceError::not_found("workspace", "missing"),
-        )
-        .validate()
-        .unwrap();
-
-        let invalid = ResponseEnvelope {
-            protocol: PROTOCOL.into(),
-            envelope_type: EnvelopeType::Response,
-            id: RequestId::parse("invalid").unwrap(),
-            ok: true,
-            result: None,
-            error: None,
-        };
-        assert_eq!(invalid.validate().unwrap_err().code, "validation.invalid");
-    }
-
-    #[test]
-    fn oversized_journal_commit_does_not_advance_revision() {
-        let mut journal = ResourceJournal::new("generation".into(), 4);
-        journal.byte_capacity = 32;
-        assert!(journal.commit(vec![("event".into(), json!({"large":"x".repeat(128)}))]).is_err());
-        assert_eq!(journal.revision(), 4);
-        assert!(journal.after(4).unwrap().is_empty());
-    }
-}
+mod tests;

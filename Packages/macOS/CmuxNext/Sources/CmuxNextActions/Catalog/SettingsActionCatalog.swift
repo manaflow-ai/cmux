@@ -6,15 +6,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "reloadConfiguration",
                 title: String(localized: "action.reloadConfiguration", defaultValue: "Reload Configuration", bundle: .module),
-                keywords: ["config", "cmux.json", "ghostty"],
+                keywords: ["config", "cmux-next.json", "ghostty"],
                 defaultShortcut: Shortcut(",", modifiers: [.command, .shift]), category: .settings,
                 symbol: "arrow.clockwise", surfaces: [.keyboard, .menu], cliName: "settings reload-configuration",
                 mainMenu: .app
             ),
             ActionDescriptor(
                 id: "palette.openCmuxSettingsFile",
-                title: String(localized: "action.palette.openCmuxSettingsFile", defaultValue: "Open cmux.json", bundle: .module),
-                keywords: ["config", "settings", "file"], category: .settings, symbol: "curlybraces",
+                title: String(localized: "action.palette.openCmuxSettingsFile", defaultValue: "Open cmux-next.json", bundle: .module),
+                keywords: ["config", "settings", "cmux-next.json", "file"], category: .settings, symbol: "curlybraces",
                 surfaces: [.palette, .menu], cliName: "settings open-json", mainMenu: .app
             ),
             ActionDescriptor(
@@ -22,6 +22,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.openGhosttySettings", defaultValue: "Open Ghostty Config", bundle: .module),
                 keywords: ["config", "settings", "file"], category: .settings, symbol: "doc.plaintext",
                 surfaces: [.palette, .menu], cliName: "settings open-ghostty-config", mainMenu: .app
+            ),
+            // R92 diagnostics: Settings > Terminal lists the Ghostty lines cmux
+            // does not apply. The CLI prints the same list (`cmux ghostty
+            // diagnostics`, the app's `ghostty.diagnostics`).
+            ActionDescriptor(
+                id: "ghostty.showDiagnostics",
+                title: String(localized: "action.ghostty.showDiagnostics", defaultValue: "Show Ghostty Config Diagnostics", bundle: .module),
+                keywords: ["ghostty", "config", "diagnostics", "unsupported", "keybind", "problems"], category: .settings,
+                symbol: "exclamationmark.triangle", surfaces: [.palette]
             ),
             ActionDescriptor(
                 id: "palette.makeDefaultBrowser",
@@ -54,6 +63,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
             ),
+            // The Keyboard Shortcuts editor (R59), a React page tab; no
+            // default key (defaults do not change, K1).
+            ActionDescriptor(
+                id: "keybindings.open",
+                title: String(localized: "action.keybindings.open", defaultValue: "Open Keyboard Shortcuts", bundle: .module),
+                keywords: ["shortcuts", "keybindings", "keys", "rebind", "chords", "when", "hotkeys"], category: .settings,
+                symbol: "keyboard", surfaces: [.palette, .keyboard], cliName: "settings keyboard-shortcuts",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             // DEV and NIGHTLY only (`DevTools`); CLI verb for the Rust CLI:
             // `cmux debug open-settings`.
             ActionDescriptor(
@@ -66,6 +84,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 id: "palette.installCLI",
                 title: String(localized: "action.palette.installCLI", defaultValue: "Install cmux CLI in PATH", bundle: .module),
                 keywords: ["command line", "shell"], category: .settings, symbol: "terminal", surfaces: [.palette],
+                // Another app's `cmux` at /usr/local/bin is never replaced
+                // silently: `--replace` replaces it, `--cmux_next` installs
+                // /usr/local/bin/cmux-next beside it; without either the app
+                // asks.
+                arguments: [
+                    ActionArgument(name: "replace",
+                                   title: String(localized: "argument.installCLI.replace", defaultValue: "Replace Another App's cmux", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                    ActionArgument(name: "cmux_next",
+                                   title: String(localized: "argument.installCLI.cmuxNext", defaultValue: "Install as cmux-next", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                ],
                 cliName: "settings install-cli-in-path"
             ),
             ActionDescriptor(
@@ -85,6 +115,24 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.checkForUpdates", defaultValue: "Check for Updates…", bundle: .module),
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",
                 surfaces: [.palette, .menu], cliName: "settings check-for-updates", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "updates.whatsNew",
+                title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),
+                keywords: ["changelog", "release notes", "update", "new"], category: .settings, symbol: "sparkles",
+                surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "announcements.show",
+                title: String(localized: "action.announcements.show", defaultValue: "Show Announcements", bundle: .module),
+                keywords: ["announcements", "news", "cards"], category: .settings, symbol: "megaphone",
+                surfaces: [.palette], cliName: "settings show-announcements"
+            ),
+            ActionDescriptor(
+                id: "announcements.hide",
+                title: String(localized: "action.announcements.hide", defaultValue: "Hide Announcements", bundle: .module),
+                keywords: ["announcements", "news", "cards"], category: .settings, symbol: "megaphone",
+                surfaces: [.palette], cliName: "settings hide-announcements"
             ),
             ActionDescriptor(
                 id: "palette.applyUpdateIfAvailable",
@@ -119,6 +167,19 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], cliName: "settings onboarding", mainMenu: .app
             ),
             ActionDescriptor(
+                id: "palette.importClassicSessions",
+                title: String(localized: "action.palette.importClassicSessions", defaultValue: "Import Classic cmux Sessions…", bundle: .module),
+                keywords: ["classic", "session", "workspace", "restore", "import"], category: .settings, symbol: "arrow.down.doc",
+                surfaces: [.palette, .menu], cliName: "settings import-classic-sessions"
+            ),
+            ActionDescriptor(
+                id: "importAndSync.show",
+                title: String(localized: "action.importAndSync.show", defaultValue: "Import and Sync…", bundle: .module),
+                keywords: ["import", "sync", "classic", "session", "workspace", "chat", "onboarding"], category: .settings,
+                symbol: "square.and.arrow.down", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
                 id: "palette.onboardingGallery",
                 title: String(localized: "action.palette.onboardingGallery", defaultValue: "Onboarding Gallery", bundle: .module),
                 keywords: ["onboarding", "variants", "design", "gallery"], category: .settings, symbol: "square.grid.3x3",
@@ -129,6 +190,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.sendFeedback", defaultValue: "Send Feedback", bundle: .module),
                 keywords: ["bug", "report", "contact"], category: .settings, symbol: "envelope",
                 surfaces: [.keyboard, .menu], cliName: "settings send-feedback", mainMenu: .help
+            ),
+            // Every entrypoint (Help menu, palette, `cmux settings show-crash-logs`,
+            // the restart notice) opens the newest crash
+            // log in TextEdit (CrashRecoveryService.showCrashLogs).
+            ActionDescriptor(
+                id: "help.showCrashLogs",
+                title: String(localized: "action.help.showCrashLogs", defaultValue: "Show Crash Logs", bundle: .module),
+                keywords: ["crash", "report", "ips", "log", "diagnostics", "textedit"], category: .settings,
+                symbol: "doc.text.magnifyingglass", surfaces: [.palette, .menu], cliName: "settings show-crash-logs",
+                mainMenu: .help
             ),
             ActionDescriptor(
                 id: "help.featureFlags",
@@ -205,19 +276,19 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.never",
                 title: String(localized: "action.layout.centerFocusedColumn.never", defaultValue: "Scroll Columns Minimally", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "reveal", "never", "minimal", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "reveal", "never", "minimal", "layout"], category: .settings,
                 symbol: "arrow.left.and.right", surfaces: [.palette], cliName: "settings scroll-columns-minimally"
             ),
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.always",
                 title: String(localized: "action.layout.centerFocusedColumn.always", defaultValue: "Always Center Focused Column", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "always", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "always", "layout"], category: .settings,
                 symbol: "align.horizontal.center", surfaces: [.palette], cliName: "settings always-center-focused-column"
             ),
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.onOverflow",
                 title: String(localized: "action.layout.centerFocusedColumn.onOverflow", defaultValue: "Center Focused Column on Overflow", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "overflow", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "overflow", "layout"], category: .settings,
                 symbol: "align.horizontal.center.fill", surfaces: [.palette], cliName: "settings center-focused-column-on-overflow"
             ),
             ActionDescriptor(
@@ -269,6 +340,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "macwindow.badge.plus", surfaces: [.palette], cliName: "settings use-standard-titlebar"
             ),
             ActionDescriptor(
+                id: "appearance.customize",
+                title: String(localized: "action.appearance.customize", defaultValue: "Customize Appearance…", bundle: .module),
+                keywords: ["appearance", "customize", "personalize", "theme", "colors", "background", "wallpaper", "font", "make it yours"],
+                category: .settings, symbol: "paintbrush", surfaces: [.palette, .keyboard, .menu],
+                cliName: "settings customize-appearance", mainMenu: .view
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
                 title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
                 keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,
@@ -285,6 +363,27 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.interfaceSize.reset", defaultValue: "Reset Interface Size", bundle: .module),
                 keywords: ["appearance", "font", "chrome", "default"], category: .settings, symbol: "textformat.size",
                 surfaces: [.palette], cliName: "settings reset-interface-size"
+            ),
+            ActionDescriptor(
+                id: "appearance.uiScale.increase",
+                title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase Interface Scale", bundle: .module),
+                keywords: ["appearance", "scale", "chrome", "bigger", "zoom"],
+                defaultShortcut: Shortcut("=", modifiers: [.control, .command]), category: .settings,
+                symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings increase-interface-scale", mainMenu: .view
+            ),
+            ActionDescriptor(
+                id: "appearance.uiScale.decrease",
+                title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease Interface Scale", bundle: .module),
+                keywords: ["appearance", "scale", "chrome", "smaller", "zoom"],
+                defaultShortcut: Shortcut("-", modifiers: [.control, .command]), category: .settings,
+                symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings decrease-interface-scale", mainMenu: .view
+            ),
+            ActionDescriptor(
+                id: "appearance.uiScale.reset",
+                title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset Interface Scale", bundle: .module),
+                keywords: ["appearance", "scale", "chrome", "default", "zoom"],
+                defaultShortcut: Shortcut("0", modifiers: [.control, .command]), category: .settings,
+                symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),
         ]
     }

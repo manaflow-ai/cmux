@@ -1,7 +1,7 @@
 public import AppKit
 
 /// Turns an engine's context menu model into an `NSMenu` and shows it. The
-/// host may append its own items (cmux actions) after the engine's.
+/// host may put its own items (cmux actions) before and after the engine's.
 public final class BrowserContextMenuBuilder {
     /// The process-wide presenter used by default browser hosts and diagnostics.
     public static let shared = BrowserContextMenuBuilder()
@@ -18,29 +18,34 @@ public final class BrowserContextMenuBuilder {
         request.items.map { item(for: $0, request: request) }
     }
 
-    /// Shows the engine's items plus `extra` at the request's location in
+    /// Shows `leading`, the engine's items and `extra` at the request's location in
     /// `view` (the tab's content view) on the next run-loop turn, and
     /// returns at once: the engine asks from inside its own work (a CEF
     /// pump pass), and a menu's tracking loop there would stop all of
     /// Chromium while the menu is open. The request completes when the menu
     /// closes (nil when nothing was chosen).
-    public func present(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem] = []) {
+    public func present(_ request: BrowserContextMenuRequest, in view: NSView, leading: [NSMenuItem] = [], extra: [NSMenuItem] = []) {
+        // The engine shows its own menu (WebKit): the rows go into it.
+        if let insert = request.insertLeading { return insert(leading) }
         // A background tab's view is in no window; AppKit cannot anchor a
         // menu there (it raises). Dismiss the request instead.
         guard view.window != nil else { return request.complete(nil) }
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak view] in
             MainActor.assumeIsolated {
                 guard let view, view.window != nil else { return request.complete(nil) }
-                self.show(request, in: view, extra: extra)
+                self.show(request, in: view, leading: leading, extra: extra)
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
-    private func show(_ request: BrowserContextMenuRequest, in view: NSView, extra: [NSMenuItem]) {
+    private func show(_ request: BrowserContextMenuRequest, in view: NSView, leading: [NSMenuItem], extra: [NSMenuItem]) {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        for item in items(for: request) { menu.addItem(item) }
+        for item in leading { menu.addItem(item) }
+        let engine = items(for: request)
+        if !leading.isEmpty, !engine.isEmpty { menu.addItem(.separator()) }
+        for item in engine { menu.addItem(item) }
         if !extra.isEmpty {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
             for item in extra { menu.addItem(item) }

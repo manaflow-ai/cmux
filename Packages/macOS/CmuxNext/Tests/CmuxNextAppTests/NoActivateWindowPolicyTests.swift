@@ -53,7 +53,7 @@ import Testing
 
     /// Every programmatic frame change of a shell window (tear-off,
     /// move-window, new window, restore) goes through `setFrame`.
-    @Test func aShellWindowFrameSetOffTheTestScreenLandsOnIt() throws {
+    @Test(.requiresGUISession) func aShellWindowFrameSetOffTheTestScreenLandsOnIt() throws {
         let screens = NSScreen.screens
         try #require(!screens.isEmpty)
         let saved = WindowPlacement.testScreen

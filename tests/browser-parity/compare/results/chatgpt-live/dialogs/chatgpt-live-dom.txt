@@ -1,4 +1,0 @@
-<button node_id=1>Alert</button>
-<button node_id=2>Confirm</button>
-<button node_id=3>Prompt</button>
-<button node_id=4>Arm beforeunload</button>

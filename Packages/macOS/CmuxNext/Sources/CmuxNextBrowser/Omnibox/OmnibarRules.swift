@@ -7,17 +7,19 @@ public nonisolated enum OmnibarRules {
     public static func fillText(for row: BrowserSuggestion) -> String {
         switch row.kind {
         case .search: row.title
-        case .keyword: row.content ?? row.title
-        case .navigate, .history, .bookmark: BrowserURLDisplay.editingText(for: row.url)
+        case .keyword, .answer: row.content ?? row.title
+        case .navigate, .history, .bookmark, .switchToTab: BrowserURLDisplay.editingText(for: row.url)
         }
     }
 
     /// The suffix that completes `typed` to `row`'s URL, or nil. Only
-    /// navigation and history rows complete, only on a prefix of the URL as
-    /// shown (no scheme, no `www.`) or of the full URL, and never for a
-    /// trailing space.
+    /// navigation, history and bookmark rows the pipeline marked
+    /// `inlineCompletable` complete, only on a prefix of the URL as shown (no
+    /// scheme, no `www.`) or of the full URL, and never for a trailing space.
+    /// Search, remote and Switch to Tab rows never complete.
     public static func inlineCompletion(for row: BrowserSuggestion, typed: String) -> String? {
-        guard row.kind != .search, row.kind != .keyword, !typed.isEmpty, typed.last?.isWhitespace == false else { return nil }
+        guard row.inlineCompletable, row.kind != .search, row.kind != .keyword, row.kind != .switchToTab, row.kind != .answer,
+              !typed.isEmpty, typed.last?.isWhitespace == false else { return nil }
         let lowered = typed.lowercased()
         for form in completionForms(of: row.url) where form.lowercased().hasPrefix(lowered) && form.count > typed.count {
             return String(form.dropFirst(typed.count))
@@ -56,12 +58,12 @@ public nonisolated enum OmnibarRules {
 /// What Copy and Cut put on the pasteboard for the omnibar's selection.
 public nonisolated struct OmnibarCopy: Equatable, Sendable {
     public var text: String
-    /// Also written as a URL (Chrome writes a hyperlink to the page).
+    /// Also written as a URL (a hyperlink to the page).
     public var url: URL?
 }
 
 nonisolated extension OmnibarReducer {
-    /// Copy of the field's selection, adjusted as Chrome does
+    /// Copy of the field's selection, adjusted as Chromium does
     /// (`omnibox::AdjustTextForCopy` in components/omnibox/browser/
     /// omnibox_text_util.cc); nil when nothing is selected.
     ///

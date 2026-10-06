@@ -24,4 +24,7 @@ emit("fetch-json", await res.json());
 emit("fetch-status", [res.ok, res.status, res.headers.get("content-type")]);
 const cookies = await page.context().cookies();
 emit("cookie-set", cookies.some((c) => c.name === "parity" && c.value === "1"));
-emit("fetch-sends-cookies", (await (await fetch(`${PRIMARY}/echo-cookie`)).json()).cookie);
+// Whether the page's cookie went with the request. A real profile has other
+// localhost cookies, so the whole header is not compared, and no cookie
+// value is printed.
+emit("fetch-sends-cookies", String((await (await fetch(`${PRIMARY}/echo-cookie`)).json()).cookie || "").split(/;\s*/).includes("parity=1"));

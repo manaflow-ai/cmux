@@ -16,6 +16,7 @@ struct BranchDaemonHarness {
     static func start(
         daemonEnvironment: [String: String]? = nil,
         terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+        sessionEvents: Bool = false,
         terminalReapGraceSeconds: UInt32? = nil
     ) async throws -> BranchDaemonHarness {
         let binary = try #require(RealBinary.url)
@@ -30,7 +31,7 @@ struct BranchDaemonHarness {
         let launcher = DaemonLauncher(configuration: configuration, environment: { environment })
         let ensured = try await launcher.ensure()
         let connection = DaemonConnection(
-            configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironment),
+            configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironment, sessionEvents: sessionEvents),
             endpointProvider: launcher.endpointProvider)
         let identity = try await connection.start()
         let store = await DaemonStore()
@@ -84,11 +85,12 @@ struct BranchDaemonHarness {
     static func with(
         daemonEnvironment: [String: String]? = nil,
         terminalEnvironment: (@Sendable () async -> [String: String])? = nil,
+        sessionEvents: Bool = false,
         terminalReapGraceSeconds: UInt32? = nil,
         _ body: (BranchDaemonHarness) async throws -> Void
     ) async throws {
         let harness = try await start(daemonEnvironment: daemonEnvironment, terminalEnvironment: terminalEnvironment,
-                                      terminalReapGraceSeconds: terminalReapGraceSeconds)
+                                      sessionEvents: sessionEvents, terminalReapGraceSeconds: terminalReapGraceSeconds)
         do {
             try await body(harness)
         } catch {

@@ -5,7 +5,7 @@ import Testing
 /// Terminal lifetime against the pinned branch cmux-tui: new placements name
 /// their own terminal in the shell environment, a closed tab's terminal can
 /// be shown again while it lives, and `keep` is settable.
-@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
+@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchTerminalLifetimeTests {
     /// Every placement starts its shell with `CMUX_SURFACE_ID` naming the
@@ -80,11 +80,14 @@ struct BranchTerminalLifetimeTests {
     @Test func closedTabsTerminalEndsAfterTheReapGrace() async throws {
         try await BranchDaemonHarness.with(terminalReapGraceSeconds: 1) { h in
             let (key, pane, _) = try await h.workspaceWithTerminal("reap")
-            let before = TerminalHosts.of(daemon: h.identity.pid)
+            let state = h.root.appendingPathComponent("state")
+            let before = TerminalHosts.terminals(daemon: h.identity.pid, state: state)
             let created = try await h.connection.newTab(in: pane, options: SpawnOptions(cwd: h.root.path, workspace: key))
             _ = try await h.run("echo reap-$((40+2))", in: created.surface, until: "reap-42")
-            let host = TerminalHosts.of(daemon: h.identity.pid).subtracting(before)
+            let host = TerminalHosts.terminals(daemon: h.identity.pid, state: state).subtracting(before)
             #expect(host.count == 1, "one terminal host for the new tab: \(host)")
+            let spares = TerminalHosts.of(daemon: h.identity.pid).subtracting(TerminalHosts.terminals(daemon: h.identity.pid, state: state))
+            #expect(spares.count <= 1, "at most one spare host (R81): \(spares)")
             try await h.connection.closeTab(created.surface)
             let leaked = await TerminalHosts.awaitExit(host, timeout: .seconds(15))
             #expect(leaked.isEmpty, "the closed tab's terminal outlived the reap grace: \(leaked)")

@@ -20,13 +20,8 @@ enum ActionRouting {
             }
             let previous = services.routedDaemon
             services.routedDaemon = routed ?? previous
-            // Only a user's run (or one asking `focus: true`) may change this
-            // client's view; handlers read it before any await.
-            let previousReveal = services.viewChangeAllowed
-            services.viewChangeAllowed = invocation.allowsViewChange
             body()
             services.routedDaemon = previous
-            services.viewChangeAllowed = previousReveal
         }
     }
 
@@ -56,8 +51,9 @@ enum ActionRouting {
             return daemons.first { $0.store.workspaces.flatMap(\.screens).contains { $0.id == target.id } }
         case .screenGroup:
             return GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: target.id), in: daemons)
-        case .column, .browserProfile, .bookmark:
-            // Browser profiles and bookmarks are personal state of this Mac.
+        case .column, .browserProfile, .bookmark, .sidebarItem, .sidebarSection:
+            // Browser profiles, bookmarks and the sidebar layout are personal
+            // state, not a machine daemon's.
             return nil
         case .profile:
             return daemons.first { $0.store.profile(ProfileID(rawValue: target.id)) != nil }

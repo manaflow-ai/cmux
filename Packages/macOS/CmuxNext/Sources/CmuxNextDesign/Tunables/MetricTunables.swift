@@ -12,7 +12,7 @@ public nonisolated struct MetricTunable: Sendable {
 
     /// The value chrome uses now. Observation-tracked (density, cmux.json
     /// override and Debug Settings override).
-    @MainActor public var value: CGFloat { tunable.resolve(Metrics.pick(compact, comfortable, key)) }
+    @MainActor public var value: CGFloat { Metrics.scale(tunable.resolve(Metrics.pick(compact, comfortable, key))) }
     public var descriptor: TunableDescriptor { tunable.descriptor }
 
     static func make(_ name: String, _ section: TunableSection, _ label: String, help: String,
@@ -36,7 +36,7 @@ public nonisolated enum MetricTunables {
     public static let sidebarWidth = MetricTunable.make("sidebarWidth", .sidebar, "Sidebar width", help: "Default sidebar width when visible.",
                                                         compact: 208, comfortable: 240, key: .sidebarWidth, range: 120...480)
     public static let titlebarHeight = MetricTunable.make("titlebarHeight", .sidebar, "Titlebar height", help: "Height of the unified titlebar area.",
-                                                          compact: 32, comfortable: 40)
+                                                          compact: 32, comfortable: 40, key: .titlebarHeight)
     public static let sidebarRowHeight = MetricTunable.make("sidebarRowHeight", .sidebar, "Sidebar row height", help: "A workspace row with one line.",
                                                             compact: 24, comfortable: 32, key: .sidebarRowHeight)
     public static let sidebarRowHeightWithSubtitle = MetricTunable.make(
@@ -73,7 +73,7 @@ public nonisolated enum MetricTunables {
 
     // MARK: Panes
 
-    public static let columnGap = MetricTunable.make("columnGap", .panes, "Column gap", help: "Gap between niri columns.",
+    public static let columnGap = MetricTunable.make("columnGap", .panes, "Column gap", help: "Gap between strip columns.",
                                                      compact: 6, comfortable: 8, key: .columnGap)
     public static let densityPaneCornerRadius = MetricTunable.make(
         "densityPaneCornerRadius", .panes, "Pane corner radius", help: "Rounded pane corners when padding or a border shows and layout.paneCornerRadius is unset.",

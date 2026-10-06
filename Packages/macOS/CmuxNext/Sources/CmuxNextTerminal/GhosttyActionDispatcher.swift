@@ -1,5 +1,5 @@
 import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 /// Routes decoded actions on the main actor.
 enum GhosttyActionDispatcher {

@@ -66,7 +66,8 @@ struct ControlAuthorizer: Sendable {
             return peer.uid == getuid()
         case .cmuxOnly:
             guard let pid = peer.pid else { return false }
-            return Self.isProcess(pid, descendantOf: configuration.trustedAncestor)
+            return ControlPeerAncestry.system.isInside(pid, ancestor: configuration.trustedAncestor,
+                                                       executables: configuration.trustedExecutables)
         }
     }
 
@@ -101,21 +102,5 @@ struct ControlAuthorizer: Sendable {
             current = rest[rest.index(after: space)...]
         }
         return String(current)
-    }
-
-    static func isProcess(_ pid: pid_t, descendantOf ancestor: pid_t) -> Bool {
-        var current = pid
-        for _ in 0..<128 {
-            if current == ancestor { return true }
-            if current <= 1 { return false }
-            var info = kinfo_proc()
-            var size = MemoryLayout<kinfo_proc>.size
-            var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, current]
-            guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return false }
-            let parent = info.kp_eproc.e_ppid
-            if parent == current || parent < 0 { return false }
-            current = parent
-        }
-        return false
     }
 }

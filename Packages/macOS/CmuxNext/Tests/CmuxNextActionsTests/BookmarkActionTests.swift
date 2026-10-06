@@ -3,7 +3,7 @@ import CmuxNextActions
 import Testing
 
 /// Bookmark actions (plans/cmux-next/bookmarks.md section 3): every verb has
-/// a `bookmark …` CLI name, the bar toggle owns Chrome's Cmd-Shift-B, Cmd-D
+/// a `bookmark …` CLI name, the bar toggle owns Cmd-Shift-B, Cmd-D
 /// stays Split Right, and the bar's menus reference only these verbs.
 @Suite struct BookmarkActionTests {
     let catalog = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })

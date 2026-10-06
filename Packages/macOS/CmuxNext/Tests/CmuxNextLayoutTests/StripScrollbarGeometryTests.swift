@@ -2,7 +2,7 @@ import CoreGraphics
 import Testing
 @testable import CmuxNextLayout
 
-/// Strip scrollbar thumb geometry (sticky-column.md, B1 to B3).
+/// Strip scrollbar thumb geometry (dock-column.md, B1 to B3).
 @Suite struct StripScrollbarGeometryTests {
     let track = CGRect(x: 0, y: 0, width: 500, height: 4)
 

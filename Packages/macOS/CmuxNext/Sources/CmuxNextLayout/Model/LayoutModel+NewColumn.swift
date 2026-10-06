@@ -2,7 +2,7 @@ public import CmuxNextDesign
 
 // New columns: width from cmux.json `layout.newColumnWidth` (matchCurrent,
 // fitScreen, or fixed at `layout.defaultColumnWidth` with the lone
-// full-width column rule; plans/cmux-next/column-sizing.md, niri.md).
+// full-width column rule; plans/cmux-next/column-sizing.md, column-scroll.md).
 extension LayoutModel {
     /// Width of a new column as a viewport fraction: the override, else the
     /// live setting while `followsDesignMetrics` is on, else the built-in 0.5.
@@ -71,7 +71,7 @@ extension LayoutModel {
     static let unscrolledColumn = "unscrolled"
 
     /// Requests a new column after `pane`'s column (default: the focused
-    /// pane), niri-style, at the `layout.newColumnWidth` width.
+    /// pane), at the `layout.newColumnWidth` width.
     public func newColumn(after pane: PaneID? = nil) {
         guard let pane = pane ?? focusedPane else { return }
         intentHandler?(.newColumn(after: pane, width: prepareNewColumn(nextTo: pane).width))

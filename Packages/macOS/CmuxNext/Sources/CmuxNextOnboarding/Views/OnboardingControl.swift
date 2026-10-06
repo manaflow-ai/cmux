@@ -1,9 +1,10 @@
 import AppKit
 import CmuxNextDesign
 
-/// System controls in theme neutrals: no accent color anywhere.
+/// Shared controls for onboarding actions and choices.
 enum OnboardingControl {
     static func button(_ title: String, prominent: Bool = false, target: AnyObject?, action: Selector) -> NSButton {
+        if prominent { return OnboardingAccentButton(title: title, target: target, action: action) }
         let button = NSButton(title: title, target: target, action: action)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.bezelStyle = prominent ? .glass : .push
@@ -12,14 +13,9 @@ enum OnboardingControl {
         return button
     }
 
+    /// Secondary text with a hover fill (`OnboardingTextButton`).
     static func plainButton(_ title: String, target: AnyObject?, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: target, action: action)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.isBordered = false
-        button.attributedTitle = NSAttributedString(string: title, attributes: [
-            .font: OnboardingMetrics.bodyFont, .foregroundColor: Palette.textSecondary,
-        ])
-        return button
+        OnboardingTextButton(title, target: target, action: action)
     }
 
     static func checkbox(_ title: String, target: AnyObject?, action: Selector) -> NSButton {

@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// Chrome's "sad tab": the page's content process ended. Covers the content
+/// The "sad tab": the page's content process ended. Covers the content
 /// area (child-window pages get an occlusion hole there, so this view is
 /// what the pane shows) and offers Reload, which starts a new process on the
 /// same URL and history.

@@ -2,13 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "./direct";
 import { MockAcpmuxSocket, mockHost, mockReply } from "./mock";
 import type { AcpmuxSnapshot } from "./model";
+import { readChangeSet } from "./changes/model";
 import { GROUP_ROWS, sessionMark, sidebarSections } from "./sessionList";
 import { workedTurn } from "./mockFixture";
+import { turnView } from "./conversation/turns";
 
 describe("mock transport", () => {
   const connectMock = async (
     snapshots: AcpmuxSnapshot[],
     delay: (ms: number) => Promise<void> = () => Promise.resolve(),
+    gitRoute?: "native" | "daemon",
   ) => {
     (globalThis as any).window ??= globalThis;
     return AcpmuxDirectClient.connect(
@@ -16,14 +19,56 @@ describe("mock transport", () => {
       (snapshot) => snapshots.push(snapshot),
       undefined,
       () => new MockAcpmuxSocket(delay) as unknown as WebSocket,
+      gitRoute,
     );
   };
   const until = async (done: () => boolean) => {
     for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   };
 
+  test("a file search outside a repository fails through the client with the service's code", async () => {
+    // Mock mode's in-page daemon answers file search; the native host does in the app.
+    const client = await connectMock([], undefined, "daemon");
+    const failure = await client.fileSearch("~/Downloads", "x", 10).catch((error: unknown) => error);
+    expect(failure).toMatchObject({
+      code: "operation.failed",
+      details: { extra: { code: "not_a_repository" } },
+      message: "~/Downloads is not in a git repository",
+    });
+    expect(await client.fileSearch("~/code/acpmux", "trust", 10)).toMatchObject({
+      root: "~/code/acpmux",
+      results: [{ path: "src/trust.rs" }],
+    });
+    client.close();
+  });
+
   /// Mock mode runs the real client against the in-page daemon, so a mock turn goes through the
   /// same event folding as an agent's.
+  test("in the app, a file search goes to the native host with the folder, not to acpmux", async () => {
+    const client = await connectMock([]);
+    const posted: { method: string; params: Record<string, unknown> }[] = [];
+    const saved = (globalThis as any).webkit;
+    (globalThis as any).webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string; params: Record<string, unknown> }) => {
+            posted.push(message);
+            return Promise.resolve({ ok: true, value: { root: "/repo", search_root: "/repo", results: [] } });
+          },
+        },
+      },
+    };
+    try {
+      expect(await client.fileSearch("/repo", "app", 20)).toEqual({ root: "/repo", search_root: "/repo", results: [] });
+    } finally {
+      (globalThis as any).webkit = saved;
+      client.close();
+    }
+    expect(posted.map(({ method, params }) => ({ method, params }))).toEqual([
+      { method: "file.search", params: { cwd: "/repo", query: "app", limit: 20 } },
+    ]);
+  });
+
   test("a prompt streams a scripted turn through the real client", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     (globalThis as any).window ??= globalThis;
@@ -134,6 +179,17 @@ describe("mock transport", () => {
     // Its turn is still running on a cloud machine.
     expect(snapshot.isWorking).toBe(true);
     expect(snapshot.summary).toMatchObject({ host: "hearty-beige-elk", hostKind: "cloud" });
+    // It is in the middle of a call, so the pane shows it working over that call.
+    const tools = snapshot.rows.flatMap((row) => row.items ?? []).flatMap((item) => (item.tool ? [item.tool] : []));
+    expect(tools.map(({ title, status }) => ({ title, status }))).toEqual([
+      { title: "Run bun test Sources/Sidebar", status: "in_progress" },
+    ]);
+    expect(turnView(snapshot.rows, new Set(), { working: true }).map((row) => row.kind)).toEqual([
+      "user",
+      "working",
+      "assistant",
+      "activity",
+    ]);
     client.close();
   });
 
@@ -146,6 +202,12 @@ describe("mock transport", () => {
     await until(() => snapshots.at(-1)?.isWorking === false);
     expect(snapshots.at(-1)?.isWorking).toBe(false);
     expect(snapshots.at(-1)?.rows.find((row) => row.kind === "turnSummary")?.status).toBe("cancelled");
+    // The call it was running settles with the turn.
+    const tool = snapshots
+      .at(-1)!
+      .rows.flatMap((row) => row.items ?? [])
+      .find((item) => item.tool)?.tool;
+    expect(tool?.status).toBe("failed");
     expect(snapshots.at(-1)?.sessions.find((entry) => entry.sessionId === "mock-sidebar-flicker")?.status).toBe("idle");
     client.close();
   });
@@ -321,9 +383,38 @@ describe("mock transport", () => {
     const rows = snapshots.at(-1)!.rows;
     expect(rows.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Recorded answer."]);
     const user = rows.find((row) => row.kind === "user")!;
-    expect(rows.find((row) => row.kind === "assistant")!.at - user.at).toBeGreaterThanOrEqual(2_000);
-    expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000);
+    // The recording's offsets, not the replay's few real milliseconds. The user row and the
+    // replay's start read the clock separately, so allow a little slack between them (CI once
+    // measured 1999 for the 2000 ms step).
+    const SLACK_MS = 50;
+    expect(rows.find((row) => row.kind === "assistant")!.at - user.at).toBeGreaterThanOrEqual(2_000 - SLACK_MS);
+    expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000 - SLACK_MS);
     client.close();
+  });
+
+  /// Mock mode keeps its git answers in the in-page daemon; nothing reaches a native host.
+  test("mock mode reads git scopes and the status from the in-page daemon", async () => {
+    const posted: unknown[] = [];
+    (globalThis as any).window ??= globalThis;
+    (globalThis as any).webkit = {
+      messageHandlers: { agentSession: { postMessage: (message: unknown) => posted.push(message) } },
+    };
+    try {
+      const client = await AcpmuxDirectClient.connect(
+        mockHost,
+        () => {},
+        undefined,
+        () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+        "daemon",
+      );
+      const staged = (await client.gitDiff("staged")) as { files: { path: string }[] };
+      expect(staged.files.map((file) => file.path)).toEqual(["Sources/Fleet/retry.ts"]);
+      expect(await client.gitStatus()).toMatchObject({ branch: "feat-upload-retry", ahead: 1 });
+      expect(posted).toEqual([]);
+      client.close();
+    } finally {
+      delete (globalThis as any).webkit;
+    }
   });
 });
 
@@ -402,7 +493,7 @@ describe("mock daemon", () => {
   test("the worked session's git scopes hold the turn's edits, half staged, over one commit", async () => {
     const { call, sent } = open();
     const paths = async (scope: string, sessionId = "mock-session") =>
-      ((await call("git.scope.diff", { sessionId, scope }))?.files ?? []).map((file: any) => file.path);
+      ((await call("git.diff", { sessionId, scope, include_patch: true }))?.files ?? []).map((file: any) => file.path);
     expect(await paths("staged")).toEqual(["Sources/Fleet/retry.ts"]);
     expect(await paths("unstaged")).toEqual(["Sources/Fleet/upload.ts", "Sources/Fleet/upload.test.ts"]);
     expect(await paths("uncommitted")).toEqual([
@@ -413,26 +504,49 @@ describe("mock daemon", () => {
     expect(await paths("committed")).toEqual(["Sources/Fleet/manifest.ts"]);
     expect((await paths("branch")).length).toBe(4);
     // Each file carries its counts and a patch from its first hunk; the set carries its totals.
-    const branch = await call("git.scope.diff", { sessionId: "mock-session", scope: "branch" });
+    const branch = await call("git.diff", { sessionId: "mock-session", scope: "branch", include_patch: true });
     expect(branch.root).toBe("~/code/cmux");
+    expect([branch.total_files, branch.files_omitted]).toEqual([4, 0]);
+    // The view reads the catalog's snake_case reply (cmux-tui GitDiffResult).
+    expect(readChangeSet({ ...branch, files_omitted: 2, untracked_skipped: 3 }, "branch")).toMatchObject({
+      totalFiles: 4,
+      filesOmitted: 2,
+      untrackedSkipped: 3,
+    });
+    const renamed = { path: "b.ts", previous_path: "a.ts", status: "renamed", additions: 0, deletions: 0 };
+    expect(readChangeSet({ files: [{ ...renamed, patch_truncated: true }] }, "staged")?.files[0]).toMatchObject({
+      previousPath: "a.ts",
+      patchTruncated: true,
+    });
     for (const file of branch.files) {
       expect(file.patch.startsWith("@@ -")).toBe(true);
       expect(file.patch.split("\n").filter((line: string) => line.startsWith("+")).length).toBe(file.additions);
     }
     expect(branch.additions).toBe(branch.files.reduce((sum: number, file: any) => sum + file.additions, 0));
     expect(await call("git.status", { sessionId: "mock-session" })).toEqual({
+      root: "~/code/cmux",
+      detached: false,
       branch: "feat-upload-retry",
       upstream: "origin/main",
-      base: "main",
+      base: "origin/main",
       ahead: 1,
       behind: 0,
     });
+    // As on the session host: patches only when asked, a base only where the scope compares
+    // with one, and no scope outside the catalog's five.
+    const plain = await call("git.diff", { sessionId: "mock-session", scope: "committed" });
+    expect(Object.keys(plain.files[0]).sort()).toEqual(["additions", "deletions", "path", "status"]);
+    expect(plain.base).toBe("4be1c2e~1");
+    const staged = await call("git.diff", { sessionId: "mock-session", scope: "staged" });
+    expect("base" in staged).toBe(false);
+    expect(await call("git.diff", { sessionId: "mock-session", scope: "lastTurn" })).toBeUndefined();
+    expect(sent.at(-1)?.error?.message).toBe("Unknown scope lastTurn");
     // Another project's session has no changes; a folder outside git fails to load.
     const { sessions } = await call("_acpmux/watch");
     const other = sessions.find((entry: any) => entry.cwd === "~/code/acpmux").sessionId;
     expect(await paths("uncommitted", other)).toEqual([]);
     const dotfiles = sessions.find((entry: any) => entry.cwd === "~/code/dotfiles").sessionId;
-    expect(await call("git.scope.diff", { sessionId: dotfiles, scope: "branch" })).toBeUndefined();
+    expect(await call("git.diff", { sessionId: dotfiles, scope: "branch" })).toBeUndefined();
     expect(sent.at(-1)?.error?.message).toBe("Not a git repository");
   });
 });

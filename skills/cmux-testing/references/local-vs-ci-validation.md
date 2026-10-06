@@ -38,13 +38,12 @@ swift test --filter <Module>Tests
 ```
 
 `swift test` does not launch `cmux DEV`. Record how many tests ran; a zero-test
-invocation is not verification. CLI tests run in the `cmux-cli-tests` scheme
-(host-free) on CI. Never run `xcodebuild test` locally.
+invocation is not verification. CLI tests are cmux-tui Rust tests;
+run them on a Testbox or in CI. Never run `xcodebuild test` locally.
 
 ## Python socket tests
 
 `tests_v2/` connects to a running cmux instance socket. Locally, point it at a tagged build with `CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock`. Never target an untagged `cmux DEV.app`; it conflicts with the user's running debug instance.
-`scripts/cmux-next/cli-compat-tests-v2.py` runs the suite against a tagged build; many files still call legacy `debug.*` methods, so compare with the baseline in `plans/cmux-next/cli-compat.md`.
 
 For CLI dogfood use `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh ...`, not the global
 `/tmp/cmux-cli` symlink. Confirm the tested artifact is the one you launched.

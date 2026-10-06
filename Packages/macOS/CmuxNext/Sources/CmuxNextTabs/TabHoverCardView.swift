@@ -132,7 +132,11 @@ final class TabHoverCardView: NSView {
         thumbnailTop?.constant = visible ? Metrics.space4 : 0
     }
 
+    /// The thumbnail the card shows.
+    private(set) var thumbnailImage: CGImage?
+
     func setThumbnail(_ image: CGImage?) {
+        thumbnailImage = image
         guard let layer = thumbnail.layer else { return }
         performWithTheme {
             layer.backgroundColor = Palette.hoverFill.cgColor

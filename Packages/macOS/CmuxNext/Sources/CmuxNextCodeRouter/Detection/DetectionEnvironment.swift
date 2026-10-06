@@ -2,7 +2,8 @@ public import Foundation
 
 /// Everything detection reads: a home directory, an environment (the
 /// login shell's, so keys exported in `.zshrc` count), files, the
-/// Keychain, local servers and the clock.
+/// Keychain, local servers and the clock; and the labeler that turns a
+/// signed-in identity into an ``AccountLabel``.
 public struct DetectionEnvironment: Sendable {
     public var home: URL
     public var environment: [String: String]
@@ -11,11 +12,13 @@ public struct DetectionEnvironment: Sendable {
     public var servers: any LocalServerProbing
     /// Providers with a key in cmux's own Keychain item.
     public var savedKeys: Set<AIProvider>
+    public var labeler: AccountLabeler
     public var now: Date
 
     public init(home: URL, environment: [String: String], files: any FileReading, keychain: any KeychainProbing,
-                servers: any LocalServerProbing, savedKeys: Set<AIProvider> = [], now: Date = Date()) {
+                servers: any LocalServerProbing, labeler: AccountLabeler, savedKeys: Set<AIProvider> = [], now: Date = Date()) {
         self.home = home
+        self.labeler = labeler
         self.environment = environment
         self.files = files
         self.keychain = keychain
@@ -42,11 +45,12 @@ public struct DetectionEnvironment: Sendable {
         return path
     }
 
-    /// `url` as shown to the user: under home it starts with `~`.
+    /// `url` as shown to the user: under home it starts with `~`, and an
+    /// email in a file or folder name is shortened.
     func display(_ url: URL) -> String {
         let path = url.standardizedFileURL.path, homePath = home.standardizedFileURL.path
-        guard path.hasPrefix(homePath + "/") else { return path }
-        return "~" + path.dropFirst(homePath.count)
+        guard path.hasPrefix(homePath + "/") else { return EmailRedaction.redactEmails(in: path) }
+        return EmailRedaction.redactEmails(in: "~" + path.dropFirst(homePath.count))
     }
 
     /// A JSON object file, or nil when missing or not an object.

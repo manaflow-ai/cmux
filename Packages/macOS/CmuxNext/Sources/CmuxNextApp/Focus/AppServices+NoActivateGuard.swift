@@ -39,7 +39,7 @@ extension AppServices {
         application?.inputObserver = { event in
             switch event.type {
             case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
-                if SyntheticInput.isUserInput(event) { guardian.userInput() }
+                if application?.currentEventIsSynthetic != true { guardian.userInput() }
             default: break
             }
             journalObserver?(event)

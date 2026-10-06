@@ -1,6 +1,6 @@
 public import CoreGraphics
 import CmuxNextDesign
-import GhosttyKit
+import GhosttyNextKit
 
 /// The terminal's padding inside its pane's content border
 /// (`window-padding-x`, `window-padding-y`, `window-padding-balance`).

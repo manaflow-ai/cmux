@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { createDiffWrites } from "../src/diff-writes";
 import { loadViewerPrefs, sanitizeViewerPrefs, saveViewerPrefs } from "../src/viewer-prefs";
 
 const originalWindow = (globalThis as any).window;
@@ -106,7 +107,8 @@ test("saveViewerPrefs posts to the bridge and merges into localStorage", async (
     },
     localStorage: storage,
   };
-  saveViewerPrefs({ layout: "unified" });
+  const writes = createDiffWrites();
+  saveViewerPrefs({ layout: "unified" }, writes);
   expect(posted.method).toBe("viewerPrefs.set");
   expect(posted.params).toEqual({ preferences: { layout: "unified" } });
   expect(JSON.parse(storage.getItem("cmux.diffViewer.options")!)).toEqual({

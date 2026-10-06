@@ -118,6 +118,12 @@ jobs:
           name: npm-packages
           path: dist
 
+      - name: Download the generated third-party notices
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: package-notices
+          path: dist/package-notices
+
       - name: Restore npm package executable modes
         run: |
           python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
@@ -138,6 +144,7 @@ jobs:
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ needs.version.outputs.version }}" \
+            --notices-dir dist/package-notices \
             --install-npm-package cmux-tui-linux-x64 \
             --install-npm-relay-package cmux-relay-linux-x64
 

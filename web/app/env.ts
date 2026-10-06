@@ -195,6 +195,8 @@ export const env = createEnv({
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Team invite, invite-link, team-create, join, and accept routes.
     CMUX_TEAM_INVITE_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Cloud VM firewall rule create and delete, per signed-in user.
+    CMUX_VM_FIREWALL_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Native ingress gates run before Stack verification, so provider outages
     // cannot turn reconnect/readiness fan-out into an auth-request storm.
     CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
@@ -427,7 +429,9 @@ export const env = createEnv({
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
-    NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: z.string().min(1),
+    // Optional: the production project does not require publishable keys,
+    // and Stack rejects a revoked key, so an unset key is sent as no key.
+    NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: z.string().min(1).optional(),
   },
   runtimeEnv: {
     RESEND_API_KEY: trimEnv(process.env.RESEND_API_KEY),
@@ -440,6 +444,7 @@ export const env = createEnv({
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
     CMUX_TEAM_INVITE_RATE_LIMIT_ID: trimEnv(process.env.CMUX_TEAM_INVITE_RATE_LIMIT_ID),
+    CMUX_VM_FIREWALL_RATE_LIMIT_ID: trimEnv(process.env.CMUX_VM_FIREWALL_RATE_LIMIT_ID),
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,

@@ -1,6 +1,6 @@
 # cmux-next tab strip: narrow tabs, favicons, title marquee
 
-Dogfood nxdog13 asked for narrow tabs like Helium (a Chromium browser),
+Dogfood nxdog13 asked for narrow tabs,
 favicons in browser tabs, and a hover marquee for clipped titles. Code:
 `TabChromeVisibility`, `TabCell`, `CmuxNextDesign/Text/TitleFade*`,
 `CmuxNextApp/Favicons/`.
@@ -21,10 +21,10 @@ content 24, separators 2 x 16 DIP),
 [tab_strip_layout.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/ui/views/tabs/tab_strip_layout.cc)
 (inactive tabs shrink below the active one before the strip overflows).
 
-Chrome decides from the contents width (tab width less both content
+Chromium decides from the contents width (tab width less both content
 insets). cmux uses the same rules in points with its own tokens:
 
-| Rule | Chrome | cmux |
+| Rule | Chromium | cmux |
 | --- | --- | --- |
 | Inactive favicon | shown while it fits, else centered and clipped | same |
 | Inactive title | any width left after favicon + pre-title padding, `FADE_TAIL` | same, at least `titleMinVisibleWidth` (12 pt), alpha-mask fade |
@@ -40,7 +40,7 @@ inactive, scrolls after that; the "+" follows the last tab).
 
 ## Favicons
 
-`BrowserTabIconState` is Chrome's `TabIcon` rule: throbber while the live
+`BrowserTabIconState` is Chromium's `TabIcon` rule: throbber while the live
 page loads, else the favicon, else a globe. `TabFaviconStore` resolves the
 live page's favicon URL, or the daemon record's for a tab without a live
 page, through `BrowserFaviconLoader`: http(s) only, no cookies sent or
@@ -51,7 +51,7 @@ missing icon starts one fetch and re-renders when it lands.
 
 Not done: the Chromium engine still fetches through this loader instead of
 the tab's own Chromium request context (`CefBrowserHost::DownloadImage`),
-which needs a new CEF shim entry point; Chrome's two throbber states
+which needs a new CEF shim entry point; Chromium's two throbber states
 (waiting counter-clockwise, loading clockwise) are one spinner; agent
 program icons on terminal tabs.
 

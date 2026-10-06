@@ -111,7 +111,7 @@ enum BookmarkHandlers {
         services.bookmarkPages.open(selecting: node.id)
     }
 
-    /// Every web page tab of the pane into a new folder (Chrome's Bookmark All Tabs).
+    /// Every web page tab of the pane into a new folder (Bookmark All Tabs).
     private static func addAllTabs(_ invocation: ActionInvocation, _ context: AppActionContext, _ resolver: BookmarkResolver) throws {
         let services = context.services
         guard let pane = context.paneController(invocation) else { return }

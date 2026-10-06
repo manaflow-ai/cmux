@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Observation
 import QuartzCore
 
-/// A compact row of saved group chips (Chrome's saved tab groups bar).
+/// A compact row of saved group chips (the saved tab groups bar).
 /// One view; chips are CALayers in one content layer that scrolls
 /// horizontally (trackpad or wheel) when the chips overflow. Click reopens a
 /// group; right-click asks `contextMenuProvider` with `.savedGroup(id)`.
@@ -169,7 +169,7 @@ public final class SavedGroupsBarView: NSView {
 
     public override func scrollWheel(with event: NSEvent) {
         // Trackpads scroll horizontally; a plain mouse wheel's vertical
-        // motion scrolls the bar too, like Chrome's tab strip.
+        // motion scrolls the bar too, like the tab strip.
         var delta = abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
         if !event.hasPreciseScrollingDeltas { delta *= metrics.tabHeight / 2 }
         guard delta != 0, scroll(by: -delta) else { return super.scrollWheel(with: event) }

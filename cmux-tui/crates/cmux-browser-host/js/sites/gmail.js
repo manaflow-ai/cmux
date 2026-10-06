@@ -8,7 +8,7 @@
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
-  const { URLSearchParams } = root.CmuxBrowserRepl.core;
+  const { URL, URLSearchParams } = root.CmuxBrowserRepl.core;
   const SIGN_IN = [/^https:\/\/accounts\.google\.com\//, /^https:\/\/workspace\.google\.com\//, /\/gmail\/about/];
 
   function readList(arg) {
@@ -33,15 +33,29 @@
     });
   }
 
+  // Gmail's own attachment download URL (https://mail.google.com/mail/...?view=att).
+  // Runs in the page (as source) and in the REPL.
+  function isAttachmentURL(href) {
+    try {
+      const u = new URL(href);
+      return u.origin === "https://mail.google.com" && /^\/mail\//.test(u.pathname) && u.searchParams.get("view") === "att";
+    } catch (e) {
+      return false;
+    }
+  }
+
   function readThreadBody(arg) {
     const md = (__MD__);
+    const isAttachmentURL = (__IS_ATTACHMENT_URL__);
     const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
     const person = (e) => ({ name: e.getAttribute("name") || clean(e.textContent), email: e.getAttribute("email") });
     const messages = [...document.querySelectorAll("div.adn[data-message-id], div[data-message-id].adn")].map((el) => {
       const from = el.querySelector(".gD");
       const date = el.querySelector(".g3");
       const body = el.querySelector(".a3s");
-      const attachments = [...el.querySelectorAll('a[href*="view=att"]')].map((a) => {
+      // Only Gmail's attachment chips (.aQH/.aZo, never inside the message
+      // body .a3s, which the sender writes) linking to Gmail's own download URL.
+      const attachments = [...el.querySelectorAll('.aQH a[href*="view=att"], .aZo a[href*="view=att"]')].filter((a) => !a.closest(".a3s") && isAttachmentURL(a.href)).map((a) => {
         const box = a.closest(".aQH > *, .aZo") || a;
         const nameEl = box.querySelector(".aV3") || a;
         return { name: clean(nameEl.textContent) || a.getAttribute("download") || "attachment", url: a.href };
@@ -79,7 +93,7 @@
         return `https://mail.google.com/mail/u/${u}/`;
       };
       const mdSource = S.ELEMENT_MARKDOWN;
-      const threadFn = new Function("arg", `return (${readThreadBody.toString().replace("(__MD__)", `(${mdSource})`)})(arg);`);
+      const threadFn = new Function("arg", `return (${readThreadBody.toString().replace("(__MD__)", `(${mdSource})`).replace("(__IS_ATTACHMENT_URL__)", `(${isAttachmentURL.toString()})`)})(arg);`);
 
       async function openThread(page) {
         t.assertSignedIn("gmail", page, SIGN_IN);
@@ -172,6 +186,7 @@
           const all = th.messages.flatMap((m) => m.attachments);
           const pick = typeof which === "number" ? all[which] : all.find((a) => a.name === which);
           if (!pick) throw new S.SiteError("not_found", `gmail.attachment: no attachment ${JSON.stringify(which)}; attachments: ${all.map((a) => a.name).join(", ") || "none"}`);
+          if (!isAttachmentURL(pick.url)) throw new S.SiteError("invalid", `gmail.attachment: ${pick.url} is not a Gmail attachment URL`);
           let r = await t.fetch(pick.url);
           if ((r.headers.get("content-type") || "").startsWith("text/html") && /disp=safe/.test(pick.url)) r = await t.fetch(pick.url.replace("disp=safe", "disp=attd"));
           if (!r.ok) throw new S.SiteError("http", `gmail.attachment: HTTP ${r.status}`);

@@ -13,7 +13,7 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "focusTextBoxInput",
                 title: String(localized: "action.focusTextBoxInput", defaultValue: "Focus TextBox", bundle: .module),
-                keywords: ["input", "compose"], defaultShortcut: Shortcut("a", modifiers: [.command, .shift]),
+                keywords: ["input", "compose"], defaultShortcut: Shortcut("a", modifiers: [.command, .option]),
                 category: .terminal, symbol: "text.cursor", surfaces: [.palette, .keyboard],
                 requires: [.terminalFocused], targets: [.pane], cliName: "terminal focus-textbox"
             ),

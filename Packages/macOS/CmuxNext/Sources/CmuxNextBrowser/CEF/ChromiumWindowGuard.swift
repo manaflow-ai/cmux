@@ -2,7 +2,7 @@ import AppKit
 import os
 
 /// Last line of defense against Chromium's own top-level windows (a
-/// `Browser` window with Chrome's tab strip and toolbar, Task Manager, the
+/// `Browser` window with Chromium's tab strip and toolbar, Task Manager, the
 /// feedback dialog, the profile picker). The fork routes every window
 /// request to cmux (fork API 8) and never shows a Browser it created on its
 /// own; this guard covers older forks and any path the fork misses. It

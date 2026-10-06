@@ -52,8 +52,12 @@ import Testing
         #expect(CMTimeCompare(next ?? .invalid, CMTime(value: 3_200, timescale: 16_000)) == 0)
     }
 
+    /// The buffer is in the analyzer's own format (what
+    /// `SpeechAnalyzer.bestAvailableAudioFormat` returns for the transcriber:
+    /// 16 kHz mono Int16), as every buffer the engine feeds it is. On macOS 27
+    /// `AnalyzerInput` traps on a Float32 buffer.
     @Test func anInputIsTimedAtItsBuffersRate() throws {
-        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true))
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 2_973))
         buffer.frameLength = 2_973
         var timeline = AnalyzerTimeline()

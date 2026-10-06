@@ -66,4 +66,35 @@ enum SidebarMembership {
         if let last = local.last, let index = global.firstIndex(of: last) { return index + 1 }
         return global.count
     }
+
+    /// One personal placement (`workspace.place`): `key` goes to `index` in
+    /// the personal order counted after `key` itself is removed.
+    struct PersonalPlacement: Hashable {
+        var key: String
+        var index: Int
+    }
+
+    /// The personal placements, in the order to send them, that put
+    /// `moving` (in order) at `localIndex` of `shown`: the window's remaining
+    /// workspaces (without `moving`) in the order its sidebar shows them.
+    /// `rowed` is the personal order of every workspace that has a personal
+    /// position (without `moving`).
+    ///
+    /// A workspace without a personal position shows after every positioned
+    /// one (PersonalSidebar.order), so an index into `rowed` cannot name a
+    /// slot after one of them. The shown workspaces before the slot that have
+    /// no position get one first, at the end of `rowed` in the order they
+    /// show (which keeps that order); then the moved workspaces go after the
+    /// slot's last shown workspace, or before its first.
+    static func personalPlacements(moving: [String], localIndex: Int, shown: [String], rowed: [String]) -> [PersonalPlacement] {
+        var rowed = rowed
+        let slot = min(max(localIndex, 0), shown.count)
+        var plan: [PersonalPlacement] = []
+        for key in shown.prefix(slot) where !rowed.contains(key) {
+            plan.append(PersonalPlacement(key: key, index: rowed.count))
+            rowed.append(key)
+        }
+        let index = globalIndex(localIndex: slot, local: shown, global: rowed)
+        return plan + moving.enumerated().map { PersonalPlacement(key: $1, index: index + $0) }
+    }
 }

@@ -14,16 +14,24 @@ protocol DropOverlayRenderer: AnyObject {
     func pinMaterial(_ material: OverlayMaterial?)
     func update(_ frame: DropOverlayFrame)
     func applyTheme()
+    /// The renderer animates its own layers on the compositor
+    /// (`frame.animated`): the highlight view runs no frame clock for it.
+    var drivesOwnMotion: Bool { get }
+    /// The overlay hides; a self-driven renderer fades itself.
+    func hide(animated: Bool)
 }
 
 extension DropOverlayRenderer {
     var material: OverlayMaterial? { nil }
     func pinMaterial(_ material: OverlayMaterial?) {}
+    var drivesOwnMotion: Bool { false }
+    func hide(animated: Bool) {}
 }
 
 enum DropOverlayRenderers {
     static func make(_ style: DropOverlayStyle, material: OverlayMaterial?) -> any DropOverlayRenderer {
         switch style {
+        case .outline: OutlineRenderer()
         case .glassFill, .morph: GlassFillRenderer(style: style, material: material)
         case .glassOutline: GlassOutlineRenderer(material: material)
         case .insetCard: InsetCardRenderer(material: material)

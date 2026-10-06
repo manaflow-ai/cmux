@@ -2,6 +2,7 @@
 // exercise cross-origin iframes. Every page reads the peer origin from the
 // `peer` query parameter or from /origins.json.
 import http from "node:http";
+import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import dns from "node:dns/promises";
@@ -46,6 +47,10 @@ function handler(origins) {
     if (url.pathname === "/echo-cookie") {
       return send(200, "application/json", JSON.stringify({ cookie: req.headers.cookie ?? null }));
     }
+    // One redirect hop to `to` (host fetch scenarios: a hop to the peer origin).
+    if (url.pathname === "/redirect") {
+      return send(302, "text/plain; charset=utf-8", "", { location: url.searchParams.get("to") || "/" });
+    }
     if (url.pathname === "/api/data") {
       return send(200, "application/json", JSON.stringify({ ok: true, q: url.searchParams.get("q") }));
     }
@@ -63,11 +68,41 @@ function handler(origins) {
   };
 }
 
+// Each origin is also an HTTP CONNECT proxy to the fixture hosts (and only
+// to them), so `session.configure({ proxy: { server: PRIMARY } })` works.
+const PROXY_HOSTS = /^(localhost|127\.0\.0\.1|(?:[\w-]+\.)?lvh\.me)$/;
+
+function proxyTunnels(server, tunnels) {
+  server.on("connect", (req, client, head) => {
+    const at = req.url.lastIndexOf(":");
+    const host = req.url.slice(0, at);
+    const port = Number(req.url.slice(at + 1));
+    client.on("error", () => {});
+    if (!PROXY_HOSTS.test(host) || !port) {
+      client.end("HTTP/1.1 403 Forbidden\r\n\r\n");
+      return;
+    }
+    const upstream = net.connect(port, host.endsWith("lvh.me") ? "127.0.0.1" : host, () => {
+      client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      if (head.length) upstream.write(head);
+      upstream.pipe(client);
+      client.pipe(upstream);
+    });
+    upstream.on("error", () => client.destroy());
+    for (const socket of [client, upstream]) {
+      tunnels.add(socket);
+      socket.on("close", () => tunnels.delete(socket));
+    }
+  });
+}
+
 export async function startFixtureServers({ primaryPort = 0, peerPort = 0 } = {}) {
   const origins = {};
+  const tunnels = new Set();
   const listen = (port, host = "127.0.0.1") =>
     new Promise((resolve) => {
       const server = http.createServer(handler(origins));
+      proxyTunnels(server, tunnels);
       server.listen(port, host, () => resolve(server));
     });
   const primary = await listen(primaryPort);
@@ -83,7 +118,10 @@ export async function startFixtureServers({ primaryPort = 0, peerPort = 0 } = {}
   origins.insecure = insecureHost ? `http://${insecureHost}:${primary.address().port}` : null;
   return {
     origins,
-    close: () => Promise.all([primary, peer].map((s) => new Promise((r) => s.close(r)))),
+    close: () => {
+      for (const socket of tunnels) socket.destroy();
+      return Promise.all([primary, peer].map((s) => new Promise((r) => s.close(r))));
+    },
   };
 }
 

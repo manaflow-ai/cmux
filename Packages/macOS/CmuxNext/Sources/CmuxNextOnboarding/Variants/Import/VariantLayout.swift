@@ -58,8 +58,7 @@ enum VariantLayout {
         scroll.contentView = TopAnchoredClipView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
+        SystemScrollers.follow(scroll)
         scroll.documentView = document
         scroll.translatesAutoresizingMaskIntoConstraints = false
         let fit = scroll.heightAnchor.constraint(equalTo: document.heightAnchor)

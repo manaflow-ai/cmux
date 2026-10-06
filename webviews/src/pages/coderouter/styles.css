@@ -1,0 +1,136 @@
+/* CodeRouter page; the shared base (colors, desktop feel) is shared/pageBase.css + desktop.css.
+   Ghostty colors only (no blue): status uses the text tokens, never an accent hue. */
+.cr-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+.cr-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 18px 12px;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.cr-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.cr-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.cr-subtitle,
+.cr-muted {
+  margin: 0;
+  color: var(--page-text-2);
+}
+
+.cr-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: var(--page-text-2);
+}
+
+.cr-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--page-text-3);
+}
+
+.cr-status.ok .cr-dot {
+  background: var(--page-text);
+}
+
+.cr-error {
+  color: var(--page-text);
+}
+
+.cr-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 18px 18px;
+}
+
+.cr-section h2 {
+  margin: 16px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--page-text-2);
+}
+
+.cr-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cr-provider,
+.cr-linked-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.cr-provider-name,
+.cr-linked-label {
+  font-weight: 500;
+}
+
+.cr-provider-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.cr-badge {
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--page-separator);
+  color: var(--page-text-2);
+  font-size: 11px;
+}
+
+.cr-button {
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  border-radius: 999px;
+  padding: 2px 12px;
+  white-space: nowrap;
+}
+
+.cr-button:hover {
+  background: var(--page-hover);
+}
+
+.cr-button.primary {
+  background: var(--page-selection);
+  border-color: transparent;
+  font-weight: 500;
+}
+
+.cr-empty {
+  display: grid;
+  place-items: center;
+  height: 100vh;
+  padding: 18px;
+  color: var(--page-text-2);
+  text-align: center;
+}

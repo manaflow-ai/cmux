@@ -1,6 +1,10 @@
-# Hosted cmux-tui the cmux-next app bundles. Refresh: scripts/cmux-next/pin-cmux-tui.sh --help
-commit=f39636c811aaa7c0896fb270fd745ba1d53dfcca
-url=https://files.cmux.com/cmux-tui/f39636c811aaa7c0896fb270fd745ba1d53dfcca/cmux-tui-aarch64-apple-darwin
-run=36814037092
-verified_run=36814040800
-sha256=13c360c00e8f8091558f0a190d413192ad8a672ead4f46b300a92a12d10e698c
+# Hosted cmux-tui that release and RC builds bundle (dogfood builds use the same-tree binary). Refresh: scripts/cmux-next/pin-cmux-tui.sh --help
+commit=4a232fc2c61260dd2a43a941aba12ae4d1b50395
+url=https://files.cmux.com/cmux-tui/4a232fc2c61260dd2a43a941aba12ae4d1b50395/cmux-tui-aarch64-apple-darwin
+run=37240972784
+verified_run=37241038368
+sha256=e9ce559fa6e0669803f742a3cd793ecf9af0b36db2a171f303c89e13511f4e8e
+app_host_url=https://files.cmux.com/cmux-tui/4a232fc2c61260dd2a43a941aba12ae4d1b50395/cmux-tui-app-host-aarch64-apple-darwin
+app_host_sha256=88be0af78457e8ed3e2700f3dc6fea5b55a7830b42e952256caa3ea054099d52
+cloud_server_url=https://files.cmux.com/cmux-tui/4a232fc2c61260dd2a43a941aba12ae4d1b50395/cmux-tui-cloud-server-aarch64-apple-darwin
+cloud_server_sha256=8aec24a0a608106d230fb825ebe47e7a9da70735351022969c63c036efcda3e0

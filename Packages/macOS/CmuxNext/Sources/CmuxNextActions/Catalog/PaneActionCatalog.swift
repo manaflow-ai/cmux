@@ -13,10 +13,18 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "newColumn",
                 title: String(localized: "action.newColumn", defaultValue: "New Column", bundle: .module),
-                keywords: ["niri", "scroll", "column", "pane"],
+                keywords: ["scroll", "column", "pane"],
                 defaultShortcut: Shortcut("d", modifiers: [.control, .command]), category: .pane,
                 symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
+            ),
+            ActionDescriptor(
+                id: "newRow",
+                title: String(localized: "action.newRow", defaultValue: "New Row", bundle: .module),
+                keywords: ["scroll", "row", "pane"],
+                defaultShortcut: Shortcut("d", modifiers: [.control, .shift, .command]), category: .pane,
+                symbol: "rectangle.grid.1x2", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
+                cliName: "pane new-row", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
                 id: "splitDown",
@@ -136,21 +144,21 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "increaseWorkspaceTerminalFontSize",
                 title: String(localized: "action.increaseWorkspaceTerminalFontSize", defaultValue: "Increase Workspace Font Size", bundle: .module),
-                keywords: ["zoom", "bigger"], defaultShortcut: Shortcut("=", modifiers: [.control, .command]),
+                keywords: ["zoom", "bigger"], defaultShortcut: Shortcut("=", modifiers: [.command]),
                 category: .pane, symbol: "textformat.size.larger", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane increase-workspace-font-size"
             ),
             ActionDescriptor(
                 id: "decreaseWorkspaceTerminalFontSize",
                 title: String(localized: "action.decreaseWorkspaceTerminalFontSize", defaultValue: "Decrease Workspace Font Size", bundle: .module),
-                keywords: ["zoom", "smaller"], defaultShortcut: Shortcut("-", modifiers: [.control, .command]),
+                keywords: ["zoom", "smaller"], defaultShortcut: Shortcut("-", modifiers: [.command]),
                 category: .pane, symbol: "textformat.size.smaller", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane decrease-workspace-font-size"
             ),
             ActionDescriptor(
                 id: "resetWorkspaceTerminalFontSize",
                 title: String(localized: "action.resetWorkspaceTerminalFontSize", defaultValue: "Reset Workspace Font Size", bundle: .module),
-                keywords: ["zoom", "default"], defaultShortcut: Shortcut("0", modifiers: [.control, .command]),
+                keywords: ["zoom", "default"], defaultShortcut: Shortcut("0", modifiers: [.command]),
                 category: .pane, symbol: "textformat.size", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane reset-workspace-font-size"
             ),
@@ -323,6 +331,16 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.openCloudPane", defaultValue: "Open Cloud as Pane", bundle: .module),
                 keywords: ["machines", "pane"], category: .pane, symbol: "cloud", surfaces: [.palette],
                 targets: [.pane], cliName: "pane open-cloud-as"
+            ),
+            // A file in a tab of the pane or in the text editor: the agent pane's changed
+            // files (#16723), the palette and the File menu (no path: the cmux
+            // picker at the pane's folder, R89), and `cmux file open`.
+            ActionDescriptor(
+                id: "file.open",
+                title: String(localized: "action.file.open", defaultValue: "Open File…", bundle: .module),
+                keywords: ["file", "editor", "preview", "path"], category: .pane, symbol: "doc",
+                surfaces: [.palette, .menu], arguments: [CatalogArgument.optionalPathString, CatalogArgument.whereChoice],
+                targets: [.pane], cliName: "file open", mainMenu: .file
             ),
         ]
     }

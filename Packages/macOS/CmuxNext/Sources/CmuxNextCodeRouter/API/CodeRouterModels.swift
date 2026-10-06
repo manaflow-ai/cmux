@@ -11,24 +11,30 @@ public struct LinkedAccount: Identifiable, Sendable, Equatable, Hashable {
         case claude
     }
 
+    /// The server's account id (a UUID; not personal data).
     public var id: String
     public var family: Family
     public var provider: AIProvider
-    /// The server's label: an email, a label or a masked key. Never a secret.
-    public var label: String
+    /// A handle from the account's stable identity and a display from its
+    /// label with every email shortened (``AccountLabeler/server(namespace:id:label:providerAccountId:providerUserId:identifier:fallback:)``).
+    /// The raw label is dropped at the client boundary.
+    public var account: AccountLabel
     /// `active`, `refreshing`, `expired`, `broken`, `disabled`.
     public var state: String
     /// `private` or `team`; nil when the server does not say.
     public var visibility: String?
 
-    public init(id: String, family: Family, provider: AIProvider, label: String, state: String, visibility: String? = nil) {
+    public init(id: String, family: Family, provider: AIProvider, account: AccountLabel, state: String, visibility: String? = nil) {
         self.id = id
         self.family = family
         self.provider = provider
-        self.label = label
+        self.account = account
         self.state = state
         self.visibility = visibility
     }
+
+    /// What the UI shows: never an email.
+    public var label: String { account.display }
 
     public var isHealthy: Bool { state == "active" || state == "refreshing" }
 }
@@ -38,7 +44,10 @@ struct NativeAccountRow: Decodable {
     var id: String
     var provider: String
     var label: String?
+    /// Codex: the ChatGPT workspace id. Read for the handle, then dropped.
     var providerAccountId: String?
+    /// Codex: the ChatGPT user id. Read for the handle, then dropped.
+    var providerUserId: String?
     var state: String?
     var visibility: String?
 }
@@ -54,16 +63,17 @@ struct ClaudeAccountRow: Decodable {
 }
 
 extension LinkedAccount {
-    init?(native row: NativeAccountRow) {
+    init?(native row: NativeAccountRow, labeler: AccountLabeler) {
         guard let provider = AIProvider.fromCodeRouter(provider: row.provider) else { return nil }
-        let label = [row.label, row.providerAccountId].compactMap { $0 }.first { !$0.isEmpty } ?? provider.displayName
-        self.init(id: row.id, family: .native, provider: provider, label: label, state: row.state ?? "active", visibility: row.visibility)
+        let account = labeler.server(namespace: provider.rawValue, id: row.id, label: row.label, providerAccountId: row.providerAccountId,
+                                     providerUserId: row.providerUserId, fallback: provider.displayName)
+        self.init(id: row.id, family: .native, provider: provider, account: account, state: row.state ?? "active", visibility: row.visibility)
     }
 
-    init?(claude row: ClaudeAccountRow) {
+    init?(claude row: ClaudeAccountRow, labeler: AccountLabeler) {
         guard let provider = AIProvider.fromClaudeUpstream(kind: row.kind) else { return nil }
-        let parts = [row.label, row.identifier].compactMap { $0 }.filter { !$0.isEmpty }
-        self.init(id: row.id, family: .claude, provider: provider, label: parts.first ?? provider.displayName,
-                  state: row.state ?? "active", visibility: row.visibility)
+        let account = labeler.server(namespace: provider.rawValue, id: row.id, label: row.label, identifier: row.identifier,
+                                     fallback: provider.displayName)
+        self.init(id: row.id, family: .claude, provider: provider, account: account, state: row.state ?? "active", visibility: row.visibility)
     }
 }

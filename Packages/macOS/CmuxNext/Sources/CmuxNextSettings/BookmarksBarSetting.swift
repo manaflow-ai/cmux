@@ -1,5 +1,5 @@
 /// `browser.showBookmarksBar` in cmux.json: the bookmarks bar under every
-/// browser toolbar (plans/cmux-next/bookmarks.md). Off by default, as in Chrome.
+/// browser toolbar (plans/cmux-next/bookmarks.md). Off by default.
 public nonisolated enum BookmarksBarSetting {
     public static let configPath = ["browser", "showBookmarksBar"]
 

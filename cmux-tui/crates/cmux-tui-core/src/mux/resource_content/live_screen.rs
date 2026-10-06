@@ -1,5 +1,5 @@
-//! The registry record of one live screen, including its viewport columns
-//! and their `sticky-columns-v1` flags.
+//! The registry record of one live screen, including its viewport columns,
+//! their `dock-columns-v1` flags and their `rows-v1` rows.
 
 use super::{pane_public_id, pane_public_ids, registry_layout_node, split_public_id};
 use crate::model::State;
@@ -31,8 +31,9 @@ pub(super) fn registry_screen_from_live(
                             .as_ref()
                             .map(|panes| pane_public_ids(state, panes))
                             .transpose()?,
-                        column.sticky,
-                    ))
+                        column.dock,
+                    )
+                    .with_rows(crate::mux::registry_viewport::registry_rows(state, column)?))
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?,
         }

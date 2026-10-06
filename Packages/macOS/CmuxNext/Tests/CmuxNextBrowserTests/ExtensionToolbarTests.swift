@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextBrowser
 
-/// The browser toolbar collapses in Chrome's order as its pane narrows:
+/// The browser toolbar collapses in a fixed order as its pane narrows:
 /// pinned extension buttons move into the Extensions menu first, then the
 /// omnibar shrinks to its minimum, then Forward hides. Back, Reload, the
 /// omnibar and the Extensions button always stay, inside the toolbar and

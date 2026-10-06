@@ -50,6 +50,9 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     public var sidebarHidden: Bool
     /// Selected tab per pane (pane resource id -> tab resource id).
     public var selectedTabs: [String: String]
+    /// The window's focused pane (pane resource id). The CLI, TUI and iOS
+    /// read it as this window's current pane (state-ownership.md 3).
+    public var focusedPane: String?
     /// Front-to-back order key; lower is further front.
     public var order: Int
     /// Profile the window shows (plans/cmux-next/data-model.md 4); nil =
@@ -58,12 +61,16 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// The workspace this window last showed in each profile, so switching
     /// back restores it (profile id -> workspace key).
     public var profileWorkspaces: [String: WorkspaceKey]
+    /// The top page the window shows in place of its workspace (an app
+    /// client's route, `home` or `page:<id>`); nil shows the workspace.
+    /// Opaque to the daemon and to other clients.
+    public var page: String?
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
                 sidebarWidth: Double? = nil, sidebarHidden: Bool = false,
                 selectedTabs: [String: String] = [:], order: Int = 0, profile: ProfileID? = nil,
-                profileWorkspaces: [String: WorkspaceKey] = [:]) {
+                profileWorkspaces: [String: WorkspaceKey] = [:], page: String? = nil) {
         self.id = id
         self.workspaceKey = workspaceKey
         self.workspaceKeys = workspaceKeys
@@ -75,13 +82,15 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         self.sidebarWidth = sidebarWidth
         self.sidebarHidden = sidebarHidden
         self.selectedTabs = selectedTabs
+        self.focusedPane = nil
         self.order = order
         self.profile = profile
         self.profileWorkspaces = profileWorkspaces
+        self.page = page
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, frame, order, machine, display, profile
+        case id, frame, order, machine, display, profile, page
         case profileWorkspaces = "profile_workspaces"
         case workspaceKey = "workspace_key"
         case workspaceKeys = "workspace_keys"
@@ -90,6 +99,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case sidebarWidth = "sidebar_width"
         case sidebarHidden = "sidebar_hidden"
         case selectedTabs = "selected_tabs"
+        case focusedPane = "focused_pane"
     }
 
     /// Keys only older builds wrote; read for migration, never written.
@@ -115,8 +125,10 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
             sidebarHidden = try legacy.decodeIfPresent(Bool.self, forKey: .sidebarCollapsed) ?? false
         }
         selectedTabs = try c.decodeIfPresent([String: String].self, forKey: .selectedTabs) ?? [:]
+        focusedPane = try c.decodeIfPresent(String.self, forKey: .focusedPane)
         order = try c.decodeIfPresent(Int.self, forKey: .order) ?? 0
         profile = try c.decodeIfPresent(ProfileID.self, forKey: .profile)
         profileWorkspaces = try c.decodeIfPresent([String: WorkspaceKey].self, forKey: .profileWorkspaces) ?? [:]
+        page = try c.decodeIfPresent(String.self, forKey: .page)
     }
 }

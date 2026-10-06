@@ -103,3 +103,10 @@ CODE_SIGN_ENTITLEMENTS = $(CMUX_APP_CODE_SIGN_ENTITLEMENTS)
 // ==========================================
 // Every bundle registers only its full-bundle-derived scheme.
 CMUX_IOS_URL_SCHEME = cmux-ios-$(PRODUCT_BUNDLE_IDENTIFIER)
+
+// The cmux-next API Worker (feed pushes, push targets).
+CMUX_CLOUD_API_BASE_URL = https:/$()/cloud-api-staging.cmux.dev
+
+// ghostty-next (GhosttyNextKit) ships ios-arm64 and ios-arm64-simulator slices
+// only: simulator builds are Apple silicon only.
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64

@@ -27,6 +27,20 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 cliName: "workspace-group toggle-collapse"
             ),
             ActionDescriptor(
+                id: "nextWorkspaceGroup",
+                title: String(localized: "action.nextWorkspaceGroup", defaultValue: "Next Workspace Group", bundle: .module),
+                keywords: ["group", "switch"], defaultShortcut: Shortcut("]", modifiers: [.command, .control, .option, .shift]),
+                category: .workspace, symbol: "chevron.down.circle", surfaces: [.palette, .keyboard],
+                targets: [.workspace], cliName: "workspace-group next"
+            ),
+            ActionDescriptor(
+                id: "prevWorkspaceGroup",
+                title: String(localized: "action.prevWorkspaceGroup", defaultValue: "Previous Workspace Group", bundle: .module),
+                keywords: ["group", "switch"], defaultShortcut: Shortcut("[", modifiers: [.command, .control, .option, .shift]),
+                category: .workspace, symbol: "chevron.up.circle", surfaces: [.palette, .keyboard],
+                targets: [.workspace], cliName: "workspace-group previous"
+            ),
+            ActionDescriptor(
                 id: "moveWorkspaceToGroup",
                 title: String(localized: "action.moveWorkspaceToGroup", defaultValue: "Move Workspace to Group…", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "folder.badge.questionmark",

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Renders the agent pane in mock mode and scores it against a native capture.
 //
-//   node scripts/agent-pane/compare.mjs [scenario ...] [--atlas DIR] [--out DIR]
+//   node scripts/agent-pane/compare.mjs [scenario ...] [--reference DIR] [--out DIR]
 //     [--theme NAME] [--anchor TEXT] [--open]
 //
 // The pane runs from the dev server config (vite.config.acpmux-pane.mjs) with the
@@ -10,10 +10,10 @@
 // default dark terminal theme is applied the way Swift applies it (theme.mjs).
 // The screenshot is taken at the size of the reference's content area, then the
 // scenario's compare rectangle of both is scored with pixelmatch, as
-// codex-atlas-clone's scripts/compare-region.mjs does.
+// the reference prototype's compare-region script does.
 //
-// References are not in this repository: pass --atlas or set CMUX_AGENT_PANE_ATLAS
-// to a codex-atlas-clone checkout (default ~/Projects/codex-atlas-clone).
+// References are not in this repository: pass --reference or set
+// CMUX_AGENT_PANE_REFERENCE to a checkout of the private reference prototype.
 // Writes <out>/<scenario>/{ref,actual,diff,side}.png and prints the mismatch.
 //
 // For captures rather than scores: --theme renders under a Ghostty theme from
@@ -57,6 +57,14 @@ const scenarios = {
     pane: { x: 0, y: 0, width: 1200, height: 1000 },
     anchor: { text: "The reconnect test fails about one run in five", top: 72 },
   },
+  // A capture: a turn that fetched pages, ran subagents, edited files, opened and merged pull
+  // requests and scheduled wakeups, with the header's summary popover open over it.
+  summary: {
+    fixture: "summary-turn.json",
+    scale: 2,
+    pane: { x: 0, y: 0, width: 1200, height: 800 },
+    open: ".acpmux-summary-button",
+  },
   // The mock daemon's seeded workspace as it opens (mockFixture.ts): the populated sidebar
   // and its worked session, with no recorded script or prompt. A whole-window capture.
   workspace: {
@@ -74,9 +82,11 @@ const option = (name) => {
   args.splice(index, 2);
   return value;
 };
-const atlas = path.resolve(
-  option("atlas") ?? process.env.CMUX_AGENT_PANE_ATLAS ?? path.join(os.homedir(), "Projects/codex-atlas-clone"),
-);
+const referenceOption = option("reference") ?? process.env.CMUX_AGENT_PANE_REFERENCE;
+if (!referenceOption) {
+  throw new Error("set --reference or CMUX_AGENT_PANE_REFERENCE to the reference prototype checkout");
+}
+const referenceRoot = path.resolve(referenceOption);
 const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
 const themeName = option("theme");
 const themeFile = themeName && path.resolve(webviews, "../Resources/ghostty/themes", themeName);
@@ -109,9 +119,9 @@ try {
 
 async function run(browser, name, scenario) {
   const fixture = scenario.fixture ? JSON.parse(fs.readFileSync(path.join(here, scenario.fixture), "utf8")) : undefined;
-  const referencePath = scenario.reference && path.join(atlas, scenario.reference);
+  const referencePath = scenario.reference && path.join(referenceRoot, scenario.reference);
   if (referencePath && !fs.existsSync(referencePath))
-    throw new Error(`${referencePath} not found; pass --atlas <codex-atlas-clone checkout>`);
+    throw new Error(`${referencePath} not found; pass --reference <reference checkout>`);
   const { pane, compare, scale } = scenario;
 
   const context = await browser.newContext({
@@ -152,6 +162,10 @@ async function run(browser, name, scenario) {
     // A scenario without its own anchor (workspace) scrolls `--anchor` text to the top of the pane.
     const anchor = anchorText ? { top: 0, ...scenario.anchor, text: anchorText } : scenario.anchor;
     if (anchor) await scrollToAnchor(page, { ...anchor, edge: !referencePath || Boolean(anchorText) });
+    if (scenario.open) {
+      await page.click(scenario.open);
+      await page.waitForSelector(`${scenario.open}[aria-expanded="true"]`);
+    }
     await settle(page);
     const shot = PNG.sync.read(await page.screenshot({ animations: "disabled", caret: "hide" }));
     if (errors.length) throw new Error(`${name}: the page threw: ${errors.join("; ")}`);

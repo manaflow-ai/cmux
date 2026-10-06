@@ -53,6 +53,14 @@ extension TabDragSession {
         var lastPointerSample: (point: CGPoint, time: CFTimeInterval)?
         var winner: Winner?
         var outcome: TabDragOutcome = .cancel
+        /// What the pointer previews now; `outcome` is its outcome.
+        var resolution = TabDropResolution(preview: .none, outcome: .cancel)
+        /// The layout whose overlay draws the outline now (pane zones, and
+        /// strip slots of that window); nil over the sidebar or outside.
+        var outlinedLayout: LayoutTabDropTarget?
+        /// Why the window under the pointer offers no target (incognito
+        /// crossing); nil when it does.
+        var noTargetReason: String?
         var presentation: Presentation = .none
         var monitor: Any?
         var link: FrameClient?
@@ -70,6 +78,8 @@ extension TabDragSession {
         /// The workspace the tabs landed in, for a reveal that shows it.
         var landedWorkspaceID: String?
         weak var workspaceSidebar: SidebarTabDropTarget?
+        /// The layout previewing a merge of the dragged workspace.
+        weak var workspaceLayout: LayoutTabDropTarget?
 
         init(source: Source, lifecycle: TabDragLifecycle, ghost: TabDragGhostPanel, motion: TabDragGhostMotion, point: CGPoint) {
             self.source = source

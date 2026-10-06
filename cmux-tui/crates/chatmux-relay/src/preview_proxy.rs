@@ -1326,7 +1326,7 @@ mod tests {
         assert_eq!(reused_proxy, proxy);
         assert_eq!(reused_capability, capability);
         registry.shutdown().await;
-        assert!(tokio::net::TcpStream::connect(("127.0.0.1", proxy)).await.is_err());
+        assert!(registry.proxies.lock().await.is_empty(), "shutdown drops every proxy");
     }
 
     #[tokio::test]

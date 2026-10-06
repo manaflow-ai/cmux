@@ -211,6 +211,25 @@ if [[ -n "${SPARKLE_LEGACY_APPCAST_ITEM_FILE:-}" ]]; then
     --item-file "$SPARKLE_LEGACY_APPCAST_ITEM_FILE" --floor "$SPARKLE_MINIMUM_SYSTEM_VERSION"
 fi
 
+# Optional: tag every item with one Sparkle channel (the cmux-next track uses
+# `cmux-next`). Sparkle offers a channel-tagged item only to an updater whose
+# allowedChannels include it, so builds that read another feed ignore them.
+if [[ -n "${SPARKLE_CHANNEL:-}" ]]; then
+  python3 - "$generated_appcast_path" "$SPARKLE_CHANNEL" <<'EOF'
+import re, sys
+path, channel = sys.argv[1:3]
+if not re.fullmatch(r"[A-Za-z0-9._-]+", channel):
+    sys.exit(f"invalid SPARKLE_CHANNEL {channel!r}")
+xml = open(path, encoding="utf-8").read()
+xml = re.sub(r"\s*<sparkle:channel>[^<]*</sparkle:channel>", "", xml)
+xml, count = re.subn(r"<item>", f"<item>\n            <sparkle:channel>{channel}</sparkle:channel>", xml)
+if count == 0:
+    sys.exit("appcast has no items to tag")
+open(path, "w", encoding="utf-8").write(xml)
+print(f"Tagged {count} appcast item(s) with sparkle:channel {channel}")
+EOF
+fi
+
 cp "$generated_appcast_path" "$OUT_PATH"
 echo "Generated appcast at $OUT_PATH"
 

@@ -39,7 +39,7 @@ extension AppServices {
     }
 
     /// The reveal for a move an action started (palette, menu, key, CLI):
-    /// only when the run allowed a view change (`viewChangeAllowed`, read
+    /// only when the run allowed a view change (`ActionRunScope.viewChangeAllowed()`, read
     /// before any await) and the move landed.
     func actionReveal(_ outcome: TabDragOutcome, allowed: Bool, landed: Bool, window: WindowController?,
                       source: WindowController?) -> DropReveal? {

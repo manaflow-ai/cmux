@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// One suggestion: 16 pt icon, then "title – detail" on one line with the
-/// detail dimmed (Helium: "query - Engine Search"). The one highlighted row
+/// detail dimmed ("query - Engine Search"). The one highlighted row
 /// (keyboard or mouse, the state machine decides) gets an 8 pt rounded gray
 /// fill. The row itself only reports the pointer and clicks.
 final class SuggestionRowView: NSView {
@@ -33,6 +33,8 @@ final class SuggestionRowView: NSView {
         case .history: "clock"
         case .bookmark: "star"
         case .keyword: "puzzlepiece.extension"
+        case .switchToTab: "rectangle.on.rectangle"
+        case .answer: "equal.circle"
         }
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
@@ -72,15 +74,18 @@ final class SuggestionRowView: NSView {
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { onPointer?(true, Self.screenPoint(event)) }
-    override func mouseMoved(with event: NSEvent) { onPointer?(true, Self.screenPoint(event)) }
-    override func mouseExited(with event: NSEvent) { onPointer?(false, Self.screenPoint(event)) }
+    override func mouseEntered(with event: NSEvent) { onPointer?(true, screenPoint(event)) }
+    override func mouseMoved(with event: NSEvent) { onPointer?(true, screenPoint(event)) }
+    override func mouseExited(with event: NSEvent) { onPointer?(false, screenPoint(event)) }
     override func mouseUp(with event: NSEvent) { onClick?(event.modifierFlags) }
     override func mouseDown(with event: NSEvent) {}
     override func accessibilityPerformPress() -> Bool { onClick?([]); return true }
 
-    private static func screenPoint(_ event: NSEvent) -> CGPoint {
-        event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+    /// The event's location on screen. A tracking event is delivered to this
+    /// row's window, so convert through it; `event.window` is nil when the
+    /// event carries no window number (a window that has none yet).
+    private func screenPoint(_ event: NSEvent) -> CGPoint {
+        (event.window ?? window)?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -3,7 +3,7 @@ public import Foundation
 /// URL rules for bookmarks: what counts as the same page, what the
 /// favicon cache key is, and how a URL reads in a list.
 public nonisolated enum BookmarkURL {
-    /// Chrome compares canonical URLs: scheme and host are case-insensitive
+    /// Bookmarks compare canonical URLs: scheme and host are case-insensitive
     /// and an empty path is `/`. Fragments and queries count.
     public static func key(_ url: URL) -> String {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url.absoluteString }
@@ -39,7 +39,7 @@ public nonisolated enum BookmarkURL {
     }
 
     /// A URL the user typed in an edit field, else nil. Text without a
-    /// scheme gets `https://` (Chrome's editor fixes up `example.com`).
+    /// scheme gets `https://` (`example.com` becomes `https://example.com`).
     public static func parse(_ text: String) -> URL? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }

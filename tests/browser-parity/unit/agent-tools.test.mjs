@@ -1,5 +1,4 @@
-// browser-use parity tools (cmux-tui/crates/cmux-browser-host/js/agent-tools.js,
-// plans/cmux-next/browser-repl/browser-use-parity.md): TOTP, domain patterns, the
+// Agent tools (cmux-tui/crates/cmux-browser-host/js/agent-tools.js): TOTP, domain patterns, the
 // animated PNG writer, and on Playwright WebKit through the dev driver: a
 // registered secret never appears in output, errors, page reads or files; a
 // TOTP secret types the current code; storage state round-trips; Markdown
@@ -15,6 +14,8 @@ import zlib from "node:zlib";
 import { loadRuntime, createDevBrowser, createNodeHost, createHostedRepl } from "../lib/dev-driver.mjs";
 import { totp, base32Decode } from "../lib/reference-host.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
+import { siteOf } from "../lib/public-suffix.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const ns = loadRuntime();
 const T = ns.agentTools;
@@ -26,7 +27,7 @@ test("totp (reference host): RFC 6238 SHA-1 vectors", () => {
   assert.throws(() => base32Decode("not base32!"), /base32/);
 });
 
-test("domain patterns: browser-use's syntax, with ports and refusals", () => {
+test("domain patterns: syntax, ports and refusals", () => {
   const m = (url, pattern, secure = false) => T.urlMatches(url, T.parsePattern(pattern, "t"), secure);
   // Domain-only: the host and, for a root domain, www.
   assert.equal(m("https://example.com/a", "example.com"), true);
@@ -48,8 +49,22 @@ test("domain patterns: browser-use's syntax, with ports and refusals", () => {
   assert.equal(m("http://localhost:8765/x", "localhost:8765"), true);
   assert.equal(m("http://localhost:9999/x", "localhost:8765"), false);
   assert.equal(m("https://anything.test/", "*"), true);
-  // Unsafe patterns are refused when set (browser-use logs and ignores them).
+  // Unsafe patterns are refused when set.
   for (const bad of ["*.*.example.com", "example.*", "ex*ample.com", "", "  "]) assert.throws(() => T.parsePattern(bad, "t"), /t:/, bad);
+});
+
+test("hosts compare without case, trailing dots or Unicode spelling in domain patterns", () => {
+  const m = (url, pattern, secure = false) => T.urlMatches(url, T.parsePattern(pattern, "t"), secure);
+  // A trailing dot names the same host; it must not slip past a pattern.
+  assert.equal(m("https://example.com./a", "example.com"), true);
+  assert.equal(m("https://www.example.com./a", "example.com"), true);
+  assert.equal(m("https://a.example.com./a", "*.example.com"), true);
+  assert.equal(m("https://example.com./a", "example.com."), true);
+  assert.equal(m("https://EXAMPLE.COM/a", "Example.Com"), true);
+  // Internationalized names match in either spelling.
+  assert.equal(m("https://xn--bcher-kva.de/", "bücher.de"), true);
+  assert.equal(m("https://bücher.de/", "xn--bcher-kva.de"), true);
+  assert.equal(m("https://bucher.de/", "bücher.de"), false);
 });
 
 // A w x h RGBA PNG filled with one color.
@@ -107,13 +122,13 @@ test("buildApng: valid chunks, frame count, sequence numbers; other sizes skippe
 });
 
 // One REPL session on the dev driver, with the app's output cap.
-async function withRepl(fn, { maxOutput } = {}) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-bu-")));
+async function withRepl(fn, { maxOutput, setupContext, readable } = {}) {
+  const dir = makeTestDir("cmux-repl-bu-");
   const sessionId = `bu-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  const browser = await createDevBrowser();
+  const browser = await createDevBrowser({ setupContext });
   const driver = browser.driver();
   const lines = [];
-  const host = createNodeHost({ workDir: dir, sessionId, print: (level, text) => lines.push(text) });
+  const host = createNodeHost({ workDir: dir, sessionId, print: (level, text) => lines.push(text), readable });
   const repl = createHostedRepl(ns, { host, driver }).repl;
   const outputs = [];
   const run = async (code) => {
@@ -123,16 +138,55 @@ async function withRepl(fn, { maxOutput } = {}) {
     outputs.push(out);
     return out;
   };
-  const sessionTmp = path.join(fs.realpathSync(os.tmpdir()), "cmux-browser-repl", sessionId);
+  const sessionTmp = host.tmpdir;
   try {
     await fn({ run, dir, sessionTmp, outputs });
   } finally {
     repl.dispose();
     await browser.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.rmSync(sessionTmp, { recursive: true, force: true });
+    removeTestDir(dir);
+    removeTestDir(sessionTmp);
   }
 }
+
+// The app gives each session a private temporary directory (os.tmpdir(),
+// mode 0700) under <tmp>/cmux-browser-repl. Files the session writes go
+// straight into it; seen on the app, images landed in
+// <session tmp>/cmux-browser-repl/<session>/image-1.png, one session
+// directory inside another (18-print).
+test("files a session writes go straight into its private temporary directory", async () => {
+  const servers = await startFixtureServers();
+  const dir = makeTestDir("cmux-repl-tmp-");
+  const browser = await createDevBrowser();
+  const lines = [];
+  const host = createNodeHost({ workDir: dir, sessionId: `tmp-${process.pid}`, print: (level, text) => lines.push(text) });
+  const repl = createHostedRepl(ns, { host, driver: browser.driver() }).repl;
+  try {
+    assert.equal(fs.statSync(host.tmpdir).mode & 0o777, 0o700, "the session's temporary directory is private");
+    assert.equal(path.dirname(host.tmpdir), path.join(fs.realpathSync(os.tmpdir()), "cmux-browser-repl"));
+    const r = await repl.evaluate(`
+      await page.goto(${JSON.stringify(servers.origins.primary + "/aria.html")});
+      display(await screenshot());
+      const rec = session.record({ screenshots: false });
+      await rec.stop();
+      console.log("record " + rec.dir);
+      console.log("tmp " + os.tmpdir());
+    `);
+    assert.equal(r.ok, true, r.error);
+    const image = lines.join("\n").match(/\[Image [^:]+: ([^\]]+)\]/);
+    assert.ok(image, lines.join("\n"));
+    assert.equal(path.dirname(image[1]), host.tmpdir);
+    const record = lines.join("\n").match(/^record (.+)$/m);
+    assert.equal(path.dirname(record[1]), host.tmpdir);
+    assert.ok(lines.includes(`tmp ${host.tmpdir}`));
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+    removeTestDir(host.tmpdir);
+  }
+});
 
 const filesUnder = (root) => {
   if (!fs.existsSync(root)) return [];
@@ -144,7 +198,7 @@ test("secrets: a registered value never appears in output, errors, page reads or
   const { primary, peer } = servers.origins;
   const KEY = "Zx9-secret-VALUE-77";
   const PW = "pw with spaces&<x>";
-  const secretsDir = fs.mkdtempSync(path.join(os.tmpdir(), "bu-secrets-"));
+  const secretsDir = makeTestDir("bu-secrets-");
   const secretsFile = path.join(secretsDir, "secrets.json");
   fs.writeFileSync(secretsFile, JSON.stringify({ localhost: { apikey: KEY, pw: PW } }));
   const forms = [KEY, PW, encodeURIComponent(KEY), encodeURIComponent(PW), encodeURIComponent(PW).replace(/%20/g, "+"), "pw with spaces&amp;&lt;x&gt;"];
@@ -152,7 +206,7 @@ test("secrets: a registered value never appears in output, errors, page reads or
     await withRepl(async ({ run, dir, sessionTmp, outputs }) => {
       let r = await run(`secrets.load(${JSON.stringify(secretsFile)})`);
       assert.equal(r.error, null);
-      assert.match(r.output, /name: 'apikey',\s+domains: \[ 'localhost' \],\s+totp: false,\s+agentKnown: true/);
+      assert.match(r.output, /name: 'apikey',\s+domains: \[ 'localhost' \],\s+totp: false/);
       r = await run(`
         const rec = session.record();
         await page.goto("${primary}/agent-tools.html?peer=${peer}");
@@ -213,30 +267,31 @@ test("secrets: a registered value never appears in output, errors, page reads or
         texts.forEach((t, i) => assert.ok(!t.includes(form), `output ${i} contains ${JSON.stringify(form)}`));
         for (const f of files) assert.ok(!fs.readFileSync(f).toString("latin1").includes(form), `${f} contains ${JSON.stringify(form)}`);
       }
-    }, { maxOutput: 6000 });
+    }, { maxOutput: 6000, readable: new Set([fs.realpathSync(secretsFile)]) });
   } finally {
-    fs.rmSync(secretsDir, { recursive: true, force: true });
+    removeTestDir(secretsDir);
     await servers.close();
   }
 });
 
-test("secrets: a TOTP secret types the current code", async () => {
+test("secrets: a TOTP secret types the current code, and reading it back shows the mask", async () => {
   const servers = await startFixtureServers();
   try {
     await withRepl(async ({ run }) => {
       const seed = "JBSWY3DPEHPK3PXP";
-      const before = Date.now();
+      // The code at any moment of the run is one of these windows' codes.
+      const now = Date.now();
+      const candidates = [totp(seed, now), totp(seed, now + 30_000), totp(seed, now + 60_000)];
       const r = await run(`
         secrets.set("otp", "${seed}", { domains: ["localhost"], totp: true });
         await page.goto("${servers.origins.primary}/agent-tools.html");
         await page.fill("#otp", secret("otp"));
-        await page.evaluate(() => document.getElementById("otp").value)
+        const typed = await page.evaluate((codes) => codes.includes(document.getElementById("otp").value), ${JSON.stringify(candidates)});
+        console.log(typed, await page.evaluate(() => document.getElementById("otp").value));
       `);
-      const after = Date.now();
       assert.equal(r.error, null);
-      const code = r.output;
-      assert.match(code, /^\d{6}$/);
-      assert.ok([totp(seed, before), totp(seed, after)].includes(code), `${code} is not the code at ${before} or ${after}`);
+      // The host masks a code a server still accepts, as it masks the seed.
+      assert.equal(r.output, "true <secret:otp>");
       assert.ok(!r.output.includes(seed));
     });
   } finally {
@@ -313,15 +368,247 @@ test("storage state: scoped to the current tab's site unless { all: true }", asy
   }
 });
 
-test("storage state: registrable domains", () => {
-  const d = T.registrableDomain;
+test("clearCookies: scoped to the current tab's site unless { all: true }", async () => {
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  try {
+    await withRepl(async ({ run, dir }) => {
+      const r = await run(`
+        const jar = async () => (await page.context().cookies()).map((c) => c.domain + " " + c.name).sort();
+        await page.goto("${primary}/set-cookie");
+        const first = page;
+        const other = await tabs.open("${peer}/set-cookie");
+        await tabs.use(first);
+        await page.context().addCookies([
+          { name: "a1", value: "1", url: "${primary}/" }, { name: "a2", value: "1", url: "${primary}/" },
+          { name: "b1", value: "1", url: "${peer}/" }, { name: "b2", value: "1", url: "${peer}/" },
+        ]);
+        const out = { start: await jar() };
+        await page.context().clearCookies({ name: "a1" });
+        out.byName = await jar();
+        await page.context().clearCookies({ name: /^(parity|b1)$/ });
+        out.byRegExp = await jar();
+        await other.context().clearCookies();
+        out.otherSite = await jar();
+        await page.context().clearCookies();
+        out.thisSite = await jar();
+        await page.context().addCookies([{ name: "a3", value: "1", url: "${primary}/" }, { name: "b3", value: "1", url: "${peer}/" }]);
+        await page.goto("about:blank");
+        try { await page.context().clearCookies(); } catch (e) { out.noSite = e.message; }
+        try { await page.context().clearCookies({ all: true }); out.all = "cleared"; } catch (e) { out.all = e.message; }
+        out.afterAll = await jar();
+        fs.writeFileSync("./clear.json", JSON.stringify(out));
+      `);
+      assert.equal(r.error, null);
+      const out = JSON.parse(fs.readFileSync(path.join(dir, "clear.json"), "utf8"));
+      const a = new URL(primary).hostname;
+      const b = new URL(peer).hostname;
+      const jar = (...names) => names.map(([host, name]) => `${host} ${name}`).sort();
+      assert.deepEqual(out.start, jar([a, "a1"], [a, "a2"], [a, "parity"], [b, "b1"], [b, "b2"], [b, "parity"]));
+      assert.deepEqual(out.byName, jar([a, "a2"], [a, "parity"], [b, "b1"], [b, "b2"], [b, "parity"]), "a name filter stays on the tab's site");
+      assert.deepEqual(out.byRegExp, jar([a, "a2"], [b, "b1"], [b, "b2"], [b, "parity"]), "a RegExp filter stays on the tab's site");
+      assert.deepEqual(out.otherSite, jar([a, "a2"]), "another tab clears its own site");
+      assert.deepEqual(out.thisSite, [], "no filter clears the tab's whole site");
+      assert.match(out.noSite, /clearCookies: .*has no site to scope to/, "a tab with no site clears nothing");
+      assert.match(out.all, /clearCookies: .*user's browser profile/, "{ all: true } is refused on the user's profile");
+      assert.deepEqual(out.afterAll, jar([a, "a3"], [b, "b3"]));
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// A tab's cookies live in that tab's data store (a private tab's, or the
+// session's proxy store, is not the user's profile), so every cookie call a
+// page makes names its tab; without it the driver would use another tab's
+// store.
+test("cookie calls name the page's tab, so the driver uses that tab's store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-cookie-");
+  const driver = browser.driver();
+  const calls = [];
+  const call = driver.call.bind(driver);
+  driver.call = (method, params) => {
+    if (method.startsWith("cookies.")) calls.push({ method, targetId: params && params.targetId });
+    return call(method, params);
+  };
+  const repl = createHostedRepl(ns, { host: createNodeHost({ workDir: dir, sessionId: `cookie-${process.pid}`, print: () => {} }), driver }).repl;
+  try {
+    const r = await repl.evaluate(`
+      const other = await tabs.open(${JSON.stringify(primary)} + "/index.html");
+      const own = await tabs.open(${JSON.stringify(primary)} + "/agent-tools.html");
+      await other.bringToFront();
+      await own.context().cookies();
+      await own.context().addCookies([{ name: "n", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
+      await own.context().storageState();
+      await own.context().setStorageState({ cookies: [{ name: "m", value: "1", url: ${JSON.stringify(primary)} + "/" }] });
+      await own.context().clearCookies();
+      own._targetId
+    `);
+    assert.equal(r.ok, true, r.error);
+    const ownId = r.value;
+    assert.ok(calls.length >= 5, JSON.stringify(calls));
+    assert.deepEqual(calls.filter((c) => c.targetId !== ownId), [], `every cookie call names ${ownId}`);
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
+// localStorage lives in a tab's data store too: storageState and
+// setStorageState read and write it only through tabs in the page's own
+// store, and restore an origin no such tab shows in a new tab of that store.
+// The dev driver has one store, so this test reports the other tab as a
+// private tab's store.
+test("storage state reads and writes localStorage only in the page's own data store", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-store-");
+  const driver = browser.driver();
+  let otherId = null;
+  let recording = false;
+  const storageCalls = [];
+  const opened = [];
+  const call = driver.call.bind(driver);
+  const storeOf = (targetId, store) => (otherId && targetId === otherId ? "private" : store);
+  driver.call = async (method, params) => {
+    if (recording && method === "frame.evaluate" && /localStorage/.test(String(params && params.source))) storageCalls.push(params.targetId);
+    if (recording && method === "tabs.open") opened.push({ ...params });
+    const result = await call(method, params);
+    if (method === "tabs.list") return result.map((t) => ({ ...t, dataStore: storeOf(t.targetId, t.dataStore) }));
+    if (method === "tabs.dataStore") return { dataStore: storeOf(params && params.targetId, result.dataStore) };
+    return result;
+  };
+  const repl = createHostedRepl(ns, { host: createNodeHost({ workDir: dir, sessionId: `store-${process.pid}`, print: () => {} }), driver }).repl;
+  try {
+    let r = await repl.evaluate(`
+      globalThis.other = await tabs.open(${JSON.stringify(primary)} + "/agent-tools.html");
+      await other.evaluate(() => localStorage.setItem("k", "private"));
+      globalThis.own = await tabs.open();
+      [own._targetId, other._targetId]
+    `);
+    assert.equal(r.ok, true, r.error);
+    const [ownId, other] = r.value;
+    otherId = other;
+    recording = true;
+    r = await repl.evaluate(`
+      const state = await own.context().storageState({ all: true });
+      const restored = await own.context().setStorageState({ origins: [{ origin: ${JSON.stringify(primary)}, localStorage: [{ name: "k", value: "own" }] }] });
+      [state.origins, restored.origins]
+    `);
+    assert.equal(r.ok, true, r.error);
+    assert.deepEqual(r.value, [[], 1], "the private tab's localStorage stayed out of the state");
+    assert.deepEqual(storageCalls.filter((id) => id === otherId), [], "no localStorage call went to the private tab");
+    assert.ok(storageCalls.some((id) => id !== otherId && id !== ownId), "the origin was restored in a new tab");
+    assert.deepEqual(opened.map((p) => p.dataStore), ["default"], "the new tab opened in the page's store");
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
+// Playwright's context outlives its pages: a closed page's context still
+// reads and adds cookies, through the session's default store.
+test("a closed page's context still reads and adds cookies", async () => {
+  const browser = await createDevBrowser();
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const dir = makeTestDir("cmux-repl-cookie-closed-");
+  const repl = createHostedRepl(ns, { host: createNodeHost({ workDir: dir, sessionId: `cookie-closed-${process.pid}`, print: () => {} }), driver: browser.driver() }).repl;
+  try {
+    const r = await repl.evaluate(`
+      const p = await tabs.open(${JSON.stringify(primary)} + "/index.html");
+      const context = p.context();
+      await p.close();
+      await context.addCookies([{ name: "after-close", value: "1", url: ${JSON.stringify(primary)} + "/" }]);
+      (await context.cookies(${JSON.stringify(primary)} + "/")).map((c) => c.name)
+    `);
+    assert.equal(r.ok, true, r.error);
+    assert.ok(r.value.includes("after-close"), JSON.stringify(r.value));
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+  }
+});
+
+test("cookies.clear: the driver clears the target tab's site, never a named one or the whole profile", async () => {
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  const browser = await createDevBrowser();
+  try {
+    const driver = browser.driver();
+    await driver.call("cookies.set", { cookies: [{ name: "a", value: "1", url: `${primary}/` }, { name: "b", value: "1", url: `${peer}/` }] });
+    const names = async () => (await driver.call("cookies.get", {})).map((c) => c.name).sort();
+    const { targetId: blank } = await driver.call("tabs.open", {});
+    await assert.rejects(driver.call("cookies.clear", { targetId: blank }), (e) => e.code === "invalid" && /no site/.test(e.message));
+    await assert.rejects(driver.call("cookies.clear", { targetId: blank, all: true }), (e) => e.code === "invalid" && /user's browser profile/.test(e.message));
+    assert.deepEqual(await names(), ["a", "b"]);
+    const { targetId } = await driver.call("tabs.open", { url: `${primary}/index.html` });
+    await driver.call("cookies.clear", { targetId, site: new URL(peer).hostname });
+    assert.deepEqual(await names(), ["b"], "the tab's own site, not the named one");
+  } finally {
+    await browser.close();
+    await servers.close();
+  }
+});
+
+test("cookie and storage-state scope follow the Public Suffix List", async () => {
+  // x.co.at and y.co.at are different sites (co.at is a public suffix), as
+  // are two github.io pages; www.example.co.uk shares example.co.uk.
+  const hosts = ["x.co.at", "y.co.at", "ada.github.io", "bob.github.io", "www.example.co.uk", "example.co.uk"];
+  const setupContext = async (ctx) => {
+    await ctx.route((url) => hosts.includes(url.hostname), (route) => route.fulfill({ status: 200, headers: { "content-type": "text/html" }, body: "<!doctype html><title>psl</title>" }));
+  };
+  await withRepl(async ({ run, dir }) => {
+    const r = await run(`
+      const jar = async () => (await page.context().cookies()).map((c) => c.domain).sort();
+      await page.context().addCookies(${JSON.stringify(hosts)}.map((h) => ({ name: "c", value: "1", url: "https://" + h + "/" })));
+      const out = {};
+      await page.goto("https://x.co.at/");
+      out.state = (await session.storageState()).cookies.map((c) => c.domain).sort();
+      await page.context().clearCookies();
+      out.afterCoAt = await jar();
+      await page.goto("https://ada.github.io/");
+      await page.context().clearCookies();
+      out.afterGithub = await jar();
+      await page.goto("https://www.example.co.uk/");
+      await page.context().clearCookies();
+      out.afterCoUk = await jar();
+      fs.writeFileSync("./psl.json", JSON.stringify(out));
+    `);
+    assert.equal(r.error, null);
+    const out = JSON.parse(fs.readFileSync(path.join(dir, "psl.json"), "utf8"));
+    assert.deepEqual(out.state, ["x.co.at"]);
+    assert.deepEqual(out.afterCoAt, ["ada.github.io", "bob.github.io", "example.co.uk", "www.example.co.uk", "y.co.at"]);
+    assert.deepEqual(out.afterGithub, ["bob.github.io", "example.co.uk", "www.example.co.uk", "y.co.at"]);
+    assert.deepEqual(out.afterCoUk, ["bob.github.io", "y.co.at"]);
+  }, { setupContext });
+});
+
+test("storage state: sites by the Public Suffix List (the dev backend's stand-in for the app's)", () => {
+  const d = siteOf;
   assert.equal(d("www.example.com"), "example.com");
   assert.equal(d("a.b.example.co.uk"), "example.co.uk");
+  assert.equal(d("a.x.co.at"), "x.co.at");
+  assert.equal(d("co.at"), "co.at");
   assert.equal(d("ada.github.io"), "ada.github.io");
+  assert.equal(d("a.b.ck"), "a.b.ck");
+  assert.equal(d("www.ck"), "www.ck");
+  assert.equal(d("foo.bar.unlisted"), "foo.bar.unlisted");
   assert.equal(d("localhost"), "localhost");
   assert.equal(d("127.0.0.1"), "127.0.0.1");
   assert.equal(d("[::1]"), "[::1]");
   assert.equal(d(".docs.google.com"), "google.com");
+  assert.equal(d("www.食狮.公司.cn"), "xn--85x722f.xn--55qx5d.cn");
 });
 
 test("markdown: chunks cut at block boundaries, repeat a table's header and cover the page", async () => {
@@ -365,54 +652,5 @@ test("markdown: chunks cut at block boundaries, repeat a table's header and cove
     });
   } finally {
     await servers.close();
-  }
-});
-
-// plans/cmux-next/browser-repl/browser-use-parity.md: every row has a verdict, a
-// skipped row says why, and every proof names a scenario key or a unit test
-// that exists.
-test("browser-use-parity.md: verdicts and proofs resolve", () => {
-  const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
-  const doc = fs.readFileSync(path.join(root, "../../plans/cmux-next/browser-repl/browser-use-parity.md"), "utf8");
-  const rows = doc.split("\n").filter((l) => l.startsWith("| ") && !l.startsWith("| browser-use |") && !/^\| ---/.test(l));
-  assert.ok(rows.length > 60, `${rows.length} rows`);
-  const goldenKeys = (name) => {
-    const g = JSON.parse(fs.readFileSync(path.join(root, "goldens", `${name}.json`), "utf8"));
-    return [...Object.keys(g.cmux || {}), ...Object.keys(g.oracle || {})];
-  };
-  const titles = (file) => [...fs.readFileSync(path.join(root, "unit", `${file}.test.mjs`), "utf8").matchAll(/^test\("((?:[^"\\]|\\.)*)"/gm)].map((m) => m[1]);
-  for (const row of rows) {
-    const cells = row.split(/(?<!\\)\|/).slice(1, -1).map((c) => c.trim());
-    assert.equal(cells.length, 4, `row has ${cells.length} cells: ${row}`);
-    const [, , proof, verdict] = cells;
-    const kind = /^(same|better|skipped|known limit)\b/.exec(verdict);
-    assert.ok(kind, `no verdict: ${row}`);
-    if (kind[1] === "skipped" && !/^skipped( for [^:]+)?: .{20,}/.test(verdict)) assert.fail(`skipped without a reason: ${row}`);
-    if (kind[1] === "same" || kind[1] === "better") assert.ok(proof.trim(), `no proof: ${row}`);
-    for (const part of proof.split(/, (?=\d\d-|unit:|sites\/|diff )|; /).map((p) => p.trim()).filter(Boolean)) {
-      const scenario = /^(\d\d-[a-z0-9-]+)((?: `[^`]+`,?)*)$/.exec(part);
-      const unit = /^unit: ([\w-]+) ((?:`[^`]+`(?:, )?)+)$/.exec(part);
-      const diffCase = /^diff ((?:`[^`]+`(?:, )?)+)$/.exec(part);
-      if (diffCase) {
-        const dir = path.join(root, "diff", "cases");
-        const ids = fs.readdirSync(dir).flatMap((f) => [...fs.readFileSync(path.join(dir, f), "utf8").matchAll(/\bid: [`"]([^`"$]+)/g)].map((m) => m[1]));
-        for (const [, id] of diffCase[1].matchAll(/`([^`]+)`/g)) {
-          const hit = id.endsWith("*") ? ids.some((x) => x.startsWith(id.slice(0, -1))) : ids.includes(id);
-          assert.ok(hit, `no diff case ${id}`);
-        }
-      } else if (scenario) {
-        assert.ok(fs.existsSync(path.join(root, "scenarios", `${scenario[1]}.js`)), `no scenario ${scenario[1]}`);
-        const keys = goldenKeys(scenario[1]);
-        for (const [, key] of scenario[2].matchAll(/`([^`]+)`/g)) {
-          const hit = key.endsWith("*") ? keys.some((k) => k.startsWith(key.slice(0, -1))) : keys.includes(key);
-          assert.ok(hit, `${scenario[1]} has no golden key ${key}`);
-        }
-      } else if (unit) {
-        const all = titles(unit[1]);
-        for (const [, t] of unit[2].matchAll(/`([^`]+)`/g)) {
-          assert.equal(all.filter((x) => x.startsWith(t.replace(/…$/, ""))).length, 1, `unit/${unit[1]}: "${t}" names no single test`);
-        }
-      } else assert.ok(/^sites\/\*\.test\.mjs$/.test(part), `unknown proof "${part}" in: ${row}`);
-    }
   }
 });

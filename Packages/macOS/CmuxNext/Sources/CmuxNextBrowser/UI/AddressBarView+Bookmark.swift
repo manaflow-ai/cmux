@@ -2,7 +2,7 @@ public import AppKit
 
 // The bookmark star (plans/cmux-next/bookmarks.md section 3): shown at the
 // trailing end of the omnibar while the page can be bookmarked and the field
-// is not being edited (Chrome hides it while you type).
+// is not being edited (it hides while you type).
 extension AddressBarView {
     /// Sets the star for the page on screen. The host recomputes it when the
     /// URL or the bookmarks change.

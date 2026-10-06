@@ -139,7 +139,7 @@ extension TabStripView {
         groupEditor.show(group: item, anchor: anchor, parent: window, themeAnchor: self)
     }
 
-    /// Click-and-hold on a chip opens the editor (Chrome).
+    /// Click-and-hold on a chip opens the editor.
     func startChipHold(_ group: TabGroupID) {
         groups.holdTask?.cancel()
         let sleep = groups.sleep

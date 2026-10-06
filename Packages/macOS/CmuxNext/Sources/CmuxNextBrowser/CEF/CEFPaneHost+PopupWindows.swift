@@ -158,5 +158,5 @@ extension NSView {
 
 extension CEFRuntime {
     /// The latest popup window events (`debug.cef` `popup_windows`).
-    func notePopupWindow(_ event: String) { windowRequestLog.notePopupWindow(event) }
+    func notePopupWindow(_ event: String) { windowRequests.log.notePopupWindow(event) }
 }

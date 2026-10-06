@@ -1,4 +1,4 @@
-// Screen groups: Chrome tab group parity for screens (architecture.md
+// Screen groups: the tab group rules applied to screens (architecture.md
 // section 7, applied to the screen tab bar). Titles in ScreenActions.xcstrings.
 
 nonisolated enum ScreenGroupActionCatalog: ActionCatalogGroup {

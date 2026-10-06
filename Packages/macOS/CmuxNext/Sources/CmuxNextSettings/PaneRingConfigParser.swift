@@ -8,6 +8,7 @@ enum PaneRingConfigParser {
         guard var reader = ConfigFieldReader(root, at: ["focusRing"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("enabled") { settings.enabled = value }
         if let value = reader.choice("style", FocusRingStyle.self) { settings.style = value }
+        if let value = reader.choice("contrast", FocusRingContrast.self) { settings.contrast = value }
         if let value = reader.color("color") { settings.color = value }
         if let value = reader.points("width", range: FocusRingSettings.widthRange) { settings.width = value }
         if let value = reader.members["cornerRadius"], value.stringValue == "pane" || { if case .null = value { true } else { false } }() {

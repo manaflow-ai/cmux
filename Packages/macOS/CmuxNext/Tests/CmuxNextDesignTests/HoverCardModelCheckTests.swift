@@ -8,7 +8,11 @@ import Testing
 /// token, every dismissal kind that differs, both suppressions, removal
 /// and pin. The "world" is the one card and the one timer, driven only by
 /// the effects, so the check covers the effects as well as the state.
-@Suite struct HoverCardModelCheckTests {
+/// Nonisolated and serialized: the exploration is seconds to minutes of CPU,
+/// which on the main actor (this target's default isolation) stalls every
+/// main-actor test in the process past its time limit; serialized keeps the
+/// mutant cases from filling the cooperative pool at once.
+@Suite(.serialized) nonisolated struct HoverCardModelCheckTests {
     struct World: Hashable {
         var visible: HoverTargetID?
         var armed: Int?

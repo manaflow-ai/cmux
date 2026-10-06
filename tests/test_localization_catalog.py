@@ -71,7 +71,7 @@ class LocalizationCatalogTests(unittest.TestCase):
         last = {"localizations": {"en": unit("Open"), "de": unit("Öffnen")}}
         text = '{"sourceLanguage":"en","strings":{"duplicate":' + json.dumps(first) + ',"duplicate":' + json.dumps(last) + '},"version":"1.0"}'
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "Resources/Localizable.xcstrings"
+            path = Path(directory) / "Resources/InfoPlist.xcstrings"
             path.parent.mkdir()
             path.write_text(text)
             with patch.object(MODULE, "load_metadata", return_value={}), \

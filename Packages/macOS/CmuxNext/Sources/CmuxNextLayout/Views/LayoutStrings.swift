@@ -8,6 +8,9 @@ enum LayoutStrings {
     static var columnEdgeAccessibility: String {
         String(localized: "layout.columnEdge.accessibility", defaultValue: "Column Width", bundle: .module)
     }
+    static var rowEdgeAccessibility: String {
+        String(localized: "layout.rowEdge.accessibility", defaultValue: "Row Height", bundle: .module)
+    }
     static var stripScrollbarAccessibility: String {
         String(localized: "layout.stripScrollbar.accessibility", defaultValue: "Column Strip Scroll Bar", bundle: .module)
     }
@@ -29,6 +32,18 @@ enum LayoutStrings {
     static var dropSplitDown: String {
         String(localized: "layout.drop.splitDown", defaultValue: "Split Down", bundle: .module)
     }
+    static var dropDockTop: String {
+        String(localized: "layout.drop.dockTop", defaultValue: "Dock at Top", bundle: .module)
+    }
+    static var dropDockBottom: String {
+        String(localized: "layout.drop.dockBottom", defaultValue: "Dock at Bottom", bundle: .module)
+    }
+    static var dropDockLeft: String {
+        String(localized: "layout.drop.dockLeft", defaultValue: "Dock at Left", bundle: .module)
+    }
+    static var dropDockRight: String {
+        String(localized: "layout.drop.dockRight", defaultValue: "Dock at Right", bundle: .module)
+    }
     static var dropMoveHere: String {
         String(localized: "layout.drop.moveHere", defaultValue: "Move Here", bundle: .module)
     }
@@ -36,6 +51,13 @@ enum LayoutStrings {
     static func label(for target: DropTarget) -> String {
         switch target {
         case .newColumn: dropNewColumn
+        case let .newDock(_, edge):
+            switch edge {
+            case .left: dropDockLeft
+            case .right: dropDockRight
+            case .top: dropDockTop
+            case .bottom: dropDockBottom
+            }
         case let .pane(_, zone):
             switch zone {
             case .left: dropSplitLeft

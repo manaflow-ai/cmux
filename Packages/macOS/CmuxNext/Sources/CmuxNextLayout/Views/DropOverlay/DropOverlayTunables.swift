@@ -2,8 +2,8 @@ public import CmuxNextDesign
 public import CoreGraphics
 
 /// Debug Settings tunables of the drop overlay: the style, the parameters
-/// every style shares, and each style's own. Defaults keep the original
-/// Liquid Glass fill exactly as it was.
+/// every style shares, and each style's own. The default style is the
+/// border-only outline (tab-dnd); the others keep their original look.
 public nonisolated enum DropOverlayTunables {
     /// `property` is the static property's name, for "Copy as Swift defaults".
     private static func number(_ name: String, _ label: String, help: String, _ value: Double, range: ClosedRange<Double>,
@@ -20,7 +20,7 @@ public nonisolated enum DropOverlayTunables {
 
     public static let style = Tunable<DropOverlayStyle>.choice(
         "drop.overlay.style", .dropOverlay, "Style", help: "How the overlay shows where a dragged tab lands. Switches live, even mid-drag.",
-        default: .glassFill, code: "DropOverlayTunables.style")
+        default: .outline, code: "DropOverlayTunables.style")
     public static let spring = Tunable<MotionSpring>.choice(
         "drop.overlay.spring", .dropOverlay, "Spring", help: "Motion token for the overlay moving between targets (morph always uses settle).",
         default: .track, code: "DropOverlayTunables.spring")
@@ -77,7 +77,8 @@ public nonisolated enum DropOverlayTunables {
 
     public static var all: [TunableDescriptor] {
         [style.descriptor, spring.descriptor, animated.descriptor, appearInset.descriptor, opacity.descriptor, floatingInset.descriptor,
-         cornerRadius.descriptor, showLabel.descriptor, labelMinWidth.descriptor, color.descriptor]
+         cornerRadius.descriptor, showLabel.descriptor, labelMinWidth.descriptor, color.descriptor,
+        ] + DropOutlineTunables.all
             + [outlineWidth, cardWidthFraction, cardMaxWidth, cardHeight, cardRegionOpacity].map(\.descriptor)
             + [cardShowsIcon.descriptor]
             + [splitGap, splitExistingOpacity, lineWidth, lineLength, lineRegionOpacity, glowWidth, glowOpacity, ghostWidth,
@@ -99,6 +100,9 @@ public nonisolated enum LayoutTunables {
     public static let dropEdgeMaximum = Tunable<CGFloat>.number(
         "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide.", default: 180, range: 20...600, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMaximum")
+    public static let dropZoneHysteresis = Tunable<CGFloat>.number(
+        "drop.zoneHysteresis", .tabDrag, "Zone hysteresis", help: "How far past a zone line the pointer goes before the preview changes zone.",
+        default: 12, range: 0...60, step: 1, unit: .points, code: "LayoutTunables.dropZoneHysteresis")
     public static let newColumnDropWidth = Tunable<CGFloat>.number(
         "drop.newColumnWidth", .tabDrag, "New column zone width", help: "Width of the new-column drop zone centered on each column gap.",
         default: 36, range: 8...160, step: 1, unit: .points, code: "LayoutTunables.newColumnDropWidth")
@@ -112,8 +116,8 @@ public nonisolated enum LayoutTunables {
         "panes.minimumContentHeight", .panes, "Minimum pane height", help: "Smallest content height a pane keeps below its tab strip (about 4 rows).",
         default: 64, range: 16...400, step: 2, unit: .points, code: "LayoutTunables.minimumContentHeight")
     public static let focusRingAlpha = Tunable<CGFloat>.number(
-        "focus.ringAlpha", .focus, "Focus ring alpha", help: "Alpha of the theme focus color for the ring (when focusRing.color is unset).",
-        default: 0.55, range: 0...1, step: 0.01, unit: .fraction, code: "LayoutTunables.focusRingAlpha")
+        "focus.ringAlpha", .focus, "Focus ring alpha", help: "Alpha of the theme focus color for the ring (when focusRing.color is unset). Overrides focusRing.contrast: subtle 0.2, standard 0.55, strong 0.85.",
+        default: 0.2, range: 0...1, step: 0.01, unit: .fraction, code: "LayoutTunables.focusRingAlpha")
     public static let focusGlowAlpha = Tunable<CGFloat>.number(
         "focus.glowAlpha", .focus, "Focus glow edge alpha", help: "Glow style: the edge line's alpha relative to the ring color.",
         default: 0.6, range: 0...1, step: 0.01, unit: .fraction, code: "LayoutTunables.focusGlowAlpha")
@@ -121,8 +125,26 @@ public nonisolated enum LayoutTunables {
         "focus.glowRadiusFactor", .focus, "Focus glow radius", help: "Glow style: blur radius as a multiple of the ring width (at least 2 pt).",
         default: 3, range: 0...12, step: 0.25, unit: .multiplier, code: "LayoutTunables.focusGlowRadiusFactor")
 
+    public static let prototypeModel = Tunable<LayoutPrototypeModel>.choice(
+        "layout.prototype.model", .panes, "Layout model prototype",
+        help: "Draws the current screen as another layout model (plans/cmux-next/layout-model.md). View only; nothing is saved.",
+        default: .off, code: "LayoutTunables.prototypeModel")
+    public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
+        "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
+        default: .bottom, code: "LayoutTunables.prototypeDockEdge")
+
+    public static let prototypeOrientation = Tunable<LayoutPrototypeOrientation>.choice(
+        "layout.prototype.orientation", .panes, "Prototype frame orientation",
+        help: "Frame prototype: column-major (side docks full height) or row-major (top/bottom docks full width).",
+        default: .columnMajor, code: "LayoutTunables.prototypeOrientation")
+
+    public static let prototypeDockMode = Tunable<LayoutPrototypeDockMode>.choice(
+        "layout.prototype.dockMode", .panes, "Prototype dock mode",
+        help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real docked columns keep their own mode).",
+        default: .pinned, code: "LayoutTunables.prototypeDockMode")
+
     public static var all: [TunableDescriptor] {
-        DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, newColumnDropWidth, inactivePaneDimming,
+        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

@@ -5,6 +5,7 @@
       "active",
       "current",
       "id",
+      "state",
       "title",
       "url"
     ],

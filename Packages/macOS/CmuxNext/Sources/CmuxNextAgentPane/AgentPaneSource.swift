@@ -29,6 +29,32 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
     /// (`http://127.0.0.1:<port>/`).
     case devServer(URL)
 
+    /// The scheme and host the bundled page loads from (`AgentPaneSchemeHandler`):
+    /// a real origin, `cmux-agent://pane`, where a `file://` page would send
+    /// `Origin: null` to acpmux.
+    public static let bundledScheme = "cmux-agent"
+    public static let bundledHost = "pane"
+    public static let bundledOrigin = "\(bundledScheme)://\(bundledHost)"
+
+    /// The URL the web view loads: the bundled page under the cmux-agent
+    /// origin, or the dev server's root.
+    public var pageURL: URL {
+        switch self {
+        case .bundled(let page):
+            URL(string: "\(Self.bundledOrigin)/\(page.lastPathComponent)")!
+        case .devServer(let url):
+            url
+        }
+    }
+
+    /// The dev server's origin (`http://<loopback>:<port>`), nil for the
+    /// bundled page. The app's daemon never needs it: the host's socket
+    /// carries the bundled pane's origin (AgentPaneTransport).
+    public var devServerOrigin: String? {
+        guard case .devServer(let url) = self, let host = url.host, let port = url.port else { return nil }
+        return "http://\(host):\(port)"
+    }
+
     /// Environment variable naming the dev server, for example
     /// `http://127.0.0.1:4176/`.
     public static let devURLVariable = "CMUX_NEXT_AGENT_PANE_DEV_URL"
@@ -68,15 +94,17 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
         return components.url
     }
 
-    /// True when `url` is this source's page: the bundled file itself (a
-    /// `#fragment` allowed), or any URL on the dev server's exact origin
-    /// (scheme, host and port).
+    /// True when `url` is this source's page: the bundled page under
+    /// `cmux-agent://pane` (a `#fragment` allowed), or any URL on the dev
+    /// server's exact origin (scheme, host and port).
     func isTrusted(_ url: URL?) -> Bool {
         guard let url else { return false }
         switch self {
         case .bundled(let page):
-            guard url.isFileURL else { return false }
-            return url.standardizedFileURL.resolvingSymlinksInPath().path == page.standardizedFileURL.resolvingSymlinksInPath().path
+            guard url.scheme?.lowercased() == Self.bundledScheme, url.host?.lowercased() == Self.bundledHost,
+                  url.port == nil, url.user == nil
+            else { return false }
+            return url.path == "/" + page.lastPathComponent
         case .devServer(let root):
             guard let candidate = URLComponents(url: url, resolvingAgainstBaseURL: false),
                   let origin = URLComponents(url: root, resolvingAgainstBaseURL: false),
@@ -88,11 +116,18 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
         }
     }
 
+    /// Serves the bundled page's directory on `configuration` (before the
+    /// web view is made from it); the dev server needs nothing.
+    @MainActor func register(on configuration: WKWebViewConfiguration) {
+        guard case .bundled(let page) = self else { return }
+        configuration.setURLSchemeHandler(AgentPaneSchemeHandler(root: page.deletingLastPathComponent()), forURLScheme: Self.bundledScheme)
+    }
+
     /// Navigates `webView` to the page.
     @MainActor func load(into webView: WKWebView) {
         switch self {
-        case .bundled(let page):
-            webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
+        case .bundled:
+            webView.load(URLRequest(url: pageURL))
         case .devServer(let url):
             webView.load(URLRequest(url: url))
         }

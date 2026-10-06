@@ -25,12 +25,31 @@ public struct Palette {
     /// (load error, sad tab): the terminal background, opaque, because a
     /// page is opaque and a stale page must not show through.
     public static var pageBackground: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.pageBackground) }
+    /// The one background of every window and surface that sits on it
+    /// (``ThemeTokens/surfaceBackground``): the window
+    /// (`NSWindow.install(kind:content:scope:)`), sidebar, panes and strip,
+    /// page tabs, titlebar and docks (plans/cmux-next/windows.md).
+    public static var surfaceBackground: NSColor { color(\.surfaceBackground, dynamic: PaletteDynamic.surfaceBackground) }
+    /// What a page or tab view (Home, Feed, History, Tasks, Bookmarks)
+    /// gives a background it must paint: the surface background, opaque,
+    /// in an opaque window, and clear over a see-through one, where the
+    /// window's one backdrop is the background (`WindowBackdrop`). A page
+    /// host's own layer paints nothing: the pane paints under it.
+    public static var paneFill: NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
+    }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
     public static var elevatedBackground: NSColor { color(\.elevatedBackground, dynamic: PaletteDynamic.elevatedBackground) }
     /// Every pane's tab strip: a shade darker than the window.
     public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
+    /// The sidebar's tonal step over the window backdrop.
+    public static var sidebarStep: NSColor { color(\.sidebarStep, dynamic: PaletteDynamic.sidebarStep) }
+    /// The strip's tonal step: a translucent shade that darkens the window
+    /// backdrop to `stripBackground` (the inset sidebar panel beside the rail).
+    public static var stripStep: NSColor { color(\.stripStep, dynamic: PaletteDynamic.stripStep) }
 
     /// Primary text.
     public static var textPrimary: NSColor { color(\.textPrimary, dynamic: PaletteDynamic.textPrimary) }
@@ -69,6 +88,14 @@ public struct Palette {
     public static var danger: NSColor { color(\.danger, dynamic: PaletteDynamic.danger) }
     /// Connected / success: the theme's ANSI green.
     public static var success: NSColor { color(\.success, dynamic: PaletteDynamic.success) }
+    /// The one saturated call to action (the update circle): the theme's
+    /// ANSI blue.
+    public static var highlight: NSColor { color(\.highlight, dynamic: PaletteDynamic.highlight) }
+    /// Whether `highlight` is the theme's own accent (its ANSI blue), not
+    /// Ghostty's default palette standing in for a theme that names none.
+    public static var hasThemeAccent: Bool { (ThemeContext.active ?? ThemeScope.app.tokens).hasThemeAccent }
+    /// Glyphs on `highlight`.
+    public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 
     /// The app accent. Deliberately neutral so any control that reads the
     /// accent stays in the theme's grays.
@@ -81,6 +108,12 @@ public struct Palette {
     /// (the app theme outside one).
     public static func tunable(_ color: TunableColor) -> NSColor {
         color.resolve(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
+    }
+
+    /// The pane focus ring for `settings` in the active theme scope (the app
+    /// theme outside one).
+    public static func paneFocusRing(_ settings: FocusRingSettings, override: CGFloat?) -> NSColor {
+        settings.ringColor(in: ThemeContext.active ?? ThemeScope.app.tokens, override: override).nsColor
     }
 
     /// Inside `performWithTheme` (or `ThemeScope.perform`) a plain color of

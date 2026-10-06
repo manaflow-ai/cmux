@@ -5,7 +5,7 @@ just reuse code from how we do grouping of horizontal tabs."
 
 ## What existed before this change
 
-- A screen is one of a workspace's layouts (niri columns of panes); a
+- A screen is one of a workspace's layouts (strip columns of panes); a
   workspace with two or more screens shows the screen bar at its bottom
   (`ScreenBarController`), a `TabStripView` whose tabs are the screens.
 - Daemon (cmux-tui `mux/screen_groups.rs`, capabilities
@@ -33,7 +33,7 @@ command layers still copied, and what this change shares or fixes:
 | Rule | Before | Now |
 | --- | --- | --- |
 | New group color | tab groups grey; screen groups first unused | `TabGroupOrdering.nextColor` for both (first unused, never auto-picks blue) |
-| Selection when a group collapses over it | first item outside the group (both) | `TabGroupOrdering.selectionAfterCollapsing` for both (Chrome: nearest visible to the right, else left), as the strip reducer |
+| Selection when a group collapses over it | first item outside the group (both) | `TabGroupOrdering.selectionAfterCollapsing` for both (nearest visible to the right, else left), as the strip reducer |
 | Owning daemon | `TabGroupMoves` local daemon; `TabGroupHandlers` the active window's | `GroupOwnership` (the daemon whose tree holds the group) for both; a target on another machine is refused |
 | Idempotency | screen group commands had none | v2 `screen_group.*` with a per-intent key where `state-resources-v1` is served |
 
@@ -44,10 +44,10 @@ command layers still copied, and what this change shares or fixes:
   screen groups, Chrome syncs it with the group, and a per-client copy
   would be a second writer for the same fact. Revisit if a client needs a
   private collapse (record it in its own per-client view record then).
-- `state-resources-v1` is `awaitingPin`: advertised, used when a daemon
-  serves it, not required of the pinned f39636c811a. The pin cut that
-  brings 52103e740 or later moves it to `optional`; screen group
-  create/add/remove/update/ungroup then always carry idempotency keys.
+- `state-resources-v1` is in `optional`: the bundled daemon of a tree with
+  #16174 (cmux-tui 52103e740 or later) serves it, and screen group
+  create/add/remove/update/ungroup then always carry idempotency keys. An
+  older remote daemon gets the raw commands.
 - Move, close, save and placed adds have no v2 operation yet; they stay on
   the raw commands until #16174 adds them.
 - Automatic group colors skip blue (no blue in colors cmux picks itself);

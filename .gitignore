@@ -51,9 +51,9 @@ tests/visual_output/
 tests/visual_report.html
 experiments/*/target/
 
-# Stale pre-rebrand Rust TUI dir (renamed to cmux-tui/; old checkouts may
-# still have an untracked mux/target that must never be committed again)
-/mux/
+# Stale pre-rebrand Rust TUI build dir (renamed to cmux-tui/; old checkouts may
+# still have an untracked mux/target). mux/ itself is the mux brain host.
+/mux/target/
 
 # Generated docs search index
 web/.pagefind-site/
@@ -68,10 +68,6 @@ tmp-*/
 
 # Local dogfood scratch (screenshots, recordings) — never commit
 artifacts/
-!Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/
-!Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Artifacts/*.swift
-!Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/
-!Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Artifacts/*.swift
 
 # tmux verbose debug logs (tmux -v) that land in the cwd
 tmux-*.log
@@ -79,3 +75,7 @@ tmux-*.log
 # Remote-only Blacksmith cmux-tui benchmark output
 /testbox-benchmark/
 /.cmux-scratch/
+
+# Local-only prototype and deploy state
+/Prototypes/codex-atlas-clone/
+/.cloudflare/

@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
@@ -18,6 +19,11 @@ final class MachineRegistry {
     /// SSH machines in the order they were added.
     private(set) var ssh: [SSHMachineSession] = []
 
+    /// Whether an administrator turned off a feature (`DisabledFeatures`):
+    /// a Cloud machine is not reachable with `cloud` off, an SSH machine
+    /// not with `remoteHosts` off, so no path opens work on it.
+    @ObservationIgnored var isFeatureDisabled: (ActionFeature) -> Bool = { _ in false }
+
     init(local: DaemonService) {
         self.local = local
     }
@@ -36,8 +42,16 @@ final class MachineRegistry {
         ssh.first { $0.machineID == machineID }
     }
 
-    func daemon(machine machineID: String) -> DaemonService? {
+    /// The machine's daemon even while its feature is turned off (its
+    /// endpoint refuses); for routing that must not fall back to this Mac.
+    func anyDaemon(machine machineID: String) -> DaemonService? {
         machineID == Self.localID ? local : session(machineID)?.daemon ?? sshSession(machineID)?.daemon
+    }
+
+    func daemon(machine machineID: String) -> DaemonService? {
+        if machineID == Self.localID { return local }
+        if let cloud = session(machineID) { return isFeatureDisabled(.cloud) ? nil : cloud.daemon }
+        return isFeatureDisabled(.remoteHosts) ? nil : sshSession(machineID)?.daemon
     }
 
     /// The empty-workspace repair of `machineID` (the local one for local
@@ -128,39 +142,5 @@ final class MachineRegistry {
     func removeSSH(_ machineID: String) -> SSHMachineSession? {
         guard let index = ssh.firstIndex(where: { $0.machineID == machineID }) else { return nil }
         return ssh.remove(at: index)
-    }
-}
-
-/// One Cloud machine: its `/api/vm` record, its link process, and the
-/// daemon connection over the link socket.
-@Observable
-final class CloudMachineSession {
-    let machineID: String
-    var machine: CloudMachine
-    let daemon: DaemonService
-    @ObservationIgnored let link: CloudMachineLink
-    /// Repairs an empty workspace on this machine (never on another).
-    @ObservationIgnored private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
-
-    init(machine: CloudMachine, link: CloudMachineLink) {
-        machineID = machine.id
-        self.machine = machine
-        self.link = link
-        daemon = DaemonService(machineID: machine.id)
-        emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
-    }
-
-    /// Connects when the machine is live; the link restarts as needed.
-    func connect() {
-        guard machine.status.isLive else { return }
-        let link = link
-        daemon.start(remote: { try await link.socketPath() })
-    }
-
-    func disconnect() {
-        daemon.shutdownConnection()
-        let link = link
-        // task-owner: teardown hop; link.stop() is terminal and re-checked after every await in start
-        Task { await link.stop() }
     }
 }

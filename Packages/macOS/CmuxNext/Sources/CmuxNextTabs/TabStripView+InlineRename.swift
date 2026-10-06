@@ -10,10 +10,10 @@ import CmuxNextDesign
 }
 
 /// Inline rename: an editor over the tab's title. Return and focus loss
-/// commit, Escape cancels, as in Finder.
+/// commit, Escape cancels.
 extension TabStripView {
     /// Double-clicking a tab starts inline rename (the screen bar). Off by
-    /// default: pane tab strips keep Chrome's behavior.
+    /// default, so pane tab strips do not rename on double-click.
     public var renamesOnDoubleClick: Bool {
         get { inlineRename.enabledOnDoubleClick }
         set { inlineRename.enabledOnDoubleClick = newValue }

@@ -51,7 +51,7 @@ for name in (
 validator = step(release, "Validate Release artifact slices")
 assert "\n        if:" not in validator
 for needle in (
-    './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"',
+    './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"',
     './scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR" --archs "$RELEASE_ARCHS"',
     '[[ "$SDK_VERSION" == 26.* ]]',
     'shasum -a 256 "$HELPER_BINARY"',

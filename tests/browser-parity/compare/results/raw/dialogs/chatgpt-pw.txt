@@ -1,5 +1,0 @@
-- button "Alert"
-- button "Confirm"
-- button "Prompt"
-- button "Arm beforeunload"
-- paragraph: idle

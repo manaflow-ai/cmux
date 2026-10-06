@@ -10,12 +10,13 @@ import Testing
         #expect(results.allSatisfy { $0.status == .missing })
     }
 
-    @Test func codexChatGPTSignInShowsEmailAndPlanOnly() async throws {
+    @Test func codexChatGPTSignInShowsLabelAndPlanOnly() async throws {
         let home = try FixtureHome()
         try home.writeJSON(".codex/auth.json", codexAuth())
         let result = ProviderDetector(environment: home.environment()).detectCodex()
         #expect(result.status == .signedIn)
-        #expect(result.identity == "dev@example.com")
+        #expect(result.account?.handle == codexHandle(), "the handle comes from the workspace and user ids")
+        #expect(result.account?.display == "pro")
         #expect(result.plan == "pro")
         #expect(result.sources == [.file("~/.codex/auth.json")])
         // No secret may appear anywhere in the result.
@@ -27,7 +28,8 @@ import Testing
         let home = try FixtureHome()
         try home.writeJSON("alt-codex/auth.json", codexAuth(email: "alt@example.com"))
         let env = home.environment(["CODEX_HOME": home.url.appendingPathComponent("alt-codex").path])
-        #expect(ProviderDetector(environment: env).detectCodex().identity == "alt@example.com")
+        let account = try #require(ProviderDetector(environment: env).detectCodex().account)
+        #expect(account.handle == codexHandle())
     }
 
     @Test func codexWithoutRefreshTokenAndExpiredAccessIsExpired() throws {
@@ -41,7 +43,7 @@ import Testing
         try home.writeJSON(".codex/auth.json", ["OPENAI_API_KEY": "sk-fixture-not-a-real-key"])
         let apiKey = ProviderDetector(environment: home.environment()).detectCodex()
         #expect(apiKey.status == .signedIn)
-        #expect(apiKey.identity == nil)
+        #expect(apiKey.account == nil)
         try home.write(".codex/auth.json", "{ not json")
         #expect(ProviderDetector(environment: home.environment()).detectCodex().status == .unknown)
     }
@@ -62,7 +64,8 @@ import Testing
         #expect(none.status == .missing)
         let result = ProviderDetector(environment: home.environment(keychain: ["Claude Code-credentials"])).detectClaudeCode()
         #expect(result.status == .signedIn)
-        #expect(result.identity == "claude@example.com")
+        #expect(result.account?.handle == fixtureLabeler.handle(namespace: "claude", identity: "claude@example.com"))
+        #expect(result.account?.display == "Acme")
         #expect(result.plan == "Acme")
         #expect(result.sources == [.keychain("Claude Code-credentials")])
     }
@@ -100,7 +103,8 @@ import Testing
         try home.writeJSON(".gemini/google_accounts.json", ["active": "g@example.com", "old": []])
         let result = ProviderDetector(environment: home.environment()).detectGemini()
         #expect(result.status == .signedIn)
-        #expect(result.identity == "g@example.com")
+        #expect(result.account?.handle == fixtureLabeler.handle(namespace: "gemini", identity: "g@example.com"))
+        #expect(result.account?.display == "g…@e…")
     }
 
     @Test func bedrockProfilesNamesOnly() throws {
@@ -109,7 +113,8 @@ import Testing
         try home.write(".aws/config", "[profile work]\nregion = us-west-2\n[sso-session corp]\nsso_region = us-east-1\n")
         let result = ProviderDetector(environment: home.environment(["AWS_PROFILE": "work"])).detectBedrock()
         #expect(result.status == .signedIn)
-        #expect(result.identity == "profile work")
+        #expect(result.detail == "profile work")
+        #expect(result.account == nil)
         #expect(!String(describing: result).contains("FIXTURE"))
         #expect(ProviderDetector.iniProfiles("[sso-session x]\n[profile a]\n[b]") == ["a", "b"])
     }
@@ -117,11 +122,13 @@ import Testing
     @Test func vertexADCTypeAndServiceAccountEmail() throws {
         let home = try FixtureHome()
         try home.writeJSON(".config/gcloud/application_default_credentials.json", ["type": "authorized_user", "refresh_token": "fake"])
-        #expect(ProviderDetector(environment: home.environment()).detectVertex().identity == "authorized_user")
+        #expect(ProviderDetector(environment: home.environment()).detectVertex().detail == "authorized_user")
         try home.writeJSON("sa.json", ["type": "service_account", "client_email": "bot@proj.iam.gserviceaccount.com", "private_key": "fake"])
         let env = home.environment(["GOOGLE_APPLICATION_CREDENTIALS": home.url.appendingPathComponent("sa.json").path])
         let result = ProviderDetector(environment: env).detectVertex()
-        #expect(result.identity == "bot@proj.iam.gserviceaccount.com")
+        #expect(result.account?.handle == fixtureLabeler.handle(namespace: "vertex", identity: "bot@proj.iam.gserviceaccount.com"))
+        #expect(result.account?.display == "b…@p…")
+        #expect(result.detail == nil)
         #expect(!String(describing: result).contains("private_key"))
     }
 
@@ -130,7 +137,8 @@ import Testing
         try home.writeJSON(".config/github-copilot/apps.json", ["github.com:Iv1.fixture": ["user": "octocat", "oauth_token": "fake"]])
         let result = ProviderDetector(environment: home.environment()).detectCopilot()
         #expect(result.status == .signedIn)
-        #expect(result.identity == "octocat")
+        #expect(result.account?.handle == fixtureLabeler.handle(namespace: "copilot", identity: "octocat"))
+        #expect(result.account?.display == "o…", "a GitHub login is personal data: shortened")
     }
 
     @Test func localServersByReachability() async throws {
@@ -139,7 +147,7 @@ import Testing
         let results = await ProviderDetector(environment: env).detectAll()
         let ollama = try #require(results.first { $0.provider == .ollama })
         #expect(ollama.status == .signedIn)
-        #expect(ollama.identity == "127.0.0.1:11500")
+        #expect(ollama.detail == "127.0.0.1:11500")
         #expect(results.first { $0.provider == .lmStudio }?.status == .missing)
     }
 }

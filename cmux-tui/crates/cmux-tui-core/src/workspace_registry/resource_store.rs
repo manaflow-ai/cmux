@@ -2,15 +2,18 @@ use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
 use serde_json::json;
+mod patch_apply;
+use patch_apply::decorate_snapshot_result;
+pub(crate) use patch_apply::{apply_resource_patch, apply_resource_patch_unrecorded};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
 /// slack; startup always restores the hard bound. Non-terminal effect or
 /// creation receipts remain protected by their authoritative receipt tables.
-pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
-pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
+pub(crate) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
+pub(crate) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
-pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
+pub(crate) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
 // Rows that reach this cap stay durable as dead-letter records. Selectors
 // exclude them, so a permanent projection failure cannot spin forever.
 pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
@@ -38,7 +41,7 @@ pub(crate) type PendingAgentHookProjection = (String, String, String, u64, Journ
 /// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
 pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
-pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
            public_id TEXT PRIMARY KEY NOT NULL,
@@ -288,11 +291,12 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
            ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
+    screen_rows::create_column_dock_schema(transaction)?;
     migrate_tab_name_authority(transaction)
 }
 
 /// Additive migration: pre-authority labels remain user-owned.
-pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
+pub(crate) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
     let columns = connection
         .prepare("PRAGMA table_info(resource_tabs)")?
         .query_map([], |row| row.get::<_, String>(1))?
@@ -325,7 +329,7 @@ pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Res
 /// any number of live tabs, while browser content retains its single-view
 /// invariant. Foreign keys are disabled by the caller for this table rebuild
 /// and checked immediately after the migration commits.
-pub(super) fn migrate_resource_tabs_to_multiview(
+pub(crate) fn migrate_resource_tabs_to_multiview(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let duplicate_live_browser = transaction.query_row(
@@ -384,7 +388,7 @@ pub(super) fn migrate_resource_tabs_to_multiview(
 /// Detect a legacy table-level `UNIQUE(content_id)` constraint or a missing or
 /// malformed browser-view index. Any such shape must be rebuilt before terminal
 /// content can have multiple views without weakening the one-live-view browser rule.
-pub(super) fn resource_tabs_needs_multiview_normalization(
+pub(crate) fn resource_tabs_needs_multiview_normalization(
     connection: &Connection,
 ) -> anyhow::Result<bool> {
     const CANONICAL_BROWSER_VIEW_INDEX: &str = concat!(
@@ -442,7 +446,7 @@ pub(crate) struct AgentHookProjectionState {
     pub ended_at_ms: Option<u64>,
 }
 
-pub(super) fn migrate_resource_agent_projections(
+pub(crate) fn migrate_resource_agent_projections(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     transaction.execute(
@@ -472,7 +476,7 @@ pub(super) fn migrate_resource_agent_projections(
     Ok(())
 }
 
-pub(super) fn migrate_resource_mutations_to_session_scope(
+pub(crate) fn migrate_resource_mutations_to_session_scope(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -497,13 +501,13 @@ pub(super) fn migrate_resource_mutations_to_session_scope(
     Ok(())
 }
 
-pub(super) fn initialize_resource_mutation_retention(
+pub(crate) fn initialize_resource_mutation_retention(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     compact_resource_mutations(transaction)
 }
 
-pub(super) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     if transaction_resource_revision(transaction)? % RESOURCE_MUTATION_PRUNE_INTERVAL != 0 {
         return Ok(());
     }
@@ -543,7 +547,7 @@ fn compact_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<(
     Ok(())
 }
 
-pub(super) fn migrate_resource_browser_metadata(
+pub(crate) fn migrate_resource_browser_metadata(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let columns = {
@@ -608,7 +612,7 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(())
     }
-    pub(super) fn stage_agent_hook_pending(
+    pub(crate) fn stage_agent_hook_pending(
         transaction: &Transaction<'_>,
         producer_id: &str,
         origin: &str,
@@ -1434,7 +1438,6 @@ impl WorkspaceRegistry {
             deltas,
             None,
             None,
-            None,
         )
         .map(|(commit, _)| commit)
     }
@@ -1451,15 +1454,13 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
         workspace_ledger: Option<&ResourceWorkspaceLedger>,
-        tab_groups: Option<&TabGroupState>,
-        screen_state: Option<&ScreenPresentationState>,
+        state_write: Option<crate::resource_mutation::PlanStateWrite>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
         validate_resource_patch(patch)?;
         let fingerprint = canonical_json(fingerprint)?;
-        let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
             return Ok((replayed, None));
@@ -1509,14 +1510,20 @@ impl WorkspaceRegistry {
         {
             presentation_store::write_workspace_presentation(&tx, &ledger.workspace_key, update)?;
         }
-        if let Some(tab_groups) = tab_groups {
-            presentation_store::write_tab_group_state(&tx, tab_groups)?;
-        }
-        if let Some(screen_state) = screen_state {
-            screen_store::write_screen_state(&tx, screen_state)?;
-        }
-
         let patch = &apply_resource_patch(&tx, patch, sqlite_revision)?;
+        let mut result = result.clone();
+        decorate_snapshot_result(&tx, operation, &mut result)?;
+        let written;
+        let deltas = match state_write {
+            Some(write) => {
+                let mut changes = deltas.as_array().cloned().unwrap_or_default();
+                write(&tx, &mut result, &mut changes)?;
+                written = Value::Array(crate::state::store::finish_changes(changes));
+                &written
+            }
+            None => deltas,
+        };
+        let result_json = canonical_json(&result)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -1542,15 +1549,12 @@ impl WorkspaceRegistry {
             &mutation.id,
             operation,
             Some(patch),
-            result,
+            &result,
             deltas,
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;
-        Ok((
-            ResourcePatchCommit { revision, result: result.clone(), replayed: false },
-            workspace_revision,
-        ))
+        Ok((ResourcePatchCommit { revision, result, replayed: false }, workspace_revision))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1832,8 +1836,12 @@ fn validate_registry_browser(browser: &RegistryBrowser) -> anyhow::Result<()> {
     Ok(())
 }
 
+mod screen_rows;
+pub(crate) use screen_rows::repair_resources_at_open;
 mod viewport;
-pub use viewport::{RegistryViewport, RegistryViewportColumn};
+use screen_rows::upsert_resource_screen;
+use viewport::validate_registry_viewport;
+pub use viewport::{RegistryRow, RegistryViewport, RegistryViewportColumn};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -2081,7 +2089,7 @@ impl WorkspaceRegistry {
     }
 }
 
-pub(super) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut Vec<String>) {
+pub(crate) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut Vec<String>) {
     match layout {
         RegistryLayoutNode::Leaf { .. } | RegistryLayoutNode::Stack { .. } => {}
         RegistryLayoutNode::Split { split, first, second, .. } => {
@@ -2092,7 +2100,7 @@ pub(super) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut
     }
 }
 
-pub(super) fn collect_screen_split_public_ids(
+pub(crate) fn collect_screen_split_public_ids(
     layout: &RegistryLayoutNode,
     viewport: &RegistryViewport,
     output: &mut Vec<String>,
@@ -2105,7 +2113,7 @@ pub(super) fn collect_screen_split_public_ids(
     }
 }
 
-pub(super) fn resource_patch_replay(
+pub(crate) fn resource_patch_replay(
     transaction: &Connection,
     mutation: &WorkspaceMutation,
     operation: &str,
@@ -2145,7 +2153,7 @@ pub(super) fn resource_patch_replay(
     }))
 }
 
-pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<()> {
+pub(crate) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<()> {
     let mut targets = HashSet::new();
     let mut singleton_changes = HashSet::new();
     for change in &patch.changes {
@@ -2286,98 +2294,6 @@ fn validate_layout_node<'a>(
     Ok(())
 }
 
-fn validate_registry_viewport(
-    viewport: &RegistryViewport,
-    screen_layout: &RegistryLayoutNode,
-    screen_panes: &HashSet<&PanePublicId>,
-    screen_splits: &HashSet<&SplitPublicId>,
-) -> anyhow::Result<()> {
-    let valid_width = |width: f32| {
-        width.is_finite()
-            && (crate::MIN_VIEWPORT_PANE_WIDTH..=crate::MAX_VIEWPORT_PANE_WIDTH).contains(&width)
-    };
-    if viewport.columns.is_empty() {
-        if viewport.base_width.is_some() {
-            anyhow::bail!("viewport metadata has no columns");
-        }
-        return Ok(());
-    }
-    if viewport.columns.len() < 2 {
-        anyhow::bail!("viewport must have at least two columns when active");
-    }
-    let base_width =
-        viewport.base_width.ok_or_else(|| anyhow::anyhow!("viewport is missing base width"))?;
-    if !valid_width(base_width) || viewport.columns[0].width != base_width {
-        anyhow::bail!("viewport has invalid base width {base_width}");
-    }
-    let mut column_ids = HashSet::new();
-    let mut internal_splits = HashSet::new();
-    let mut column_panes = HashSet::new();
-    for (index, column) in viewport.columns.iter().enumerate() {
-        if !valid_width(column.width) {
-            anyhow::bail!("viewport column has invalid width {}", column.width);
-        }
-        if !column_ids.insert(&column.id) {
-            anyhow::bail!("viewport has duplicate column id {}", column.id);
-        }
-        if index != 0 && !screen_splits.contains(&column.id) {
-            anyhow::bail!("viewport column has unknown projected split {}", column.id);
-        }
-        let mut panes = HashSet::new();
-        let mut splits = HashSet::new();
-        validate_layout_node(&column.layout, &mut panes, &mut splits)?;
-        if panes.iter().any(|pane| !screen_panes.contains(*pane))
-            || splits.iter().any(|split| !screen_splits.contains(*split))
-        {
-            anyhow::bail!("viewport column references content outside its screen");
-        }
-        for split in splits {
-            if !internal_splits.insert(split) {
-                anyhow::bail!("split {split} appears in more than one viewport column");
-            }
-        }
-        if let Some(auto_layout) = &column.auto_layout
-            && (auto_layout.len() != panes.len()
-                || auto_layout.iter().any(|pane| !panes.contains(pane)))
-        {
-            anyhow::bail!("viewport column has invalid auto-layout membership");
-        }
-        for pane in panes {
-            if !column_panes.insert(pane) {
-                anyhow::bail!("pane {pane} appears in more than one viewport column");
-            }
-        }
-    }
-    if &column_panes != screen_panes {
-        anyhow::bail!("viewport columns do not cover the screen panes");
-    }
-    let owners = viewport.columns.iter().skip(1).map(|column| &column.id).collect::<HashSet<_>>();
-    if owners.iter().any(|owner| internal_splits.contains(*owner)) {
-        anyhow::bail!("viewport boundary owner also appears inside a column");
-    }
-    let covered_splits =
-        owners.iter().copied().chain(internal_splits.iter().copied()).collect::<HashSet<_>>();
-    if &covered_splits != screen_splits {
-        anyhow::bail!("viewport columns do not cover the screen splits");
-    }
-    let mut projected = viewport.columns[0].layout.clone();
-    let mut width_before = viewport.columns[0].width;
-    for column in viewport.columns.iter().skip(1) {
-        projected = RegistryLayoutNode::Split {
-            split: column.id.clone(),
-            direction: "right".into(),
-            ratio: width_before / (width_before + column.width),
-            first: Box::new(projected),
-            second: Box::new(column.layout.clone()),
-        };
-        width_before += column.width;
-    }
-    if &projected != screen_layout {
-        anyhow::bail!("viewport compatibility layout does not match its ordered columns");
-    }
-    Ok(())
-}
-
 pub(crate) fn validate_registry_screen_projection(
     screen: &RegistryScreen,
     expected_panes: &HashSet<PanePublicId>,
@@ -2393,7 +2309,7 @@ pub(crate) fn validate_registry_screen_projection(
     validate_registry_viewport(&screen.viewport, &screen.layout, &layout_pane_refs, &layout_splits)
 }
 
-pub(super) fn complete_terminal_close_patch(
+pub(crate) fn complete_terminal_close_patch(
     transaction: &Transaction<'_>,
     terminals: &[(String, Option<String>)],
     patch: &ResourcePatch,
@@ -2452,7 +2368,7 @@ pub(super) fn complete_terminal_close_patch(
 /// Load the live resource topology from `connection`. The registry's
 /// snapshot and the startup repair (which runs inside the open transaction,
 /// before this open's generation exists) share it.
-pub(super) fn load_resource_topology(
+pub(crate) fn load_resource_topology(
     connection: &Connection,
     session_id: SessionPublicId,
     generation: String,
@@ -2529,6 +2445,7 @@ pub(super) fn load_resource_topology(
             })
             .collect::<anyhow::Result<Vec<_>>>()?
     };
+    let screens = screen_rows::with_side_tables(connection, screens)?;
     let panes = {
         let mut statement = connection.prepare(
             "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
@@ -2666,7 +2583,7 @@ pub(super) fn load_resource_topology(
 /// pane (its index and focus may move) and every screen that holds such a
 /// pane (its layout lists the pane's tabs and active tab), so an event-feed
 /// client converges without waiting for the next full topology projection.
-pub(super) fn repair_dangling_terminal_resources(
+pub(crate) fn repair_dangling_terminal_resources(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let current_revision = current_resource_revision(transaction)?;
@@ -2866,22 +2783,6 @@ fn restate_repaired_panes(
     Ok(())
 }
 
-/// Apply `patch` and return the changes that were actually written.
-///
-/// A full topology projection restates every live resource on each commit.
-/// Changes whose target row already holds the same value are dropped first,
-/// so a commit rewrites (and journals) only the rows it changes. Callers
-/// journal the returned patch, not their input.
-pub(super) fn apply_resource_patch(
-    transaction: &Transaction<'_>,
-    patch: &ResourcePatch,
-    revision: i64,
-) -> anyhow::Result<ResourcePatch> {
-    let patch = prune_unchanged_resource_changes(transaction, patch)?;
-    apply_effective_resource_patch(transaction, &patch, revision)?;
-    Ok(patch)
-}
-
 fn apply_effective_resource_patch(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
@@ -2993,7 +2894,7 @@ fn apply_effective_resource_patch(
 /// child is validated against its parent's order in the same patch, and an
 /// earlier write in the transaction (the legacy workspace ledger) may
 /// already have stored the new order.
-pub(super) fn prune_unchanged_resource_changes(
+pub(crate) fn prune_unchanged_resource_changes(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
 ) -> anyhow::Result<ResourcePatch> {
@@ -3171,7 +3072,9 @@ fn resource_change_is_stored(
                             == screen.zoomed_pane.as_ref().map(PanePublicId::as_str)
                         && auto == desired_auto
                         && layout == canonical_json(&serde_json::to_value(&screen.layout)?)?
-                        && viewport == canonical_json(&serde_json::to_value(&screen.viewport)?)?
+                        && viewport
+                            == canonical_json(&serde_json::to_value(screen.viewport.durable())?)?
+                        && screen_rows::side_tables_match(transaction, screen)?
                 }
             }
         }
@@ -3762,78 +3665,6 @@ fn upsert_resource_workspace(
     Ok(())
 }
 
-fn upsert_resource_screen(
-    transaction: &Transaction<'_>,
-    screen: &RegistryScreen,
-    revision: i64,
-) -> anyhow::Result<()> {
-    let old_splits = transaction
-        .query_row(
-            "SELECT layout_json, viewport_json FROM resource_screens WHERE public_id = ?1",
-            [screen.public_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?
-        .map(|(layout, viewport)| {
-            let layout: RegistryLayoutNode = serde_json::from_str(&layout)?;
-            let viewport: RegistryViewport = serde_json::from_str(&viewport)?;
-            let mut splits = Vec::new();
-            collect_screen_split_public_ids(&layout, &viewport, &mut splits);
-            Ok::<_, anyhow::Error>(splits)
-        })
-        .transpose()?
-        .unwrap_or_default();
-    upsert_resource_identity(transaction, screen.public_id.as_str(), "screen", revision)?;
-    let mut desired_splits = Vec::new();
-    collect_screen_split_public_ids(&screen.layout, &screen.viewport, &mut desired_splits);
-    for split in &desired_splits {
-        upsert_resource_identity(transaction, split, "split", revision)?;
-    }
-    let desired_splits = desired_splits.into_iter().collect::<HashSet<_>>();
-    for split in old_splits {
-        if !desired_splits.contains(&split) {
-            tombstone_resource_identity(transaction, &split, revision)?;
-        }
-    }
-    let layout = canonical_json(&serde_json::to_value(&screen.layout)?)?;
-    let auto_layout = screen
-        .auto_layout
-        .as_ref()
-        .map(|value| canonical_json(&serde_json::to_value(value)?))
-        .transpose()?;
-    let viewport = canonical_json(&serde_json::to_value(&screen.viewport)?)?;
-    transaction.execute(
-        "INSERT INTO resource_screens(
-           public_id, workspace_id, position, name, layout_json, active_pane_id,
-           zoomed_pane_id, auto_layout_json, viewport_json,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, NULL)
-         ON CONFLICT(public_id) DO UPDATE SET
-           workspace_id=excluded.workspace_id,
-           position=excluded.position,
-           name=excluded.name,
-           layout_json=excluded.layout_json,
-           active_pane_id=excluded.active_pane_id,
-           zoomed_pane_id=excluded.zoomed_pane_id,
-           auto_layout_json=excluded.auto_layout_json,
-           viewport_json=excluded.viewport_json,
-           updated_revision=excluded.updated_revision",
-        params![
-            screen.public_id.as_str(),
-            screen.workspace_id.as_str(),
-            i64::try_from(screen.position).context("screen position exceeds SQLite range")?,
-            screen.name,
-            layout,
-            screen.active_pane.as_str(),
-            screen.zoomed_pane.as_ref().map(PanePublicId::as_str),
-            auto_layout,
-            viewport,
-            revision,
-        ],
-    )?;
-    Ok(())
-}
-
 fn upsert_resource_pane(
     transaction: &Transaction<'_>,
     pane: &RegistryPane,
@@ -4064,7 +3895,7 @@ fn tombstone_resource_workspace(
     for screen in screens {
         tombstone_resource_screen(transaction, &screen, revision)?;
     }
-
+    crate::state::home_store::refuse_close_id(transaction, workspace_id)?;
     transaction.execute(
         "UPDATE resource_workspaces
          SET active_screen_id = NULL, updated_revision = ?1, deleted_revision = ?1
@@ -4101,6 +3932,7 @@ fn tombstone_resource_screen(
         require_known_resource(transaction, screen_id, "screen")?;
         return Ok(());
     };
+    screen_rows::delete_side_tables(transaction, screen_id, revision)?;
     let panes = {
         let mut statement = transaction.prepare(
             "SELECT public_id FROM resource_panes
@@ -4863,12 +4695,7 @@ fn validate_touched_screen(transaction: &Transaction<'_>, screen_id: &str) -> an
     {
         anyhow::bail!("screen {screen_id} selects a pane outside its layout");
     }
-    let mut split_ids = Vec::new();
-    collect_screen_split_public_ids(&layout, &viewport, &mut split_ids);
-    for split in split_ids {
-        validate_identity_state(transaction, &split, "split", true)?;
-    }
-    Ok(())
+    screen_rows::validate_screen_splits(transaction, screen_id, &layout, &viewport)
 }
 
 fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow::Result<()> {
@@ -5088,7 +4915,7 @@ fn validate_positions_for_parent(
     Ok(())
 }
 
-pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     ensure_no_foreign_key_violations(transaction)?;
     validate_concrete_identity_lifecycles(transaction)?;
     validate_contiguous_positions(

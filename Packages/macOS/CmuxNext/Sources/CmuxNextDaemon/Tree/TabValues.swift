@@ -9,6 +9,9 @@ public enum TabKind: Sendable, Hashable, Codable {
     /// (`remote-terminal-tabs-v1`, `TabSnapshot.remote`). The app attaches
     /// on that session; the home daemon only stores the reference.
     case remoteTerminal
+    /// A tab that shows one conversation of a conversation owner
+    /// (`conversation-tabs-v1`, `TabSnapshot.conversation`). The app draws it.
+    case conversation
     case other(String)
 
     public init(rawValue: String) {
@@ -16,6 +19,7 @@ public enum TabKind: Sendable, Hashable, Codable {
         case "pty": self = .pty
         case "browser": self = .browser
         case "remote-terminal": self = .remoteTerminal
+        case "conversation": self = .conversation
         default: self = .other(rawValue)
         }
     }
@@ -25,6 +29,7 @@ public enum TabKind: Sendable, Hashable, Codable {
         case .pty: "pty"
         case .browser: "browser"
         case .remoteTerminal: "remote-terminal"
+        case .conversation: "conversation"
         case .other(let value): value
         }
     }

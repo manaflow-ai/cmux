@@ -236,11 +236,11 @@ class SeedDerivedData(unittest.TestCase):
         adopt_at, _ = named(seeder, "Adopt the newest seed")
         save_at, _ = named(seeder, "Save seed")
         keep_at, keep = named(seeder, "Keep the seed on this Mac")
-        stage_at, _ = named(seeder, "Stage compiled package frameworks")
+        package_at, _ = named(seeder, "Package compiled app-host test product")
         self.assertLess(choose_at, adopt_at)
         self.assertLess(adopt_at, keep_at)
         self.assertLess(keep_at, save_at)  # the LAN archive gets the seed without waiting on R2
-        self.assertLess(save_at, stage_at)
+        self.assertLess(save_at, package_at)
         self.assertIn("matrix.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
         # only runners that run nothing else as this user: a kept seed becomes the next R2 seed
         self.assertIn("vars.CI_SEED_KEEP_LOCAL_RUNNERS", choose["if"])
@@ -1221,10 +1221,6 @@ class Wiring(unittest.TestCase):
         self.assertLess(install_at, key_at)
         self.assertLess(key_at, build_at)
 
-        stage_at, stage = named(seeder, "Stage compiled package frameworks")
-        _, admission_stage = named(admission, "Stage compiled package frameworks")
-        self.assertEqual(stage["run"], admission_stage["run"])
-
         package_at, package = named(seeder, "Package compiled app-host test product")
         _, admission_package = named(admission, "Package compiled app-host test product")
         for line in admission_package["run"].splitlines():
@@ -1239,21 +1235,21 @@ class Wiring(unittest.TestCase):
             self.assertEqual(upload["with"][field], admission_upload["with"][field], field)
         self.assertIn("retention-days", upload["with"])
 
-        # Staging and relocation rewrite Build/Products, so they run only once
-        # the seed incremental builds read is already saved.
+        # Relocation rewrites Build/Products, so it runs only once the seed
+        # incremental builds read is already saved.
         self.assertLess(build_at, save_at)
-        self.assertLess(save_at, stage_at)
-        self.assertLess(stage_at, package_at)
+        self.assertLess(save_at, package_at)
         self.assertLess(package_at, upload_at)
 
         # Only a main push is a trusted producer; a dispatch would upload a
         # product nothing adopts.
-        for step in (stage, package, upload):
+        for step in (package, upload):
             self.assertIn("github.event_name == 'push'", step["if"])
             self.assertIn("github.ref == 'refs/heads/main'", step["if"])
             self.assertIs(step.get("continue-on-error"), True)
         self.assertIn("steps.package-products.outcome == 'success'", upload["if"])
-        self.assertNotIn("secrets.", json.dumps([stage, package, upload]))
+        self.assertIn("matrix.pool == needs.decide.outputs.publisher", package["if"])
+        self.assertNotIn("secrets.", json.dumps([package, upload]))
 
     def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
         # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to
@@ -1438,7 +1434,7 @@ class Wiring(unittest.TestCase):
         # (test_a_retry_goes_to_blacksmith_after_a_host_fault_...).
         mini, root, gui, side = ("glaeda-std-xcode-26.6", "glaeda-root-std-xcode-26.6",
                                  "glaeda-gui-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
-        owned_jobs = (" admission shard-1 lag cli-product swift-package claude-wrapper remote-daemon ")
+        owned_jobs = (" admission shard-1 lag cli-product swift-package remote-daemon ")
         late = json.dumps({"shard-1": root, "lag": gui, "cli-product": root})
         checked = set()
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
@@ -1485,7 +1481,7 @@ class Wiring(unittest.TestCase):
         # The guard reaches owned jobs at all: attempts 1 and 2 of the main lanes take the fleet.
         owned = {(workflow, job) for workflow, job, on_fleet in checked if on_fleet}
         self.assertTrue({("ci-macos.yml", "macos-compile-admission"), ("ci-macos.yml", "cli-product-tests"),
-                         ("ci.yml", "claude-wrapper"),
+                         ("remote-daemon.yml", "remote-daemon-macos-tests"),
                          ("auth-refresh-tests.yml", next(iter(load("auth-refresh-tests.yml")["jobs"])))} <= owned, owned)
 
     def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):

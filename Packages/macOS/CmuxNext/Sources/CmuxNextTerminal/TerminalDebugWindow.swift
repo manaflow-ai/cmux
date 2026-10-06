@@ -31,7 +31,7 @@ public struct TerminalDebugWindow {
         window.tabbingMode = .disallowed
 
         let container = DebugContainerView(session: session)
-        window.contentView = container
+        window.install(kind: .terminalDebug, content: container, scope: .app)
 
         let controller = DebugWindowController(window: window, session: session, io: io)
         controllers.append(controller)
@@ -56,7 +56,7 @@ public struct TerminalDebugWindow {
         )
         window.title = String(localized: "terminal.debug.follower.title", defaultValue: "Scripted Follower (Debug)", bundle: .module)
         window.isReleasedWhenClosed = false
-        window.contentView = session.view
+        window.install(kind: .terminalDebug, content: session.view, scope: .app)
         let controller = DebugWindowController(window: window, session: session, io: nil)
         controllers.append(controller)
         WindowPlacement.present(window)

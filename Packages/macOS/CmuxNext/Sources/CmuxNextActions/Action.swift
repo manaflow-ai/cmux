@@ -75,6 +75,10 @@ public struct Action: Identifiable {
     /// capability tab-groups-v1"), or nil when it can. A non-nil reason
     /// disables the action everywhere and is reported by `action.run`.
     public var unavailableReason: (@MainActor () -> String?)?
+    /// Why the action cannot run on this invocation's target (for example
+    /// "Add a second column first" for a screen's only column), or nil. A
+    /// context menu shows it on the disabled item; `perform` refuses with it.
+    public var targetUnavailableReason: (@MainActor (ActionInvocation) -> String?)?
 
     public init(
         id: ActionID,

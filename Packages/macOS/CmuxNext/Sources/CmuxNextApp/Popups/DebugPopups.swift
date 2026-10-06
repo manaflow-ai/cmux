@@ -8,12 +8,33 @@ import CmuxNextSettings
 /// (AppKit screen coordinates), key and visible state, the cmux window it
 /// floats over, the opener tab, and the panel's child windows (a Chromium
 /// page window must sit inside the panel). `{"action": "close"}` closes
-/// every panel.
+/// every panel. `icon_picker` is the open icon picker (page, target, anchor,
+/// panel frame, key/visible, parent window), or null.
 @MainActor
 enum DebugPopups {
     static func report(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        if params["action"]?.stringValue == "close" { services.popups.closeAll() }
-        return .object(["panels": .array(services.popups.panels.map { panel($0, services: services) })])
+        if params["action"]?.stringValue == "close" {
+            services.popups.closeAll()
+            services.iconPicker.open?.provider.finish(.cancel)
+        }
+        return .object([
+            "panels": .array(services.popups.panels.map { panel($0, services: services) }),
+            "icon_picker": iconPicker(services),
+        ])
+    }
+
+    private static func iconPicker(_ services: AppServices) -> JSONValue {
+        guard let open = services.iconPicker.open else { return .null }
+        let parent = open.parent.flatMap { parent in services.windows.controllers.first { $0.window === parent } }
+        return .object([
+            "page": .string(open.page.pageID),
+            "target": .string(open.target),
+            "anchor": rect(open.anchor),
+            "frame": rect(open.panel.frame),
+            "key": .bool(open.panel.isKeyWindow),
+            "visible": .bool(open.panel.isVisible),
+            "window": parent.map { .string($0.state.id) } ?? .null,
+        ])
     }
 
     private static func panel(_ panel: BrowserPopupPanel, services: AppServices) -> JSONValue {

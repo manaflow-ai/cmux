@@ -28,11 +28,12 @@ extension PaletteModel {
     func leave(_ state: PageState) {
         let wasHighlighted = state.highlightedItemID != nil
         state.highlightedItemID = nil
-        guard case .list(let page) = state.kind, let onLeave = page.onLeave else { return }
+        guard case .list(let page) = state.kind, page.onLeave != nil || page.onCancel != nil else { return }
         if state.committed {
             state.committed = false
             return
         }
-        if wasHighlighted { onLeave() }
+        if wasHighlighted { page.onLeave?() }
+        page.onCancel?()
     }
 }

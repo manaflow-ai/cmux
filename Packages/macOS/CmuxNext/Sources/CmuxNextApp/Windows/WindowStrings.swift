@@ -17,9 +17,4 @@ enum WindowStrings {
                defaultValue: "Incognito window. Its browser data is deleted when the last incognito window closes.",
                table: "Windows", bundle: .module)
     }
-
-    /// Window rail button tooltip: "New Browser Tab (⇧⌘L)".
-    static func railToolTip(_ title: String, shortcut: String) -> String {
-        String(localized: "window.rail.toolTip", defaultValue: "\(title) (\(shortcut))", table: "Windows", bundle: .module)
-    }
 }

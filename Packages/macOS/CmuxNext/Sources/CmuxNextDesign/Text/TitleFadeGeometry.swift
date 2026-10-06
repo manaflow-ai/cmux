@@ -4,7 +4,7 @@ public import CoreGraphics
 /// Pure, so the rules are unit-tested without layers. All lengths are in the
 /// title's own coordinates: 0 is where its first glyph rests.
 ///
-/// A clipped title fades out instead of ending in an ellipsis (Chrome's
+/// A clipped title fades out instead of ending in an ellipsis (Chromium's
 /// `FADE_TAIL`). The fade ends where the title must be clear
 /// (`visibleWidth`, plus the padding after it) and is `fadeWidth` long. The
 /// marquee moves the title left until its last glyph sits where the fade

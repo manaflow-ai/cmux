@@ -166,6 +166,14 @@ jobs:
           run-id: ${{ inputs.artifact_run_id }}
           github-token: ${{ github.token }}
 
+      - name: Download the generated third-party notices
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: package-notices
+          path: dist/package-notices
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+
       - name: Restore npm package executable modes
         run: |
           python3 cmux-tui/dist/scripts/package_npm_artifact.py extract \
@@ -190,6 +198,7 @@ jobs:
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ inputs.version }}" \
+            --notices-dir dist/package-notices \
             "${contract_args[@]}" \
             --install-npm-package cmux-tui-linux-x64 \
             --install-npm-relay-package cmux-relay-linux-x64

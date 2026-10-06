@@ -8,14 +8,14 @@ import Testing
 /// through the scrubber while leaving grouping-relevant fields intact.
 @Suite struct SentryEventScrubberTests {
     /// A scrubber bound to a fixed home directory so path redaction is deterministic.
-    private let scrubber = SentryEventScrubber(scrubber: SentryScrubber(homeDirectory: "/Users/lawrence"))
+    private let scrubber = SentryEventScrubber(scrubber: SentryScrubber(homeDirectory: "/Users/dev"))
 
     @Test func scrubsFormattedOnlyMessageExceptionAndTransaction() {
         let event = Event()
         // `capture(message:)` sets only `formatted`, leaving the template nil.
         // The scrubber must catch the rendered text, not just the template.
-        event.message = SentryMessage(formatted: "boom for lawrence@cmux.com")
-        event.transaction = "open /Users/lawrence/secret.txt"
+        event.message = SentryMessage(formatted: "boom for user@example.com")
+        event.transaction = "open /Users/dev/secret.txt"
 
         let exception = Exception(value: "failed at /Users/buildbot/app.swift", type: "NSRangeException")
         event.exceptions = [exception]
@@ -33,7 +33,7 @@ import Testing
         let event = Event()
         // Mirrors scope.setContext(value:key:): cmux puts cwd / path data here.
         event.context = [
-            "ui": ["cwd": "/Users/lawrence/dev/cmux", "action": "open"],
+            "ui": ["cwd": "/Users/dev/dev/cmux", "action": "open"],
             "auth": ["token": "abcdef0123456789secretvalue"],
         ]
 
@@ -50,10 +50,10 @@ import Testing
         frame.function = "applicationDidFinishLaunching(_:)"
         frame.package = "/Users/buildbot/Library/Developer/Xcode/DerivedData/cmux/Build/cmux.app"
         frame.lineNumber = 1325
-        frame.contextLine = "let home = \"/Users/lawrence/secret\""
-        frame.preContext = ["// open lawrence@cmux.com"]
+        frame.contextLine = "let home = \"/Users/dev/secret\""
+        frame.preContext = ["// open user@example.com"]
         frame.postContext = ["token=abcdef0123456789zz"]
-        frame.vars = ["cwd": "/Users/lawrence/dev", "token": "plainsecretvalue"]
+        frame.vars = ["cwd": "/Users/dev/dev", "token": "plainsecretvalue"]
 
         let stack = SentryStacktrace(frames: [frame], registers: [:])
         let exception = Exception(value: "x", type: "T")
@@ -78,7 +78,7 @@ import Testing
         let event = Event()
         let exception = Exception(value: "x", type: "NSError")
         let mechanism = Mechanism(type: "NSError")
-        mechanism.desc = "failed reading /Users/lawrence/secret.txt"
+        mechanism.desc = "failed reading /Users/dev/secret.txt"
         mechanism.data = [
             "NSFilePathErrorKey": "/Users/buildbot/app/data.db",
             "url": "https://x.com/?token=abcdef0123456789secret",
@@ -97,7 +97,7 @@ import Testing
     @Test func scrubsDebugMetaCodeFilePaths() {
         let event = Event()
         let image = DebugMeta()
-        image.codeFile = "/Users/lawrence/Library/Developer/Xcode/DerivedData/cmux/cmux.app/cmux"
+        image.codeFile = "/Users/dev/Library/Developer/Xcode/DerivedData/cmux/cmux.app/cmux"
         image.imageAddress = "0x10c000000"
         event.debugMeta = [image]
 
@@ -139,8 +139,8 @@ import Testing
         let event = Event()
         let user = User()
         user.userId = "uid-12345"
-        user.email = "lawrence@cmux.com"
-        user.username = "lawrence"
+        user.email = "user@example.com"
+        user.username = "dev"
         user.name = "Lawrence Chen"
         user.ipAddress = "203.0.113.7"
         event.user = user
@@ -155,8 +155,8 @@ import Testing
 
     @Test func scrubsExtraAndTags() {
         let event = Event()
-        event.extra = ["cwd": "/Users/lawrence/dev", "n": 3]
-        event.tags = ["path": "/Users/lawrence/x", "kind": "warning", "access_token": "abc123plain"]
+        event.extra = ["cwd": "/Users/dev/dev", "n": 3]
+        event.tags = ["path": "/Users/dev/x", "kind": "warning", "access_token": "abc123plain"]
 
         let scrubbed = scrubber.scrub(event)
         #expect(scrubbed.extra?["cwd"] as? String == "/Users/<redacted>/dev")
@@ -169,7 +169,7 @@ import Testing
 
     @Test func scrubsBreadcrumbMessageAndData() {
         let breadcrumb = Breadcrumb(level: .info, category: "ui")
-        breadcrumb.message = "ran in /Users/lawrence/proj with token=abcdef0123456789zz"
+        breadcrumb.message = "ran in /Users/dev/proj with token=abcdef0123456789zz"
         breadcrumb.data = ["url": "https://x.com/?password=hunter2hunter2hunter2"]
 
         let scrubbed = scrubber.scrub(breadcrumb)
@@ -192,9 +192,9 @@ import Testing
     @Test func scrubsStructuredLogBodyAndStringAttributes() {
         let log = SentryLog(
             level: .info,
-            body: "dial from /Users/lawrence/dev failed"
+            body: "dial from /Users/dev/dev failed"
         )
-        log.setAttribute(SentryLog.Attribute(string: "/Users/lawrence/dev"), forKey: "cwd")
+        log.setAttribute(SentryLog.Attribute(string: "/Users/dev/dev"), forKey: "cwd")
         log.setAttribute(SentryLog.Attribute(string: "s3cr3ts3cr3ts3cr3t"), forKey: "access_token")
         log.setAttribute(SentryLog.Attribute(string: "iroh"), forKey: "transport.kind")
         log.setAttribute(SentryLog.Attribute(integer: 42), forKey: "attempt")
@@ -211,7 +211,7 @@ import Testing
     @Test func scrubsStringArrayLogAttributes() {
         let log = SentryLog(level: .info, body: "roots")
         log.setAttribute(
-            SentryLog.Attribute(stringArray: ["/Users/lawrence/a", "/Users/lawrence/b"]),
+            SentryLog.Attribute(stringArray: ["/Users/dev/a", "/Users/dev/b"]),
             forKey: "paths"
         )
         log.setAttribute(

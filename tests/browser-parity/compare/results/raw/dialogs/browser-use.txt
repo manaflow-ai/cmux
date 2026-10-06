@@ -1,9 +1,0 @@
-[3]<button id=alert />
-	Alert
-[4]<button id=confirm />
-	Confirm
-[5]<button id=prompt />
-	Prompt
-[6]<button id=unload />
-	Arm beforeunload
-idle

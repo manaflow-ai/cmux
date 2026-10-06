@@ -7,13 +7,13 @@ import QuartzCore
 /// Multi-item drags show stacked cards behind it and a count badge.
 final class DragLiftView: NSView {
     private let card = NSView()
-    private let content: SidebarRowView
+    private let content: NSView
     private var stack: [NSView] = []
     private let countBadge = NSTextField(labelWithString: "")
     private let badgeBackground = NSView()
     private var lifted = false
 
-    init(content: SidebarRowView, count: Int) {
+    init(content: NSView, count: Int) {
         self.content = content
         super.init(frame: .zero)
         card.wantsLayer = true
@@ -124,6 +124,6 @@ final class DragLiftView: NSView {
     func setRefused(_ refused: Bool) {
         let target: CGFloat = refused ? 0.55 : 1
         guard alphaValue != target else { return }
-        Motion.animate(.hover) { animator().alphaValue = target }
+        Motion.animate(.hover, in: self) { animator().alphaValue = target }
     }
 }

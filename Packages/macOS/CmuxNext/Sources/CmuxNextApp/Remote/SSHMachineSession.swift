@@ -60,7 +60,7 @@ final class SSHMachineSession {
         // task-owner: opens the gate first, so the daemon loop's first endpoint call can dial
         Task { [weak self] in
             await link.handle(.connect)
-            guard let self, self.autoConnect else { return }
+            guard let self, self.autoConnect, !self.daemon.policyBlock.isBlocked else { return }
             self.daemon.start(remote: {
                 do {
                     return try await link.socketPath()

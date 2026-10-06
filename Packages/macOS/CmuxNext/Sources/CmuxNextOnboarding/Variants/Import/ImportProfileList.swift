@@ -69,6 +69,7 @@ final class ImportProfileList: NSView {
             boxes[profile.id]?.state = model.isSelected(profile) ? .on : .off
             boxes[profile.id]?.isEnabled = editable
         }
+        for case let row as ImportCheckRow in stack.arrangedSubviews { row.syncEnabled() }
     }
 
     private func rebuild(_ profiles: [BrowserSourceProfile]) {
@@ -109,9 +110,13 @@ final class ImportProfileList: NSView {
 }
 
 /// One table row: the name on the left, a bare checkbox on the right, a
-/// hairline under it. Clicking anywhere in the row toggles the box.
+/// hairline under it. Clicking anywhere in the row toggles the box. The
+/// shared hover fill covers the row (the list's clip view would cut off
+/// anything past it); the name and box sit `inset` in from its edges.
 final class ImportCheckRow: NSView {
+    static let inset: CGFloat = 6
     private let box: NSButton
+    private(set) lazy var hover = ChromeHover(self, tracking: .activeInKeyWindow)
 
     init(title: String, font: NSFont, box: NSButton, separated: Bool) {
         self.box = box
@@ -124,9 +129,9 @@ final class ImportCheckRow: NSView {
         for view in [label, box, line] { addSubview(view) }
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 40),
-            label.leadingAnchor.constraint(equalTo: leadingAnchor), label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.inset), label.centerYAnchor.constraint(equalTo: centerYAnchor),
             label.trailingAnchor.constraint(lessThanOrEqualTo: box.leadingAnchor, constant: -12),
-            box.trailingAnchor.constraint(equalTo: trailingAnchor), box.centerYAnchor.constraint(equalTo: centerYAnchor),
+            box.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.inset), box.centerYAnchor.constraint(equalTo: centerYAnchor),
             line.leadingAnchor.constraint(equalTo: leadingAnchor), line.trailingAnchor.constraint(equalTo: trailingAnchor),
             line.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
@@ -135,9 +140,42 @@ final class ImportCheckRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Call after the box's `isEnabled` changes: a row that locks under the
+    /// pointer drops its hover and press.
+    func syncEnabled() {
+        guard !box.isEnabled else { return }
+        hover.state.hovering = false
+        hover.state.pressed = false
+    }
+
+    override func layout() {
+        super.layout()
+        hover.layout()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        hover.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) { if box.isEnabled { hover.state.hovering = true } }
+    override func mouseExited(with event: NSEvent) { hover.state.hovering = false }
+
     override func mouseDown(with event: NSEvent) {
         guard box.isEnabled else { return }
-        box.performClick(nil)
+        hover.state.pressed = true
+    }
+
+    /// Toggles on release inside the row, as a button does.
+    override func mouseUp(with event: NSEvent) {
+        guard hover.state.pressed else { return }
+        hover.state.pressed = false
+        if box.isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) { box.performClick(nil) }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        hover.refresh(animated: false)
     }
 }
 

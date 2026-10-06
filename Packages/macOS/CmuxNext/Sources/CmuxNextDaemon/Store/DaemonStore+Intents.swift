@@ -142,7 +142,7 @@ extension DaemonStore {
     /// Applies every pending intent in order, recording each inverse.
     private func restoreOverlay() {
         for index in intentLog.entries.indices {
-            intentLog.setUndo(IntentOverlay.apply(intentLog.entries[index].kind, to: self), at: index)
+            intentLog.setUndo(IntentOverlay.restore(intentLog.entries[index], to: self), at: index)
         }
     }
 }

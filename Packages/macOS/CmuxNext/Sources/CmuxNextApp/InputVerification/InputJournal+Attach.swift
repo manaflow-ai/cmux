@@ -40,6 +40,7 @@ extension InputJournal {
                 record.link = Self.linkID(ref.link)
             case .reconnect: record.event = "reconnect"
             case .processExited: record.event = "processExited"
+            case .processRevived: record.event = "processRevived"
             case .close: record.event = "close"
             }
             journal.append(window: nil, .attach(record))

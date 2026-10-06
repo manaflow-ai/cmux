@@ -120,8 +120,15 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.openURLWithoutWindow = newValue }
     }
 
+    /// What modified link clicks do (cmux.json `browser.links.*`;
+    /// process-wide, read on each request).
+    public var linkClicks: BrowserLinkClickMapping {
+        get { CEFRuntime.shared.windowRequests.linkClicks.mapping }
+        set { CEFRuntime.shared.windowRequests.linkClicks.mapping = newValue }
+    }
+
     /// An incognito request from Chromium ("Open Link in Incognito Window",
-    /// Chrome's New Incognito Window): open `url` (nil: a new tab page) in a
+    /// New Incognito Window): open `url` (nil: a new tab page) in a
     /// cmux incognito window, or in the incognito window of `source` when
     /// that page is incognito. Chromium opens nothing.
     public var openOffTheRecord: ((URL?, (any BrowserTab)?) -> Void)? {

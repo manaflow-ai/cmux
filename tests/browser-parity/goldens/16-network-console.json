@@ -36,7 +36,7 @@
       "application/json"
     ],
     "cookie-set": true,
-    "fetch-sends-cookies": "parity=1"
+    "fetch-sends-cookies": true
   },
   "cmux": {}
 }

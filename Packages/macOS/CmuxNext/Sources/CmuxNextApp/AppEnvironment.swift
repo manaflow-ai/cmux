@@ -12,6 +12,8 @@ struct AppEnvironment: Sendable {
     /// app (agent preflights and background launches). Windows open ordered
     /// back and the app never activates itself.
     let noActivate: Bool
+    /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
+    let showcase: Bool
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
     /// no-activate: where windows open for agent screenshots.
     let testWindow: TestWindowPlacement?
@@ -29,15 +31,37 @@ struct AppEnvironment: Sendable {
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
     var ghosttyBinary: String?
+    /// Whether this app resolves Ghostty's shell integration for its local
+    /// terminals (the daemon connection then echoes
+    /// `terminal-frontend-shell-integration-v1`). Only when the resources
+    /// hold the integration scripts; otherwise the daemon keeps its own.
+    var resolvesShellIntegration: Bool { Self.resolvesShellIntegration(resources: ghosttyResources) }
+
+    nonisolated static func resolvesShellIntegration(resources: String?) -> Bool {
+        guard let resources, !resources.isEmpty else { return false }
+        var directory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: resources + "/shell-integration", isDirectory: &directory)
+            && directory.boolValue
+    }
+    /// The saved sidebars the first frame draws (`SidebarSnapshotStore`):
+    /// only the real app process sets it; without it nothing is read or
+    /// written (tests that build `AppServices`).
+    var sidebarSnapshotFile: SidebarSnapshotFile?
 
     var tag: String? { launch.tag }
 
     static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> AppEnvironment {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+#if DEBUG
+        let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
+#else
+        let showcase = false
+#endif
         let launch = LaunchIdentity.current()
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
+            showcase: showcase,
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment),
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),

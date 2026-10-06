@@ -220,6 +220,46 @@ struct WindowRegistryTests {
         #expect(SidebarMembership.globalIndex(localIndex: 0, local: [], global: global) == 5)
     }
 
+    /// The sidebar order the personal store produces: workspaces with a
+    /// personal position in that order, then the rest in daemon order
+    /// (PersonalSidebar.order), after `plan` is applied.
+    private static func shownOrder(after plan: [SidebarMembership.PersonalPlacement], rowed: [String], daemon: [String]) -> [String] {
+        var rowed = rowed
+        for step in plan {
+            rowed.removeAll { $0 == step.key }
+            rowed.insert(step.key, at: min(max(step.index, 0), rowed.count))
+        }
+        return rowed.filter(daemon.contains) + daemon.filter { !rowed.contains($0) }
+    }
+
+    /// GUI repro (sidebar lead 2026-10-05, sbrow-v1 on cmux-lawrence-2):
+    /// new workspaces have no personal position yet and show after the
+    /// positioned ones. A drop at or among them landed somewhere else, because
+    /// an index into the positioned order cannot name a slot among the rest.
+    @Test func aDropAmongWorkspacesWithoutAPersonalPositionLandsWhereItShowed() throws {
+        let daemon = ["x", "r1", "r2", "r3", "r4", "r5", "r6"]
+        // Only "x" has a personal position; r1...r6 show after it in daemon order.
+        let cases: [(moving: String, rowed: [String], slot: Int, expected: [String])] = [
+            // r2 to the end (the shown slot after r6).
+            ("r2", ["x"], 6, ["x", "r1", "r3", "r4", "r5", "r6", "r2"]),
+            // r5 between r1 and r2.
+            ("r5", ["x"], 2, ["x", "r1", "r5", "r2", "r3", "r4", "r6"]),
+            // r1 to the end after r2 got a position.
+            ("r1", ["x", "r2"], 6, ["x", "r2", "r3", "r4", "r5", "r6", "r1"]),
+            // Every workspace positioned: the plain case still holds.
+            ("r1", ["x", "r2", "r3", "r4", "r5", "r6"], 3, ["x", "r2", "r3", "r1", "r4", "r5", "r6"]),
+        ]
+        for c in cases {
+            let rowed = c.rowed.filter { $0 != c.moving }
+            let before = Self.shownOrder(after: [], rowed: c.rowed, daemon: daemon)
+            let shown = before.filter { $0 != c.moving }
+            try #require(c.slot <= shown.count)
+            let plan = SidebarMembership.personalPlacements(moving: [c.moving], localIndex: c.slot, shown: shown, rowed: rowed)
+            #expect(Self.shownOrder(after: plan, rowed: rowed, daemon: daemon) == c.expected, "\(c.moving) to slot \(c.slot)")
+            #expect(plan.last?.key == c.moving, "the moved workspace is placed last")
+        }
+    }
+
     @Test func offscreenFramesMoveToTheirSavedDisplay() {
         let screens: [(id: String?, visible: CGRect)] = [("main", CGRect(x: 0, y: 0, width: 1000, height: 800)),
                                                           ("side", CGRect(x: 1000, y: 0, width: 1000, height: 800))]

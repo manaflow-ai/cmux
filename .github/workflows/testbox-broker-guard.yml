@@ -43,6 +43,9 @@ jobs:
       - name: Validate receipt-bound cleanup ownership check
         run: ./tests/test_testbox_cleanup_receipt_ref.sh
 
+      - name: Validate Testbox setup identity marker
+        run: ./tests/test_testbox_setup_identity.sh
+
       - name: Lint the Testbox lane helpers
         run: >-
           shellcheck
@@ -52,6 +55,7 @@ jobs:
           scripts/blacksmith-testbox-keepalive.sh
           scripts/ci/install-actionlint.sh
           tests/test_ci_actionlint_download.sh
+          tests/test_testbox_setup_identity.sh
 
       - name: Test the actionlint downloader without a network outage
         run: ./tests/test_ci_actionlint_download.sh

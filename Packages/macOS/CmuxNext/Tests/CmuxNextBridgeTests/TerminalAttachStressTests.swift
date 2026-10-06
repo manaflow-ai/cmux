@@ -241,6 +241,7 @@ nonisolated final class FakeLink: TerminalAttachLink, @unchecked Sendable {
     }
     func sendClaim(reporting size: CellSize) { log.withLock { $0.commands.append("claim \(size.cols)x\(size.rows)") } }
     func sendReleaseGeometry() { log.withLock { $0.commands.append("release") } }
+    func sendSnapshotRequest(reason: SnapshotRequestReason) { log.withLock { $0.commands.append("snapshot-request \(reason.rawValue)") } }
     func detachNow() {
         let first = log.withLock { log -> Bool in
             defer { log.detaches = 1 }
@@ -283,6 +284,8 @@ nonisolated final class FakeDaemon: @unchecked Sendable {
     }
 }
 
+/// CI runs this suite in a `swift test` process of its own
+/// (.github/workflows/cmux-next.yml, "Run attach driver stress tests").
 @Suite(.timeLimit(.minutes(2)))
 struct TerminalAttachDriverStressTests {
     typealias Driver = TerminalAttachDriver<FakeLink>

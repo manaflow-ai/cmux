@@ -5,25 +5,24 @@ import Foundation
 /// A room is the daemon's profile (plans/cmux-next/data-model.md).
 nonisolated enum RoomStrings {
     static func defaultName(_ number: Int) -> String {
-        String(format: text("rooms.defaultName", "Room %lld"), locale: Locale.current, number)
+        String(format: text("rooms.defaultName", "Space %lld"), locale: Locale.current, number)
     }
-    static var renameTitle: String { text("rooms.renameTitle", "Rename Room") }
-    static var iconTitle: String { text("rooms.iconTitle", "Room Icon (SF Symbol name or one emoji)") }
-    static func deleteTitle(_ name: String) -> String { String(format: text("rooms.deleteTitle", "Delete room “%@”?"), name) }
+    static var renameTitle: String { text("rooms.renameTitle", "Rename Space") }
+    static func deleteTitle(_ name: String) -> String { String(format: text("rooms.deleteTitle", "Delete space “%@”?"), name) }
     static var deleteReturnsBody: String {
-        text("rooms.deleteReturnsBody", "Its workspaces stay open and return to the rooms that follow their machines.")
+        text("rooms.deleteReturnsBody", "Its workspaces stay open and return to the spaces that follow their machines.")
     }
     static func deleteMovesBody(_ target: String) -> String {
         String(format: text("rooms.deleteMovesBody", "Its workspaces and groups move to “%@”."), target)
     }
     static var delete: String { text("rooms.delete", "Delete") }
-    static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no room %@"), id) }
-    static var defaultCannotBeDeleted: String { text("rooms.refusal.defaultCannotBeDeleted", "the Default room cannot be deleted") }
-    static var roomAtEdge: String { text("rooms.refusal.atEdge", "the room is already at the edge") }
-    static var noOtherRoom: String { text("rooms.refusal.noOtherRoom", "there is no room that way") }
+    static func noRoom(_ id: String) -> String { String(format: text("rooms.refusal.noRoom", "no space %@"), id) }
+    static var defaultCannotBeDeleted: String { text("rooms.refusal.defaultCannotBeDeleted", "the Default space cannot be deleted") }
+    static var roomAtEdge: String { text("rooms.refusal.atEdge", "the space is already at the edge") }
+    static var noOtherRoom: String { text("rooms.refusal.noOtherRoom", "there is no space that way") }
     static var iconArgumentRequired: String { text("rooms.refusal.iconRequired", "an icon argument (SF Symbol name or one emoji) is required") }
-    static var roomArgumentRequired: String { text("rooms.refusal.roomRequired", "a room argument is required") }
-    static var alreadyInRoom: String { text("rooms.refusal.alreadyInRoom", "the workspace is already in that room") }
+    static var roomArgumentRequired: String { text("rooms.refusal.roomRequired", "a space argument is required") }
+    static var alreadyInRoom: String { text("rooms.refusal.alreadyInRoom", "the workspace is already in that space") }
     static var envMustBeObject: String { text("rooms.refusal.envMustBeObject", "env must be a JSON object of strings") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {

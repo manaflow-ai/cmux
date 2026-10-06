@@ -95,22 +95,15 @@ extension TabStripView {
         startAnimating()
     }
 
+    /// Every tab in the row draws its subtle separator in the gap after its
+    /// pill, whatever is selected or hovered, across the pinned and group
+    /// edges, and after the last tab (the line between it and +). Only a tab
+    /// out of the row draws none: the lifted, dragged tab and a member
+    /// collapsed into its group chip.
     func updateSeparators() {
-        let slots = result.slots.filter { $0.width > 0.5 || !$0.isCollapsed }
-        let selected = model.selectedID
-        func emphasized(_ slot: TabLayoutSlot) -> Bool {
-            let id = slot.id
-            return id == selected || id == hoveredID || id == drag?.id || id == Self.placeholderID || slot.isGroupChip || slot.isCollapsed
-        }
-        for (index, slot) in slots.enumerated() {
+        for slot in result.slots {
             guard let cell = cells[slot.id] else { continue }
-            guard index + 1 < slots.count else {
-                cell.showsSeparator = false
-                continue
-            }
-            let next = slots[index + 1]
-            cell.showsSeparator = !emphasized(slot) && !emphasized(next) && slot.isPinned == next.isPinned
-                && slot.groupID == next.groupID
+            cell.showsSeparator = slot.id != drag?.id && !slot.isCollapsed
         }
     }
 
@@ -141,13 +134,6 @@ extension TabStripView {
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
-        let plus = newTabButton.isHidden ? 0 : buttonWidth
-        let runEnd = TabLocationFieldLayout.runEnd(current: buttonX + plus,
-                                                   target: tabsClip.frame.minX + min(result.contentWidth, viewportWidth) + plus)
-        let limit = buttonGroup.isHidden ? contentView.bounds.width - metrics.stripHorizontalPadding : buttonGroup.frame.minX
-        locationField.place(TabLocationFieldLayout.frame(runEnd: runEnd, limit: limit, naturalWidth: locationField.naturalWidth,
-                                                         gap: TabLocationFieldLayout.gap, reserve: actsAsTitlebar ? TabLocationFieldLayout.dragReserve : 0,
-                                                         y: tabY, height: tabHeight), toolTipHost: self)
         updateFadeMask()
         // Tabs moved (scroll, reflow, close): what is under a still pointer may differ.
         geometryDidChange()
@@ -226,7 +212,7 @@ extension TabStripView {
         scroll.step(dt)
         if !scroll.isSettled { active = true }
         // Tabs sliding under a still pointer update hover (applyFrames ->
-        // geometryDidChange), as in Chrome.
+        // geometryDidChange).
         applyFrames()
         if !active { MotionTrace.end("tabs") }
         return active

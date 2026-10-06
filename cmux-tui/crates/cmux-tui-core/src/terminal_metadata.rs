@@ -216,6 +216,54 @@ fn is_string_opener(byte: u8) -> bool {
     matches!(byte, 0x90 | 0x98 | 0x9d | 0x9f | 0x9e)
 }
 
+/// The state of an OSC 9;4 progress report (ConEmu and Windows Terminal).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProgressState {
+    Normal,
+    Error,
+    Indeterminate,
+    Paused,
+}
+
+/// A terminal's OSC 9;4 progress while one is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerminalProgress {
+    pub(crate) state: ProgressState,
+    /// Percent, 0-100; absent for indeterminate progress.
+    pub(crate) value: Option<u8>,
+}
+
+impl TerminalProgress {
+    pub(crate) fn to_json(self) -> serde_json::Value {
+        let state = match self.state {
+            ProgressState::Normal => "normal",
+            ProgressState::Error => "error",
+            ProgressState::Indeterminate => "indeterminate",
+            ProgressState::Paused => "paused",
+        };
+        serde_json::json!({"state": state, "value": self.value})
+    }
+}
+
+/// Parse retained OSC 9 text as `4;state[;percent]`. State 0 removes the
+/// progress; any other OSC 9 text (a notification) is not progress.
+pub(crate) fn parse_progress(text: &str) -> Option<TerminalProgress> {
+    let mut parts = text.strip_prefix("4;")?.split(';');
+    let state = parts.next()?.trim();
+    let value = parts
+        .next()
+        .and_then(|value| value.trim().parse::<u16>().ok())
+        .map(|value| u8::try_from(value.min(100)).unwrap_or(100));
+    let state = match state {
+        "1" => ProgressState::Normal,
+        "2" => ProgressState::Error,
+        "3" => return Some(TerminalProgress { state: ProgressState::Indeterminate, value: None }),
+        "4" => ProgressState::Paused,
+        _ => return None,
+    };
+    Some(TerminalProgress { state, value: value.or(Some(0)) })
+}
+
 /// A desktop notification a program in the terminal asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TerminalNotification {
@@ -417,6 +465,8 @@ impl NotificationGate {
 pub(crate) struct TerminalMetadata {
     osc: OscCollector,
     progress: String,
+    /// The parsed progress last handed to the public graph.
+    published_progress: Option<TerminalProgress>,
     kitty: KittyPending,
     notifications: Vec<TerminalNotification>,
     gate: NotificationGate,
@@ -514,6 +564,21 @@ impl TerminalMetadata {
         &self.progress
     }
 
+    /// The parsed OSC 9;4 progress, when the retained text is one.
+    pub(crate) fn progress(&self) -> Option<TerminalProgress> {
+        parse_progress(&self.progress)
+    }
+
+    /// The parsed progress when it differs from the last one taken, marking
+    /// it taken. `Some(None)` reports a removed progress.
+    pub(crate) fn take_progress_change(&mut self) -> Option<Option<TerminalProgress>> {
+        let current = self.progress();
+        (current != self.published_progress).then(|| {
+            self.published_progress = current;
+            current
+        })
+    }
+
     /// Restore a progress value carried by an authenticated terminal-host
     /// snapshot. Reject malformed values instead of silently changing the
     /// host's state at a reconnect boundary.
@@ -530,6 +595,35 @@ impl TerminalMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn osc_9_4_progress_parses_states_and_reports_each_change_once() {
+        assert_eq!(
+            parse_progress("4;1;42"),
+            Some(TerminalProgress { state: ProgressState::Normal, value: Some(42) })
+        );
+        assert_eq!(
+            parse_progress("4;2;250"),
+            Some(TerminalProgress { state: ProgressState::Error, value: Some(100) })
+        );
+        assert_eq!(
+            parse_progress("4;3"),
+            Some(TerminalProgress { state: ProgressState::Indeterminate, value: None })
+        );
+        assert_eq!(parse_progress("4;0;0"), None);
+        assert_eq!(parse_progress("hello from a notification"), None);
+
+        let mut metadata = TerminalMetadata::default();
+        assert_eq!(metadata.take_progress_change(), None);
+        metadata.observe_output(b"\x1b]9;4;1;10\x07");
+        assert_eq!(
+            metadata.take_progress_change(),
+            Some(Some(TerminalProgress { state: ProgressState::Normal, value: Some(10) }))
+        );
+        assert_eq!(metadata.take_progress_change(), None);
+        metadata.observe_output(b"\x1b]9;4;0\x1b\\");
+        assert_eq!(metadata.take_progress_change(), Some(None));
+    }
 
     #[test]
     fn shell_history_osc_133_marks_cross_chunks_and_stay_bounded() {

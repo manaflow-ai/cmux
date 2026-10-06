@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 extension TerminalSurfaceView {
     /// The text the mirror shows in its viewport, for diagnostics

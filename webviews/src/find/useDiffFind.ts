@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CodeViewHandle } from "@pierre/diffs/react";
 import type { DiffItem } from "../diff-stream";
 import { collectFindMatches, reanchorActiveMatch, type FindMatch } from "./model";
@@ -9,13 +9,30 @@ export type FindDispatch = React.Dispatch<
 >;
 
 type UseDiffFindOptions = {
+  /** The items the code view shows (the file filter already applied). */
   items: DiffItem[];
   open: boolean;
   query: string;
   dispatch: FindDispatch;
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>;
   viewerContainerRef: React.MutableRefObject<HTMLDivElement | null>;
+  /**
+   * Expands a collapsed file so a match inside it can be shown, like the
+   * platform's find revealing collapsed content. Session-only: it does not
+   * change the remembered collapsed files.
+   */
+  revealItem: (itemId: string) => void;
 };
+
+/**
+ * A generated or large file that is still collapsed behind its "Load diff"
+ * button is not searched (as on GitHub): finding into it would load the very
+ * diff the viewer deferred. Loading it makes it searchable. Any other
+ * collapsed file is searched and expanded when a match in it is shown.
+ */
+export function isSearchableItem(item: DiffItem): boolean {
+  return !(item.collapsed && item.fileDiff?.cmuxDeferredReason != null);
+}
 
 export type DiffFindController = {
   matches: FindMatch[];
@@ -41,11 +58,13 @@ export type DiffFindController = {
  * disposed — clearing all highlights — when it unmounts.
  */
 export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
-  const { items, open, query, dispatch, codeViewRef, viewerContainerRef } = options;
+  const { items, open, query, dispatch, codeViewRef, viewerContainerRef, revealItem } = options;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   const normalizedQuery = open ? query.toLowerCase() : "";
   const matches = useMemo(
-    () => (normalizedQuery === "" ? [] : collectFindMatches(items, normalizedQuery)),
+    () => (normalizedQuery === "" ? [] : collectFindMatches(items.filter(isSearchableItem), normalizedQuery)),
     [items, normalizedQuery],
   );
 
@@ -60,7 +79,7 @@ export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
   const clampedIndex = matches.length === 0 ? 0 : Math.min(activeIndex, matches.length - 1);
   const activeMatch = matches[clampedIndex] ?? null;
 
-  const scrollToMatch = useCallback(
+  const scrollToLine = useCallback(
     (match: FindMatch) => {
       codeViewRef.current?.scrollTo({
         type: "line",
@@ -73,6 +92,30 @@ export function useDiffFind(options: UseDiffFindOptions): DiffFindController {
     },
     [codeViewRef],
   );
+
+  // A collapsed file has no rows to scroll to: expand it, and scroll once the
+  // expanded item has reached the code view (the layout effect below runs
+  // after CodeView's own layout effect has applied the new items).
+  const pendingRevealRef = useRef<FindMatch | null>(null);
+  const scrollToMatch = useCallback(
+    (match: FindMatch) => {
+      if (itemsRef.current.some((item) => item.id === match.itemId && item.collapsed)) {
+        pendingRevealRef.current = match;
+        revealItem(match.itemId);
+        return;
+      }
+      pendingRevealRef.current = null;
+      scrollToLine(match);
+    },
+    [revealItem, scrollToLine],
+  );
+  useLayoutEffect(() => {
+    const pending = pendingRevealRef.current;
+    if (pending != null && items.some((item) => item.id === pending.itemId && !item.collapsed)) {
+      pendingRevealRef.current = null;
+      scrollToLine(pending);
+    }
+  }, [items, scrollToLine]);
 
   const activeItemSpan = useCallback(
     (match: FindMatch): { top: number; bottom: number } | null => {

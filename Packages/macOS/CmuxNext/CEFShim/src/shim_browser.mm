@@ -38,6 +38,10 @@ int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int act
   return fork_api().tab_add ? fork_api().tab_add(window_browser_id, url ? url : "", index, activate) : 0;
 }
 
+int cmux_shim_tab_duplicate(int browser_id, int window_browser_id, int index) {
+  return fork_api().tab_duplicate ? fork_api().tab_duplicate(browser_id, window_browser_id, index) : 0;
+}
+
 int cmux_shim_tab_activate(int browser_id) {
   // The tab's Browser may not exist yet in OnAfterCreated: watch its side
   // panel once it is shown (the fork ignores a Browser it already watches).
@@ -166,7 +170,9 @@ int cmux_shim_devtools_call(int browser_id, const char* method, const char* para
     }
     params = value->GetDictionary();
   }
-  return host->ExecuteDevToolsMethod(0, method, params);
+  // An explicit id below 2^30 (the raw-send range starts there).
+  int id = NextInternalDevToolsId(browser_id);
+  return id ? host->ExecuteDevToolsMethod(id, method, params) : 0;
 }
 
 char* cmux_shim_ext_actions(int browser_id, int icon_px) {

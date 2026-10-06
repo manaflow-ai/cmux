@@ -1,9 +1,0 @@
-# note: interactive (clickable / focusable) elements only.
-- title: "Nested top" [url=http://localhost:18811/top.html]
-- heading "Top" [level=1]
-- button "Top button" [ref=e1]
-- iframe:
-  - text: "Level one (peer origin)"
-  - textbox "L1 field" [ref=f1e1]
-- iframe:
-  - button "Srcdoc button" [ref=f2e1]

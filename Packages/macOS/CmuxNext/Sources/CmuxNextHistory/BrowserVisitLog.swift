@@ -27,7 +27,7 @@ public nonisolated struct BrowserVisitSummary: Hashable, Sendable {
 }
 
 /// The page visit log of one browser profile (plans/cmux-next/history.md 2,
-/// `page`): an app-local SQLite file, Chrome's `History` model. Every call
+/// `page`): an app-local SQLite file, after Chromium's `History` model. Every call
 /// runs on this actor, never on the main thread; the database opens on
 /// first use. Incognito never gets one.
 public actor BrowserVisitLog {

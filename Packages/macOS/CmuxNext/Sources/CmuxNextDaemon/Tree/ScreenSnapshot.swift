@@ -5,31 +5,40 @@ public struct ViewportSplit: Sendable, Hashable, Decodable {
     public var width: Double
 }
 
-/// One horizontal scrolling column (niri-style). Present when the screen has
+/// One horizontal scrolling column. Present when the screen has
 /// viewport splits (`viewport-splits-v1`).
 public struct ColumnSnapshot: Sendable, Hashable, Decodable {
     public var id: ColumnID
     /// Fraction of the frontend viewport width.
     public var width: Double
     public var layout: LayoutNode
-    /// Pinned to a viewport edge; nil scrolls (`sticky-columns-v1`).
-    public var sticky: StickySnapshot?
+    /// Docked to a viewport edge; nil scrolls (`dock-columns-v1`).
+    public var dock: DockSnapshot?
+    /// The column's rows, top to bottom (`rows-v1`); empty for a column
+    /// with one row. `layout` is then the compat chain of these rows.
+    public var rows: [RowSnapshot]
 
-    public init(id: ColumnID, width: Double, layout: LayoutNode, sticky: StickySnapshot? = nil) {
+    public init(id: ColumnID, width: Double, layout: LayoutNode, dock: DockSnapshot? = nil, rows: [RowSnapshot] = []) {
         self.id = id
         self.width = width
         self.layout = layout
-        self.sticky = sticky
+        self.dock = dock
+        self.rows = rows
     }
 
-    enum CodingKeys: String, CodingKey { case id, width, layout, sticky }
+    enum CodingKeys: String, CodingKey { case id, width, layout, dock, rows }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(ColumnID.self, forKey: .id)
         width = try c.decode(Double.self, forKey: .width)
         layout = try c.decode(LayoutNode.self, forKey: .layout)
-        sticky = try? c.decodeIfPresent(StickySnapshot.self, forKey: .sticky)
+        // `dock` carries every edge (`dock-columns-v1`; top and bottom
+        // also need `edge-docks-v1`).
+        dock = (try? c.decodeIfPresent(DockSnapshot.self, forKey: .dock)) ?? nil
+        // A malformed `rows` keeps the column: the compat chain in `layout`
+        // still holds every pane, as an older client reads it.
+        rows = ((try? c.decodeIfPresent([RowSnapshot].self, forKey: .rows)) ?? nil) ?? []
     }
 }
 

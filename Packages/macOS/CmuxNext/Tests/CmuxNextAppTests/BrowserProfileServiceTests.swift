@@ -33,7 +33,7 @@ struct BrowserProfileServiceTests {
         let workspace = try #require(services.daemon.store.workspaces.first)
         let browserTabs = try #require(services.cache.browserTabs)
         var stored: [String?] = []
-        browserTabs.create = { _, _, _, profile in
+        browserTabs.create = { _, _, _, profile, _ in
             stored.append(profile)
             return SurfaceID(rawValue: 9)
         }
@@ -92,7 +92,7 @@ struct BrowserProfileServiceTests {
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
         var reopened: [(String, String?)] = []
-        browserTabs.create = { _, url, _, profile in
+        browserTabs.create = { _, url, _, profile, _ in
             reopened.append((url, profile))
             return SurfaceID(rawValue: 10)
         }

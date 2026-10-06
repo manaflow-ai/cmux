@@ -1,7 +1,0 @@
-Browser tab: 370922480, Title: "Inner", URL: "http://127.0.0.1:18911/frame-inner.html?peer=http%3A%2F%2F127.0.0.1%3A18912".
-1 AXWebArea Inner, URL: 127.0.0.1:18911/frame-inner.html?peer=http%3A%2F%2F127.0.0.1%3A18912
-	2 container
-		3 button Inside frame, ID: inner-btn
-		4 text field (settable) Description: Frame field, ID: inner-input
-
-The focused UI element is 1 AXWebArea Inner, URL: 127.0.0.1:18911/frame-inner.html?peer=http%3A%2F%2F127.0.0.1%3A18912

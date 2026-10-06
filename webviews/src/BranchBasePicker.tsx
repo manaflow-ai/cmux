@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 import type { DiffTransport } from "./diff/transport";
-import type { BranchListResult, BranchPickerGroup, BranchPickerRow } from "./diff/generated/protocol";
+import type { BranchListResult, BranchPickerGroup, BranchPickerRow, SessionOpened } from "./diff/generated/protocol";
 
 /**
  * Searchable, uncapped branch base picker. Renders a heavy toolbar button that
@@ -77,6 +77,11 @@ const EMPTY_FILTER_GROUP_CAP: Record<string, number> = {
 const EMPTY_FILTER_DEFAULT_CAP = 8;
 const FILTERED_TOTAL_CAP = 50;
 
+const REASON_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
+  default: "branchPickerReasonDefault",
+  manual: "branchPickerReasonManual",
+};
+
 const GROUP_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
   suggested: "branchPickerGroupSuggested",
   worktrees: "branchPickerGroupWorktrees",
@@ -141,12 +146,15 @@ function computePopoverStyle(rect: DOMRect): PopoverStyle {
 
 export function BranchBasePicker({
   label,
+  onBranchSessionOpened,
   onNavigate,
   onSelectBranchBase,
   picker,
   transport = null,
 }: {
   label: DiffViewerLabelResolver;
+  /** branchChange answered with a new session (page host): the viewer adopts it in place. */
+  onBranchSessionOpened?: (session: SessionOpened) => void;
   onNavigate: (url: string) => void;
   onSelectBranchBase?: (baseRef: string) => void;
   picker: BranchPickerPayload;
@@ -236,8 +244,15 @@ export function BranchBasePicker({
           },
         })
         .then((result) => {
+          // The page host opens a new branch session against the chosen base, and the viewer
+          // switches to it in place; the classic host answers with a page to navigate to.
+          if (result.type === "sessionOpened" && onBranchSessionOpened) {
+            setGeneratingRef(null);
+            onBranchSessionOpened(result.value);
+            return;
+          }
           if (result.type !== "navigation") {
-            throw new Error("branch change response missing navigation");
+            throw new Error(`branch change answered ${result.type}`);
           }
           onNavigate(result.value.url);
         })
@@ -412,11 +427,12 @@ export function BranchBasePicker({
               render grouped rows with secondaries, pills, and matched bolding. */}
               {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
               <div id={listboxId} className="base-picker-list" role="listbox" aria-label={label("branchPickerOpen")}>
+                {loadState === "error" ? (
+                  <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
+                ) : null}
                 {loadState === "loading" ? (
                   <div className="base-picker-status">{label("branchPickerLoading")}</div>
-                ) : loadState === "error" ? (
-                  <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
-                ) : flat.length === 0 ? (
+                ) : loadState === "error" && flat.length === 0 ? null : flat.length === 0 ? (
                   <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
                 ) : (
                   flat.map((entry, index) => (
@@ -427,6 +443,7 @@ export function BranchBasePicker({
                       // key survives filter rebuilds (no array-index key).
                       key={`${entry.groupId}:${entry.row.ref}`}
                       domId={rowDomId(listboxId, index)}
+                      current={entry.row.current === true || entry.row.ref === picker.currentRef}
                       entry={entry}
                       label={label}
                       selected={index === clampedHighlight}
@@ -490,12 +507,13 @@ function BranchBaseButtonLabel({ picker }: { picker: BranchPickerPayload }) {
           ) : null}
         </span>
       ) : null}
-      <Icon name="expand" />
+      <Icon name="chevronDown" />
     </span>
   );
 }
 
 function BranchPickerRowView({
+  current,
   domId,
   entry,
   label,
@@ -503,6 +521,8 @@ function BranchPickerRowView({
   onSelect,
   selected,
 }: {
+  /** The active base: marked with a check, as the reference picker does. */
+  current: boolean;
   domId: string;
   entry: FlatRow;
   label: DiffViewerLabelResolver;
@@ -514,7 +534,9 @@ function BranchPickerRowView({
   // Prefer the backend's localized `secondary` (e.g. the localized reason label
   // for Suggested rows) over the raw English `reason` contract tag so non-English
   // diff viewers don't show "fork point" / "created from" verbatim.
-  const secondary = row.secondary ?? row.worktreeDir ?? row.reason ?? "";
+  // Reason tags the sidecar sends itself (`manual`, `default`) have their own labels.
+  const reasonKey = row.reason ? REASON_LABEL_KEY[row.reason] : undefined;
+  const secondary = row.secondary ?? row.worktreeDir ?? (reasonKey ? label(reasonKey) : row.reason) ?? "";
   return (
     <>
       {entry.firstInGroup ? (
@@ -531,6 +553,7 @@ function BranchPickerRowView({
         role="option"
         tabIndex={-1}
         aria-selected={selected}
+        aria-current={current || undefined}
         className={selected ? "base-picker-row base-picker-row-selected" : "base-picker-row"}
         onMouseMove={onHover}
         onMouseDown={(event) => {
@@ -539,11 +562,16 @@ function BranchPickerRowView({
           onSelect();
         }}
       >
+        <span className="base-picker-row-icon">
+          <Icon name="branch" />
+        </span>
         <span className="base-picker-row-primary">
           {entry.raw ? label("branchPickerUseRaw").replace("{ref}", row.ref) : renderMatched(row.label, entry.match)}
         </span>
-        {row.current ? <span className="base-picker-pill">{label("branchPickerCurrent")}</span> : null}
         {secondary ? <span className="base-picker-row-secondary">{secondary}</span> : null}
+        <span className="base-picker-row-check" title={current ? label("branchPickerCurrent") : undefined}>
+          {current ? <Icon name="check" /> : null}
+        </span>
       </div>
       {entry.moreCount > 0 ? (
         <div className="base-picker-more" role="presentation">

@@ -1,4 +1,4 @@
-// Compactness rules from the representation comparison: elements clipped out
+// Compactness rules: elements clipped out
 // by an overflow:hidden ancestor are left out (a positioned popup that escapes
 // the clipper is kept), punctuation-only text folds away, closed selects list
 // options inline (capped), header rows are marked, unnamed or image-only links

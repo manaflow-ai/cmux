@@ -6,10 +6,24 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
-                keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command, .shift]),
+                keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
                 category: .agents, symbol: "bubble.left.and.text.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
+            {
+                var quick = ActionDescriptor(
+                    id: "palette.quickAgentChat",
+                    title: String(localized: "action.palette.quickAgentChat", defaultValue: "Quick Agent Chat…", bundle: .module),
+                    keywords: ["agent", "chat", "ai", "acpmux", "quick", "composer", "global", "hotkey", "summon"],
+                    // Ctrl-Opt-Cmd-Space: clear of ChatGPT's and Claude's quick-entry defaults.
+                    defaultShortcut: Shortcut(Shortcut.spaceKey, modifiers: [.control, .option, .command]),
+                    category: .agents, symbol: "bubble.left.and.text.bubble.right.fill",
+                    surfaces: [.palette, .keyboard, .menu], cliName: "agent quick", mainMenu: .file
+                )
+                // A floating composer over any app, so the key works while cmux is in the background.
+                quick.isGlobalHotKey = true
+                return quick
+            }(),
             ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
@@ -19,6 +33,43 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "mic", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
             ),
+            ActionDescriptor(
+                id: "agentPane.continueIn",
+                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue in…", bundle: .module),
+                keywords: ["agent", "chat", "continue", "handoff", "claude", "codex", "acpmux"],
+                category: .agents, symbol: "arrow.turn.up.right", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The named CLI handoff is owned by acpmux. This action is the
+                // user-facing chooser that invokes that same frontend flow.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.createCheckpoint",
+                title: String(localized: "action.agentPane.createCheckpoint", defaultValue: "Create checkpoint", bundle: .module),
+                keywords: ["agent", "git", "snapshot", "checkpoint", "handoff"],
+                category: .agents, symbol: "camera", surfaces: [.palette],
+                requires: [.agentPaneFocused, .checkpointCaptureAvailable], targets: [.pane],
+                // CLI/MCP capture runs headlessly through git.checkpoint.create.
+                // This action opens its GUI approval checklist, without writing.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.searchChats",
+                title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
+                keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
+                // Cmd-K searches chats only while an agent chat has the keyboard,
+                // so the simulator's Cmd-K keeps its meaning.
+                defaultShortcut: Shortcut("k", modifiers: [.command]),
+                category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
+                requires: [.agentPaneFocused], targets: [.pane]
+            ),
+            permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
+            permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for this chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
+            permissionAction("deny", title: String(localized: "action.agentPane.permission.deny", defaultValue: "Deny", bundle: .module), symbol: "xmark", shortcut: Shortcut("3", modifiers: [.command, .option])),
+            permissionAction("expand", title: String(localized: "action.agentPane.permission.expand", defaultValue: "Expand permission details", bundle: .module), symbol: "arrow.down.right.and.arrow.up.left", shortcut: Shortcut("4", modifiers: [.command, .option])),
+            permissionAction("retry", title: String(localized: "action.agentPane.permission.retry", defaultValue: "Check and retry permission", bundle: .module), symbol: "arrow.clockwise"),
+            permissionAction("revoke", title: String(localized: "action.agentPane.permission.revoke", defaultValue: "Revoke chat permission", bundle: .module), symbol: "hand.raised"),
+            permissionAction("refresh", title: String(localized: "action.agentPane.permission.refresh", defaultValue: "Refresh permissions", bundle: .module), symbol: "arrow.clockwise.circle"),
             ActionDescriptor(
                 id: "palette.openTerminalChatView",
                 title: String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module),
@@ -97,6 +148,43 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "record.circle",
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
             ),
+            // The Home Chief's subagents (optchat-chief spawn): a workspace
+            // whose tab is an existing acpmux session's chat. Automation only.
+            ActionDescriptor(
+                id: "agent.openSessionWorkspace",
+                title: String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module),
+                keywords: ["agent", "session", "acpmux", "subagent", "workspace"], category: .agents,
+                symbol: "bubble.left.and.text.bubble.right", surfaces: [.keyboard],
+                arguments: [
+                    ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
+                                   kind: .string),
+                    ActionArgument(name: "name", title: String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    ActionArgument(name: "key", title: String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
+                                   kind: .string, isRequired: false),
+                ],
+                // It starts the workspace's terminal: action.run waits the
+                // terminal start deadline, not 2 s, so the caller's run ends
+                // once the workspace exists (it renames it later by key).
+                startsTerminal: true,
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .exempt(.noObject), contextMenuExemption: .noObject)
+            ),
+            // The Home Chief's settings sidebar (the header's name pill does the same).
+            ActionDescriptor(
+                id: "home.toggleChiefSettings",
+                title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module),
+                keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
+                symbol: "sidebar.right", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "agentActivity.open",
+                title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),
+                keywords: ["agent", "computer use", "cua", "timeline", "screenshots", "automation"], category: .agents,
+                symbol: "cursorarrow.click.2", surfaces: [.palette, .menu], cliName: "agent activity", mainMenu: .window
+            ),
             ActionDescriptor(
                 id: "computerUseFocus",
                 title: String(localized: "action.computerUseFocus", defaultValue: "Focus Computer Use", bundle: .module),
@@ -116,5 +204,23 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 cliName: "agent stop-computer-use", mainMenu: .file
             ),
         ]
+    }
+
+    private static func permissionAction(_ name: String, title: String, symbol: String,
+                                         shortcut: Shortcut? = nil) -> ActionDescriptor {
+        var action = ActionDescriptor(
+            id: ActionID(rawValue: "agentPane.permission.\(name)"),
+            title: title,
+            keywords: ["agent", "permission", "tool", name], defaultShortcut: shortcut,
+            category: .agents, symbol: symbol, surfaces: [.keyboard],
+            requires: [.agentPaneFocused], targets: [.pane],
+            surfacePlan: ActionSurfacePlan(
+                cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly
+            )
+        )
+        // GUI-only permission controls must not let a socket caller approve
+        // its own request, including one claiming a user origin.
+        action.isPersonOnly = true
+        return action
     }
 }

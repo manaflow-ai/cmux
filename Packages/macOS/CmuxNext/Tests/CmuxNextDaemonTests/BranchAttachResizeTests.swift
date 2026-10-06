@@ -7,7 +7,7 @@ import Testing
 /// reopening, persisted sessions are kinda frozen"). A relaunch attaches
 /// every restored surface at a provisional grid and claims the pane's real
 /// grid right after the replay, so each busy terminal resizes mid-stream.
-@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
+@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchAttachResizeTests {
     @Test func outputContinuesAfterAResizeInsideAnEscapeSequence() async throws {

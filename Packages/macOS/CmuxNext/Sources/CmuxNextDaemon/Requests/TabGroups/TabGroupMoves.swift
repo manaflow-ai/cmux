@@ -34,7 +34,7 @@ public struct MoveTabGroupToSplitRequest: DaemonRequest {
     }
 }
 
-/// Drops a whole group between niri columns.
+/// Drops a whole group between strip columns.
 public struct MoveTabGroupToColumnRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "move-tab-group-to-column"

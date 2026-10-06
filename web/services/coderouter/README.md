@@ -136,19 +136,16 @@ with team** and **Make private**. A VM token cannot change sharing or mint an
 organization session. The organization catalog returned to a VM contains only
 its own team and `fixed: true`.
 
-A VM-bound route token (`resolveCoderouterControlContext`) does manage provider
-accounts, so `cmux coderouter` inside a managed machine can add and remove
-them: it may list, import (`POST /api/coderouter/accounts`, `POST
-/api/coderouter/claude-upstream`), update (`PATCH
-/api/coderouter/claude-upstream/:id`) and remove (`DELETE` on the same routes)
-accounts. Its scope is fixed by the token: the VM's own team (it cannot choose
-another), only accounts its VM pool grants (`accountAccessPredicate`, `vm`
-access; an organization VM never reaches its creator's private accounts), and
-only while the machine is live. A chatmux machine token cannot manage
-accounts, and a token without a VM id is refused (`vm_bound_token_required`).
-Anything running in the machine can therefore remove or replace the pool's
-accounts; treat a VM token like a team member's account-management
-credential for that pool.
+A machine credential gets no account rights (decision 2026-10-03, replacing
+"VM tokens can manage team provider accounts"): a VM-bound route token, a
+chatmux machine token or a `crk_` key that reaches the control plane
+(`resolveCoderouterControlContext`) is refused with 403
+`machine_token_cannot_manage_accounts` (`chatmux_machine_not_allowed` for a
+chatmux machine). It cannot list for management, import, update, share or
+remove accounts. A Cloud VM runs agents and untrusted code, so nothing in a
+machine can replace or remove the pool's accounts. It still uses the
+accounts its VM pool grants for model requests on the data plane. Accounts are
+added from a signed-in cmux app or the dashboard.
 
 Inside a managed machine, `cmux coderouter accounts --json` returns native and
 Claude account metadata under one team id, and `cmux coderouter org current

@@ -45,58 +45,25 @@ def cli(repo, *args):
 
 class PreflightTests(unittest.TestCase):
     def test_real_wiring_failure_then_repair_without_native_execution(self):
-        def project(wired):
-            build_files = "".join(
-                f"\t\tAAAA00000000000000000B{i:02d} /* {name} in Sources */ = "
-                f"{{isa = PBXBuildFile; fileRef = AAAA00000000000000000F{i:02d} /* {name} */; }};\n"
-                for i, name in enumerate(wired))
-            members = "".join(
-                f"\t\t\t\tAAAA00000000000000000B{i:02d} /* {name} in Sources */,\n"
-                for i, name in enumerate(wired))
-            return (
-                "/* Begin PBXBuildFile section */\n" + build_files +
-                "/* End PBXBuildFile section */\n"
-                "/* Begin PBXNativeTarget section */\n"
-                "\t\tAAAA000000000000000000T1 /* cmuxCLITests */ = {\n"
-                "\t\t\tisa = PBXNativeTarget;\n"
-                "\t\t\tbuildPhases = (\n"
-                "\t\t\t\tAAAA000000000000000000S1 /* Sources */,\n"
-                "\t\t\t);\n"
-                "\t\t\tname = cmuxCLITests;\n"
-                "\t\t};\n"
-                "/* End PBXNativeTarget section */\n"
-                "/* Begin PBXSourcesBuildPhase section */\n"
-                "\t\tAAAA000000000000000000S1 /* Sources */ = {\n"
-                "\t\t\tisa = PBXSourcesBuildPhase;\n"
-                "\t\t\tfiles = (\n" + members +
-                "\t\t\t);\n"
-                "\t\t};\n"
-                "/* End PBXSourcesBuildPhase section */\n")
-
         with repo_fixture() as repo:
-            shutil.copy2(ROOT / "scripts/lint-pbxproj-test-wiring.sh",
-                         repo / "scripts/lint-pbxproj-test-wiring.sh")
+            lint = repo / "scripts/lint-pbxproj-test-wiring.sh"
             shutil.copy2(ROOT / "tests/test_ci_pbxproj_test_wiring.sh",
                          repo / "tests/test_ci_pbxproj_test_wiring.sh")
-            (repo / "cmuxCLITests").mkdir()
-            (repo / "cmuxCLITestSupport").mkdir()
-            (repo / "cmuxCLITests/ExistingTests.swift").write_text("import Testing\n")
-            (repo / "cmux.xcodeproj").mkdir()
-            pbxproj = repo / "cmux.xcodeproj/project.pbxproj"
-            pbxproj.write_text(project(["ExistingTests.swift"]))
-            (repo / "cmuxCLITests/UnwiredTests.swift").write_text("import Testing\n@Test func example() {}\n")
+            # A lint that accepts everything is what the regression guard catches.
+            lint.write_text("#!/usr/bin/env bash\nexit 0\n")
+            lint.chmod(0o755)
             with tempfile.TemporaryDirectory() as receipts:
                 evidence = Path(receipts) / "receipt.json"
                 failed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
                 self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
-                self.assertIn("UnwiredTests.swift", failed.stdout)
+                self.assertIn("lint without --target should fail", failed.stdout)
                 self.assertIn("--only test-wiring", failed.stdout)
                 result = json.loads(evidence.read_text())
                 self.assertEqual(result["outcome"]["status"], "failed")
                 self.assertEqual(result["evidence"]["executions"][0]["argv"],
                                  ["bash", "tests/test_ci_pbxproj_test_wiring.sh"])
                 self.assertEqual(verify.receipt.check(result, "typechecking")["status"], "skipped")
-                pbxproj.write_text(project(["ExistingTests.swift", "UnwiredTests.swift"]))
+                shutil.copy2(ROOT / "scripts/lint-pbxproj-test-wiring.sh", lint)
                 fixed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
                 self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
                 result = json.loads(evidence.read_text())
@@ -404,12 +371,9 @@ class AffectedChecksTests(unittest.TestCase):
             selected, _ = verify.affected_checks(repo, "HEAD")
             self.assertEqual(selected, ["project-tests", "project", "feature-flags"])
 
-    def test_current_ci_schema_and_wiring_inputs_select_their_checks(self):
+    def test_current_ci_wiring_inputs_select_their_checks(self):
         for path, expected in (
-            ("web/data/cmux.schema.json", "config-schema"),
-            ("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift", "config-schema"),
-            ("cmuxCLITests/NewTests.swift", "test-wiring"),
-            ("cmuxCLITestSupport/NewSupport.swift", "test-wiring"),
+            ("scripts/lint-pbxproj-test-wiring.sh", "test-wiring"),
         ):
             with self.subTest(path=path), repo_fixture() as repo:
                 target = repo / path
@@ -425,12 +389,11 @@ class AffectedChecksTests(unittest.TestCase):
             (repo / "scripts/claude-launch-environment-policy.json").write_text("{}")
             selected, _ = verify.affected_checks(repo, "HEAD")
             self.assertEqual(selected, ["launch-policy", "feature-flags"])
-            output = repo / "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift"
-            output.parent.mkdir(parents=True)
+            output = repo / "agent-chat/adapters/claude-environment-policy.generated.ts"
+            output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text("// edited generated output")
             selected, _ = verify.affected_checks(repo, "HEAD")
             self.assertIn("launch-policy", selected)
-            self.assertIn("package-groups", selected)
 
     def test_deleted_input_and_rename_keep_old_and_new_dependencies(self):
         with repo_fixture() as repo:
@@ -556,12 +519,12 @@ class AutomaticSelectionTests(unittest.TestCase):
     def test_plain_preview_selects_swift_without_running_compiler(self):
         with repo_fixture() as repo:
             self.remote_default(repo)
-            (repo / "CLI").mkdir()
-            (repo / "CLI/Changed.swift").write_text("not valid Swift")
+            (repo / "Sources").mkdir()
+            (repo / "Sources/Changed.swift").write_text("not valid Swift")
             with patch.dict(os.environ, {"CI": "", "GITHUB_ACTIONS": ""}):
                 result = cli(repo, "--list")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("CLI/Changed.swift", result.stdout)
+            self.assertIn("Sources/Changed.swift", result.stdout)
             self.assertIn("swift-syntax", result.stdout)
             self.assertNotIn("RUN ", result.stdout)
 

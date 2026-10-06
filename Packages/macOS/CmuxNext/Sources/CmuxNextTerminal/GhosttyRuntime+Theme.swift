@@ -1,4 +1,4 @@
-import GhosttyKit
+import GhosttyNextKit
 
 /// The theme colors of the applied Ghostty config, as 8-bit sRGB values.
 /// The App turns this into CmuxNextDesign's `ThemeInput` (this module does

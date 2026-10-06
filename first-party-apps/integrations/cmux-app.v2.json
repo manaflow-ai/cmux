@@ -1,0 +1,117 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/integrations",
+  "name": {
+    "en": "Integrations",
+    "ja": "連携"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "Connect GitHub, Linear, Slack, Google Calendar, Gmail or any OpenAPI, GraphQL or MCP API, share connections with your team, fix sign-ins, and choose per tool whether agents may run it, must ask, or never run it.",
+    "ja": "GitHub、Linear、Slack、Google カレンダー、Gmail、または任意の OpenAPI・GraphQL・MCP API を接続し、チームと共有し、サインインを修復し、ツールごとにエージェントが実行できるか、確認が必要か、実行しないかを選べます。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later AND MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "agents",
+    "developer-tools",
+    "cloud"
+  ],
+  "keywords": [
+    "integrations",
+    "connections",
+    "openapi",
+    "graphql",
+    "mcp",
+    "oauth",
+    "policy"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "catalog": "catalog/integrations-catalog.json",
+  "cli": { "name": "integrations" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderSection",
+      "title": {
+        "en": "Integrations",
+        "ja": "連携"
+      },
+      "symbol": "puzzlepiece.extension",
+      "options": {
+        "defaultRegion": "bottom",
+        "maxRows": 6
+      }
+    },
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": {
+        "en": "Integrations",
+        "ja": "連携"
+      },
+      "symbol": "puzzlepiece.extension"
+    }
+  },
+  "scopes": {
+    "integration:read": "List your team's connections, their health and the team's integration policy."
+  },
+  "optionalScopes": {
+    "integration:write": "Start a connection, sign in again, share it with your team, disconnect it (cmux confirms first), turn its MCP exposure on or off, or change a tool's policy when you click those buttons.",
+    "workspace:write": "Open the Integrations pane from the palette or the sidebar."
+  },
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "connections",
+        "gallery",
+        "catalog"
+      ],
+      "default": "connections"
+    }
+  ],
+  "activation": [
+    "onInterface:cmux.section/1",
+    "onInterface:cmux.pane/1",
+    "onOp:integrations.open",
+    "onOp:integrations.connect",
+    "onOp:integrations.import_api"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/",
+    "LICENSE-executor"
+  ],
+  "notices": [
+    {
+      "path": "LICENSE-executor",
+      "title": "executor (MIT License)"
+    }
+  ],
+  "consumes": {
+    "ops": [
+      "integration.list",
+      "integration.connect",
+      "integration.status",
+      "integration.revoke",
+      "integration.tools.list",
+      "integration.tools.policy.set",
+      "integration.catalog.preview",
+      "integration.mcp.set"
+    ]
+  }
+}

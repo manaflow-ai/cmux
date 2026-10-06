@@ -51,4 +51,11 @@ import Testing
         #expect(resolve(nil, bundledPage: nil) == nil)
         #expect(resolve("https://example.com/", bundledPage: nil) == nil)
     }
+
+    @Test func onlyADevServerHasAnOriginForAcpmux() {
+        #expect(resolve("http://127.0.0.1:4176/x", bundledPage: page)?.devServerOrigin == "http://127.0.0.1:4176")
+        #expect(resolve(nil, bundledPage: page)?.devServerOrigin == nil)
+        // Release never resolves the dev server, so it never passes an origin.
+        #expect(resolve("http://127.0.0.1:4176/", bundledPage: page, allowsDevServer: false)?.devServerOrigin == nil)
+    }
 }

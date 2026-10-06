@@ -1,60 +1,29 @@
 # Session Management
 
-cmux gives each browser surface its own context. Every surface is an independent session with its own cookies, localStorage/sessionStorage, tab list and active tab, and navigation history. Related: [authentication.md](authentication.md), [../SKILL.md](../SKILL.md).
+Drive several browser tabs at once by keeping each tab's `tab_…` id. Related:
+[authentication.md](authentication.md), [../SKILL.md](../SKILL.md).
 
-Keep the handle returned by creation or
-[surface discovery](surface-discovery.md); never use a guessed default.
+Saved browser state was removed: the old `state save|load`, `cookies` and
+`storage` commands have no replacement in the new CLI, so auth cannot be copied
+from one tab to another by command.
 
-## Parallel sessions
-
-Each `cmux browser open` returns a new surface ref; drive them independently.
-
-```bash
-FIRST_JSON="$(cmux --json browser open https://site-a.example --focus false)"
-FIRST_SURFACE="$(printf '%s' "$FIRST_JSON" | jq -r '.surface_ref // .surface_id // empty')"
-SECOND_JSON="$(cmux --json browser open https://site-b.example --focus false)"
-SECOND_SURFACE="$(printf '%s' "$SECOND_JSON" | jq -r '.surface_ref // .surface_id // empty')"
-[ -n "$FIRST_SURFACE" ] && [ -n "$SECOND_SURFACE" ] || exit 1
-
-ARTIFACT_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-output"
-umask 077
-mkdir -p "$ARTIFACT_DIR"
-chmod 700 "$ARTIFACT_DIR"
-cmux browser --surface "$FIRST_SURFACE" get text body > "$ARTIFACT_DIR/a.txt"
-cmux browser --surface "$SECOND_SURFACE" get text body > "$ARTIFACT_DIR/b.txt"
-chmod 600 "$ARTIFACT_DIR/a.txt" "$ARTIFACT_DIR/b.txt"
-```
-
-## Reusing auth across surfaces
+## Parallel tabs
 
 ```bash
-STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
-umask 077
-mkdir -p "$STATE_DIR"
-chmod 700 "$STATE_DIR"
-STATE_FILE="$STATE_DIR/auth.json"
-SOURCE_SURFACE="surface:7"       # from discovery
-DESTINATION_JSON="$(cmux --json browser open https://app.example.com --focus false)"
-DESTINATION_SURFACE="$(printf '%s' "$DESTINATION_JSON" | jq -r '.surface_ref // .surface_id // empty')"
-[ -n "$DESTINATION_SURFACE" ] || exit 1
-cmux browser --surface "$SOURCE_SURFACE" state save "$STATE_FILE"
-chmod 600 "$STATE_FILE"
-cmux browser --surface "$DESTINATION_SURFACE" state load "$STATE_FILE"
-cmux browser --surface "$DESTINATION_SURFACE" goto https://app.example.com/dashboard
+tab_id() { jq -r '.. | .id? // empty | select(startswith("tab_"))' | head -n1; }
+FIRST="$(cmux --json tab create browser --url https://site-a.example | tab_id)"
+SECOND="$(cmux --json tab create browser --url https://site-b.example | tab_id)"
+[ -n "$FIRST" ] && [ -n "$SECOND" ] || exit 1
+cmux browser "$FIRST" text body
+cmux browser "$SECOND" text body
 ```
 
 ## Cleanup
 
 ```bash
-STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
-STATE_FILE="${STATE_FILE:-$STATE_DIR/auth.json}"
-cmux close-surface --surface surface:7
-rm -f "$STATE_FILE"
+cmux tab "$FIRST" close
+cmux tab "$SECOND" close
 ```
 
-## Best practices
-
-Log only the surface refs needed to keep actions attributable (not raw URLs or
-auth payloads), keep one task per surface to avoid ref churn, save state after
-successful auth milestones, and re-snapshot after switching tabs or pages
-inside a surface.
+Keep one task per tab to avoid ref churn, and log tab ids rather than URLs or
+page text from authenticated pages.

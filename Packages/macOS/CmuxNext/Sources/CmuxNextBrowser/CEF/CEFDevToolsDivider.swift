@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// The line between a CEF page and its docked DevTools. Drag it to resize
 /// (the page and DevTools windows punch a hole for its grab area, so the
 /// mouse reaches it over both); its menu moves DevTools like the dock
-/// side items of Chrome's DevTools menu.
+/// side items of the DevTools menu.
 final class CEFDevToolsDivider: NSView {
     weak var devTools: CEFDevToolsController?
     private var dragging = false

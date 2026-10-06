@@ -1,264 +1,264 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "action.room.clearTheme" : {
+    "action.space.clearTheme" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reset Room Theme"
+            "value" : "Reset Space Theme"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إعادة تعيين سمة الغرفة"
+            "value" : "إعادة تعيين سمة المساحة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vrati temu sobe"
+            "value" : "Vrati temu prostora"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nulstil rummets tema"
+            "value" : "Nulstil områdets tema"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Raumdesign zurücksetzen"
+            "value" : "Space-Design zurücksetzen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Restablecer tema de la sala"
+            "value" : "Restablecer tema del espacio"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Réinitialiser le thème de la salle"
+            "value" : "Réinitialiser le thème de l’espace"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ripristina tema della stanza"
+            "value" : "Ripristina tema dello spazio"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルームのテーマをリセット"
+            "value" : "スペースのテーマをリセット"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កំណត់រចនាប័ទ្មបន្ទប់ឡើងវិញ"
+            "value" : "កំណត់រចនាប័ទ្មលំហឡើងវិញ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 테마 재설정"
+            "value" : "스페이스 테마 재설정"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tilbakestill romtema"
+            "value" : "Tilbakestill områdetema"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Resetuj motyw pokoju"
+            "value" : "Resetuj motyw obszaru"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Redefinir Tema da Sala"
+            "value" : "Redefinir Tema do Espaço"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Сбросить тему комнаты"
+            "value" : "Сбросить тему области"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "รีเซ็ตธีมห้อง"
+            "value" : "รีเซ็ตธีมพื้นที่"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Oda Temasını Sıfırla"
+            "value" : "Alan Temasını Sıfırla"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Скинути тему кімнати"
+            "value" : "Скинути тему простору"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đặt lại chủ đề phòng"
+            "value" : "Đặt lại chủ đề không gian"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "重置房间主题"
+            "value" : "重置空间主题"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "重設房間主題"
+            "value" : "重設空間主題"
           }
         }
       }
     },
-    "action.room.setTheme" : {
+    "action.space.setTheme" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Set Room Theme…"
+            "value" : "Set Space Theme…"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تعيين سمة الغرفة…"
+            "value" : "تعيين سمة المساحة…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Postavi temu sobe…"
+            "value" : "Postavi temu prostora…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Angiv rummets tema…"
+            "value" : "Angiv områdets tema…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Raumdesign festlegen …"
+            "value" : "Space-Design festlegen …"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Definir tema de la sala…"
+            "value" : "Definir tema del espacio…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Définir le thème de la salle…"
+            "value" : "Définir le thème de l’espace…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Imposta tema della stanza…"
+            "value" : "Imposta tema dello spazio…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ルームのテーマを設定…"
+            "value" : "スペースのテーマを設定…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កំណត់រចនាប័ទ្មបន្ទប់…"
+            "value" : "កំណត់រចនាប័ទ្មលំហ…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "룸 테마 설정…"
+            "value" : "스페이스 테마 설정…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Angi romtema …"
+            "value" : "Angi områdetema …"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ustaw motyw pokoju…"
+            "value" : "Ustaw motyw obszaru…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Definir Tema da Sala…"
+            "value" : "Definir Tema do Espaço…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Задать тему комнаты…"
+            "value" : "Задать тему области…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ตั้งธีมห้อง…"
+            "value" : "ตั้งธีมพื้นที่…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Oda Temasını Ayarla…"
+            "value" : "Alan Temasını Ayarla…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Задати тему кімнати…"
+            "value" : "Задати тему простору…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đặt chủ đề phòng…"
+            "value" : "Đặt chủ đề không gian…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "设置房间主题…"
+            "value" : "设置空间主题…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "設定房間主題…"
+            "value" : "設定空間主題…"
           }
         }
       }

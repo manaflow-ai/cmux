@@ -113,7 +113,9 @@ public struct TerminalEnvironment: Sendable {
     }
 
     /// Shared per-launch provider for terminal `env`: the login environment
-    /// captured once (the launcher's capture) and filtered.
+    /// (`LoginEnvironmentCache.value()`: this launch's capture, else the
+    /// one remembered from the last launch, else a wait for the capture),
+    /// filtered.
     /// `overrides` (the app's `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`,
     /// `CMUX_TAG`, Ghostty's terminal identity) win, so terminals created in
     /// a daemon that an older launch started still reach this app.

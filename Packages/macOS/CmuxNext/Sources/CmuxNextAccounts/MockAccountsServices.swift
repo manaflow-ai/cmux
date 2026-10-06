@@ -6,16 +6,18 @@ public import Foundation
 @MainActor
 public final class MockAccountsServices: AccountsServices {
     public var detections: [ProviderDetection] = [
-        ProviderDetection(provider: .codex, status: .signedIn, identity: "dev@example.com", plan: "pro",
+        ProviderDetection(provider: .codex, status: .signedIn, account: AccountLabel.demo("codex", display: "pro"), plan: "pro",
                           sources: [.file("~/.codex/auth.json")]),
-        ProviderDetection(provider: .claude, status: .signedIn, identity: "dev@example.com",
+        ProviderDetection(provider: .claude, status: .signedIn, account: AccountLabel.demo("claude", display: "d…@e…"),
                           sources: [.keychain("Claude Code-credentials")]),
         ProviderDetection(provider: .anthropic, status: .signedIn, sources: [.environment("ANTHROPIC_API_KEY")]),
-        ProviderDetection(provider: .gemini, status: .expired, identity: "dev@gmail.com", sources: [.file("~/.gemini/oauth_creds.json")]),
-        ProviderDetection(provider: .ollama, status: .signedIn, identity: "127.0.0.1:11434", sources: [.server("127.0.0.1:11434")]),
+        ProviderDetection(provider: .gemini, status: .expired, account: AccountLabel.demo("gemini", display: "d…@g…"),
+                          sources: [.file("~/.gemini/oauth_creds.json")]),
+        ProviderDetection(provider: .ollama, status: .signedIn, detail: "127.0.0.1:11434", sources: [.server("127.0.0.1:11434")]),
     ]
     public var linked: [LinkedAccount] = [
-        LinkedAccount(id: "11111111-1111-4111-8111-111111111111", family: .native, provider: .codex, label: "dev@example.com", state: "active"),
+        LinkedAccount(id: "11111111-1111-4111-8111-111111111111", family: .native, provider: .codex,
+                      account: AccountLabel.demo("codex", display: "d…@e…"), state: "active"),
     ]
     public var isSignedInToCmux = true
     public var failure: (any Error)?
@@ -45,7 +47,8 @@ public final class MockAccountsServices: AccountsServices {
         if let failure { throw failure }
         let id = UUID().uuidString.lowercased()
         let family: LinkedAccount.Family = [.claude, .anthropic, .bedrock].contains(provider) ? .claude : .native
-        linked.append(LinkedAccount(id: id, family: family, provider: provider, label: provider.displayName, state: "active"))
+        linked.append(LinkedAccount(id: id, family: family, provider: provider,
+                                    account: AccountLabel.demo(provider.rawValue, display: provider.displayName), state: "active"))
     }
 
     public func remove(_ account: LinkedAccount) async throws {

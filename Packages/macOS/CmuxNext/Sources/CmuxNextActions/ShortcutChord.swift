@@ -1,7 +1,7 @@
 public import AppKit
 
 /// A two-key shortcut (`["ctrl+b", "c"]` in cmux.json), as the old app's
-/// tmux-style bindings: the first key arms it, the next key runs the action.
+/// Prefix-chord bindings: the first key arms it, the next key runs the action.
 /// The first key needs Command or Control, since only those reach the key
 /// router; the second may be a plain key.
 public nonisolated struct ShortcutChord: Hashable, Sendable {
@@ -16,11 +16,23 @@ public nonisolated struct ShortcutChord: Hashable, Sendable {
     @MainActor public var keycaps: [String] { first.keycaps + second.keycaps }
 }
 
+/// One binding under a chord's first key: the second key and its action.
+public nonisolated struct ChordBinding: Hashable, Sendable {
+    public let second: Shortcut
+    public let id: ActionID
+
+    public init(second: Shortcut, id: ActionID) {
+        self.second = second
+        self.id = id
+    }
+}
+
 extension ActionRegistry {
-    /// `id`'s chord from cmux.json, or nil. A chord replaces the action's
-    /// single-key shortcut, so ``effectiveShortcut(for:)`` is nil then.
+    /// `id`'s chord: from cmux.json (it replaces the single key), else its
+    /// default chord (it adds to it; `LeaderLayer.defaultChord(for:)`).
     public func effectiveChord(for id: ActionID) -> ShortcutChord? {
-        chordOverrides[canonicalID(for: id)]
+        let id = canonicalID(for: id)
+        return chordOverrides[id] ?? LeaderLayer(registry: self).defaultChord(for: id)
     }
 
     /// Sets a chord override (replacing any single-key override).
@@ -67,7 +79,7 @@ extension ActionRegistry {
 
     /// The shortcuts a key-down may mean: its characters, then the unshifted
     /// key ("}" or "]" for Shift-]), with its modifiers.
-    static func shortcuts(for event: NSEvent) -> [Shortcut] {
+    public static func shortcuts(for event: NSEvent) -> [Shortcut] {
         guard event.type == .keyDown else { return [] }
         let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
         var keys: [String] = []

@@ -1,14 +1,15 @@
-// Pierre diff and tree styling for the changes view, after the Codex Changes pane in
-// manaflow-ai/codex-atlas-clone (src/changes/theme.ts, diffStyles.ts, treeStyles.ts).
+// Pierre diff and tree styling for the changes view, ported from
+// the agent-pane reference prototype (src/changes/theme.ts, diffStyles.ts, treeStyles.ts).
 // Colors come from the pane's theme variables (applyAgentTheme), which inherit into
-// Pierre's shadow roots; the Codex values are the fallbacks.
+// Pierre's shadow roots; the dark values below are the fallbacks.
 import { registerCustomTheme } from "@pierre/diffs";
+import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "../../scrollers";
 
 export const AGENT_DIFF_THEME = "cmux-agent-dark";
 export const AGENT_DIFF_THEME_LIGHT = "cmux-agent-light";
 
-/// Codex dark, sampled from its Changes pane.
-const codex = {
+/// Dark fallback colors, used when the host sends no theme.
+const fallbackDark = {
   bg: "#272823",
   fg: "#f8f8f3",
   muted: "#a8a9a3",
@@ -28,28 +29,28 @@ const codex = {
   selected: "#32332d",
 } as const;
 
-/// The pane's colors, each a theme variable with the Codex value behind it. The diffs sit on
+/// The pane's colors, each a theme variable with a dark fallback behind it. The diffs sit on
 /// the page background, so the changes view is one surface with the transcript. Additions and
 /// deletions read `--acpmux-add` and `--acpmux-del` (styles.css), which a theme can set.
-const addition = `var(--acpmux-add, ${codex.addition})`;
-const deletion = `var(--acpmux-del, ${codex.deletion})`;
+const addition = `var(--acpmux-add, ${fallbackDark.addition})`;
+const deletion = `var(--acpmux-del, ${fallbackDark.deletion})`;
 export const diffColors = {
-  bg: `var(--agent-page-bg, ${codex.bg})`,
-  fg: `var(--agent-text, ${codex.fg})`,
-  muted: `var(--agent-muted, ${codex.muted})`,
-  line: `var(--agent-border, ${codex.line})`,
-  selected: `var(--agent-card-hover, ${codex.selected})`,
+  bg: `var(--agent-page-bg, ${fallbackDark.bg})`,
+  fg: `var(--agent-text, ${fallbackDark.fg})`,
+  muted: `var(--agent-muted, ${fallbackDark.muted})`,
+  line: `var(--agent-border, ${fallbackDark.line})`,
+  selected: `var(--agent-card-hover, ${fallbackDark.selected})`,
   addition,
   deletion,
   additionLine: `color-mix(in srgb, ${addition} 20%, transparent)`,
   deletionLine: `color-mix(in srgb, ${deletion} 20%, transparent)`,
   additionGutter: `color-mix(in srgb, ${addition} 10%, transparent)`,
   deletionGutter: `color-mix(in srgb, ${deletion} 10%, transparent)`,
-  separator: `var(--agent-control, ${codex.separator})`,
+  separator: `var(--agent-control, ${fallbackDark.separator})`,
 } as const;
 
 /// Syntax colors for Shiki: the terminal's ANSI colors where the host sends them
-/// (`--agent-ansi-N`, set by applyAgentTheme), Codex's otherwise. Shiki writes each color
+/// (`--agent-ansi-N`, set by applyAgentTheme), the dark fallbacks otherwise. Shiki writes each color
 /// into the token's inline style, so a CSS variable resolves against the page's theme.
 /// The background is transparent so the themed background shows through.
 type Syntax = Record<
@@ -99,18 +100,18 @@ function shikiTheme(name: string, type: "dark" | "light", fallbackFg: string, co
 const theme = shikiTheme(
   AGENT_DIFF_THEME,
   "dark",
-  codex.fg,
+  fallbackDark.fg,
   syntax({
-    fg: codex.fg,
-    keyword: codex.link,
-    fn: codex.heading,
-    string: codex.string,
-    number: codex.inlineCode,
-    comment: codex.comment,
-    added: codex.addition,
-    removed: codex.deletion,
-    heading: codex.heading,
-    link: codex.link,
+    fg: fallbackDark.fg,
+    keyword: fallbackDark.link,
+    fn: fallbackDark.heading,
+    string: fallbackDark.string,
+    number: fallbackDark.inlineCode,
+    comment: fallbackDark.comment,
+    added: fallbackDark.addition,
+    removed: fallbackDark.deletion,
+    heading: fallbackDark.heading,
+    link: fallbackDark.link,
   }),
 );
 /// The same scopes in darker fallbacks for a light pane.
@@ -167,6 +168,8 @@ export const diffUnsafeCSS = /* css */ `
   --diffs-fg-number-override: ${c.muted};
   --diffs-bg-separator-override: ${c.separator};
   --diffs-gap-block: 0px;
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, ${c.addition} 22%, transparent);
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, ${c.deletion} 22%, transparent);
   background: ${c.bg};
 }
 [data-column-number][data-line-type="change-addition"],
@@ -176,9 +179,10 @@ export const diffUnsafeCSS = /* css */ `
 [data-line][data-line-type="change-addition"] { --diffs-line-bg: ${c.additionLine}; }
 [data-line][data-line-type="change-deletion"] { --diffs-line-bg: ${c.deletionLine}; }
 [data-separator="line-info"] { height: 32px; }
+[data-acpmux-current] { box-shadow: inset 2px 0 0 var(--agent-accent, ${c.fg}); }
 [data-expand-button], [data-separator-content] { color: ${c.muted}; }
 [data-separator-content] { font-size: 12px; padding: 0 9px; }
-`;
+${PIERRE_DIFFS_SCROLLER_CSS}`;
 
 /// Injected into the tree's shadow root: 13px system font, 29px rows, a quiet selection.
 export const treeUnsafeCSS = /* css */ `
@@ -189,8 +193,8 @@ export const treeUnsafeCSS = /* css */ `
   --trees-fg-override: ${c.fg};
   --trees-fg-muted-override: ${c.muted};
   --trees-selected-fg-override: ${c.fg};
-  --trees-selected-bg-override: ${c.selected};
-  --trees-bg-muted-override: ${c.selected};
+  --trees-selected-bg-override: color-mix(in srgb, ${c.fg} 10%, transparent);
+  --trees-bg-muted-override: color-mix(in srgb, ${c.fg} 5%, transparent);
   --trees-padding-inline-override: 8px;
   --trees-item-margin-x-override: 0px;
   --trees-item-padding-x-override: 2px;
@@ -200,4 +204,4 @@ export const treeUnsafeCSS = /* css */ `
 }
 [data-type="item"][data-item-focused="true"]::before { display: none; }
 [data-item-section="decoration"] { font-size: 12px; }
-`;
+${PIERRE_TREES_SCROLLER_CSS}`;

@@ -35,14 +35,14 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     override func mouseDown(with event: NSEvent) {
         // AppKit focuses the field and forwards the click to the field
         // editor (which reports the up); the focus coordinator sees the
-        // responder change. Chrome's select-all on the focusing click is a
-        // state machine rule.
+        // responder change. Select-all on the focusing click is a state
+        // machine rule.
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
         sink?.fieldEditorMouseUp()
     }
 
-    /// Chrome for Mac: a right-click on the unfocused omnibar focuses it and
+    /// A right-click on the unfocused omnibar focuses it and
     /// selects all before the context menu opens. The field editor then
     /// runs its own menu (with Paste and Go).
     override func rightMouseDown(with event: NSEvent) {

@@ -35,7 +35,7 @@ cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 # pane change rewrites, so two branches always collide in them. Line merging
 # cannot combine two builds; the only right result is a rebuild of the merged
 # sources. `cmux-generated-v1` keeps the current branch's copy so the merge
-# finishes, then scripts/cmux-next/regenerate-web-bundles.sh rebuilds both and
+# finishes, then scripts/cmux-next/regenerate-web-bundles.sh rebuilds all generated pages and
 # CI's --check steps fail until it has. The driver command is `true`, a git
 # no-op that runs no checked-out code. Register it with
 # scripts/install-git-hooks.sh. GitHub ignores merge drivers, so a PR still
@@ -44,4 +44,13 @@ cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 # would have that path's incoming changes dropped when a configured clone
 # merges into it. Review additions to these lines like a revert.
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html merge=cmux-generated-v1
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html merge=cmux-generated-v1
 Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
+# The React pages (build-pages-web.sh) and the strings tables it generates from the
+# xcstrings catalogs. Only generated output; the page sources merge normally.
+Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/** merge=cmux-generated-v1
+webviews/src/pages/*/generated/strings.json merge=cmux-generated-v1
+# Upstream license texts the shared Ghostty license collector ships, pinned by
+# SHA-256 in pinned-licenses/MANIFEST.json. Never rewrite their bytes.
+cmux-tui/build-support/notices/ghostty/pinned-licenses/** -text -whitespace
+cmux-tui/build-support/notices/texts/** -text -whitespace

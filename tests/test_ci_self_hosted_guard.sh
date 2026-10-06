@@ -88,7 +88,7 @@ check_ios_runner_routing() {
   # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
   # every macOS job reads its answer, and a re-run attempt its retry answer.
   # mobile-core-package needs no simulator, so it reads package_runs_on.
-  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 2 ]] ||
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
      [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
@@ -111,8 +111,13 @@ check_xcode_selection() {
 }
 
 check_release_build_signal() {
-  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"' "$CI_MACOS_FILE"; then
-    echo "FAIL: release-build must verify both bundled helpers contain exactly the producer-selected architectures"
+  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY"' "$CI_MACOS_FILE"; then
+    echo "FAIL: release-build must verify the app, CLI and helper contain exactly the producer-selected architectures"
+    exit 1
+  fi
+  # bin/cmux-tui and bin/acpmux are symlinks to bin/cmux, checked by readlink.
+  if ! grep -Fq 'for link in cmux-tui acpmux; do' "$CI_MACOS_FILE"; then
+    echo "FAIL: release-build must check that bin/cmux-tui and bin/acpmux link to bin/cmux"
     exit 1
   fi
 

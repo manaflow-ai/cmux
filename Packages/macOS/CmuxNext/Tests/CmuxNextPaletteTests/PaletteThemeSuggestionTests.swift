@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextPalette
 import Testing
 
@@ -30,5 +31,32 @@ import Testing
         #expect(model.rows.first?.item.title == "Zenburn")
         model.handle(.submit)
         #expect(ran.first?["theme"] == .string("Zenburn"))
+    }
+
+    /// Theme rows draw their swatch strip (R98) in the icon place; a value
+    /// without colors (the Ghostty config, the pair row) keeps the symbol.
+    @Test func themeRowsCarryTheirSwatchStrips() async throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("terminal.setTheme", invoke: { _ in })
+        registry.argumentSuggestions = { _ in ["Nord", "Zenburn"].map { ActionEnumCase(value: $0, title: $0) } }
+        var sources = MockPaletteData().sources
+        let nord = [ThemeRGB(hex: 0x2E3440), ThemeRGB(hex: 0xBF616A)]
+        var asked: Set<String> = []
+        sources.argumentSwatches = { source, value in
+            asked.insert(source)
+            return value == "Nord" ? nord : []
+        }
+        let controller = PaletteController(registry: registry, sources: sources, frecencyPersistence: nil)
+        let model = controller.model
+        model.reset(to: controller.commandsPage())
+        model.query = "set terminal theme"
+        await model.settle()
+        model.handle(.submit)
+        await model.settle()
+        let rows = model.rows.map(\.item)
+        #expect(rows.first { $0.title == "Nord" }?.swatches == nord)
+        #expect(rows.first { $0.title == "Zenburn" }?.swatches == [])
+        #expect(rows.first { $0.title == "Use Ghostty Config" }?.swatches == [])
+        #expect(asked == [ActionSuggestions.ghosttyThemes])
     }
 }

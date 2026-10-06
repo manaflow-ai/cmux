@@ -29,7 +29,8 @@ final class ObservationLoop {
 
 /// Backing for glass overlays that sit over web content. Glass alone picks
 /// up the page's colors, which leaves text illegible on bright pages in dark
-/// mode, so overlays add a neutral gray veil under their content.
+/// mode, so overlays add a neutral gray veil under their content. The
+/// opaque Reduce Transparency fill needs no veil; it shows unchanged.
 final class OverlayBackingView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -43,7 +44,9 @@ final class OverlayBackingView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.64).cgColor
+            layer?.backgroundColor = enclosingOverlayMaterial == .opaque
+                ? NSColor.clear.cgColor
+                : Palette.elevatedBackground.withAlphaComponent(0.64).cgColor
         }
     }
 }

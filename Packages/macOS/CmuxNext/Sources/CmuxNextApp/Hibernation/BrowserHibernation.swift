@@ -7,8 +7,8 @@ import CmuxNextWakeups
 import Observation
 import os
 
-/// Hibernates hidden browser pages and restores them when shown (Chrome's
-/// Memory Saver; plans/cmux-next/tab-lifecycle.md). Configured by
+/// Hibernates hidden browser pages and restores them when shown
+/// (plans/cmux-next/tab-lifecycle.md). Configured by
 /// `browser.hibernation`; "off" disables it completely.
 ///
 /// Triggers are events only: a page hides (a one-shot deadline for the
@@ -202,7 +202,7 @@ final class BrowserHibernation {
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
             favicon: page.favicon, restoreState: saved.state, snapshot: saved.snapshot
         )
-        placeholder.onWake = { [weak self] url in self?.wakeForNavigation(key, url: url) }
+        placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
         if let snapshot = saved.snapshot { cache.previews.insert(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
@@ -213,14 +213,16 @@ final class BrowserHibernation {
 
     // MARK: Restore
 
-    /// The user navigated or reloaded a hibernated page: restore it, then load.
-    private func wakeForNavigation(_ key: String, url: URL?) {
+    /// The user navigated, reloaded or went back or forward in a hibernated
+    /// page: restore it, then apply that request.
+    private func wakeForNavigation(_ key: String, _ wake: HibernatedBrowserTab.Wake) {
         guard let cache else { return }
-        pendingLoads[key] = url
+        pendingWakes[key] = wake
         cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
     }
 
-    private var pendingLoads: [String: URL?] = [:]
+    /// At most one per hibernated page; dropped when it restores.
+    private var pendingWakes: [String: HibernatedBrowserTab.Wake] = [:]
 
     /// The user's Wake Tab action (restores in the background).
     func wake(_ key: String) -> Bool {
@@ -272,9 +274,14 @@ final class BrowserHibernation {
         cache.dormantTabs.set(key, false)
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
-        // A navigation that woke the page runs once its history is back
-        // (reload and back/forward just wake it).
-        if case .some(.some(let url)) = pendingLoads.removeValue(forKey: key) { page.load(url) }
+        // A navigation or history step that woke the page runs once its
+        // history is back (a reload just wakes it: restoring loads the page).
+        switch pendingWakes.removeValue(forKey: key) {
+        case .load(let url)?: page.load(url)
+        case .goBack?: page.goBack()
+        case .goForward?: page.goForward()
+        case .reload?, nil: break
+        }
     }
 }
 
@@ -288,7 +295,7 @@ struct PageProbe {
     }
 
     /// Unmuted media playing, or form fields whose value differs from the
-    /// page's default (Chrome's "form interaction"). A page that does not
+    /// page's default (form interaction). A page that does not
     /// answer within the deadline is treated as busy and kept.
     static let script = """
     (() => {

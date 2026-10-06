@@ -6,9 +6,14 @@ extension OnboardingModel.Step {
     /// This step's screen variants in gallery order; the first is the default.
     public var variants: [any OnboardingScreenVariant.Type] {
         switch self {
+        case .firstTask: FirstTaskVariants.all
+        case .projects: ProjectsVariants.all
+        case .classicSessions: ClassicSessionsVariants.all
+        case .chats: ChatsVariants.all
         case .defaultBrowser: DefaultBrowserVariants.all
         case .importData: ImportVariants.all
         case .theme: ThemeVariants.all
+        case .computerUse: ComputerUseVariants.all
         case .accounts: AccountsVariants.all
         }
     }

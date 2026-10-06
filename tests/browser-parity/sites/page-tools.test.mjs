@@ -36,11 +36,23 @@ test("pageAssets.bundle downloads through the session, reports failures, writes 
   assert.match(await s.error('sites.pageAssets.bundle("inv-999")'), /expected an inventory/);
 });
 
-test("webmcp: lists a page's tools; read-only tools run, others need a confirmed draft", async () => {
+test("pageAssets.bundle sends cookies only to the page's own origin; a cross-origin asset is fetched without credentials", async () => {
+  await s.run('await page.goto("https://assets.example/xpage")');
+  const before = env.state.requests.length;
+  await s.value('sites.pageAssets.bundle((await sites.pageAssets.list()).id, { kinds: ["image"] })');
+  const reqs = env.state.requests.slice(before);
+  const other = reqs.filter((r) => r.url.startsWith("https://github.com/"));
+  assert.ok(other.length, "the cross-origin asset was requested");
+  assert.deepEqual(other.map((r) => r.cookie), other.map(() => ""), "no cookie went to github.com");
+  const own = reqs.filter((r) => r.url === "https://assets.example/img/logo.png");
+  assert.ok(own.length && own.every((r) => r.cookie.includes("asset_session=asset-session-secret")), "the page's own asset kept the session cookie");
+});
+
+test("webmcp: lists a page's tools; a call needs a confirmed draft, a trusted read-only call runs", async () => {
   await s.run('await page.goto("https://tools.example/")');
   const t = await s.value("sites.webmcp.tools()");
-  assert.deepEqual(t.tools.map((x) => [x.name, !!x.annotations.readOnlyHint]), [["search_products", true], ["add_to_cart", false]]);
-  assert.deepEqual(await s.value('sites.webmcp.call("search_products", { q: "tea" })'), { content: [{ type: "text", text: "2 results for tea" }] });
+  assert.deepEqual(t.tools.map((x) => [x.name, !!x.annotations.readOnlyHint]), [["search_products", true], ["empty_cart", true], ["add_to_cart", false]]);
+  assert.deepEqual(await s.value('sites.webmcp.call("search_products", { q: "tea" }, { trustReadOnlyHint: true })'), { content: [{ type: "text", text: "2 results for tea" }] });
   const d = await s.value('sites.webmcp.call("add_to_cart", { sku: "T-1" })');
   assert.equal(d.status, "draft");
   assert.equal(env.state.cart, undefined);
@@ -48,6 +60,18 @@ test("webmcp: lists a page's tools; read-only tools run, others need a confirmed
   assert.deepEqual(env.state.cart, [{ sku: "T-1" }]);
   await s.run('await page.goto("https://tools.example/none")');
   assert.deepEqual(await s.value("sites.webmcp.tools()"), { supported: false, tools: [], note: "webmcp: this page declares no WebMCP tools (no navigator.modelContext). WebKit has no built-in WebMCP; only pages that ship their own implementation expose tools." });
+});
+
+test("webmcp: a page's readOnlyHint is advisory; every call is a draft unless the agent opts out per call", async () => {
+  await s.run('await page.goto("https://tools.example/")');
+  const lie = await s.value('sites.webmcp.call("empty_cart", {})');
+  assert.equal(lie.status, "draft", "a tool that claims readOnlyHint still needs a confirmed draft");
+  assert.equal(env.state.cartCleared, undefined);
+  assert.equal((await s.value('sites.webmcp.call("search_products", { q: "tea" })')).status, "draft");
+  // The agent's per-call opt-out runs a tool that declares readOnlyHint directly, and only such a tool.
+  assert.deepEqual(await s.value('sites.webmcp.call("search_products", { q: "tea" }, { trustReadOnlyHint: true })'), { content: [{ type: "text", text: "2 results for tea" }] });
+  assert.equal((await s.value('sites.webmcp.call("add_to_cart", { sku: "T-2" }, { trustReadOnlyHint: true })')).status, "draft");
+  assert.match(await s.error('sites.webmcp.call("not_a_tool", {})'), /has no tool "not_a_tool"/);
 });
 
 test("browserAuth.request: the app fills marked fields and submits; no value reaches the REPL and markers are removed", async () => {
@@ -68,6 +92,16 @@ test("browserAuth.request: the app fills marked fields and submits; no value rea
   assert.ok(!scope.includes("correct horse"));
 });
 
+test("browserAuth.request: a frame whose origin changed while the sheet was open is not filled", async () => {
+  await s.run('await page.goto("https://login.example/")');
+  // The sheet named https://login.example; by Fill the frame holds another
+  // origin's document. The fill compares its own location.origin.
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" }, { origin: "https://elsewhere.example" });
+  const field = `{ id: "email", label: "Email", type: "email", selector: 'input[name="email"]' }`;
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}] })`), { status: "origin_changed" });
+  assert.equal(await s.value(`page.locator('input[name="email"]').inputValue()`), "");
+});
+
 test("browserAuth.request: cancel, wrong origin, bad selectors, and no native sheet", async () => {
   await s.run('await page.goto("https://login.example/")');
   globalThis.__authAnswer = null;
@@ -80,6 +114,17 @@ test("browserAuth.request: cancel, wrong origin, bad selectors, and no native sh
   globalThis.__authAnswer = (params, { call }) => call("auth.request", params);
   assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}] })`), { status: "unavailable" });
   assert.equal(await s.value("page.evaluate(() => document.querySelectorAll('[data-cmux-auth]').length)"), 0);
+});
+
+test("browserAuth.request: only credential fields (password, username, one-time code) are filled", async () => {
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ note: "correct horse", comment: "correct horse" });
+  const count = s.auth.length;
+  for (const [id, selector] of [["note", "#note"], ["comment", "#comment"]]) {
+    assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [{ id: "${id}", label: "Password", type: "text", selector: "${selector}" }] })`), { status: "locator_invalid", locator_error: { field_id: id, reason: "not_credential_field" } });
+  }
+  assert.equal(s.auth.length, count);
+  assert.equal(await s.value('page.evaluate(() => [document.getElementById("note").value, document.getElementById("comment").value])').then(JSON.stringify), JSON.stringify(["", ""]));
 });
 
 test("sites.list names every tool; help lists methods; drafts list", async () => {

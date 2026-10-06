@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
@@ -175,6 +176,13 @@ final class ThemeCoordinator {
 
     /// The `theme` value a picker shows as current for its target.
     func currentChoice(_ action: ActionID, target: ActionTargetRef?) -> String? {
+        if action == "browserTheme" {
+            // The page's forced color scheme (the toolbar's theme menu checks it).
+            let entry = if let target, target.kind == .tab { services.cache.existingBrowser(target.id) } else {
+                try? AppActionContext(services: services).page(ActionInvocation(target: target))
+            }
+            return entry?.chrome.toolbarButtons.modes.colorScheme.rawValue
+        }
         guard let resolved = previewTarget?(action, target) else { return nil }
         let current: String? = switch resolved {
         case .room(let room): roomTheme(room)

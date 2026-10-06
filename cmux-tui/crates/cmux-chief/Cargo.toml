@@ -1,0 +1,19 @@
+[package]
+name = "cmux-chief"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Sans-I/O core of the Chief brain host: inbox, turns, supervisor, outbox, memory views (plans/cmux-next/chief-mac.md)"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-conversation.workspace = true
+serde.workspace = true
+# float_roundtrip: exact float text parsing, so a count written as `9007199254740991.0` reads as
+# that integer (JSON.parse is exact; the default parser reads it as 9007199254740990). Cargo
+# unifies features, so every serde_json user in a build with cmux-chief parses floats exactly.
+serde_json = { workspace = true, features = ["float_roundtrip"] }

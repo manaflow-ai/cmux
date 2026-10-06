@@ -5,7 +5,7 @@ import Foundation
 /// controls Chromium's own header shows and where that header is. cmux draws
 /// the header in theme colors over Chromium's header area and runs each
 /// control through Chromium's button (`cmux_shim_side_panel_press`), so
-/// pinning, the more-info menu and closing behave as in Chrome.
+/// pinning, the more-info menu and closing keep Chromium's behavior.
 nonisolated struct CEFSidePanelState: Equatable, Sendable {
     enum Control: String, Sendable {
         case close

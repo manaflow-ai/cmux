@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextMallocZone
@@ -9,31 +10,30 @@ public struct CmuxNextApp {
     public func main() {
         DebugTimings.markLaunch("main_start")
         // First, while the process has one thread: install the delegating
-        // default malloc zone Chromium expects (Chrome's
+        // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
         // later on a background thread; its PartitionAlloc constructor then
         // swaps zones without a moment where no zone owns system memory.
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
-        // Before any socket or pipe exists: a write to a closed peer returns
-        // EPIPE instead of ending the process (Chrome and most macOS network
-        // apps do the same; CEF sets it anyway once Chromium starts). Every
-        // write site already handles the error, and sockets also set
-        // SO_NOSIGPIPE. Children get the default back: Foundation's Process
-        // and Chromium reset it, and the one forkpty site resets it itself.
-        _ = signal(SIGPIPE, SIG_IGN)
+        // Before any socket or pipe exists (ChildSignalDefaults).
+        ChildSignalDefaults.installAppSignalPolicy()
         // Before any thread starts or anything reads the environment: drop
         // cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
+        // A debug build's sign-in choice (CMUX_AUTH_CREDENTIALS_FILE and friends) is kept for CloudAuth only.
+        CloudAuth.captureLaunchEnvironment()
         LaunchIdentity.stripInheritedEnvironment()
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
         var environment = AppEnvironment.current()
         environment.marksRun = true
+        environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
+                                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                                              resolvesShellIntegration: environment.resolvesShellIntegration)
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"

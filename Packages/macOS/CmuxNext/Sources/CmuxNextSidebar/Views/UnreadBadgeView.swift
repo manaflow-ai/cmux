@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Unread badge: a count pill or a dot.
+/// Unread badge: a count in a small rounded rectangle, or a round dot.
 final class UnreadBadgeView: NSView {
     private(set) var state: UnreadState = .none
     private let label = NSTextField(labelWithString: "")
@@ -35,6 +35,13 @@ final class UnreadBadgeView: NSView {
         needsLayout = true
     }
 
+    /// Width of a count badge for `count` (without a view).
+    static func width(count: Int) -> CGFloat {
+        let text = count > 99 ? "99+" : String(count)
+        let size = (text as NSString).size(withAttributes: [.font: SidebarStyle.badgeFont])
+        return max(SidebarStyle.badgeHeight + Metrics.space2, ceil(size.width) + Metrics.space4)
+    }
+
     /// Width this badge wants at the given height.
     var preferredWidth: CGFloat {
         switch state {
@@ -55,7 +62,7 @@ final class UnreadBadgeView: NSView {
                 layer.backgroundColor = Palette.badgeFill.cgColor
             }
         }
-        layer.cornerRadius = bounds.height / 2
+        layer.cornerRadius = state == .dot ? bounds.height / 2 : Metrics.chipCornerRadius(height: bounds.height)
     }
 
     override func layout() {

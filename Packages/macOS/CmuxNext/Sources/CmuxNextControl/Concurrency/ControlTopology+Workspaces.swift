@@ -15,6 +15,8 @@ public struct ControlWorkspaceGroupInfo: Sendable, Hashable {
 public struct ControlWorkspaceInfo: Sendable, Hashable {
     /// Durable workspace key (falls back to the handle before one exists).
     public var id: String
+    /// Durable public id (`ws_…`) on registry daemons; `id` is the durable key.
+    public var resourceID: String?
     public var handle: String
     public var name: String
     public var title: String?
@@ -23,6 +25,11 @@ public struct ControlWorkspaceInfo: Sendable, Hashable {
     public var groupID: String?
     public var unreadCount: Int
     public var screens: [ControlScreenInfo]
+    /// The machine whose daemon holds the workspace; nil for the local daemon.
+    public var machine: String?
+
+    /// The id clients print and pass: `ws_…` on registry daemons, else the key.
+    public var publicID: String { resourceID ?? id }
     /// The workspace's home session (`ControlSessionInfo.id`); nil for the
     /// app's home session. Its handles are valid only on that session.
     public var sessionID: String?

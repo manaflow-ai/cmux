@@ -5,6 +5,7 @@ import {
   groupMark,
   GROUP_ROWS,
   groupByProject,
+  homePath,
   projectLabel,
   sessionEntry,
   sessionMark,
@@ -42,17 +43,34 @@ describe("session titles", () => {
       "codex-",
     );
   });
-  test("a generated name without a prompt yet shows the name, then the id", () => {
-    expect(sessionTitle({ sessionId: "s1", name: "claude-2", harness: "claude" })).toBe("claude-2");
-    expect(sessionTitle({ sessionId: "abcdef123456" })).toBe("abcdef12");
+  test("a generated name without a prompt yet is a new chat, never the launch profile's name", () => {
+    expect(sessionTitle({ sessionId: "s1", name: "claude-2", harness: "claude" })).toBe("New chat");
+    expect(sessionTitle({ sessionId: "s1", name: "claude-sr", harness: "claude-sr", family: "claude" })).toBe(
+      "New chat",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "claude-sr-2", harness: "claude-sr" })).toBe("New chat");
+    expect(sessionTitle({ sessionId: "abcdef123456" })).toBe("New chat");
+  });
+  test("a generated name falls back to the last prompt, and a fork's name is generated too", () => {
+    expect(sessionTitle({ sessionId: "s1", name: "claude-sr-1", harness: "claude-sr", lastPrompt: "Ship it" })).toBe(
+      "Ship it",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "codex-fork-1", harness: "codex", title: "Fix the login flow" })).toBe(
+      "Fix the login flow",
+    );
   });
 });
 
 describe("project labels", () => {
-  test("the folder's last component", () => expect(projectLabel("/Users/lee/src/cmux/")).toBe("cmux"));
+  test("the folder's last component", () => expect(projectLabel("/Users/dev/src/cmux/")).toBe("cmux"));
   test("a home folder is ~", () => {
     expect(projectLabel("/Users/lee")).toBe("~");
     expect(projectLabel("/home/lee")).toBe("~");
+    expect(homePath("/Users/lee/code/app")).toBe("~/code/app");
+    expect(homePath("/home/lee")).toBe("~");
+    expect(homePath("/Users/lee/")).toBe("~/");
+    expect(homePath("/opt/Users/lee/app")).toBe("/opt/Users/lee/app");
+    expect(homePath("/Users")).toBe("/Users");
   });
   test("no folder", () => expect(projectLabel(undefined)).toBe("No folder"));
 });
@@ -160,6 +178,11 @@ describe("summary entries", () => {
     expect(
       sessionEntry({ sessionId: "s", pullRequest: { number: 3, title: "Old", state: "closed" } }).pullRequest?.state,
     ).toBe("closed");
+    // CI checks ride along only as a known rollup.
+    const checks = (value: unknown) =>
+      sessionEntry({ sessionId: "s", pullRequest: { number: 3, title: "T", state: "open", checks: value } }).pullRequest
+        ?.checks;
+    expect([checks("failing"), checks("green"), checks(undefined)]).toEqual(["failing", undefined, undefined]);
     for (const pullRequest of [
       { number: 3, title: "T", state: "weird" },
       { number: Number.NaN, title: "T", state: "open" },

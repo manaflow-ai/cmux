@@ -58,7 +58,7 @@ final class HiddenHistoryStore {
                 let stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: HiddenHistory.schemaVersion,
                                                                         projection: value, expectedRevision: revision)
                 await MainActor.run { self?.revision = stored.projectionRevision }
-            } catch DaemonError.command(_, let message, _) where message.contains("revision conflict") {
+            } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") {
                 let current = try await connection.frontendProjection(subject: Self.subject)
                 let theirs = (try? JSONDecoder().decode(HiddenHistory.self, from: JSONEncoder().encode(current.projection))) ?? HiddenHistory()
                 let merged = theirs.merged(with: document)

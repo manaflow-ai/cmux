@@ -104,6 +104,7 @@ nonisolated struct AttachOracle<Link: Hashable & Sendable>: Sendable {
         case .ended(_, let reason): "ended(\(reason))"
         case .reconnect: "reconnect"
         case .processExited: "processExited"
+        case .processRevived: "processRevived"
         case .close: "close"
         }
     }

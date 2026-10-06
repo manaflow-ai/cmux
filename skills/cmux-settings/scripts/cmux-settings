@@ -399,6 +399,10 @@ def split_path(dotted: str) -> list[str]:
     parts = dotted.split(".")
     if any(part == "" for part in parts):
         raise SystemExit("error: empty key path segment")
+    # Action-keyed maps are flat, and some action ids contain dots
+    # (`tab.search`), so everything after the map is one key.
+    if len(parts) > 3 and parts[:2] in (["shortcuts", "bindings"], ["shortcuts", "when"]):
+        return [*parts[:2], ".".join(parts[2:])]
     return parts
 
 

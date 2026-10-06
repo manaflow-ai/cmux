@@ -2,12 +2,15 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Draggable handle for a split divider or a column's trailing edge. The
-/// frame is the hit area; a thin line is drawn in its center for splits.
+/// Draggable handle for a split divider, a column's trailing edge or the gap
+/// between two rows. The frame is the hit area; a thin line is drawn in its
+/// center for splits.
 final class DividerHandleView: NSView {
     enum Kind: Hashable {
         case split(SplitID)
         case columnEdge(ColumnID)
+        /// The gap below `RowID` in its column (plans/cmux-next/rows.md Z1).
+        case rowEdge(ColumnID, RowID)
     }
 
     enum DragEvent {
@@ -24,6 +27,11 @@ final class DividerHandleView: NSView {
     /// borders separate them); hover and drag still show the line.
     var showsIdleLine = true {
         didSet { if showsIdleLine != oldValue { applyColors() } }
+    }
+    /// Shows the line on hover and while dragging. Off under
+    /// `layout.paneSeparation` none: the resize cursor is the only cue.
+    var showsActiveLine = true {
+        didSet { if showsActiveLine != oldValue { applyColors() } }
     }
     var onDrag: ((DragEvent) -> Void)?
 
@@ -43,6 +51,7 @@ final class DividerHandleView: NSView {
         switch kind {
         case .split: setAccessibilityLabel(LayoutStrings.dividerAccessibility)
         case .columnEdge: setAccessibilityLabel(LayoutStrings.columnEdgeAccessibility)
+        case .rowEdge: setAccessibilityLabel(LayoutStrings.rowEdgeAccessibility)
         }
         applyColors()
     }
@@ -69,9 +78,13 @@ final class DividerHandleView: NSView {
         CATransaction.commit()
     }
 
+    /// A column edge or a row edge: it sits in a gap and draws only while
+    /// hovered or dragged.
     private var isColumnEdge: Bool {
-        if case .columnEdge = kind { return true }
-        return false
+        switch kind {
+        case .columnEdge, .rowEdge: true
+        case .split: false
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -105,6 +118,9 @@ final class DividerHandleView: NSView {
         case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
         }
     }
+
+    /// The line's color as drawn now.
+    var lineColor: CGColor? { line.backgroundColor }
 
     /// Hover reported by a click-catching panel above a Chromium page (the
     /// pointer is over that panel, so this view's tracking area sees nothing).
@@ -143,12 +159,12 @@ final class DividerHandleView: NSView {
     private func applyColors() {
         let isEdge = isColumnEdge
         performWithTheme {
-            let active = isHovered || isDragging
+            let active = (isHovered || isDragging) && showsActiveLine
             let color: NSColor
             if isEdge {
                 color = active ? Palette.focusRing.withAlphaComponent(0.45) : .clear
             } else {
-                color = active ? Palette.focusRing.withAlphaComponent(0.6) : (showsIdleLine ? Palette.separator : .clear)
+                color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
             }
             Motion.transaction(.hover) {
                 line.backgroundColor = color.cgColor
@@ -164,6 +180,7 @@ extension DividerHandleView.Kind {
         switch self {
         case .split(let id): "split:\(id.rawValue)"
         case .columnEdge(let id): "column:\(id.rawValue)"
+        case .rowEdge(_, let row): "row:\(row.rawValue)"
         }
     }
 }

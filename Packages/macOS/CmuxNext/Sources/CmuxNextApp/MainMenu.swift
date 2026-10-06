@@ -35,13 +35,22 @@ enum MainMenu {
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
         ]))
         mainMenu.addItem(submenu(Strings.menuView, items: registry.makeMainMenuItems(for: .view)))
+        let server = registry.makeMainMenuItems(for: .server)
+        if !server.isEmpty { mainMenu.addItem(submenu(Strings.menuServer, items: server)) }
+        // Zoom (`zoomWindow`) sits under Minimize, as in every Mac app.
+        let zoomTitle = registry.title(for: "zoomWindow")
         let windowMenu = submenu(Strings.menuWindow, items: [
             item(Strings.menuMinimize, #selector(NSWindow.performMiniaturize(_:)), "m", [.command]),
-            NSMenuItem(title: Strings.menuZoom, action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""),
+            registry.makeMenuItem(for: "zoomWindow")
+                ?? NSMenuItem(title: Strings.menuZoom, action: #selector(NSWindow.performZoom(_:)), keyEquivalent: ""),
+        ] + [
             .separator(),
-        ] + registry.makeMainMenuItems(for: .window))
+        ] + registry.makeMainMenuItems(for: .window).filter { $0.title != zoomTitle })
         mainMenu.addItem(windowMenu)
         NSApp.windowsMenu = windowMenu.submenu
+        // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
+        let debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
+        if !debug.isEmpty { mainMenu.addItem(submenu(Strings.menuDebug, items: debug)) }
         return mainMenu
     }
 

@@ -1,15 +1,11 @@
 import AppKit
 import CmuxNextDesign
 
-/// The room dots at the bottom center of the sidebar (Arc spaces,
-/// plans/cmux-next/data-model.md 7), deliberately plain (user: "more
-/// minimal, muted, undesigned"): one small dot per room in the theme's
-/// foreground at a low alpha, the current room a little stronger; no rings,
-/// fills, colors, icons or labels (a room's emoji and name are in its
-/// tooltip, its color and icon in its menu). Each dot's hit target is a
-/// full-height slot. Click switches the window's room, right-click asks the
-/// host for the room menu, dragging a dot reorders, and the trailing muted
-/// "+" creates a room. Drawn in `draw(_:)` from the model's `profiles`.
+/// The space switcher, centered at the bottom of the sidebar or under its
+/// titlebar row (`sidebar.spacesPosition`, R109). Each profile keeps
+/// its name, optional icon and tonal color in the shared daemon model. The
+/// full-height slots remain easy to click, while the visible mark carries the
+/// profile's identity without adding another layout document.
 final class ProfileBarView: NSView {
     private let model: SidebarModel
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
@@ -17,7 +13,11 @@ final class ProfileBarView: NSView {
     private var hovered: Int?
     private var pressed: Int?
     private var drag: (index: Int, x: CGFloat)?
+    private var swipeTracker = ProfileSwipeTracker()
     private static let plusIndex = -1
+
+    /// Called once for a qualifying horizontal trackpad swipe over the bar.
+    var onHorizontalSwipe: ((Int) -> Void)?
 
     init(model: SidebarModel) {
         self.model = model
@@ -36,19 +36,29 @@ final class ProfileBarView: NSView {
     // MARK: Geometry
 
     private var slot: CGFloat { Metrics.roomDotSlot }
-    private var slotCount: Int { model.profiles.count + 1 }
+    /// The pointer is over the bar: the "+" shows (Lawrence: only on hover,
+    /// and the dots stay centered without it).
+    private(set) var isPointerInside = false {
+        didSet {
+            guard isPointerInside != oldValue else { return }
+            needsDisplay = true
+            rebuildToolTips()
+        }
+    }
 
-    /// Slot rects, the "+" last, centered horizontally.
+    /// Slot rects: one per room, centered as a group, then the "+" slot
+    /// trailing the last dot (it never shifts the dots).
     private func slotRects() -> [NSRect] {
-        let total = slot * CGFloat(slotCount)
-        let x0 = (bounds.width - total) / 2
-        return (0..<slotCount).map { NSRect(x: x0 + CGFloat($0) * slot, y: 0, width: slot, height: bounds.height) }
+        ProfileBarLogic.slotXs(count: model.profiles.count, slot: slot, width: bounds.width).map {
+            NSRect(x: $0, y: 0, width: slot, height: bounds.height)
+        }
     }
 
     private func index(at point: NSPoint) -> Int? {
         let rects = slotRects()
         guard let hit = rects.firstIndex(where: { $0.contains(point) }) else { return nil }
-        return hit == model.profiles.count ? Self.plusIndex : hit
+        guard hit == model.profiles.count else { return hit }
+        return isPointerInside ? Self.plusIndex : nil
     }
 
     // MARK: Drawing
@@ -60,18 +70,46 @@ final class ProfileBarView: NSView {
                 var rect = rects[offset]
                 if let drag, drag.index == offset { rect.origin.x = drag.x - rect.width / 2 }
                 let active = profile.id == model.activeProfileID
-                dotColor(active: active, hovered: hovered == offset).setFill()
-                let diameter = Metrics.roomDotDiameter
-                NSBezierPath(ovalIn: NSRect(x: rect.midX - diameter / 2, y: rect.midY - diameter / 2, width: diameter, height: diameter)).fill()
+                draw(profile: profile, in: rect, active: active, hovered: hovered == offset)
             }
-            drawPlus(in: rects[model.profiles.count])
+            if isPointerInside { drawPlus(in: rects[model.profiles.count]) }
         }
     }
 
-    /// Muted foreground: the current room a little stronger, a hovered one
-    /// between. Never the room's color. theme-scoped: called only from draw(_:)
-    private func dotColor(active: Bool, hovered: Bool) -> NSColor {
-        Palette.textPrimary.withAlphaComponent(active ? 0.55 : (hovered ? 0.38 : 0.22))
+    private func draw(profile: SidebarProfile, in rect: NSRect, active: Bool, hovered: Bool) {
+        let alpha: CGFloat = active ? 0.82 : (hovered ? 0.62 : 0.38)
+        let color = profileColor(profile).withAlphaComponent(alpha)
+        if let icon = profile.icon, profile.iconIsEmoji {
+            let font = NSFont.systemFont(ofSize: min(Metrics.smallIconSize + Metrics.space1, rect.height - Metrics.space2))
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+            let size = icon.size(withAttributes: attributes)
+            icon.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
+            return
+        }
+        if let icon = profile.icon,
+           let image = NSImage(systemSymbolName: icon, accessibilityDescription: profile.name)?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: active ? .medium : .regular)
+           ) {
+            let tinted = image.tinted(color.withAlphaComponent(1))
+            let size = tinted.size
+            tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
+                                   width: size.width, height: size.height), from: .zero, operation: .sourceOver,
+                        fraction: color.alphaComponent)
+            return
+        }
+        color.setFill()
+        let diameter = Metrics.roomDotDiameter
+        NSBezierPath(ovalIn: NSRect(x: rect.midX - diameter / 2, y: rect.midY - diameter / 2,
+                                    width: diameter, height: diameter)).fill()
+    }
+
+    /// Soften user colors with the strip tonal step so they sit naturally in
+    /// the sidebar chrome.
+    // theme-scoped: called only from draw(profile:in:active:hovered:), which
+    // draw(_:) calls inside performWithTheme
+    private func profileColor(_ profile: SidebarProfile) -> NSColor {
+        let base = profile.color?.swatch ?? Palette.textPrimary
+        return base.blended(withFraction: 0.45, of: Palette.stripStep) ?? base
     }
 
     // theme-scoped: called only from draw(_:) inside performWithTheme
@@ -80,7 +118,7 @@ final class ProfileBarView: NSView {
         guard let image = NSImage(systemSymbolName: "plus", accessibilityDescription: Strings.newProfile)?.withSymbolConfiguration(config) else { return }
         // Tint opaque, then draw at the dot's alpha: a translucent tint over
         // the black template would stay nearly black.
-        let color = dotColor(active: false, hovered: hovered == Self.plusIndex)
+        let color = Palette.textPrimary.withAlphaComponent(hovered == Self.plusIndex ? 0.48 : 0.28)
         let tinted = image.tinted(color.withAlphaComponent(1))
         let size = tinted.size
         tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
@@ -101,7 +139,7 @@ final class ProfileBarView: NSView {
             let tip = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
             addToolTip(rects[offset], owner: tip as NSString, userData: nil)
         }
-        addToolTip(rects[model.profiles.count], owner: Strings.newProfile as NSString, userData: nil)
+        if isPointerInside { addToolTip(rects[model.profiles.count], owner: Strings.newProfile as NSString, userData: nil) }
     }
 
     // MARK: Mouse
@@ -113,7 +151,15 @@ final class ProfileBarView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) { setHovered(index(at: convert(event.locationInWindow, from: nil))) }
-    override func mouseExited(with event: NSEvent) { setHovered(nil) }
+    override func mouseEntered(with event: NSEvent) { isPointerInside = true }
+
+    override func mouseExited(with event: NSEvent) {
+        setHovered(nil)
+        isPointerInside = false
+    }
+
+    /// The pointer entered or left (tests and the hover state of a drag).
+    func setPointerInside(_ inside: Bool) { isPointerInside = inside }
 
     private func setHovered(_ value: Int?) {
         guard hovered != value else { return }
@@ -148,6 +194,25 @@ final class ProfileBarView: NSView {
         }
         guard let pressed, pressed == index(at: convert(event.locationInWindow, from: nil)) else { return }
         activate(pressed)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
+            super.scrollWheel(with: event)
+            return
+        }
+        if let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase) {
+            onHorizontalSwipe?(step)
+        }
+        if !swipeTracker.isHorizontal { super.scrollWheel(with: event) }
+    }
+
+    private static func phase(of event: NSEvent) -> ProfileSwipeTracker.Phase? {
+        if !event.momentumPhase.isEmpty { return .momentum }
+        if event.phase.contains(.began) { return .began }
+        if event.phase.contains(.changed) { return .changed }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) { return .ended }
+        return nil
     }
 
     private func activate(_ index: Int) {

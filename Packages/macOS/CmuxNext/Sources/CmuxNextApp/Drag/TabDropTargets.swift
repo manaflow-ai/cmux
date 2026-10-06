@@ -35,7 +35,17 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
     }
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
-        guard let bridge, let hit = hit(screenPoint: screenPoint) else { return nil }
+        guard let bridge else { return nil }
+        guard let hit = hit(screenPoint: screenPoint) else {
+            // A row that refuses the tab still previews, with why (tab-dnd).
+            lastDrop = nil
+            guard let refusal = bridge.container.sidebarView.tabDragRefusal(screenPoint: screenPoint, sourceMachine: sourceMachine) else {
+                return nil
+            }
+            active = true
+            return TabDropProposal(kind: .newWorkspace(groupID: nil, index: -1), highlightFrame: refusal.highlightFrame,
+                                   refusedReason: refusal.text)
+        }
         lastDrop = hit.drop
         let kind: TabDropKind
         switch hit.drop {
@@ -64,12 +74,18 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
 }
 
 /// The workspace layout: pane edge zones (new split), pane centers (join
-/// that pane's strip at the end), and column gaps (new niri column). Reads
+/// that pane's strip at the end), and column gaps (new strip column). Reads
 /// the window's current content on every call, so a spring-loaded
-/// workspace switch mid-drag is picked up.
+/// workspace switch mid-drag is picked up. It answers for every point of
+/// its window that no surface before it took (the title bar, the window
+/// edges): the point is moved to the nearest point of the layout, so a
+/// drop anywhere in a window previews and lands somewhere (tab-dnd).
 final class LayoutTabDropTarget: TabDropTargetProviding {
     private weak var window: WindowController?
     private weak var touched: LayoutRootView?
+    /// The layout pane the drag empties (it closes in the same step): the
+    /// split room is decided with it, once, and the commit runs that.
+    var removingPane: LayoutPaneID?
 
     init(window: WindowController) {
         self.window = window
@@ -78,33 +94,74 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     var layoutView: LayoutRootView? { window?.content?.layoutView }
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
-        guard let content = window?.content, let layout = content.layoutView, let nsWindow = layout.window else { return nil }
-        let windowPoint = nsWindow.convertPoint(fromScreen: screenPoint)
-        guard layout.bounds.contains(layout.convert(windowPoint, from: nil)) else {
-            dropExited()
-            return nil
+        proposal(screenPoint: screenPoint, dragKey: payload.dragID) { controller in
+            // A tab dropped on its own pane keeps its tab group (the end of
+            // its own strip is not a group change).
+            guard case .tab(let id, _) = payload else { return nil }
+            return controller.stripModel.orderedTabs.first { $0.id.rawValue == id }?.groupID?.rawValue
         }
+    }
+
+    /// A sidebar workspace over this layout (`TabDragSession+Workspaces`):
+    /// the same pane targets as a tab, but only inside the layout (the
+    /// rest of the window keeps the workspace's own drops). Its tabs join
+    /// no tab group.
+    func workspaceHitTest(screenPoint: CGPoint, workspaceID: String) -> TabDropProposal? {
+        guard let layout = layoutView, let nsWindow = layout.window,
+              layout.bounds.contains(layout.convert(nsWindow.convertPoint(fromScreen: screenPoint), from: nil)) else { return nil }
+        return proposal(screenPoint: screenPoint, dragKey: workspaceID) { _ in nil }
+    }
+
+    /// The layout's target under `screenPoint` for a drag keyed `dragKey`;
+    /// `ownGroup` is the group a center drop on `controller` keeps.
+    private func proposal(screenPoint: CGPoint, dragKey: String,
+                          ownGroup: (PaneController) -> String?) -> TabDropProposal? {
+        guard let content = window?.content, let layout = content.layoutView, let nsWindow = layout.window,
+              !layout.bounds.isEmpty else { return nil }
+        let local = layout.convert(nsWindow.convertPoint(fromScreen: screenPoint), from: nil)
+        let inside = layout.bounds.insetBy(dx: 0.5, dy: 0.5)
+        let clamped = CGPoint(x: min(max(local.x, inside.minX), inside.maxX), y: min(max(local.y, inside.minY), inside.maxY))
+        let windowPoint = layout.convert(clamped, to: nil)
         if touched !== layout { touched?.cancelTabDrag() }
         touched = layout
-        guard let target = layout.updateTabDrag(LayoutTabID(payload.dragID), locationInWindow: windowPoint) else { return nil }
-        let point = CGRect(origin: screenPoint, size: .zero).insetBy(dx: -1, dy: -1)
+        guard let target = layout.updateTabDrag(LayoutTabID(dragKey), locationInWindow: windowPoint, removing: removingPane) else {
+            return nil
+        }
+        // The ghost lands on the rect the layout's preview shows (R47).
+        let preview = layout.tabDragHighlightOnScreen ?? CGRect(origin: screenPoint, size: .zero).insetBy(dx: -1, dy: -1)
         switch target {
         case .pane(let pane, .center):
             guard let controller = content.panes[pane] else { return nil }
-            // A tab dropped on its own pane keeps its tab group (the end of
-            // its own strip is not a group change).
-            let ownGroup: String? = if case .tab(let id, _) = payload {
-                controller.stripModel.orderedTabs.first { $0.id.rawValue == id }?.groupID?.rawValue
-            } else { nil }
-            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count, groupID: ownGroup),
-                                   highlightFrame: screenFrame(of: pane, in: layout) ?? point)
+            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count,
+                                                groupID: ownGroup(controller)),
+                                   highlightFrame: preview)
         case .pane(let pane, let zone):
             guard let edge = zone.edge else { return nil }
-            return TabDropProposal(kind: .newSplit(paneID: pane.rawValue, edge: edge),
-                                   highlightFrame: screenFrame(of: pane, in: layout).map { Self.half($0, edge: edge) } ?? point)
+            return TabDropProposal(kind: .newSplit(paneID: pane.rawValue, edge: edge), highlightFrame: preview)
         case .newColumn(let screen, let after):
-            return TabDropProposal(kind: .newColumn(screenID: screen.rawValue, afterColumnID: after?.rawValue), highlightFrame: point)
+            return TabDropProposal(kind: .newColumn(screenID: screen.rawValue, afterColumnID: after?.rawValue), highlightFrame: preview)
+        case .newDock(let screen, let edge):
+            return TabDropProposal(kind: .newDock(screenID: screen.rawValue, edge: edge.rawValue), highlightFrame: preview)
         }
+    }
+
+    /// Outlines a strip's insert slot (`screenRect`) in this layout's
+    /// overlay, so one outline moves between pane zones and strip slots.
+    func outline(screenRect: CGRect) {
+        guard let layout = layoutView else { return }
+        if touched !== layout { touched?.cancelTabDrag() }
+        touched = layout
+        layout.showTabDragOutline(screenRect: screenRect)
+    }
+
+    /// Hides the preview of a zone the drag cannot take (it draws nothing).
+    func hideOutline() {
+        touched?.hideTabDragHighlight()
+    }
+
+    /// Labels the layout's preview: the stay note.
+    func note(_ text: String, refused: Bool) {
+        touched?.setTabDragNote(text, refused: refused)
     }
 
     func dropExited() {
@@ -114,21 +171,6 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
 
     func dropEnded(committed: TabDropProposal?) {
         dropExited()
-    }
-
-    private func screenFrame(of pane: LayoutPaneID, in layout: LayoutRootView) -> CGRect? {
-        guard let rect = layout.frame(of: pane), let window = layout.window else { return nil }
-        return window.convertToScreen(layout.convert(rect, to: nil))
-    }
-
-    /// The half of `rect` (screen space, y up) a split on `edge` would take.
-    static func half(_ rect: CGRect, edge: TabDropEdge) -> CGRect {
-        switch edge {
-        case .left: CGRect(x: rect.minX, y: rect.minY, width: rect.width / 2, height: rect.height)
-        case .right: CGRect(x: rect.midX, y: rect.minY, width: rect.width / 2, height: rect.height)
-        case .top: CGRect(x: rect.minX, y: rect.midY, width: rect.width, height: rect.height / 2)
-        case .bottom: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height / 2)
-        }
     }
 }
 

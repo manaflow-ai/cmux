@@ -1,4 +1,0 @@
-<button node_id=1>Inside frame</button>
-<input node_id=2 aria-label="Frame field" />
-<button node_id=3>Inside frame</button>
-<input node_id=4 aria-label="Frame field" />

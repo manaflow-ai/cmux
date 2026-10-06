@@ -55,18 +55,20 @@ final class FakeCodeRouter: URLProtocol, @unchecked Sendable {
 @Suite(.serialized) struct CodeRouterClientTests {
     let client = CodeRouterClient(baseURL: URL(string: "https://cmux.test/")!,
                                   tokens: { ("fixture-access", "fixture-refresh") }, teamID: { "team-1" },
-                                  session: FakeCodeRouter.session())
+                                  labeler: { fixtureLabeler }, session: FakeCodeRouter.session())
 
     @Test func listsBothFamiliesWithNativeAuthHeaders() async throws {
         FakeCodeRouter.reset([
-            "GET /api/coderouter/accounts": (200, #"{"teamId":"team-1","accounts":[{"id":"a1","provider":"codex","label":"dev@example.com","providerAccountId":"x","state":"active","visibility":"private"},{"id":"a2","provider":"future-provider","label":"?"}]}"#),
+            "GET /api/coderouter/accounts": (200, #"{"teamId":"team-1","accounts":[{"id":"a1","provider":"codex","label":"dev@example.com","providerAccountId":"acct-fixture","providerUserId":"user-fixture","state":"active","visibility":"private"},{"id":"a2","provider":"future-provider","label":"?"}]}"#),
             "GET /api/coderouter/claude-upstream": (200, #"{"teamId":"team-1","accounts":[{"id":"c1","kind":"anthropic_oauth","label":"","identifier":"sk-ant-oat01-…abcd","state":"active"}]}"#),
         ])
         let accounts = try await client.linkedAccounts()
         #expect(accounts.map(\.id) == ["a1", "c1"], "unknown providers are skipped")
         #expect(accounts[0].provider == .codex)
         #expect(accounts[1].provider == .claude)
-        #expect(accounts[1].label == "sk-ant-oat01-…abcd")
+        #expect(accounts[1].label == "sk-ant-oat01-…abcd", "a masked key is not personal data: kept")
+        #expect(accounts[0].label == "d…@e…")
+        #expect(accounts[0].account.handle == codexHandle())
         let request = try #require(FakeCodeRouter.log.first)
         #expect(request.headers["Authorization"] == "Bearer fixture-access")
         #expect(request.headers["X-Stack-Refresh-Token"] == "fixture-refresh")
@@ -91,7 +93,8 @@ final class FakeCodeRouter: URLProtocol, @unchecked Sendable {
 
     @Test func removeIsIdempotentAndEncodesTheID() async throws {
         FakeCodeRouter.reset(["DELETE /api/coderouter/claude-upstream/c1": (200, #"{"removed":true}"#)])
-        let account = LinkedAccount(id: "c1", family: .claude, provider: .claude, label: "x", state: "active")
+        let account = LinkedAccount(id: "c1", family: .claude, provider: .claude, account: AccountLabel(handle: "acct_x", display: "x"),
+                                    state: "active")
         #expect(try await client.remove(account))
         var gone = account
         gone.id = "missing"
@@ -120,7 +123,7 @@ final class FakeCodeRouter: URLProtocol, @unchecked Sendable {
         FakeCodeRouter.reset([:])
         struct NoSession: Error {}
         let signedOut = CodeRouterClient(baseURL: URL(string: "https://cmux.test")!, tokens: { throw NoSession() },
-                                         teamID: { nil }, session: FakeCodeRouter.session())
+                                         teamID: { nil }, labeler: { fixtureLabeler }, session: FakeCodeRouter.session())
         await #expect(throws: CodeRouterError.notSignedIn) { _ = try await signedOut.linkedAccounts() }
         #expect(FakeCodeRouter.log.isEmpty)
     }

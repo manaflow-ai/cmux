@@ -18,6 +18,8 @@ public struct ControlSnapshot: Sendable {
     public var topology = ControlTopology()
     /// The loaded cmux.json document, or nil before the first load.
     public var settings: JSONValue?
+    /// Recency, closing and closed tabs for `tabs.search`.
+    public var tabSearch = ControlTabSearchFacts()
 
     public init() {}
 

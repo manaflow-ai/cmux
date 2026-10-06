@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// One Extensions menu row, as in Chrome: icon and name (click runs the
+/// One Extensions menu row: icon and name (click runs the
 /// action), a pin toggle and a "more" button. Gray hover fill, no accent.
 final class ExtensionMenuRowView: NSView {
     let extensionID: String

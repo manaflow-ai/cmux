@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// Site settings for one origin (Chrome's `chrome://settings/content/
+/// Site settings for one origin (like `chrome://settings/content/
 /// siteDetails`): usage with Delete data, every permission this engine can
 /// enforce with an Ask/Allow/Block menu, and Reset permissions.
 final class SiteSettingsWindow: PageInfoWindow {
@@ -50,8 +50,8 @@ final class SiteSettingsWindow: PageInfoWindow {
         grid.column(at: 1).xPlacement = .leading
         grid.column(at: 2).xPlacement = .trailing
         grid.setContentHuggingPriority(.required, for: .vertical)
-        // One width for every value menu (the widest title), as Chrome's
-        // site details page aligns its dropdowns.
+        // One width for every value menu (the widest title), so the
+        // dropdowns align.
         let menuWidth = menus.values.map { $0.intrinsicContentSize.width }.max() ?? 0
         for menu in menus.values {
             menu.translatesAutoresizingMaskIntoConstraints = false
@@ -70,7 +70,7 @@ final class SiteSettingsWindow: PageInfoWindow {
         stack.setCustomSpacing(PageInfoStyle.inset * 2, after: deleteData)
         stack.edgeInsets = NSEdgeInsets(top: PageInfoStyle.inset * 1.5, left: PageInfoStyle.inset * 1.5,
                                         bottom: PageInfoStyle.inset * 1.5, right: PageInfoStyle.inset * 1.5)
-        contentView = stack
+        installContent(stack)
         observation = ObservationLoop { [weak self] in self?.syncMenus() }
         Task { [weak self, provider] in
             let data = await provider.pageInfoSiteData(pageHost: URL(string: origin)?.host())

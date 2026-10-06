@@ -2,10 +2,14 @@
 import React, { useMemo } from "react";
 import { getFiletypeFromFileName, getSingularPatch, setLanguageOverride } from "@pierre/diffs";
 import { FileDiff, useStableCallback } from "@pierre/diffs/react";
-import { editPatch, type DiffEdit, type TurnFile } from "../diff";
+import { editPatch, hunkKey, type DiffEdit, type TurnFile } from "../diff";
 import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
+import { HunkActions } from "./HunkActions";
+import { useT } from "../i18n";
+import { intralineMode } from "./intraline";
+import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
 
 export type DiffLayout = "unified" | "split";
 
@@ -22,6 +26,8 @@ export function EditBlock({
   view,
   on,
   onPainted,
+  review,
+  focusAfter,
 }: {
   file: TurnFile;
   edit: DiffEdit;
@@ -31,7 +37,11 @@ export function EditBlock({
   view: FileView;
   on: FileActions;
   onPainted: () => void;
+  /// Hunk review, when the view offers it: each hunk gets Reject and Accept as a line annotation.
+  review?: HunkReview;
+  focusAfter?: FocusAfter;
 }) {
+  const t = useT();
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
   // Each transcript update rebuilds the turn's files; the patch text is compared so an
   // unchanged edit keeps its parsed diff and does not paint again.
@@ -42,6 +52,19 @@ export function EditBlock({
     return highlighted ? parsed : setLanguageOverride(parsed, "text");
   }, [patch, highlighted]);
   const afterRender = useStableCallback(onPainted);
+  const lineDiffType = useMemo(() => intralineMode(edit), [edit]);
+  const reviewing = review !== undefined;
+  const annotations = useMemo(
+    () =>
+      reviewing
+        ? edit.hunks.flatMap((hunk, hunkIndex) =>
+            hunk.reviewKeys?.length === 0
+              ? []
+              : (hunkAnchor(hunk, hunkKey(file, index, hunkIndex), file, edit.numbered) ?? []),
+          )
+        : [],
+    [reviewing, edit, file, index],
+  );
   const options = useMemo(
     () => ({
       theme: { dark: AGENT_DIFF_THEME, light: AGENT_DIFF_THEME_LIGHT },
@@ -49,7 +72,8 @@ export function EditBlock({
       diffStyle: layout,
       diffIndicators: "bars" as const,
       hunkSeparators: "line-info" as const,
-      lineDiffType: "none" as const,
+      // Word-level marks inside changed lines, unless the edit rewrote whole lines (intraline).
+      lineDiffType,
       overflow: wrap ? ("wrap" as const) : ("scroll" as const),
       // A fragment edit has no known place in its file, so its numbers would be made up.
       disableLineNumbers: !edit.numbered,
@@ -59,7 +83,7 @@ export function EditBlock({
       unsafeCSS: diffUnsafeCSS,
       onPostRender: afterRender,
     }),
-    [layout, wrap, edit.numbered, afterRender],
+    [layout, wrap, edit.numbered, afterRender, lineDiffType],
   );
   // The header sits outside Pierre's diff, so collapsing or marking a file keeps the same
   // header node and the button the reader pressed keeps focus.
@@ -69,9 +93,34 @@ export function EditBlock({
     <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
       {header}
       {!view.collapsed && edit.hunks.length === 0 && (
-        <div className="acpmux-diff-empty-edit">{file.binary ? "Binary file not shown" : "No line changes"}</div>
+        <div className="acpmux-diff-empty-edit">
+          {file.binary ? t("changes.binaryNotShown") : t("changes.noLineChanges")}
+        </div>
       )}
-      {showDiff && <FileDiff className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} />}
+      {showDiff && (
+        <FileDiff<HunkAnchor>
+          className="acpmux-diff-pierre"
+          fileDiff={fileDiff}
+          options={options}
+          lineAnnotations={annotations}
+          renderAnnotation={(annotation) => {
+            const anchor = annotation.metadata;
+            return review && focusAfter && anchor ? (
+              <HunkActions
+                anchor={anchor}
+                decision={
+                  anchor.keys.length > 0 &&
+                  anchor.keys.every((key) => review.decisions.get(key) === review.decisions.get(anchor.keys[0]!))
+                    ? review.decisions.get(anchor.keys[0]!)
+                    : undefined
+                }
+                onDecide={(decision) => anchor.keys.forEach((key) => review.decide(key, decision))}
+                focusAfter={focusAfter}
+              />
+            ) : null;
+          }}
+        />
+      )}
     </div>
   );
 }

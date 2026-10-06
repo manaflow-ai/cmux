@@ -12,13 +12,14 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { loadRuntime, loadPlaywright } from "./dev-driver.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "./test-dirs.mjs";
 
 const REF = /^(f\d+)?e\d+$/;
 
 export async function runOracleCells(cells) {
   const ns = loadRuntime();
   const { chromium } = loadPlaywright();
-  const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "parity-oracle-")));
+  const work = makeTestDir("parity-oracle-");
   const browser = await chromium.launch({ channel: "chrome", headless: true });
   const context = await browser.newContext({ acceptDownloads: true, viewport: { width: 1280, height: 800 } });
   const ids = new WeakMap();
@@ -117,7 +118,7 @@ export async function runOracleCells(cells) {
     };
     const globals = {
       tabs: {
-        list: async () => Promise.all(context.pages().map(async (p) => ({ id: idOf(p), title: await p.title(), url: p.url(), active: p === s.current, current: p === s.current }))),
+        list: async () => Promise.all(context.pages().map(async (p) => ({ id: idOf(p), title: await p.title(), url: p.url(), active: p === s.current, current: p === s.current, state: "live" }))),
         async open(url, o = {}) {
           const p = await newPage();
           if (url) await p.goto(url);
@@ -196,7 +197,7 @@ export async function runOracleCells(cells) {
   } finally {
     process.chdir(prevCwd);
     await browser.close();
-    fs.rmSync(work, { recursive: true, force: true });
+    removeTestDir(work);
   }
   return outputs;
 }

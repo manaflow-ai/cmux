@@ -40,4 +40,6 @@ mod test_exec;
 mod unix_socket;
 #[cfg(feature = "wireguard-transport")]
 pub mod wireguard_hub;
+#[cfg(all(feature = "wireguard-transport", unix))]
+pub mod wireguard_hub_control;
 pub mod workspace;

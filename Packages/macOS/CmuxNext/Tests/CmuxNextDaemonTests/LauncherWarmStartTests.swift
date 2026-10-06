@@ -79,4 +79,23 @@ import Testing
         let calls = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
         #expect(calls.last == "ensure")
     }
+
+    /// A cold launch runs `server ensure` while the login shell is still
+    /// running: the daemon gets the remembered (here: the app's own)
+    /// environment instead of waiting up to the capture's deadline.
+    @Test(.timeLimit(.minutes(1))) func aMissingDaemonIsStartedBeforeTheLoginShellAnswers() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (binary, log) = try fakeBinary(running: false, in: directory)
+        let shell = SlowLoginShell()
+        defer { shell.close() }
+        let cache = LoginEnvironmentCache(store: MemoryLoginEnvironmentFile().store, capture: { await shell.capture($0) })
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: "s", stateDirectory: directory.appendingPathComponent("state")),
+            environment: DaemonLauncher.appEnvironment(cache: cache, base: ["PATH": "/usr/bin:/bin"], overrides: [:]))
+        let result = try await launcher.ensure()
+        #expect(result.status == "started")
+        let calls = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+        #expect(calls.last == "ensure")
+    }
 }

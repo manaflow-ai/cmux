@@ -1,9 +1,0 @@
-[0-2] RootWebArea: Dialogs Fixture
-  [0-4] scrollable, html
-    [0-8] body
-      [0-9] button: Alert
-      [0-11] button: Confirm
-      [0-13] button: Prompt
-      [0-15] button: Arm beforeunload
-      [0-17] paragraph
-        [0-18] StaticText: idle

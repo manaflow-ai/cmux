@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import QuartzCore
 
 /// The Cmd-K menu: every command of the selected item on a small glass
 /// panel, filterable by typing. Rebuilt when it opens or its filter changes
@@ -7,7 +8,8 @@ import CmuxNextDesign
 final class PaletteActionsMenuView: NSView {
     var onRun: ((Int) -> Void)?
 
-    private let glass = Glass.makePanel(cornerRadius: PaletteLayout.cornerRadius)
+    /// The panel's material: glass, or opaque under Reduce Transparency.
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
     private let content = FlippedView()
     private let title = PaletteText.label(Typography.header, tone: .secondary)
     private let filter = PaletteText.label(Typography.body, tone: .tertiary)
@@ -16,8 +18,9 @@ final class PaletteActionsMenuView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
         glass.translatesAutoresizingMaskIntoConstraints = true
-        glass.contentView = content
+        glass.contentView.addSubview(content)
         separator.wantsLayer = true
         [title, separator, filter].forEach(content.addSubview)
         addSubview(glass)
@@ -25,6 +28,17 @@ final class PaletteActionsMenuView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// The corner the menu grows from: its bottom trailing corner, above the
+    /// footer's "Actions ⌘K" (layer coordinates, origin at the bottom left).
+    var scalePivot: CGPoint { CGPoint(x: bounds.width, y: 0) }
+
+    /// The menu's contents scaled about `scalePivot`, for its layer's
+    /// `sublayerTransform`.
+    func scaled(_ scale: CGFloat) -> CATransform3D {
+        guard let layer else { return CATransform3DIdentity }
+        return Motion.scale(scale, about: scalePivot, in: layer)
+    }
 
     /// Height the menu wants for `state`.
     static func height(for state: PaletteActionsMenuState) -> CGFloat {
@@ -51,7 +65,7 @@ final class PaletteActionsMenuView: NSView {
     override func layout() {
         super.layout()
         glass.frame = bounds
-        content.frame = glass.bounds
+        content.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let inset = Metrics.space2
         let padding = PaletteLayout.horizontalPadding
         var y = Metrics.space4
@@ -78,7 +92,7 @@ final class PaletteActionsMenuView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            glass.tintColor = Palette.glassTint
+            glass.applyTheme()
             separator.layer?.backgroundColor = Palette.separator.cgColor
         }
     }

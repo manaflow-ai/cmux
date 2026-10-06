@@ -1,0 +1,63 @@
+#!/bin/bash
+# gh-merge-green REPO#PR [--main-fix] [gh pr merge flags...]
+# Merges only when the PR head's required-in-practice checks are green.
+# main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
+set -euo pipefail
+ref="${1:?usage: gh-merge-green OWNER/REPO#NUMBER [--squash|--merge] }"; shift
+repo="${ref%#*}"; num="${ref#*#}"
+# --main-fix permits only automatically matched same-base Swift test failures,
+# after the PR head has compiled Release, Debug, and the Swift test target.
+fix=0; args=(); for a in "$@"; do [ "$a" = --main-fix ] && fix=1 || args+=("$a"); done; set -- "${args[@]+"${args[@]}"}"
+[ $# -gt 0 ] || set -- --squash
+if [ "$fix" -eq 1 ]; then
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  exec python3 "$script_dir/ci/main_fix_evidence.py" "$ref" "$@"
+fi
+read -r sha base < <(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName -q '.headRefOid+" "+.baseRefName')
+# Checks that must have run and passed on the exact head. Missing counts as not green.
+must=("ci-status")
+# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
+# Require it only if it was scheduled or the diff touches app code.
+files=""
+if [ "$base" = main ] || [ "$base" = feat-cmux-next ]; then
+  # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
+  files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename') || { echo "not green: cannot list changed files" >&2; exit 1; }
+fi
+if [ "$base" = main ]; then
+  if printf '%s\n' "$files" | grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$'; then
+    must+=("macos / macOS compile admission")
+  fi
+fi
+runs=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate -q '.check_runs[]|[.name,.status,(.conclusion//"")]|@tsv')
+if [ "$base" = main ] && printf '%s\n' "$runs" | grep -q '^macos / macOS compile admission'$'\t' && ! printf '%s\n' "${must[@]}" | grep -qx 'macos / macOS compile admission'; then
+  must+=("macos / macOS compile admission")
+fi
+bad=0
+for name in "${must[@]+"${must[@]}"}"; do
+  line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n' | tail -1)
+  if [ -z "$line" ]; then echo "not green: '$name' has not run on $sha" >&2; bad=1; continue; fi
+  st=$(cut -f2 <<<"$line"); co=$(cut -f3 <<<"$line")
+  if [ "$st" != completed ] || { [ "$co" != success ] && [ "$co" != skipped ] && [ "$co" != neutral ]; }; then
+    echo "not green: '$name' is $st/$co on $sha" >&2; bad=1
+  fi
+done
+if [ "$base" = feat-cmux-next ] && printf '%s\n' "$files" | grep -qE '(^|/)Package\.swift$|\.swift$'; then
+  compile_ok=0
+  for name in "cmux-next Release compile (Xcode 26)" "macos / macOS compile admission"; do
+    line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n' | tail -1)
+    if [ -n "$line" ] && [ "$(cut -f2 <<<"$line")" = completed ] && [ "$(cut -f3 <<<"$line")" = success ]; then
+      compile_ok=1
+      break
+    fi
+  done
+  if [ "$compile_ok" -eq 0 ]; then
+    echo "not green: feat-cmux-next Swift PR requires exact-head success from 'cmux-next Release compile (Xcode 26)' or 'macos / macOS compile admission'" >&2
+    bad=1
+  fi
+fi
+failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
+if [ -n "$failing" ]; then echo "note: other failing checks on $sha (ci-status decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty') || { echo "not green: cannot read the diff" >&2; bad=1; }
+if printf '%s\n' "$patches" | grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)'; then echo "not green: conflict markers in the diff" >&2; bad=1; fi
+[ "$bad" -eq 0 ] || { echo "refusing to merge $ref; wait with: glaeda-gh wait pr $ref" >&2; exit 1; }
+exec gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"

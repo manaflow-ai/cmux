@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
 
-/// The thin scrollbar under the column strip (sticky-column.md, B1 to B5):
+/// The thin scrollbar under the column strip (dock-column.md, B1 to B5):
 /// a neutral thumb showing the visible range, no track color. Dragging the
 /// thumb scrolls, a click beside it pages. `auto` fades it in while the
 /// strip scrolls or the pointer is over it and out after a one-shot

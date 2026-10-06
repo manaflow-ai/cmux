@@ -5,7 +5,7 @@ import Testing
 /// Screen metadata, order and screen groups (`screen-metadata-v1`,
 /// `screen-groups-v1`) against the pinned branch cmux-tui: the calls the
 /// screen tab bar, palette and CLI make, and the tree and store they change.
-@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
+@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchScreenTests {
     @Test func screenColorIconPinOrderAndGroups() async throws {

@@ -5,16 +5,13 @@ extension ProviderDetector {
     /// Gemini CLI: an API key, or its Google sign-in (`~/.gemini/oauth_creds.json`);
     /// the active account email is in `~/.gemini/google_accounts.json`.
     func detectGemini() -> ProviderDetection {
-        var detection = detectAPIKey(.gemini)
+        let keys = detectAPIKey(.gemini)
         let dir = environment.home.appendingPathComponent(".gemini", isDirectory: true)
         let creds = dir.appendingPathComponent("oauth_creds.json")
-        if environment.files.exists(creds) {
-            detection.sources.append(.file(environment.display(creds)))
-            detection.status = .signedIn
-            let accounts = environment.jsonObject(at: dir.appendingPathComponent("google_accounts.json"))
-            detection.identity = (accounts?["active"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        }
-        return detection
+        guard environment.files.exists(creds) else { return keys }
+        let accounts = environment.jsonObject(at: dir.appendingPathComponent("google_accounts.json"))
+        return ProviderDetection(provider: .gemini, status: .signedIn, account: account(.gemini, accounts?["active"] as? String),
+                                 sources: keys.sources + [.file(environment.display(creds))])
     }
 
     /// Bedrock: AWS keys or a Bedrock API key in the environment, or named
@@ -39,7 +36,7 @@ extension ProviderDetector {
         }
         let selected = environment.value("AWS_PROFILE") ?? (profiles.contains("default") ? "default" : profiles.first)
         return ProviderDetection(provider: .bedrock, status: sources.isEmpty ? .missing : .signedIn,
-                                 identity: selected.map { "profile \($0)" }, plan: environment.value("AWS_REGION"), sources: sources)
+                                 detail: selected.map { "profile \($0)" }, plan: environment.value("AWS_REGION"), sources: sources)
     }
 
     /// `[default]`, `[profile work]` and `[work]` section names; `[sso-session …]` is not a profile.
@@ -55,8 +52,8 @@ extension ProviderDetector {
     }
 
     /// Vertex AI: `$GOOGLE_APPLICATION_CREDENTIALS`, or gcloud's application
-    /// default credentials. Shows the credential type, and the service
-    /// account email (a public identifier) when there is one.
+    /// default credentials. Shows the credential type, or the service
+    /// account as an ``AccountLabel`` when there is one.
     func detectVertex() -> ProviderDetection {
         let file: URL
         if let path = environment.value("GOOGLE_APPLICATION_CREDENTIALS") {
@@ -70,14 +67,16 @@ extension ProviderDetector {
         guard let object = environment.jsonObject(at: file), let type = object["type"] as? String else {
             return ProviderDetection(provider: .vertex, status: .unknown, sources: [source])
         }
-        let identity = type == "service_account" ? (object["client_email"] as? String) : nil
         let project = environment.value("GOOGLE_CLOUD_PROJECT") ?? environment.value("ANTHROPIC_VERTEX_PROJECT_ID")
             ?? (object["quota_project_id"] as? String)
-        return ProviderDetection(provider: .vertex, status: .signedIn, identity: identity ?? type, plan: project, sources: [source])
+        let serviceAccount = type == "service_account" ? account(.vertex, object["client_email"] as? String, plan: project) : nil
+        return ProviderDetection(provider: .vertex, status: .signedIn, account: serviceAccount,
+                                 detail: serviceAccount == nil ? type : nil, plan: project, sources: [source])
     }
 
     /// GitHub Copilot: the editor plugins' `apps.json` / `hosts.json` under
-    /// `$XDG_CONFIG_HOME/github-copilot`. The GitHub login is the `user` field.
+    /// `$XDG_CONFIG_HOME/github-copilot`. The GitHub login (the `user`
+    /// field) becomes an ``AccountLabel``.
     func detectCopilot() -> ProviderDetection {
         let dir = environment.directory("XDG_CONFIG_HOME", fallback: ".config").appendingPathComponent("github-copilot", isDirectory: true)
         for name in ["apps.json", "hosts.json"] {
@@ -88,7 +87,8 @@ extension ProviderDetector {
                 return ProviderDetection(provider: .copilot, status: .unknown, sources: [source])
             }
             let user = object.keys.sorted().lazy.compactMap { (object[$0] as? [String: Any])?["user"] as? String }.first
-            return ProviderDetection(provider: .copilot, status: object.isEmpty ? .missing : .signedIn, identity: user, sources: [source])
+            return ProviderDetection(provider: .copilot, status: object.isEmpty ? .missing : .signedIn,
+                                     account: account(.copilot, user), sources: [source])
         }
         return .missing(.copilot)
     }

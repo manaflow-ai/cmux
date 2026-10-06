@@ -3,12 +3,19 @@ public import CoreGraphics
 /// Where a drop lands relative to its region.
 public nonisolated enum DropOverlayZone: String, Sendable, Hashable, CaseIterable {
     case center, left, right, top, bottom
-    /// Between columns (a new niri column).
+    /// Between columns (a new strip column).
     case column
 
     init(_ target: DropTarget) {
         switch target {
         case .newColumn: self = .column
+        case let .newDock(_, edge):
+            switch edge {
+            case .left: self = .left
+            case .right: self = .right
+            case .top: self = .top
+            case .bottom: self = .bottom
+            }
         case let .pane(_, zone):
             switch zone {
             case .center: self = .center
@@ -39,9 +46,16 @@ public nonisolated struct DropOverlayFrame: Equatable, Sendable {
     public var cornerRadius: CGFloat
     public var label: String
     public var showsLabel: Bool
+    /// The target cannot take the drop; `label` is the reason (tab-dnd).
+    public var refused: Bool
+    /// The overlay may move to `finalTarget` with an animation (self-driven
+    /// styles animate on the compositor; the others get every frame).
+    public var animated: Bool
 
     public init(target: CGRect, finalTarget: CGRect? = nil, region: CGRect, zone: DropOverlayZone, bounds: CGRect,
-                cornerRadius: CGFloat, label: String, showsLabel: Bool) {
+                cornerRadius: CGFloat, label: String, showsLabel: Bool, refused: Bool = false, animated: Bool = false) {
+        self.refused = refused
+        self.animated = animated
         self.target = target
         self.finalTarget = finalTarget ?? target
         self.region = region

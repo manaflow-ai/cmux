@@ -28,6 +28,9 @@ final class LineTransport: Sendable {
 
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
+    /// The event name a `cmux.protocol/2` stream line is routed under
+    /// (`DaemonEvent.decode`); the connection opens one stream, `session.events`.
+    static let streamEvent = "cmux.protocol/2 stream"
 
     enum Waiter {
         case reply(cmd: String, ReplySlot)
@@ -80,6 +83,9 @@ final class LineTransport: Sendable {
         self.path = path
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw .connectFailed(path: path, errno: errno) }
+        // Close-on-exec: a program the app execs must not inherit a daemon connection, whose
+        // peer key is this process's audit token (request-origin.md, peer key caveat).
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         var on: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un()
@@ -108,6 +114,9 @@ final class LineTransport: Sendable {
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
     }
+
+    /// The socket descriptor (tests: close-on-exec).
+    var descriptorForTesting: Int32 { socket.withLock { $0.fd } }
 
     deinit {
         writer.close()
@@ -254,47 +263,6 @@ final class LineTransport: Sendable {
         }
     }
 
-    /// Routing fields of a raw protocol line or a `cmux.protocol/2`
-    /// response. Resource responses carry the request id as a decimal
-    /// string and a structured `error` object.
-    private struct Envelope: Decodable {
-        var id: UInt64?
-        var ok: Bool?
-        var event: String?
-        var error: String?
-        var errorCode: String?
-        var streamID: String?
-
-        enum CodingKeys: String, CodingKey {
-            case id, ok, event, error
-            case errorCode = "error_code"
-            case streamID = "stream_id"
-        }
-
-        private struct ResourceError: Decodable {
-            var code: String?
-            var message: String?
-        }
-
-        init(from decoder: any Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            if let number = try? c.decodeIfPresent(UInt64.self, forKey: .id) {
-                id = number
-            } else if let text = try? c.decodeIfPresent(String.self, forKey: .id) {
-                id = UInt64(text)
-            }
-            ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
-            (event, streamID) = (try? c.decodeIfPresent(String.self, forKey: .event), try? c.decodeIfPresent(String.self, forKey: .streamID))
-            errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
-            if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
-                error = text
-            } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {
-                error = structured.message ?? structured.code
-                errorCode = errorCode ?? structured.code
-            }
-        }
-    }
-
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
         let decoder = JSONDecoder()
         var buffer = Data()
@@ -365,7 +333,14 @@ final class LineTransport: Sendable {
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
-        if let name = envelope.event {
+        // A v2 stream line goes to the stream handler of a dedicated
+        // connection (`SessionJournalRead`); on the control connection it
+        // travels with the raw events, in socket order (`session.events`).
+        let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
+        if streamed, let streamID = envelope.streamID, let handler = state.withLock({ $0.streamHandler }) {
+            return handler(streamID, line)
+        }
+        if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in
                 if name == "daemon-shutdown" { state.sawShutdown = true }
                 state.eventCount += 1
@@ -374,7 +349,6 @@ final class LineTransport: Sendable {
             onEvent(name, line, index)
             return
         }
-        if envelope.ok == nil, let streamID = envelope.streamID { return state.withLock { $0.streamHandler }?(streamID, line) ?? () }
         guard envelope.ok != nil || envelope.id != nil else { return }
         let waiter: (UInt64, Waiter)? = state.withLock { state in
             let id = envelope.id ?? state.order.first
@@ -387,7 +361,8 @@ final class LineTransport: Sendable {
             if case .reply(_, let slot) = waiter { slot.resolve(.success(Response(line: line, eventBarrier: barrier))) }
             return
         }
-        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode)
+        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode,
+                                        details: envelope.errorDetails, retryable: envelope.retryable)
         switch waiter {
         case .reply(_, let slot): slot.resolve(.failure(error))
         case .discard(_, let onError): onError?(error)

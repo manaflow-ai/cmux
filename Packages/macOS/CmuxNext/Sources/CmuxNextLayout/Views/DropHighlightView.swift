@@ -4,7 +4,8 @@ import Observation
 
 /// Shows where a dragged tab will land. The drawing is one of the
 /// `DropOverlayStyle`s (Debug Settings `drop.overlay.style`; default the
-/// original Liquid Glass fill), switched live even mid-drag. This view
+/// border-only outline, which animates itself on the compositor), switched
+/// live even mid-drag. This view
 /// covers the overlay plane and owns the motion: the target and its region
 /// follow springs (Motion token from the tunable, `settle` for morph), so
 /// every style moves the same way; Reduce Motion snaps (the layout passes
@@ -17,6 +18,9 @@ final class DropHighlightView: NSView {
     private var zone: DropOverlayZone = .center
     private var label = ""
     private var cornerRadius: CGFloat = 0
+    /// The drop is refused (`label` is the reason) or keeps the tabs in
+    /// place (`label` says so); set after `show` by the drag (tab-dnd).
+    private var refused = false
     private var materialOverride: OverlayMaterial?
     private(set) var isShowing = false
     /// Called when a tunable change needs a redraw while nothing moves.
@@ -64,6 +68,8 @@ final class DropHighlightView: NSView {
     }
     /// The target rect as drawn now (this view's coordinates).
     var targetRect: CGRect { targetSpring.rect }
+    /// The outline style's renderer, when that style draws (tests, debug).
+    var outline: OutlineRenderer? { renderer as? OutlineRenderer }
 
     // MARK: Showing
 
@@ -79,6 +85,7 @@ final class DropHighlightView: NSView {
         self.zone = zone
         self.label = text
         self.cornerRadius = cornerRadius
+        refused = false
         if !isShowing {
             isShowing = true
             isHidden = false
@@ -97,16 +104,37 @@ final class DropHighlightView: NSView {
         }
         targetSpring.setTarget(target, alpha: 1)
         regionSpring.setTarget(region)
-        if !animated {
+        // A self-driven style animates on the compositor: no frame clock.
+        if !animated || renderer.drivesOwnMotion {
             targetSpring.snap()
             regionSpring.snap()
         }
-        apply()
-        return animated
+        apply(animated: animated)
+        return animated && !renderer.drivesOwnMotion
     }
+
+    /// Replaces the label of the target on show: the reason a drop there
+    /// is refused, or that it keeps the tabs in place. Nil restores nothing
+    /// (the next `show` sets the target's own label).
+    func setNote(_ text: String?, refused: Bool) {
+        guard isShowing, let text else { return }
+        guard text != label || refused != self.refused else { return }
+        label = text
+        self.refused = refused
+        apply()
+    }
+
+    var isRefused: Bool { refused }
+    var labelText: String { label }
 
     func hide(animated: Bool) -> Bool {
         guard isShowing else { return false }
+        if renderer.drivesOwnMotion {
+            isShowing = false
+            refused = false
+            renderer.hide(animated: animated && DropOverlayTunables.animated.value)
+            return false
+        }
         isShowing = false
         targetSpring.alpha.target = 0
         if !animated || !DropOverlayTunables.animated.value {
@@ -130,11 +158,12 @@ final class DropHighlightView: NSView {
 
     // MARK: Private
 
-    private func apply() {
+    private func apply(animated: Bool = false) {
         if let superview, frame != superview.bounds { frame = superview.bounds }
         renderer.update(DropOverlayFrame(target: targetSpring.rect, finalTarget: targetSpring.targetRect, region: regionSpring.rect,
                                          zone: zone, bounds: bounds,
-                                         cornerRadius: cornerRadius, label: label, showsLabel: DropOverlayTunables.showLabel.value))
+                                         cornerRadius: cornerRadius, label: label, showsLabel: DropOverlayTunables.showLabel.value,
+                                         refused: refused, animated: animated))
         alphaValue = targetSpring.alpha.value * CGFloat(DropOverlayTunables.opacity.value)
         if !isShowing && targetSpring.alpha.value <= 0.001 { isHidden = true }
     }

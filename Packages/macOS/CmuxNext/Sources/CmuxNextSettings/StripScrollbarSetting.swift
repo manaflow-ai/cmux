@@ -2,7 +2,7 @@ public import CmuxNextDesign
 
 /// `layout.stripScrollbar` in cmux.json: "auto" (default), "always" or
 /// "off"; `true` means "auto" and `false` "off"
-/// (plans/cmux-next/sticky-column.md, B4).
+/// (plans/cmux-next/dock-column.md, B4).
 public nonisolated enum StripScrollbarSetting {
     public static let configPath = ["layout", "stripScrollbar"]
     public static let fallback: StripScrollbarMode = .auto

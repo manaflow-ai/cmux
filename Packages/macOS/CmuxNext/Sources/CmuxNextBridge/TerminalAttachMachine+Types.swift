@@ -70,6 +70,10 @@ extension TerminalAttachMachine {
         case reconnect
         /// The daemon reports the terminal's process ended.
         case processExited
+        /// The daemon reports the terminal running again after it reported it
+        /// dead (a transient report while its host was re-adopted, or a
+        /// restart in place). An exited view re-attaches.
+        case processRevived
         /// The tab closed or the view was dropped.
         case close
     }

@@ -11,8 +11,8 @@ enum SettingsStyle {
     static var text: Color { color(tokens.textPrimary) }
     static var secondary: Color { color(tokens.textSecondary) }
     static var tertiary: Color { color(tokens.textTertiary) }
-    static var background: Color { color(tokens.windowBackground) }
-    static var card: Color { color(tokens.chromeBackground) }
+    /// A tint, never an opaque fill (`ThemeTokens.cardFill`).
+    static var card: Color { color(tokens.cardFill) }
     static var selection: Color { color(tokens.selectionFill) }
     static var hover: Color { color(tokens.hoverFill) }
     /// Clear under `appearance.borders` none (`Borders`).
@@ -32,6 +32,8 @@ enum SettingsStyle {
     static var rowHeight: CGFloat { Metrics.sidebarRowHeight + Metrics.space2 }
     static var corner: CGFloat { Metrics.itemCornerRadius }
     static var cardCorner: CGFloat { Metrics.panelCornerRadius }
+    /// Strength of the tint on a row a search jump or deep link opened.
+    static var highlightOpacity: Double { 0.22 }
 }
 
 /// A rounded group of rows under a small heading.

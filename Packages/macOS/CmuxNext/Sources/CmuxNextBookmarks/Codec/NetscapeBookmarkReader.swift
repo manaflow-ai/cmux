@@ -94,7 +94,7 @@ public nonisolated enum NetscapeBookmarkReader {
 
     static func date(_ value: String?) -> Date? {
         guard let value, let seconds = Double(value.trimmingCharacters(in: .whitespaces)), seconds > 0 else { return nil }
-        // Some writers store microseconds (Chrome's internal format) or ms.
+        // Some writers store microseconds (Chromium's internal format) or ms.
         if seconds > 1e14 { return Date(timeIntervalSince1970: seconds / 1_000_000) }
         if seconds > 1e11 { return Date(timeIntervalSince1970: seconds / 1000) }
         return Date(timeIntervalSince1970: seconds)

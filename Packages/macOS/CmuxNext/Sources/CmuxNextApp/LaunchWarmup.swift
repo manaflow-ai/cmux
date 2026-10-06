@@ -16,9 +16,10 @@ import Foundation
 /// the rest of that one build, never longer than building it itself.
 enum LaunchWarmup {
     static func start() {
-        // The login shell's environment (`$SHELL -l -i`, about 0.9 s) is
-        // needed to spawn a daemon on a cold start and for each new
-        // terminal's env; capture it while AppKit starts.
+        // The login shell's environment (`$SHELL -l -i`, 1-17 s) is each
+        // new terminal's env and is remembered for the next launch's
+        // daemon; capture it while AppKit starts. Nothing that connects
+        // the app waits for it.
         DaemonLauncher.prewarmLoginEnvironment()
         let thread = Thread {
             _ = ActionCatalog.all

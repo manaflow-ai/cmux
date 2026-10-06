@@ -13,16 +13,13 @@ GENERATED_CONTRACT_FILES = {
     # quicktype emits one monolithic Codable model file for this wire contract;
     # schema additions must change its generated line count atomically.
     Path("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift"),
-    # generate-cmux-config-schema.py embeds web/data/cmux.schema.json line for
-    # line, so every new schema key or enum value adds a line here.
-    Path("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift"),
 }
 
 
 def main():
     base = git("merge-base", "HEAD", "origin/main")
-    # A moved file keeps the budget of its old path (B1 moved Sources/ files
-    # into CLI/), so a rename is not treated as a new file.
+    # A moved file keeps the budget of its old path, so a rename is not
+    # treated as a new file.
     previous = {}
     paths = set()
     for line in git("-c", "diff.renameLimit=0", "diff", "-M", "--name-status", base, "--", "*.swift").splitlines():

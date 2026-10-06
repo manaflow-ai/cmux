@@ -3,7 +3,7 @@ import Foundation
 /// Arguments of the room actions (ProfileActions.xcstrings).
 nonisolated extension CatalogArgument {
     static var roomRoom: ActionArgument {
-        ActionArgument(name: "room", title: String(localized: "argument.room", defaultValue: "Room", table: "ProfileActions", bundle: .module),
+        ActionArgument(name: "space", title: String(localized: "argument.room", defaultValue: "Space", table: "ProfileActions", bundle: .module),
                        kind: .target(.profile))
     }
 

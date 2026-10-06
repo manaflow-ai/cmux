@@ -12,7 +12,7 @@ import Testing
         "browserProfile.setIcon", "browserProfile.clearIcon", "browserProfile.delete",
         "browserProfile.newTab", "browserProfile.newWindow", "browserProfile.newWorkspace", "browserProfile.openLink",
         "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
-        "browserProfile.setRoomDefault", "browserProfile.clearRoomDefault",
+        "browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault",
         "browserProfile.moveTab", "browserProfile.duplicateTab", "browserProfile.manageExtensions",
     ]
 
@@ -26,7 +26,7 @@ import Testing
     }
 
     @Test func profileArgumentsAreBrowserProfileTargets() throws {
-        let unscoped: Set<ActionID> = ["browserProfile.new", "browserProfile.clearWorkspaceDefault", "browserProfile.clearRoomDefault"]
+        let unscoped: Set<ActionID> = ["browserProfile.new", "browserProfile.clearWorkspaceDefault", "browserProfile.clearSpaceDefault"]
         for id in Self.ids where !unscoped.contains(id) {
             let descriptor = try #require(catalog[id])
             let takesProfile = descriptor.arguments.contains { $0.kind == .target(.browserProfile) }
@@ -47,7 +47,7 @@ import Testing
         #expect(ids(.tab).isSuperset(of: ["browserProfile.moveTab", "browserProfile.duplicateTab"]))
         #expect(ids(.newTab).contains("browserProfile.newTab"))
         #expect(ids(.workspaceRow).isSuperset(of: ["browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault"]))
-        #expect(ids(.profile).isSuperset(of: ["browserProfile.setRoomDefault", "browserProfile.clearRoomDefault"]))
+        #expect(ids(.profile).isSuperset(of: ["browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault"]))
         #expect(ids(.browserProfile).isSuperset(of: ["browserProfile.newTab", "browserProfile.rename", "browserProfile.delete",
                                                      "browserProfile.manageExtensions"]))
     }

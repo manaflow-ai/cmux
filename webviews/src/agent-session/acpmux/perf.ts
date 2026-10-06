@@ -140,6 +140,7 @@ export class FrameRing {
 }
 
 export type TypingSample = { frame: number; paint: number };
+type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
 
 /** Typing latency: keydown event time to the next frame and to after that frame paints. */
 export function typingSummary(samples: TypingSample[]) {
@@ -166,6 +167,7 @@ export class AcpmuxPerf {
   mountedBottom = 0;
   private commitWaiters: ((now: number) => void)[] = [];
   readonly typing: TypingSample[] = [];
+  private agentMarks: Partial<Record<AgentMark, number>> = {};
   private keyListener: ((event: KeyboardEvent) => void) | undefined;
 
   /** Turns measurement on; installs the composer key listener once. */
@@ -190,6 +192,31 @@ export class AcpmuxPerf {
       });
     };
     target.addEventListener("keydown", this.keyListener as EventListener, true);
+  }
+
+  /** Lifecycle marks used by the warm-chat before/after capture. */
+  markAgent(stage: AgentMark): void {
+    if (stage === "handshakeStart") {
+      delete this.agentMarks.handshakeReady;
+      delete this.agentMarks.composerReady;
+      delete this.agentMarks.firstToken;
+    }
+    if (stage === "firstToken" && this.agentMarks.firstToken !== undefined) return;
+    this.agentMarks[stage] = performance.now();
+  }
+
+  agentLatency(): Record<string, number> {
+    const start = this.agentMarks.handshakeStart;
+    const value: Record<string, number> = {};
+    for (const [name, at] of Object.entries(this.agentMarks)) {
+      if (at === undefined) continue;
+      value[`${name}_ms`] = round2(start === undefined ? at : at - start);
+    }
+    if (start !== undefined && this.agentMarks.composerReady !== undefined)
+      value.composer_ready_ms = round2(this.agentMarks.composerReady - start);
+    if (start !== undefined && this.agentMarks.firstToken !== undefined)
+      value.first_token_ms = round2(this.agentMarks.firstToken - start);
+    return value;
   }
 
   addLayout(ms: number): void {

@@ -59,15 +59,17 @@
         replace(deck, find, replacement, options) {
           if (typeof deck === "string" && /^draft-\d+-[0-9a-f]+$/.test(deck)) return ed.edit("googleSlides", "replace", "googleSlides.replace", null, deck, find);
           if (typeof find !== "string" || !find) throw new S.SiteError("invalid", "googleSlides.replace: find: expected text");
+          // Read once, so the preview and the edit use the same text.
+          replacement = String(replacement);
           const r = ref(deck, "googleSlides.replace", options || {});
           const occurrences = async () => (await ed.deck("googleSlides.replace", r)).flatMap((s) => [...s.text, s.notes]).reduce((n, x) => n + (x.split(find).length - 1), 0);
           return ed.edit("googleSlides", "replace", "googleSlides.replace", r, {}, options, () => ({
             summary: `Replace "${find}" with "${replacement}" in Google Slides ${r.id}`,
-            preview: { file: deck, find, replace: String(replacement) },
+            preview: { file: deck, find, replace: replacement },
             run: async (page) => {
               const before = await occurrences();
-              await ed.findReplace(page, find, String(replacement));
-              const verified = before === 0 || String(replacement).includes(find) || (await ed.verify(async () => (await occurrences()) === 0));
+              await ed.findReplace(page, find, replacement);
+              const verified = before === 0 || replacement.includes(find) || (await ed.verify(async () => (await occurrences()) === 0));
               return { status: "replaced", count: before, verified };
             },
           }));

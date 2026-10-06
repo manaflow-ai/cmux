@@ -69,7 +69,8 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 id: "workspace.setIcon",
                 title: String(localized: "action.workspace.setIcon", defaultValue: "Set Workspace Icon…", table: "WorkspaceActions", bundle: .module),
                 keywords: ["emoji", "symbol", "badge"], category: .workspace, symbol: "face.smiling",
-                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.iconString], targets: [.workspace], cliName: "workspace set-icon"
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.iconString.optional], targets: [.workspace],
+                cliName: "workspace set-icon"
             ),
             ActionDescriptor(
                 id: "workspace.clearIcon",

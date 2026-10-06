@@ -22,11 +22,20 @@ export type MockSession = {
   pinned?: boolean;
   unread?: boolean;
   pendingPermissions?: number;
-  pullRequest?: { number: number; title: string; state: "open" | "draft" | "merged"; reviewReady?: boolean };
+  pullRequest?: {
+    number: number;
+    title: string;
+    state: "open" | "draft" | "merged";
+    reviewReady?: boolean;
+    /// The head commit's CI rollup.
+    checks?: "passing" | "failing" | "pending";
+  };
   /// The agent's last reply, for sessions other than the worked one.
   reply?: string;
   /// What a session needing input waits on: the tool call its permission card names.
   permission?: { title: string; kind: string };
+  /// The call a running session is in the middle of, after its last text.
+  working?: { title: string; kind: string; command?: string };
 };
 
 type Update = Record<string, unknown>;
@@ -35,14 +44,34 @@ export type SeedStep = ({ update: Update } | { mux: string; msg?: Record<string,
 
 export const LOCAL_HOST = "This Mac";
 
+/// Wide enough that the model picker's layers (provider, family, model) have something to show.
 export const claudeModels = [
   { id: "claude-opus-5-5", name: "Opus 5.5" },
   { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
   { id: "claude-haiku-4-5", name: "Haiku 4.5" },
+  { id: "claude-fable-1-5", name: "Fable 1.5" },
+  { id: "claude-opus-5", name: "Opus 5" },
+  { id: "claude-opus-4-6", name: "Opus 4.6" },
+  { id: "claude-opus-4-1", name: "Opus 4.1" },
+  { id: "claude-sonnet-5", name: "Sonnet 5" },
+  { id: "claude-sonnet-4-6", name: "Sonnet 4.6" },
+  { id: "claude-haiku-4", name: "Haiku 4" },
+  { id: "claude-fable-1", name: "Fable 1" },
 ];
+/// Codex's own series plus the open-weight models it runs through a local provider.
 export const codexModels = [
   { id: "gpt-6-astra", name: "GPT-6-Astra" },
   { id: "gpt-6-mini", name: "GPT-6 mini" },
+  { id: "gpt-6-nano", name: "GPT-6 nano" },
+  { id: "gpt-5.5-codex", name: "GPT-5.5-Codex" },
+  { id: "gpt-5.5", name: "GPT-5.5" },
+  { id: "gpt-5-mini", name: "GPT-5 mini" },
+  { id: "o4-mini", name: "o4-mini" },
+  { id: "o3", name: "o3" },
+  { id: "gpt-oss-120b", name: "gpt-oss-120b" },
+  { id: "gpt-oss-20b", name: "gpt-oss-20b" },
+  { id: "qwen3-coder", name: "Qwen3 Coder" },
+  { id: "devstral-2", name: "Devstral 2" },
 ];
 
 const claudeModes = {
@@ -99,6 +128,7 @@ export const mockSessions: MockSession[] = [
       title: "fleet: retry artifact uploads with backoff",
       state: "open",
       reviewReady: true,
+      checks: "passing",
     },
   },
   {
@@ -112,8 +142,10 @@ export const mockSessions: MockSession[] = [
     host: "hearty-beige-elk",
     hostKind: "cloud",
     branch: "fix-sidebar-flicker",
+    pullRequest: { number: 18231, title: "Read the theme after applyTheme", state: "draft", checks: "pending" },
     reply:
       "The sidebar reads the theme before the window applies it, so the first frame uses the old background. I'm moving the read after `applyTheme` and checking every theme.",
+    working: { title: "Run bun test Sources/Sidebar", kind: "execute", command: "bun test Sources/Sidebar" },
   },
   {
     sessionId: "mock-tab-strip",
@@ -185,8 +217,8 @@ export const mockSessions: MockSession[] = [
     reply: "Drafted CHANGELOG.md for 0.64: the agent pane, cloud machines in the sidebar, and 23 fixes.",
   },
   {
-    sessionId: "mock-codex-composer",
-    title: "Port the Codex composer",
+    sessionId: "mock-agent-composer",
+    title: "Port the composer",
     harness: "claude",
     model: "claude-opus-5-5",
     status: "idle",
@@ -194,7 +226,7 @@ export const mockSessions: MockSession[] = [
     ago: 320,
     host: LOCAL_HOST,
     hostKind: "local",
-    pullRequest: { number: 16601, title: "cmux-next agent pane: Codex composer and picker menus", state: "merged" },
+    pullRequest: { number: 16601, title: "cmux-next agent pane: composer and picker menus", state: "merged" },
     reply: "Merged. The composer, model menu and permission menu now follow the pane theme.",
   },
   {
@@ -207,7 +239,7 @@ export const mockSessions: MockSession[] = [
     ago: 1440,
     host: LOCAL_HOST,
     hostKind: "local",
-    reply: "Nested lists now sit 4 px under their item, matching Codex.",
+    reply: "Nested lists now sit 4 px under their item.",
   },
   {
     sessionId: "mock-restore-launch",
@@ -244,7 +276,9 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     branch: "stream-tool-output",
+    pullRequest: { number: 219, title: "Stream tool output in 8 KiB chunks", state: "open", checks: "failing" },
     reply: "Splitting tool output into 8 KiB chunks so long shell runs stream instead of arriving at the end.",
+    working: { title: "Edit src/tools/stream.rs", kind: "edit" },
   },
   {
     sessionId: "mock-resume",
@@ -259,7 +293,13 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     branch: "resume-after-restart",
-    pullRequest: { number: 212, title: "Resume sessions after a daemon restart", state: "open", reviewReady: true },
+    pullRequest: {
+      number: 212,
+      title: "Resume sessions after a daemon restart",
+      state: "open",
+      reviewReady: true,
+      checks: "passing",
+    },
     reply: "Sessions now reload from the event log on start. All 48 replay tests pass.",
   },
   {
@@ -276,7 +316,7 @@ export const mockSessions: MockSession[] = [
   },
   {
     sessionId: "mock-home-screen",
-    title: "Match the Codex home screen",
+    title: "Polish the home screen",
     harness: "codex",
     model: "gpt-6-astra",
     status: "waiting",
@@ -370,14 +410,20 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
   };
 }
 
-/// A new chat in `cwd`: no turns yet.
-export function newSessionSummary(sessionId: string, cwd: string, now: number): Record<string, unknown> {
+/// A new chat in `cwd` on `harness` (Claude Code unless asked): no turns yet.
+export function newSessionSummary(
+  sessionId: string,
+  cwd: string,
+  now: number,
+  harness: MockSession["harness"] = "claude",
+): Record<string, unknown> {
+  const codex = harness === "codex";
   return {
     sessionId,
     title: "New chat",
-    name: "claude",
-    harness: "claude",
-    model: claudeModels[0]!.id,
+    name: harness,
+    harness,
+    model: (codex ? codexModels : claudeModels)[0]!.id,
     status: "idle",
     cwd,
     host: LOCAL_HOST,
@@ -385,8 +431,8 @@ export function newSessionSummary(sessionId: string, cwd: string, now: number): 
     branch: "main",
     updatedAt: now,
     turnCount: 0,
-    modes: claudeModes,
-    configOptions: effort("medium"),
+    modes: codex ? codexModes : claudeModes,
+    configOptions: effort(codex ? "high" : "medium"),
   };
 }
 
@@ -527,14 +573,13 @@ export const workedTurn: SeedStep[] = [
   },
   {
     ago: START - 80_000,
-    update: tool(
-      "w-test",
-      "execute",
-      "Run bun test Sources/Fleet",
-      output(
+    update: tool("w-test", "execute", "Run bun test Sources/Fleet", {
+      rawInput: { command: "bun test Sources/Fleet", cwd: CMUX },
+      rawOutput: { exit_code: 0 },
+      ...output(
         "bun test v1.4.0\n\nSources/Fleet/upload.test.ts:\n✓ uploads the artifact [3.12ms]\n✓ retries a 503 and then succeeds [1504.40ms]\n\n 2 pass\n 0 fail\nRan 2 tests across 1 file. [1.53s]",
       ),
-    ),
+    }),
   },
   {
     ago: START - 84_000,
@@ -542,7 +587,7 @@ export const workedTurn: SeedStep[] = [
       "Uploads now retry server errors with backoff.\n\n- `withRetry` in `retry.ts` tries up to 5 times, waiting 0.5 s, 1 s, 2 s and 4 s.\n- `uploadArtifact` retries only 5xx responses; a 4xx still fails at once.\n- The new test fails the first two uploads with 503 and checks the third succeeds.\n\n```ts\nawait withRetry(async () => {\n  const response = await fetch(url, { method: 'PUT', body });\n  if (response.status >= 500) throw new RetryableError(response.status);\n});\n```\n\nBoth tests pass. The worst case adds 7.5 s before a publish gives up.",
     ),
   },
-  // How full the context window is after the turn, as Codex and Claude report it.
+  // How full the context window is after the turn, as the agent reports it.
   { ago: START - 85_000, update: { sessionUpdate: "usage_update", used: 33_551, size: 200_000 } },
   { ago: START - 86_000, mux: "turn_result", msg: { status: "completed" } },
 ];
@@ -588,6 +633,19 @@ export function sessionHistory(session: MockSession): SeedStep[] {
         },
       },
     );
-  } else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
+  } else if (session.status === "running" && session.working)
+    // A running agent is usually in the middle of a call, which its pane shows under "Working for".
+    steps.push({
+      ago: at + 10_000,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: `${session.sessionId}-working`,
+        kind: session.working.kind,
+        title: session.working.title,
+        status: "in_progress",
+        ...(session.working.command ? { rawInput: { command: session.working.command } } : {}),
+      },
+    });
+  else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
   return steps;
 }

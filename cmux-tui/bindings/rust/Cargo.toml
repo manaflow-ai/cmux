@@ -15,12 +15,21 @@ name = "cmux"
 [lints]
 workspace = true
 
+[features]
+default = ["socket-path-hash"]
+# Derive hashed socket paths for over-long session names (pulls in sha2).
+# Embedders that always pass an explicit socket path can turn it off.
+socket-path-hash = ["dep:sha2"]
+
 [dependencies]
 base64 = { workspace = true }
 libc = { workspace = true }
 getrandom = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
+# SHA-256 socket-path digests; see src/socket_hash.rs.
+sha2 = { workspace = true, optional = true }
 
 [dev-dependencies]
+# tests/catalog_manifest.rs hashes the generated sources in every feature set.
+sha2 = { workspace = true }

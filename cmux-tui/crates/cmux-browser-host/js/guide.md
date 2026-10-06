@@ -24,15 +24,18 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   no limit). Past that, its whole output goes to a file: the start, the
   last lines and the file's path print. Read the file with `fs` or your
   own tools.
-- `page` is ready at once: the first use opens a tab. `tabs.open()` never
-  steals focus.
+- `page` is ready at once: the first use opens a tab. Nothing you do takes
+  the user's focus: `tabs.open()`, input, dialogs and waking a tab never
+  change the user's window, workspace, pane, tab or keyboard focus, also when
+  the user works in the same workspace. Only `page.bringToFront()` shows a
+  tab, and a `sites.browserAuth` sign-in sheet asks the user to type.
 
 ## Globals
 
 - `page`: the current tab, a Playwright `Page` with a stable `page.id`.
 - `tabs`: `list()`, `open(url, { background })`, `current()`, `use(tabOrId)`,
-  `get(id)`. `list()` returns `{ id, title, url, active, current }` for every
-  tab in the workspace without attaching; `list({ all: true })` adds the
+  `get(id)`. `list()` returns `{ id, title, url, active, current, state }`
+  for every tab in the workspace without attaching or waking it; `list({ all: true })` adds the
   user's tabs in other workspaces and windows (with `workspace`), and
   `use(id)` takes any of them; `use(id)` and `get(id)` return a `Page`.
   `content({ urls, format })` loads URLs in background tabs and returns
@@ -48,7 +51,9 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 - `screenshot(target?, options?)`: an image of the viewport, `{ fullPage }`, a
   locator or a ref. `{ annotate: true }` draws each ref's box and label.
   Printing an image saves it to a file and prints the path.
-- `fetch(url, init)`: standard fetch with the current tab's cookies.
+- `fetch(url, init)`: standard fetch with the current tab's cookies
+  (`credentials: "same-origin"` or `"omit"` to send fewer); bodies over
+  64 MiB fail, download those in a tab.
 - `fs`, `path`, `os`, `Buffer`: Node APIs. Files are limited to the directory
   you ran the command in and the system temp directory. `import("node:fs")`
   and `require("fs")` return the same modules.
@@ -57,11 +62,14 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
   tab after a one-shot run; `id`; `guide()` returns this text.
   `allowedDomains(["example.com", "*.example.org"], { lock })`,
   `prohibitedDomains([...])` and `blockIPAddresses(true)` limit navigations,
-  new tabs, `fetch`, site tools and a driven tab's subresources (a tab that
-  reaches a blocked URL goes to `about:blank`; `blockedNavigations()` lists
-  them). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })`
-  sets browser-context options for the tabs this session drives (`null`
-  clears one; a proxy applies to tabs opened afterwards, in a private
+  new tabs, `fetch` (every redirect), site tools and the subresources of
+  tabs this session opened. A tab this session opened never loads a blocked page (the
+  navigation is cancelled and the action fails); a tab you claimed stays
+  where it is, but reads and input on it fail while it shows a blocked
+  page. `blockedNavigations()` lists the blocks. The policy is enforced
+  outside this JavaScript context, so `{ lock: true }` cannot be undone. `configure({ userAgent, extraHTTPHeaders, permissions, proxy })`
+  sets browser-context options for the tabs this session opened (a tab you
+  claimed keeps its own; `null` clears one; a proxy applies to tabs opened afterwards, in a private
   profile without your cookies). `storageState({ path })`
   and `setStorageState(stateOrPath)` save and restore cookies and
   localStorage (Playwright's format); a save covers the current tab's site
@@ -144,19 +152,45 @@ binds to your cmux workspace, or to the focused workspace outside cmux.
 ## Dialogs and file choosers
 
 With a `page.on("dialog")` or `page.on("filechooser")` listener (including
-`waitForEvent`), Playwright rules apply. Without one, the dialog or chooser
-stays open and shows in the snapshot. While a JavaScript dialog is open the
-page cannot run script, so page calls fail with a message that says so.
+`waitForEvent`), Playwright rules apply. Without one, in a tab you opened, the
+dialog or chooser stays open and shows in the snapshot. While a JavaScript
+dialog is open the page cannot run script, so page calls fail with a message
+that says so. A tab you did not open (`tabs.use()` of the user's tab) is the
+user's: its dialogs, file choosers, downloads and permission prompts go to
+the user unless you have a listener for that event on the page, or your own
+click, key, drag, navigation or `page.evaluate()` (within its first
+second) opened the dialog or chooser, which then comes to you as in a tab you opened; a window your
+action opens there comes to you as a `popup` and stays the user's tab. A dialog
+that opens during Meta+C, Meta+X or Meta+V is dismissed at once, so it
+cannot hold the clipboard command; listeners still get it, and the next
+snapshot prints `dialog dismissed: ...` once.
 
     page.dialog()        // { type, message, defaultValue, accept(text?), dismiss() } or null
     page.fileChooser()   // { multiple, setFiles(paths), cancel() } or null
+
+## Hibernated and crashed tabs
+
+`state` in `tabs.list()` is `live`, `hibernated` (cmux unloaded the hidden
+page to save memory), `waking` (it is loading again) or `crashed`. Any call
+on a hibernated tab loads it again first, in the background, and waits up to
+30 s; it fails with `hibernated` when the user stopped that load or it ended
+without a page, and with a timeout when it is still loading (retry). A
+crashed tab fails every call but navigation with `crashed`; call
+`page.reload()` or `page.goto(url)`. Errors name the tab as
+`tab <id> ("title", url)`.
 
 ## Page additions
 
 - `page.consoleMessages({ level, filter, limit })`, `page.errors()`: console
   and uncaught-error history of the tab.
 - `page.clipboard`: `readText()`, `writeText(text)`, `read()`, `write(items)`
-  on the tab's own clipboard, which Meta+C, Meta+X and Meta+V use.
+  on the tab's own clipboard, which Meta+C, Meta+X and Meta+V use. Those
+  shortcuts work only in tabs you opened; a page that keeps one running
+  past 5 s crashes its tab (`page.reload()` brings it back). In tabs you
+  opened, what the page's own scripts copy (a Copy button's
+  `navigator.clipboard.writeText` or `execCommand("copy")` after your
+  click) also lands here, never on the system clipboard, so
+  `page.clipboard.readText()` returns it.
 - `page.elementAt(x, y)`: `{ ref, role, name, box }` at a viewport point.
 - `page.keep()`: keep this tab after a one-shot run.
 - `page.markdown({ main, links, images, start, maxChars })`: the page as

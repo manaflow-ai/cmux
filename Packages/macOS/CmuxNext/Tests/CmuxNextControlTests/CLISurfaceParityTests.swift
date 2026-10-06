@@ -28,7 +28,7 @@ import Testing
             registry.bind(id, invoke: { runs.append((id, $0)) })
         }
         let bridge = RegistryControlBridge(registry: registry)
-        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil, configuration: .loadTolerant)
         var catalog = RegistryControlBridge.catalog(from: registry)
         catalog.contextMask = .max
         router.updateCatalog(catalog)

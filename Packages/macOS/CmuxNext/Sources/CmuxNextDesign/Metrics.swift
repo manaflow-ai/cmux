@@ -13,6 +13,8 @@ public enum Density: String, Sendable, CaseIterable, Codable {
 
 public struct Metrics {
     public init() {}
+    /// Applies the live app-wide scale to a chrome metric.
+    public static func scale(_ value: CGFloat) -> CGFloat { value * DesignSettings.shared.uiScale }
     /// Active density, read from `DesignSettings.shared`. Reading any metric
     /// inside an Observation-tracked scope (view layout, `withObservationTracking`)
     /// registers a dependency, so a density or override change re-lays out live.
@@ -29,8 +31,8 @@ public struct Metrics {
 
     /// Default sidebar width when visible.
     public static var sidebarWidth: CGFloat { MetricTunables.sidebarWidth.value }
-    public static var sidebarMinWidth: CGFloat { ChromeTunables.sidebarMinWidth.value }
-    public static var sidebarMaxWidth: CGFloat { ChromeTunables.sidebarMaxWidth.value }
+    public static var sidebarMinWidth: CGFloat { scale(ChromeTunables.sidebarMinWidth.value) }
+    public static var sidebarMaxWidth: CGFloat { scale(ChromeTunables.sidebarMaxWidth.value) }
 
     /// Height of the unified titlebar area. The tab strip sits beside the
     /// traffic lights inside it.
@@ -40,7 +42,7 @@ public struct Metrics {
     public static var tabStripHeight: CGFloat { MetricTunables.tabStripHeight.value }
 
     /// Space reserved at the leading edge of the titlebar for traffic lights.
-    public nonisolated static var trafficLightInset: CGFloat { ChromeTunables.trafficLightInset.value }
+    public static var trafficLightInset: CGFloat { scale(ChromeTunables.trafficLightInset.value) }
 
     // MARK: Rows and tabs
 
@@ -62,16 +64,16 @@ public struct Metrics {
 
     // MARK: Spacing (2 pt grid)
 
-    public nonisolated static var space1: CGFloat { ChromeTunables.space1.value }
-    public nonisolated static var space2: CGFloat { ChromeTunables.space2.value }
-    public nonisolated static var space3: CGFloat { ChromeTunables.space3.value }
-    public nonisolated static var space4: CGFloat { ChromeTunables.space4.value }
-    public nonisolated static var space5: CGFloat { ChromeTunables.space5.value }
-    public nonisolated static var space6: CGFloat { ChromeTunables.space6.value }
+    public static var space1: CGFloat { scale(ChromeTunables.space1.value) }
+    public static var space2: CGFloat { scale(ChromeTunables.space2.value) }
+    public static var space3: CGFloat { scale(ChromeTunables.space3.value) }
+    public static var space4: CGFloat { scale(ChromeTunables.space4.value) }
+    public static var space5: CGFloat { scale(ChromeTunables.space5.value) }
+    public static var space6: CGFloat { scale(ChromeTunables.space6.value) }
 
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
-    /// Gap between niri columns.
+    /// Gap between strip columns.
     public static var columnGap: CGFloat { MetricTunables.columnGap.value }
     /// Divider thickness between split panes (hit area is wider).
     /// A room dot at the bottom of the sidebar (drawn size; its hit target
@@ -83,15 +85,22 @@ public struct Metrics {
     /// content is hidden beyond it (`ScrollEdgeFade`).
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
 
-    public nonisolated static var dividerThickness: CGFloat { ChromeTunables.dividerThickness.value }
-    public nonisolated static var dividerHitWidth: CGFloat { ChromeTunables.dividerHitWidth.value }
+    public static var dividerThickness: CGFloat { scale(ChromeTunables.dividerThickness.value) }
+    /// Width of the sidebar's resting edge line (`sidebar.border`,
+    /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
+    public static var sidebarBorderWidth: CGFloat {
+        let border = DesignSettings.shared.sidebarBorder
+        return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
+    }
+    public static var dividerHitWidth: CGFloat { scale(ChromeTunables.dividerHitWidth.value) }
 
     /// Inset around every pane's tab strip and content (`layout.panePadding`;
     /// 0 is edge to edge).
-    public static var panePadding: CGFloat { ChromeTunables.panePadding.resolve(codePanePadding) }
+    public static var panePadding: CGFloat { scale(ChromeTunables.panePadding.resolve(codePanePadding)) }
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
-        DesignSettings.shared.paneChrome.padding ?? (density == .compact ? 2 : 4)
+        let chrome = DesignSettings.shared.paneChrome
+        return chrome.padding ?? PaneSeparation.resolve(chrome).impliedPadding ?? (density == .compact ? 2 : 4)
     }
 
     // MARK: Pane alignment
@@ -104,9 +113,9 @@ public struct Metrics {
     /// Half the gap between neighboring tab pills. Each pill leaves the
     /// whole gap at its trailing side, so the first pill starts on the
     /// chrome line.
-    public nonisolated static var tabBackgroundInset: CGFloat { ChromeTunables.tabBackgroundInset.value }
+    public static var tabBackgroundInset: CGFloat { scale(ChromeTunables.tabBackgroundInset.value) }
     /// Inset of a tab's icon from its pill's leading edge.
-    public nonisolated static var tabContentLeadingInset: CGFloat { ChromeTunables.tabContentLeadingInset.value }
+    public static var tabContentLeadingInset: CGFloat { scale(ChromeTunables.tabContentLeadingInset.value) }
     /// The chrome line: tab pills and toolbar button shapes, from the
     /// content border's left edge.
     public static var paneChromeInset: CGFloat { PaneChromeMetrics.pillLeading }
@@ -118,16 +127,20 @@ public struct Metrics {
     /// exactly edge to edge unless the radius is set explicitly.
     public static var paneCornerRadius: CGFloat {
         let chrome = DesignSettings.shared.paneChrome
-        if let radius = chrome.cornerRadius { return radius }
+        if let radius = chrome.cornerRadius { return scale(radius) }
         if panePadding == 0 && paneBorder == .none { return 0 }
         return densityPaneCornerRadius
     }
     /// The density's rounded pane corner radius, used when padding or a
     /// border shows and `layout.paneCornerRadius` is unset.
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
-    /// Pane border (`layout.paneBorder`). The line is one device pixel wide.
+    /// How panes are told apart (`layout.paneSeparation`, else the legacy
+    /// `layout.paneBorder` and padding).
+    public static var paneSeparation: PaneSeparation { PaneSeparation.resolve(DesignSettings.shared.paneChrome) }
+    /// Pane border: subtle only for the `borders` separation, and none
+    /// under `appearance.borders` none. The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {
-        Borders.drawsLines ? DesignSettings.shared.paneChrome.border ?? .subtle : .none
+        Borders.drawsLines && paneSeparation.drawsPaneBorder ? .subtle : .none
     }
 
     /// A border, hairline or stroke of `width` points: 0 under
@@ -135,12 +148,17 @@ public struct Metrics {
     public static func lineWidth(_ width: CGFloat) -> CGFloat { Borders.width(width) }
     /// Pane border width in points (`layout.paneBorderWidth`); nil is one
     /// device pixel.
-    public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth }
+    public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth.map(scale) }
 
     /// Corner radius for floating glass panels (sidebar, palette).
     public static var panelCornerRadius: CGFloat { MetricTunables.panelCornerRadius.value }
     /// Corner radius for tabs and rows.
     public static var itemCornerRadius: CGFloat { MetricTunables.itemCornerRadius.value }
+    /// Corner radius for a small labeled surface (a note, toast or count
+    /// badge) of `height`: the item radius, never a capsule.
+    public static func chipCornerRadius(height: CGFloat) -> CGFloat {
+        min(itemCornerRadius, (height / 4).rounded(.down))
+    }
 
     // MARK: Icons
 
@@ -155,9 +173,13 @@ public struct Typography {
     private static var compact: Bool { Metrics.density == .compact }
     /// User override for chrome body size; other styles scale from it.
     private static var scale: CGFloat {
-        guard let body = DesignSettings.shared.overrides[.chromeFontSize] else { return 1 }
-        return body / (compact ? 12 : 13)
+        guard let body = DesignSettings.shared.overrides[.chromeFontSize] else { return DesignSettings.shared.uiScale }
+        return body / (compact ? 12 : 13) * DesignSettings.shared.uiScale
     }
+    /// The user's text size relative to the density's body size (1 when
+    /// Interface Size is not overridden). Surfaces with their own type scale
+    /// (the Home transcript's `textScale`) follow it.
+    public static var userScale: CGFloat { scale }
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
         (compact ? compactSize : comfortableSize) * scale
     }

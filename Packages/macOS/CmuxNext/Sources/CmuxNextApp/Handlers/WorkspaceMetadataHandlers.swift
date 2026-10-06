@@ -15,7 +15,8 @@ enum WorkspaceMetadataHandlers {
         registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.workspaceMetadata)
             let key = try context.workspace(invocation).key
-            context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, title: .clear) }
+            let daemon = context.services.activeDaemon, resource = daemon.store.stateResourceID(workspace: key)
+            daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, title: .clear) }
         })
         registry.bind("palette.workspaceColor", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
@@ -50,7 +51,6 @@ enum WorkspaceMetadataHandlers {
             context.copy("\(key)\n\(ActionTargetRef(kind: .workspace, id: key))")
         })
 
-        registry.bindUnavailable(["palette.copyWorkspaceLink"], ActionFailure.needsAppCapability("deep-links"))
         registry.bindUnavailable(["palette.workspaceCustomColor"], ActionFailure.needsAppCapability("custom-workspace-colors"))
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
@@ -78,7 +78,8 @@ enum WorkspaceMetadataHandlers {
             sidebar.handle(.setColor([SidebarWorkspaceID(workspace.id)], color))
         } else {
             let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
-            context.services.activeDaemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, color: update) }
+            let daemon = context.services.activeDaemon, resource = daemon.store.stateResourceID(workspace: key)
+            daemon.send("set-workspace-metadata") { try await $0.state.setWorkspaceIdentity(key, resource: resource, color: update) }
         }
     }
 

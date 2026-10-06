@@ -19,7 +19,7 @@ public enum ShortcutRefusal: Equatable, Sendable {
 
 /// Information shown before a chord is saved.
 public enum ShortcutNote: Equatable, Sendable {
-    /// Chrome defines the chord; `cmuxWins` says whether cmux's action now
+    /// A web page gives the chord a meaning; `cmuxWins` says whether cmux's action now
     /// takes it from a focused page (else the page keeps it, because the
     /// action runs only in another context).
     case chromeChord(cmuxWins: Bool)
@@ -42,25 +42,45 @@ public enum ShortcutAssessment: Equatable, Sendable {
 
 extension ActionRegistry {
     /// Whether `shortcut` can become `id`'s shortcut, and what it collides
-    /// with. Pure over the registry's current shortcuts, tiers and contexts.
+    /// with. Owners come from the binding table the key router resolves
+    /// through (``RegistryKeyBindings/table``): catalog keys, cmux.json and
+    /// keybindings.json entries, minus negatives; no Ghostty keybinds (noted).
     public func assessShortcut(_ shortcut: Shortcut, for id: ActionID, environment: ShortcutEditEnvironment) -> ShortcutAssessment {
         let id = canonicalID(for: id)
         if descriptor(for: id)?.shortcutFamily != nil { return .refused(.editsNumberedFamily) }
         guard !shortcut.modifiers.isDisjoint(with: [.command, .control]) else { return .refused(.needsModifier) }
         if let name = SystemReservedShortcuts.shared.table[shortcut] { return .refused(.reservedByMacOS(name: name)) }
-        let index = currentShortcutIndex()
-        let scope = descriptor(for: id)?.requires ?? []
-        let sameScope = { (owner: ActionID) in (self.descriptor(for: owner)?.requires ?? []) == scope }
-        var families: [ActionID] = []
-        if shortcut.key.count == 1, let digit = shortcut.key.first, ("1"..."9").contains(digit) {
-            families = (index.digitFamilies[Shortcut("1", modifiers: shortcut.modifiers)] ?? []).filter { $0 != id }
-            if let family = families.first(where: sameScope) { return .refused(.numberedFamily(family)) }
+        let scope = WhenClause.requiring(descriptor(for: id)?.requires ?? [])
+        // The palette resolves only its own entries while it has the keyboard, and the
+        // app never sees them (PaletteKeyMap): the two key spaces cannot collide.
+        let inPalette = descriptor(for: id)?.requires.contains(.paletteOpen) == true
+        let entries = RegistryKeyBindings(self).table.entries.filter {
+            $0.keys == [shortcut] && $0.command != id && !$0.source.isGhostty && Self.isPaletteKeySpace($0.when) == inPalette
         }
-        let owners = (index.byShortcut[shortcut] ?? []).filter { $0 != id } + families
+        let sameScope = { (entry: KeyBinding) in entry.when == scope }
+        let familyEntries = entries.filter { $0.argument != nil }
+        if let family = familyEntries.first(where: sameScope) { return .refused(.numberedFamily(family.command)) }
+        var owners: [ActionID] = []
+        for entry in entries.filter({ $0.argument == nil }) + familyEntries where !owners.contains(entry.command) {
+            owners.append(entry.command)
+        }
         if let system = owners.first(where: { keyTier(for: $0) == .system }) { return .refused(.systemAction(system)) }
         let notes = shortcutNotes(shortcut, for: id, environment: environment)
         guard !owners.isEmpty else { return .available(notes: notes) }
-        return .conflict(owners: owners, canKeepBoth: !owners.contains(where: sameScope), canReplace: families.isEmpty, notes: notes)
+        // Replacing unbinds the owners' cmux.json keys; it cannot remove an
+        // app entry or a keybindings.json line, nor one key of a family.
+        let layered = keyBindingLayers.app + keyBindingLayers.user
+        let canReplace = familyEntries.isEmpty && !entries.contains { layered.contains($0) }
+        return .conflict(owners: owners, canKeepBoth: !entries.contains(where: sameScope), canReplace: canReplace, notes: notes)
+    }
+
+    /// An entry only the open palette resolves: its `when` requires `paletteOpen`.
+    nonisolated static func isPaletteKeySpace(_ when: WhenClause?) -> Bool {
+        switch when {
+        case .has("paletteOpen")?: true
+        case .and(let clauses)?: clauses.contains { isPaletteKeySpace($0) }
+        default: false
+        }
     }
 
     /// Where the key router puts `id`'s chord relative to a page and a

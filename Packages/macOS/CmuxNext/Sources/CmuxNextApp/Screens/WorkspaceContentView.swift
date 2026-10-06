@@ -9,6 +9,7 @@ import Observation
 final class WorkspaceContentView: NSView {
     let layoutView: NSView
     let bar: TabStripView
+    private(set) var emptyView: NSView?
     var showsBar = false {
         didSet {
             guard oldValue != showsBar else { return }
@@ -40,6 +41,29 @@ final class WorkspaceContentView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    /// Shows the workspace action surface in place of an empty layout.
+    func showEmpty(_ view: NSView?) {
+        guard emptyView !== view else { return }
+        emptyView?.removeFromSuperview()
+        emptyView = view
+        if let view {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view, positioned: .above, relativeTo: nil)
+            view.reparentRootedThemeScope()
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: trailingAnchor),
+                view.topAnchor.constraint(equalTo: topAnchor),
+                view.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+            layoutView.isHidden = true
+            bar.isHidden = true
+        } else {
+            layoutView.isHidden = false
+            bar.isHidden = !showsBar
+        }
+    }
 
     override func layout() {
         super.layout()

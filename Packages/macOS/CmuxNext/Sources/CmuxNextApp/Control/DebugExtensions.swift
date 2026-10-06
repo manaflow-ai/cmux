@@ -16,6 +16,13 @@ enum DebugExtensions {
               let tab = entry.tab as? CEFTab, let method = params["method"]?.stringValue else {
             return .object(["error": .string("no focused Chromium tab or method")])
         }
+        // Trusted input counts as a user gesture: no saved password fills here after this.
+        tab.markAgentDriven()
+        // No DevTools method on, or toward, Chromium's own pages (plans/cmux-next/passwords.md, section 2).
+        let target = params["params"]?.objectValue?["url"]?.stringValue
+        if AppBrowserPage.showsRefusedPage(tab) || target.map(AgentURLPolicy.refuses) == true {
+            return .object(["error": .string("forbidden: agents cannot use Chromium's own pages")])
+        }
         var arguments: [String: any Sendable] = [:]
         for (key, value) in params["params"]?.objectValue ?? [:] { arguments[key] = foundation(value) }
         do {

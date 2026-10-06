@@ -3,7 +3,8 @@
 #   fixed: safety invariants at the full bound (4 tabs); must pass.
 #   live:  liveness (EventuallyConverged) plus invariants at 3 tabs; must pass.
 #   buggy: BUGGY_DETACH = TRUE; must produce a counterexample.
-# Usage: run-tlc.sh [fixed|live|buggy|all] (default all). Needs Java 11+.
+#   respawn: RESPAWN = TRUE (own-pane split of the only tab creates a fresh tab), 2 tabs + 1 spawn; must pass.
+# Usage: run-tlc.sh [fixed|live|respawn|buggy|all] (default all). Needs Java 11+.
 # The fixed run takes minutes and about 1-2 GB of heap; TLC_WORKERS overrides 2.
 set -euo pipefail
 
@@ -49,6 +50,9 @@ if [ "$mode" = fixed ] || [ "$mode" = all ]; then
 fi
 if [ "$mode" = live ] || [ "$mode" = all ]; then
   run live || { echo "FAIL: liveness model violated a property"; status=1; }
+fi
+if [ "$mode" = respawn ] || [ "$mode" = all ]; then
+  run respawn || { echo "FAIL: respawn model violated a property"; status=1; }
 fi
 if [ "$mode" = buggy ] || [ "$mode" = all ]; then
   if run buggy; then echo "FAIL: buggy model passed (expected a counterexample)"; status=1

@@ -12,6 +12,12 @@ enum IntentUndo: Equatable {
     case workspacePlace(key: WorkspaceKey, index: Int, group: WorkspaceGroupID?)
     case workspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
     case tabGroupCollapsed(TabGroupID, collapsed: Bool)
+    /// The column's row heights before the apply.
+    case rowHeights(column: ColumnID, heights: [RowHeightValue])
+    /// The provisional tab a create intent inserted.
+    case createdTab(surface: SurfaceID, pane: PaneID)
+    /// The tab's record before a session bind.
+    case tabSnapshot(surface: SurfaceID, previous: TabSnapshot)
 }
 
 struct PendingIntent {
@@ -27,6 +33,9 @@ struct PendingIntent {
     /// Inverse of the overlay apply now in the records (nil when that apply
     /// changed nothing).
     var undo: IntentUndo?
+    /// A create intent whose reply named the daemon's tab: once the records hold that surface,
+    /// the provisional tab is no longer shown.
+    var createdSurface: SurfaceID?
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
@@ -105,6 +114,11 @@ struct IntentLog {
     private static func isDue(_ intent: PendingIntent, appliedSequence: UInt64, snapshot: Bool) -> Bool {
         if snapshot, intent.settlesAtSnapshot { return true }
         return intent.settleSequence.map { appliedSequence >= $0 } ?? false
+    }
+
+    mutating func noteCreated(_ transaction: ClientTransactionID, surface: SurfaceID) {
+        guard let index = entries.firstIndex(where: { $0.transaction == transaction }) else { return }
+        entries[index].createdSurface = surface
     }
 
     mutating func setUndo(_ undo: IntentUndo?, at index: Int) {

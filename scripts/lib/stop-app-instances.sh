@@ -19,19 +19,34 @@
 # xcodebuild product, which lacks the tagged LSEnvironment and the agent's
 # environment. That stray took the tag's debug socket in normal mode and could
 # activate over the user's app. Running instances get SIGTERM (cmux treats it as
-# a requested quit), then SIGKILL after a bounded wait.
+# a requested quit). The quit is complete when the process exits, so the stop
+# waits for every exit (all instances in parallel) up to a deadline and sends
+# SIGKILL only to the instances still running after it.
+#
+# CMUX_STOP_APP_QUIT_TIMEOUT_SECONDS (default 20) is that deadline. A clean
+# quit with a Chromium tab open takes 6.5-10 s; a SIGKILL during it loses the
+# app's quit cleanup.
 cmux_stop_app_instances() {
   local bundle_id="$1" tagged_executable="$2" raw_executable="${3:-}"
-  local -a pids=()
+  local timeout="${CMUX_STOP_APP_QUIT_TIMEOUT_SECONDS:-20}"
+  if ! [[ "$timeout" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "cmux_stop_app_instances: CMUX_STOP_APP_QUIT_TIMEOUT_SECONDS='$timeout' is not a number of seconds; using 20" >&2
+    timeout=20
+  fi
+  local -a pids=() survivors=()
   local pid
   while IFS= read -r pid; do
     [[ -n "$pid" && "$pid" != "$$" ]] && pids+=("$pid")
   done < <(cmux_app_instance_pids "$bundle_id" "$tagged_executable" "$raw_executable" | sort -un)
   [[ ${#pids[@]} -gt 0 ]] || return 0
   kill -TERM "${pids[@]}" 2>/dev/null || true
-  cmux_wait_for_pids_exit 2 "${pids[@]}" && return 0
-  kill -KILL "${pids[@]}" 2>/dev/null || true
-  cmux_wait_for_pids_exit 2 "${pids[@]}" || true
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && survivors+=("$pid")
+  done < <(cmux_wait_for_pids_exit "$timeout" "${pids[@]}" || true)
+  [[ ${#survivors[@]} -gt 0 ]] || return 0
+  echo "cmux_stop_app_instances: clean quit of ${bundle_id} timed out after ${timeout}s; sending SIGKILL to PID(s) ${survivors[*]}" >&2
+  kill -KILL "${survivors[@]}" 2>/dev/null || true
+  cmux_wait_for_pids_exit 2 "${survivors[@]}" >/dev/null || true
 }
 
 # PIDs of the running instances: every process LaunchServices lists under the
@@ -58,7 +73,8 @@ cmux_regex_escape() {
 }
 
 # Waits until every PID has exited or TIMEOUT seconds pass, on kqueue exit
-# events rather than polling. Returns 0 when all exited.
+# events rather than polling. Returns 0 when all exited; otherwise prints the
+# PIDs still running, one per line, and returns 1.
 cmux_wait_for_pids_exit() {
   local timeout="$1"; shift
   /usr/bin/python3 - "$timeout" "$@" <<'PY'
@@ -78,6 +94,8 @@ deadline = time.monotonic() + timeout
 while pending:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
+        for pid in sorted(pending):
+            print(pid)
         sys.exit(1)
     for event in kq.control(None, len(pending), remaining):
         pending.discard(event.ident)

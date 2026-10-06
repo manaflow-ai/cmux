@@ -1,0 +1,28 @@
+{
+  "parallel": {
+    "items": [
+      {"title":"Write a.txt","kind":"edit"},
+      {"title":"Write b.txt","kind":"edit"},
+      {"title":"Run tests","kind":"execute"}
+    ]
+  },
+  "followup": {
+    "items": [{"title":"Write first.txt","kind":"edit"}],
+    "after": [{"title":"Run next command","kind":"execute"}]
+  },
+  "unsafe-option": {
+    "items": [{"title":"Permanent grant only","kind":"execute","allowKind":"allow_always"}]
+  },
+  "interactive": {
+    "items": [{"title":"Question","kind":"other","interactive":true}]
+  },
+  "unknown": {
+    "items": [{"title":"Unknown operation","kind":"custom"}]
+  },
+  "no-reject": {
+    "items": [{"title":"No rejection option","kind":"execute","reject":false}]
+  },
+  "single": {
+    "items": [{"title":"Write a.txt","kind":"edit"}]
+  }
+}
