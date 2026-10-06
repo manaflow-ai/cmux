@@ -9,8 +9,17 @@ export GITHUB_ENV="$work/github-env" GITHUB_PATH="$work/github-path"
 ./scripts/select-ci-xcode.sh
 DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$GITHUB_ENV" | tail -n 1)"
 export DEVELOPER_DIR
-./scripts/install-rust-ci.sh
-[[ -s "$GITHUB_PATH" ]] && PATH="$(paste -sd: "$GITHUB_PATH"):$PATH"
+# A step's HOME is disposable; use the worker's provisioned rustup toolchains
+# (as the build recipe does), with Cargo's registry in the step.
+provisioned_home="$(eval echo "~$(id -un)")"
+if [[ -x "$provisioned_home/.cargo/bin/rustup" ]]; then
+  export RUSTUP_HOME="$provisioned_home/.rustup" CARGO_HOME="$work/cargo"
+  mkdir -p "$CARGO_HOME"
+  PATH="$provisioned_home/.cargo/bin:$PATH"
+else
+  ./scripts/install-rust-ci.sh
+  [[ -s "$GITHUB_PATH" ]] && PATH="$(paste -sd: "$GITHUB_PATH"):$PATH"
+fi
 export PATH
 CMUX_NEXT_ACPMUX_ARCHS=arm64 scripts/cmux-next/build-acpmux.sh --output "$work/acpmux/acpmux"
 # Same environment for both configurations: no CEF or Zig rebuild, and the
