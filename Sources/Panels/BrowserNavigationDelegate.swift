@@ -242,6 +242,13 @@ import WebKit
             sslBypassState.recordObservedServerTrust(trust, for: challenge.protectionSpace)
         }
 
+        // A tab a REPL session drives has nobody to answer a prompt.
+        if let panel = owner,
+           let answer = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.answerAuthenticationChallenge(challenge) {
+            completionHandler(answer.0, answer.1)
+            return
+        }
+
         if basicAuthPromptCoordinator.handle(
             challenge: challenge,
             startPrompt: { [presentAlert, owner] finishPrompt, registerCancelPrompt in
@@ -333,6 +340,16 @@ import WebKit
             fallbackPolicy: WKNavigationActionPolicy.cancel,
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
+
+        // A browser REPL session's domain policy: a tab the session created
+        // never loads a page the policy blocks (links, redirects, scripts).
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner,
+           BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url) {
+            decisionHandler(.cancel)
+            return
+        }
 
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
@@ -458,7 +475,27 @@ import WebKit
             return
         }
 
+        let replAttachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
+        let ownerID = owner?.id
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
+            // A REPL session sees the new tab as a popup it can attach to,
+            // when it passes as an untrusted navigation (popupRoute).
+            if let replAttachment, let ownerID {
+                switch BrowserReplNavigationGuard.shared.popupRoute(panelID: ownerID, url: request.url) {
+                case .refused:
+                    return
+                case .browser:
+                    // Not the user's tab in front of them: a background tab.
+                    if replAttachment.opensPopupsInBackground,
+                       replAttachment.handlePopup(request: request, announce: false) { return }
+                case .session:
+                    if replAttachment.handlePopup(request: request) { return }
+                case .inputSession(let sessionID):
+                    // A user's tab opening a tab for an agent's click: a
+                    // background tab for that agent, never a focused one.
+                    if replAttachment.handlePopup(request: request, forInputSession: sessionID) { return }
+                }
+            }
             if let requestNavigation {
                 requestNavigation(request, .newTab, nil)
                 return
@@ -602,7 +639,6 @@ import WebKit
             decisionHandler(.cancel)
             return
         }
-
         if navigationAction.targetFrame == nil,
            browserNavigationShouldFallbackNilTargetToNewTab(
                navigationType: navigationAction.navigationType
@@ -628,7 +664,6 @@ import WebKit
         if navigationAction.targetFrame?.isMainFrame != false {
             if shouldPreserveSSLTrustBypassForErrorPageNavigation(navigationAction) {
 #if DEBUG
-                let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
                 cmuxDebugLog("browser.nav.decidePolicy.action kind=preserveSSLBypassErrorPage url=\(targetURL)")
 #endif
             } else if let url = navigationAction.request.url,
@@ -654,8 +689,8 @@ import WebKit
             // accepted main-frame action while the bounded file probe runs so
             // other navigation policy branches remain synchronous.
             let encodingPolicy = owner.localFileEncodingPolicy
-            Task { @MainActor [weak owner, weak webView, encodingPolicy] in
-                guard let owner, let webView,
+            Task { @MainActor [weak owner, weak webView, weak self, encodingPolicy] in
+                guard let owner, let webView, let self,
                       owner.webView === webView else {
                     decisionHandler(.cancel)
                     return
@@ -672,10 +707,12 @@ import WebKit
                     decisionHandler(.cancel)
                     return
                 }
+                self.recordAllowedNavigationRequest(navigationAction)
                 decisionHandler(.allow)
             }
             return
         }
+        recordAllowedNavigationRequest(navigationAction)
         decisionHandler(.allow)
     }
 
@@ -749,6 +786,9 @@ import WebKit
         return webView.restartNavigationForBrowserUserAgentPolicyIfNeeded(
             request: navigationAction.request,
             targetFrameIsMainFrame: navigationAction.targetFrame?.isMainFrame,
+            // A history navigation restores its entry; a new request would
+            // replace it.
+            addsAutomationHeaders: navigationAction.navigationType != .backForward,
             decisionHandler: decisionHandler,
             willRestart: {
                 reportReplacementWillStart?(webView, replacedNavigation)

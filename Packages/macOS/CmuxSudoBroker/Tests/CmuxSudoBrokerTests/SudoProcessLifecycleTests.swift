@@ -66,7 +66,8 @@ struct SudoProcessLifecycleTests {
         )
 
         let receivedBytes = try receiver.withReceivedDescriptor(
-            expectedByteCount: reviewedBytes.count
+            expectedByteCount: reviewedBytes.count,
+            expectedSHA256: SudoSHA256.hex(reviewedBytes)
         ) { descriptor in
             try SudoReviewedScriptReader(descriptor: descriptor).read()
         }
@@ -402,7 +403,7 @@ struct SudoProcessLifecycleTests {
         let runner = SudoExecutionRunner(
             paths: fixture.paths,
             expectedParentExecutableURL: URL(fileURLWithPath: "/not/the/test-parent"),
-            privilegedHelperExecutableURL: URL(fileURLWithPath: "/usr/bin/false"),
+            helperPolicy: .testPolicy(),
             messages: .testMessages,
             pamConfiguration: SudoPAMConfiguration(
                 fileURL: fixture.root.appendingPathComponent("missing-pam")
@@ -435,7 +436,7 @@ struct SudoProcessLifecycleTests {
         let runner = SudoExecutionRunner(
             paths: paths,
             expectedParentExecutableURL: URL(fileURLWithPath: "/not/the/test-parent"),
-            privilegedHelperExecutableURL: URL(fileURLWithPath: "/usr/bin/false"),
+            helperPolicy: .testPolicy(),
             messages: .testMessages
         )
 

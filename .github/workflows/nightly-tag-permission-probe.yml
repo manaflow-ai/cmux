@@ -29,11 +29,12 @@ on:
       GLAEDA_ROUTE_APP_KEY:
         required: true
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   probe:
+    permissions:
+      contents: write
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:

@@ -76,12 +76,13 @@ it may publish the snapshot or send input.
 | `HostHello`, 40 bytes | `selected_version:u16, reserved:u16=0, granted_rights:u32, terminal_id:[u8;16], incarnation:[u8;16]` |
 
 `ClientHello.sequence` is zero. Its permitted flags are
-`FLAG_VIEWER_SIZE_ACKS`, `FLAG_SMART_RENDERER`, and
-`FLAG_TERMINAL_METADATA`. The host echoes viewer-size acknowledgements only
+`FLAG_VIEWER_SIZE_ACKS`, `FLAG_SMART_RENDERER`, `FLAG_TERMINAL_METADATA`, and
+`FLAG_VIEWER_SIZE_PRIORITY`. The host echoes viewer-size acknowledgements only
 when `RESIZE` was granted, and echoes smart mode only for renderer or admin
 roles negotiating protocol v3 or newer. A v4 host echoes terminal metadata
-only when the client requests it. Daemon adoption applies a two-second read
-and write handshake timeout.
+only when the client requests it, and echoes viewer-size priority only to a
+renderer granted `RESIZE`. Daemon adoption applies a two-second read and write
+handshake timeout.
 
 For a newly launched v4 host, the first authenticated owner `HostHello` also
 sets `FLAG_LAUNCH_ACTIVATION_REQUIRED`. The PTY reader remains behind a launch
@@ -314,6 +315,24 @@ flags, request id zero, sequence zero, and an empty payload.
 tail described above. The metadata is a generic terminal primitive. It does
 not identify agents or select plugin policy.
 
+`FLAG_VIEWER_SIZE_PRIORITY` is bit 5 and is valid only in `ClientHello` and
+`HostHello`. Hosts that predate it reject a hello carrying it, so a client sets
+it only when the host record advertises `supports_viewer_size_priority`.
+
+## Viewer-size arbitration
+
+Every renderer granted `RESIZE` holds a viewer size, reserved at the snapshot
+grid on connect and replaced by each `ViewerSize`. An admin connection holds
+one only after it sends `ViewerSize`, and a connection without `RESIZE` never
+holds one. The canonical grid is the per-dimension minimum over the held
+sizes. When at least one connection that negotiated
+`FLAG_VIEWER_SIZE_PRIORITY` holds a size, the minimum is taken over those
+connections alone and every other viewer crops or pans. Priority starts with
+the connect-time reservation and lasts for the connection: `ReleaseViewer`
+drops only the size, which hands the grid back until the next `ViewerSize`,
+and disconnecting drops both. Without priority connections the reduction is
+unchanged. `ResizeAck` always carries the resulting canonical grid.
+
 ## Ordering and recovery
 
 A renderer applies every live sequence exactly once. A gap, duplicate, flagged frame without the required next `Colors`, or invalid flag is fatal. The renderer disconnects and obtains a new `Snapshot`; continuing from a damaged sequence would corrupt its mirror.
@@ -371,7 +390,7 @@ Missing means already acknowledged; any mismatch remains for recovery.
 
 ## Discovery and authority
 
-The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, and TTL. Renderers must not receive the daemon's durable owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
+The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, TTL, and `supports_viewer_size_priority` from the host record. Renderers must not receive the daemon's durable owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
 
 Terminal-host protocol changes use their own version and do not change `identify.protocol`.
 
@@ -404,8 +423,10 @@ legacy fire-and-forget input remains available. Record directories are mode
 mode `0600`.
 
 Discovery records use JSON `record_version:4`. A host that supports the
-optional snapshot tail advertises `supports_terminal_metadata:true`; records
-from older hosts omit the field and default it to false. Terminal and
+optional snapshot tail advertises `supports_terminal_metadata:true`, and one
+that accepts `FLAG_VIEWER_SIZE_PRIORITY` advertises
+`supports_viewer_size_priority:true`; records from older hosts omit the fields
+and default them to false. Terminal and
 incarnation are 32-character lowercase UUIDv4 hex, owner token and process
 nonce are 64-character lowercase hex, the Unix-socket path is canonical, and
 the host PID is nonzero. Record directories are mode `0700`; records and

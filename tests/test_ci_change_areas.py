@@ -5675,6 +5675,90 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert "exit 1" in fork_guard["run"]
 
 
+def test_cli_xctest_enters_console_session() -> None:
+    """CLI XCTest must reach the console service with its isolated test environment."""
+    jobs = yaml.safe_load(MACOS_WORKFLOW.read_text())["jobs"]
+    script = next(step["run"] for job in jobs.values() for step in job.get("steps", [])
+                  if step.get("name") == "Run CLI product tests")
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        (root / "scripts/ci").mkdir(parents=True)
+        (root / "bin").mkdir()
+        fixtures = {
+            "scripts/ci/run-and-capture.sh": '#!/bin/bash\nshift\nexec "$@"\n',
+            "scripts/ci/run-in-console-session.sh": '#!/bin/bash\nexport FIXTURE_CONSOLE=1\nexec "$@"\n',
+            "scripts/ci/require_selected_test_execution.sh": '#!/bin/bash\nexit 0\n',
+            "bin/xcodebuild": r'''#!/bin/bash
+[ "${FIXTURE_CONSOLE:-}" = 1 ] || exit 70
+[ "$TEST_RUNNER_HOME" = "$EXPECTED_HOME" ] || exit 71
+[ "$TEST_RUNNER_CFFIXED_USER_HOME" = "$EXPECTED_HOME" ] || exit 72
+[ "$TEST_RUNNER_CMUX_CLI_PATH" = "$EXPECTED_CLI" ] || exit 73
+printf '%s\n' "$@" > "$RUNNER_TEMP/args"
+''',
+        }
+        for relative, content in fixtures.items():
+            fixture = root / relative
+            fixture.write_text(content)
+            fixture.chmod(0o755)
+        env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}",
+                   RUNNER_TEMP=str(root), CMUX_CLI_TESTS_HOME=str(root / "home"),
+                   CMUX_CLI_PATH=str(root / "cli"), CMUX_CLI_TESTS_XCTESTRUN="fixture.xctestrun",
+                   EXPECTED_HOME=str(root / "home"), EXPECTED_CLI=str(root / "cli"))
+        result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env,
+                                capture_output=True, text=True, timeout=15)
+        assert result.returncode == 0, (result.returncode, result.stderr)
+        assert "-only-testing:cmuxCLITests" in (root / "args").read_text().splitlines()
+
+
+def test_compile_admission_retry_executes_safely() -> None:
+    """Execute the admission shell with deterministic compiler and worker fixtures."""
+    jobs = yaml.safe_load(MACOS_WORKFLOW.read_text())["jobs"]
+    script = next(step["run"] for step in jobs["macos-compile-admission"]["steps"]
+                  if step.get("name") == "Compile app-host test product")
+    for scenario, expected_status, expected_calls in (
+        ("stale-log", 65, ["canonical-build"]),
+        ("busy-worker", 65, ["canonical-build"]),
+        ("pgrep-error", 65, ["canonical-build"]),
+        ("recover", 0, ["canonical-build", "clear", "canonical-resolve", "canonical-build"]),
+    ):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "bin").mkdir()
+            fixtures = {
+                "scripts/ci/compile-app-host-test-product.sh": r'''#!/bin/bash
+printf '%s\n' "$1" >> "$CALLS"
+if [ "$1" = canonical-resolve ]; then exit 0; fi
+if [ -e "$RUNNER_TEMP/attempt" ]; then exit 0; fi
+touch "$RUNNER_TEMP/attempt"
+if [ "$SCENARIO" = stale-log ]; then
+  echo 'real compiler error' >> "$5"
+else
+  echo 'unable to open dependencies file' >> "$5"
+fi
+exit 65
+''',
+                "scripts/ci/clear-dirs.sh": '#!/bin/bash\necho clear >> "$CALLS"\n',
+                "bin/pgrep": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo 123; exit 0; fi\nif [ "$SCENARIO" = pgrep-error ]; then exit 2; fi\nexit 1\n',
+                "bin/sleep": '#!/bin/bash\nexit 0\n',
+            }
+            for relative, content in fixtures.items():
+                fixture = root / relative
+                fixture.write_text(content)
+                fixture.chmod(0o755)
+            (root / "cmux-compile-admission.txt").write_text("unable to open dependencies file\n")
+            env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}",
+                       RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root / "outputs"),
+                       CMUX_COMPILE_ADMISSION_DERIVED_DATA=str(root / "dd"),
+                       CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),
+                       CALLS=str(root / "calls"), SCENARIO=scenario)
+            result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env,
+                                    capture_output=True, text=True, timeout=15)
+            calls = (root / "calls").read_text().splitlines()
+            assert (result.returncode, calls) == (expected_status, expected_calls), (
+                scenario, result.returncode, calls, result.stderr)
+
+
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
     workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
     caller = workflow_job_block("macos")
@@ -5688,6 +5772,17 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
+    assert 'grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory"' in admission
+    assert 'scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"' in admission
+    assert 'compile admission exited $status without a compiler diagnostic' in admission
+    assert "find \"$CMUX_COMPILE_ADMISSION_DERIVED_DATA\" -type f -name '*-build.log'" in admission
+    assert "retrying compile from a clean tree" in admission
+    assert 'tee -a "$compile_log"' not in admission
+    assert "if compile_once; then" in admission
+    assert 'compile_workers_running()' in admission
+    assert 'for compiler in xcodebuild swift-frontend swiftc clang ld' in admission
+    assert 'for compiler in xcodebuild swift-frontend swiftc clang ld' in admission
+    assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
     import product_input_identity as identity
@@ -5767,8 +5862,19 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
                               else 'print("Ran 1 test in 0.001s\\nOK")\n' if category == "tests"
                               else "pass\n")
             target.chmod(0o755)
-        for name in ("verify-local.py", "verification_receipt.py"):
+        # Other static-preflight steps run their own validators; stub them too.
+        for path in sorted(set(re.findall(r"scripts/[\w./-]+\.(?:py|sh)", "\n".join(scripts)))):
+            target = repo / path
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("#!/usr/bin/env bash\nexit 0\n" if target.suffix == ".sh" else "pass\n")
+                target.chmod(0o755)
+        for name in ("verify-local.py", "verification_receipt.py", "check-agent-hook-docs.py"):
             shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
+        for relative_path in ("CLI/CMUXCLI+AgentHookCatalog.swift", "docs/agent-hooks.md"):
+            destination = repo / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative_path, destination)
         generator = repo / "scripts/generate-cmux-config-schema.py"
         generator.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
@@ -5823,6 +5929,7 @@ def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
     assert 'CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"' in app_host
     assert "CMUX_APP_HOST_CAPTURE_XCRESULTS" in console_runner
     assert "CMUX_APP_HOST_RESULT_BUNDLE_ROOT" in console_runner
+    assert "CMUX_CI_RUNTIME_SOURCE_ROOT" in console_runner
     assert "- name: Collect app-host failure diagnostics" in app_host
     assert "- name: Upload app-host failure diagnostics" in app_host
     assert "run: scripts/ci/collect-app-host-diagnostics.sh" in app_host
@@ -5882,8 +5989,9 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
 
 def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
     block = workflow_job_block("workflow-guard-history", GUARD_WORKFLOW)
-    assert "github.event_name == 'workflow_dispatch' && '0' || '2'" in block
+    assert "fetch-depth: 2" in block
     assert "fetch-depth: 0" not in block
+    assert "github.event_name == 'workflow_dispatch'" in block
     assert "Bind package policy to synthetic merge base" in block
     assert "github.event_name == 'pull_request'" in block
     assert "github.event_name == 'merge_group'" in block
@@ -5942,6 +6050,59 @@ def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
         assert output.read_text(encoding="utf-8").splitlines() == [
             f"PACKAGE_RESOLVED_POLICY_BASE_REF={expected_base}"
         ]
+
+
+def test_history_guard_dispatch_fetches_only_main_and_head_history() -> None:
+    script = workflow_job_step_script(
+        "workflow-guard-history",
+        "Fetch main history for a manual dispatch",
+        GUARD_WORKFLOW,
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        origin = Path(directory) / "origin"
+        origin.mkdir()
+
+        def git(*args: str, cwd: Path = origin) -> str:
+            return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "ci@example.test")
+        git("config", "user.name", "CI Test")
+        for index in range(4):
+            (origin / "main.txt").write_text(f"{index}\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-qm", f"main {index}")
+        expected_base = git("rev-parse", "HEAD")
+        git("checkout", "-q", "-b", "feature")
+        for index in range(4):
+            (origin / "feature.txt").write_text(f"{index}\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-qm", f"feature {index}")
+        head = git("rev-parse", "HEAD")
+        git("checkout", "-q", "main")
+        (origin / "main.txt").write_text("moved\n", encoding="utf-8")
+        git("commit", "-qam", "main moves on")
+        git("branch", "unrelated-branch")
+
+        clone = Path(directory) / "clone"
+        subprocess.run(
+            ["git", "clone", "-q", "--depth", "2", "--no-tags", "--branch", "feature",
+             origin.as_uri(), str(clone)],
+            check=True,
+        )
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=clone,
+            env={**os.environ, "CHECKED_OUT_SHA": head},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert result.stdout.strip() == expected_base
+        assert git("rev-parse", "--is-shallow-repository", cwd=clone) == "false"
+        assert git("for-each-ref", "--format=%(refname)", "refs/remotes/origin/unrelated-branch",
+                   cwd=clone) == ""
 
 
 def test_web_workflow_call_preserves_routes_and_starts_beside_static_checks() -> None:

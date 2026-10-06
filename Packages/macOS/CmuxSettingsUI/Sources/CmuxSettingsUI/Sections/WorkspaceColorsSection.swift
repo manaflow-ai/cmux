@@ -17,6 +17,7 @@ public struct WorkspaceColorsSection: View {
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var subtleSelection: DefaultsValueModel<Bool>
+    @State private var brightenInDarkMode: DefaultsValueModel<Bool>
     @State private var badgeHex: DefaultsValueModel<String>
     @State private var paneFlashHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
@@ -58,6 +59,7 @@ public struct WorkspaceColorsSection: View {
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _subtleSelection = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.subtleSelection))
+        _brightenInDarkMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.brightenInDarkMode))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
@@ -82,6 +84,7 @@ public struct WorkspaceColorsSection: View {
             indicator,
             selectionHex,
             subtleSelection,
+            brightenInDarkMode,
             badgeHex,
             paneFlashHex,
             paletteModel,
@@ -118,6 +121,20 @@ public struct WorkspaceColorsSection: View {
                     .controlSize(.small)
                     // Solid Fill always paints a solid selection.
                     .disabled(indicator.current == .solidFill)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.brightenInDarkMode"),
+                String(localized: "settings.workspaceColors.brightenInDarkMode", defaultValue: "Brighten Colors in Dark Mode"),
+                subtitle: String(localized: "settings.workspaceColors.brightenInDarkMode.subtitle", defaultValue: "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. Turn off to show colors exactly as chosen. Applies to Solid Fill; the Left Rail indicator always uses a lightened rail.")
+            ) {
+                Toggle("", isOn: Binding(get: { brightenInDarkMode.current }, set: { brightenInDarkMode.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    // Left Rail draws no colored fill and always lightens its rail.
+                    .disabled(indicator.current == .leftRail)
             }
             SettingsCardDivider()
 

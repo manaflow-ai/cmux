@@ -4,6 +4,34 @@ import Foundation
 
 /// The Cloud availability answers that read the app's remote feature flags.
 extension CloudMachinesFeature {
+    /// Whether Cloud can be discovered on this Mac. This is the rollout and
+    /// managed-policy decision; it intentionally does not include the local
+    /// activation marker so the Cloud tab can host first-use enablement.
+    @MainActor static var isAvailable: Bool {
+        return isAvailable(
+            policy: ManagedDevicePolicy(),
+            remoteEnabled: CmuxFeatureFlags.shared.isCloudMachinesEnabled
+        )
+    }
+
+    /// Off-main mirror of ``isAvailable`` for right-sidebar mode resolution.
+    nonisolated static func offMainIsAvailable() -> Bool {
+        return isAvailable(
+            policy: ManagedDevicePolicy(),
+            remoteEnabled: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.cloudMachinesFlag
+            )
+        )
+    }
+
+    /// Pure availability decision for tests and injected callers.
+    nonisolated static func isAvailable(
+        policy: ManagedDevicePolicy,
+        remoteEnabled: Bool
+    ) -> Bool {
+        !policy.isEnforced(.disableCloud) && remoteEnabled
+    }
+
     @MainActor static var isEnabled: Bool {
         isEnabled(defaults: .standard, policy: ManagedDevicePolicy(),
                   remoteEnabled: CmuxFeatureFlags.shared.isCloudMachinesEnabled)

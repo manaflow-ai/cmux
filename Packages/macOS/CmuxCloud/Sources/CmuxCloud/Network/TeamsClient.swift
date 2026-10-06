@@ -153,19 +153,20 @@ public actor TeamsClient {
 
     static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
+        // Every team date is written by `Date.toISOString()` on the web, which
+        // always emits milliseconds, and `.iso8601` rejects fractional seconds.
+        // Accept both shapes, the way `VMClient` already does. The format
+        // styles are Sendable, unlike `ISO8601DateFormatter`.
+        let withFractions = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        let wholeSeconds = Date.ISO8601FormatStyle()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let raw = try container.decode(String.self)
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: raw) {
-                return date
-            }
-            formatter.formatOptions = [.withInternetDateTime]
-            guard let date = formatter.date(from: raw) else {
+            guard let date = (try? Date(raw, strategy: withFractions))
+                ?? (try? Date(raw, strategy: wholeSeconds)) else {
                 throw DecodingError.dataCorruptedError(
                     in: container,
-                    debugDescription: "Expected an ISO8601 date string."
+                    debugDescription: "Expected an ISO 8601 team date, got \"\(raw)\""
                 )
             }
             return date

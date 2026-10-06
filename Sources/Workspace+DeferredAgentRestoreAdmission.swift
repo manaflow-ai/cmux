@@ -66,8 +66,38 @@ extension Workspace {
                 nil
             }
             if let liveSessionOwner {
+                let attachInput = restore.restoresRemoteWorkspaceTerminalSnapshot
+                    ? nil
+                    : AgentRestoreAttachCommand.startupInput(
+                        liveOwner: liveSessionOwner,
+                        restorableAgent: restore.restorableAgent,
+                        resumeBinding: currentResumeBinding ?? restore.resumeBinding,
+                        tmuxStartCommand: restore.tmuxStartCommand,
+                        workingDirectory: restore.resumeWorkingDirectory,
+                        dialect: restore.noticeDialect
+                    )
                 terminal.restoreRecovery.state = .liveOwner(
-                    kind: liveSessionOwner.kind, processID: liveSessionOwner.processID
+                    kind: liveSessionOwner.kind,
+                    processID: liveSessionOwner.processID,
+                    attachInput: attachInput,
+                    attachAvailable: false
+                )
+                let attachOrNoticeInput = attachInput ?? AgentRestoreLiveOwnerNotice(
+                    processID: liveSessionOwner.processID
+                ).startupInput(dialect: restore.noticeDialect)
+                restoredAgentLifecycle.setResumeState(
+                    attachInput == nil ? .manualResumeAvailable : .awaitingAutoResumeCommand,
+                    panelId: panelId
+                )
+                restoredAgentLifecycle.registerStartupInput(attachOrNoticeInput, panelId: panelId)
+                _ = terminal.surface.admitStartupRestoreRuntime(initialInput: attachOrNoticeInput)
+                removeDeferredAgentResumeRestore(panelId: panelId)
+                AgentRestoreSuppressionJournal().record(
+                    kind: liveSessionOwner.kind,
+                    sessionID: liveSessionOwner.sessionID,
+                    workspaceID: id,
+                    surfaceID: panelId,
+                    processID: liveSessionOwner.processID
                 )
                 continue
             }

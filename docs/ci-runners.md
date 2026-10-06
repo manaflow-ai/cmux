@@ -13,6 +13,27 @@
   move only by force-cancel plus rerun; GitHub cannot rerun one job until its
   whole run finishes.
 
+## Exact-head merging
+
+`gh-merge-green` requires a completed, successful `ci-status` check on the
+exact pull-request head. App diffs also require the completed
+`macos / macOS compile admission` check. A missing, queued, stale, or
+unsuccessful check is a refusal, and the helper prints the repair pointer.
+
+When a known red check is safe to waive, pass a written reason with at least
+eight words:
+
+```bash
+scripts/gh-merge-green manaflow-ai/cmux#123 --override \
+  "ci-status is a known main failure; this exact fix addresses the failing path"
+```
+
+The helper posts that reason as a `merge-override:` comment, rechecks that the
+pull-request head did not move, and then merges. It never waives a missing or
+still-running check, conflict markers, or a changed head. `--main-fix` remains
+the evidence path for red-main cmux-next fixes and posts its audit comment
+before merging.
+
 Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
@@ -33,6 +54,7 @@ gh variable list --repo manaflow-ai/cmux
 | Variable | Used by | Intended steady state | Fallback baked into the workflow |
 | --- | --- | --- | --- |
 | `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `CI_TRUSTED_RUNNER` | jobs holding trusted tokens that must run on an ephemeral VM: the required `backend migrations applied` check and `web-complexity-trusted.yml` (the CLA checks stay on `ubuntu-24.04`, an immutable contract in `validate-cla-policy.rb`). Only `ubuntu-24.04`, `blacksmith-2vcpu-ubuntu-2404` or `blacksmith-4vcpu-ubuntu-2404` is accepted; any other value, owned label included, falls back. Set it to `ubuntu-24.04` when Blacksmith stalls, or leave it unset when GitHub-hosted runners stall | unset | `blacksmith-4vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
@@ -43,7 +65,7 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_IOS` | the iOS image: simulator tests, TestFlight upload, and `ios-streamed-validate.yml` (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
-| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit`, the macOS legs of `cmux-tui-artifacts` (post-merge) and `cmux-tui-nightly` (on demand). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
+| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit` and the macOS legs of `cmux-tui-artifacts` (post-merge). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
 
 A runner variable names a **machine capability** — an OS version, a GUI, a
 simulator, both SDKs, or a larger instance — and every job needing that
@@ -702,9 +724,9 @@ A job belongs in the lane only if all of these hold:
 - it does not need a GUI console session.
 
 Members today: `build-ghosttykit.yml` (Xcode from the image default, Zig
-xcframework build), and the two macOS Rust legs of `cmux-tui-artifacts.yml`
-and `cmux-tui-nightly.yml` (passed as `macos_runner` to
-`cmux-tui-build-package.yml`; release and merge-gate callers keep their own
+xcframework build), and the two macOS Rust legs of
+`cmux-tui-artifacts.yml` (passed as `macos_runner` to
+`cmux-tui-build-package.yml`; release and full-suite callers keep their own
 runner).
 
 The fallback is `macos-15`, never `macos-26`: the self-hosted fleet carries a
@@ -901,7 +923,7 @@ its `watch` job, on GitHub-hosted Linux, waits for the probe:
   runner.** Overflow goes off. The switch first writes the
   `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
   failover, when and which run), then points the variables at their
-  failovers: `LINUX_RUNNER` to `ubuntu-24.04`, `MACOS_RUNNER_15`, `_26`,
+  failovers: `LINUX_RUNNER` and `CI_TRUSTED_RUNNER` to `ubuntu-24.04`, `MACOS_RUNNER_15`, `_26`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to

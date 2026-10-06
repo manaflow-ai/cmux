@@ -1205,11 +1205,12 @@ final class WindowBrowserHostView: NSView {
             self.splitDividerResizeObserver = nil
         }
         guard let window else { return }
-        splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self, weak window] notification in
+        let windowIdentifier = ObjectIdentifier(window)
+        splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self] notification in
             guard let self,
-                  let window,
                   let splitView = notification.object as? NSSplitView,
-                  splitView.window === window else { return }
+                  let window = splitView.window,
+                  ObjectIdentifier(window) == windowIdentifier else { return }
             self.invalidateSplitDividerRegionCache()
             self.window?.invalidateCursorRects(for: self)
         }
@@ -1304,7 +1305,9 @@ final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
         didSet {
-            guard isHidden, !oldValue, let window else { return }
+            guard isHidden, !oldValue else { return }
+            clearLinkHoverURLs()
+            guard let window else { return }
             yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
         }
     }
@@ -1315,6 +1318,10 @@ final class WindowBrowserSlotView: NSView {
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
+    private var linkHoverIndicatorView: LinkHoverIndicatorView?
+    private var pointerLinkHoverURL: String?
+    private var keyboardFocusedLinkURL: String?
+    private var linkHoverSettingObserver: (any NSObjectProtocol)?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     var forwardedDropZone: DropZone?
@@ -1347,6 +1354,12 @@ final class WindowBrowserSlotView: NSView {
         nil
     }
 
+    deinit {
+        if let linkHoverSettingObserver {
+            NotificationCenter.default.removeObserver(linkHoverSettingObserver)
+        }
+    }
+
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil, let currentWindow = window {
             yieldOwnedFirstResponderIfNeeded(in: currentWindow, reason: "slotWillLeaveWindow")
@@ -1357,6 +1370,7 @@ final class WindowBrowserSlotView: NSView {
     override func layout() {
         super.layout()
         paneDropTargetView.frame = bounds
+        linkHoverIndicatorView?.frame = linkHoverIndicatorFrame()
         applyResolvedDropZoneOverlay()
         if let hostedWebView,
            hostedWebView.cmuxBrowserViewportUsesHost,
@@ -1442,6 +1456,87 @@ final class WindowBrowserSlotView: NSView {
         let webPoint = hostedWebView.convert(localPoint, from: self)
         guard hostedWebView.bounds.contains(webPoint) else { return nil }
         return hostedWebView
+    }
+
+    /// The slot presenting `webView`, when the browser portal hosts it.
+    static func hosting(_ webView: WKWebView) -> WindowBrowserSlotView? {
+        var candidate = webView.cmuxBrowserViewportPresentationView.superview
+        while let view = candidate {
+            if let slot = view as? WindowBrowserSlotView { return slot }
+            candidate = view.superview
+        }
+        return nil
+    }
+
+    /// Where a link reported to the hover indicator came from.
+    enum LinkHoverSource {
+        case pointer
+        case keyboardFocus
+    }
+
+    /// Records the link `source` reports, or clears it when `url` is `nil`,
+    /// then shows the pointer's link if there is one, else the focused link.
+    /// Each source only clears its own link, so the pointer leaving a link
+    /// does not hide one that still has keyboard focus.
+    func setLinkHoverURL(_ url: String?, from source: LinkHoverSource) {
+        let url = url?.isEmpty == false ? url : nil
+        switch source {
+        case .pointer:
+            pointerLinkHoverURL = url
+        case .keyboardFocus:
+            keyboardFocusedLinkURL = url
+        }
+        updateLinkHoverIndicator()
+    }
+
+    /// Forgets both links and hides the indicator.
+    func clearLinkHoverURLs() {
+        pointerLinkHoverURL = nil
+        keyboardFocusedLinkURL = nil
+        updateLinkHoverIndicator()
+    }
+
+    private func updateLinkHoverIndicator() {
+        guard let url = pointerLinkHoverURL ?? keyboardFocusedLinkURL else {
+            stopObservingLinkHoverSetting()
+            linkHoverIndicatorView?.setURL(nil)
+            return
+        }
+        startObservingLinkHoverSetting()
+        let indicator: LinkHoverIndicatorView
+        if let linkHoverIndicatorView {
+            indicator = linkHoverIndicatorView
+        } else {
+            indicator = LinkHoverIndicatorView(frame: .zero)
+            linkHoverIndicatorView = indicator
+            addSubview(indicator)
+        }
+        indicator.frame = linkHoverIndicatorFrame()
+        indicator.setURL(url)
+    }
+
+    /// Watches `browser.showLinkHoverURL` while a link is showing, so turning
+    /// the setting off hides it without waiting for the next pointer or focus
+    /// event.
+    private func startObservingLinkHoverSetting() {
+        guard linkHoverSettingObserver == nil else { return }
+        linkHoverSettingObserver = NotificationCenter.default.addUserDefaultsObserver { [weak self] in
+            guard let self, !BrowserLinkHoverURL.isEnabled() else { return }
+            self.clearLinkHoverURLs()
+        }
+    }
+
+    private func stopObservingLinkHoverSetting() {
+        guard let linkHoverSettingObserver else { return }
+        NotificationCenter.default.removeObserver(linkHoverSettingObserver)
+        self.linkHoverSettingObserver = nil
+    }
+
+    /// The web view's own frame, so the indicator stays on the page when a
+    /// docked Web Inspector shares the slot.
+    private func linkHoverIndicatorFrame() -> NSRect {
+        guard let hostedWebView, hostedWebView.isDescendant(of: self) else { return bounds }
+        return convert(hostedWebView.bounds, from: hostedWebView)
     }
 
     func setPaneTopChromeHeight(_ height: CGFloat) {
@@ -1757,6 +1852,9 @@ final class WindowBrowserSlotView: NSView {
 
         NSLayoutConstraint.deactivate(hostedWebViewConstraints)
         hostedWebViewConstraints = []
+        if hostedWebView !== webView {
+            clearLinkHoverURLs()
+        }
         hostedWebView = webView
         // Attached Web Inspector mutates the moved WKWebView's frame directly.
         // Re-pin plain web views after cross-host reattach, but preserve the
@@ -1811,10 +1909,11 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 4 }
-        if view === omnibarSuggestionsHostingView { return 3 }
-        if view === searchOverlayHostingView { return 2 }
-        if view === designComposerHostingView { return 1 }
+        if view === paneDropTargetView { return 5 }
+        if view === omnibarSuggestionsHostingView { return 4 }
+        if view === searchOverlayHostingView { return 3 }
+        if view === designComposerHostingView { return 2 }
+        if view === linkHoverIndicatorView { return 1 }
         return 0
     }
 
@@ -4035,9 +4134,9 @@ enum BrowserWindowPortalRegistry {
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { [weak window] _ in
+        ) { notification in
             MainActor.assumeIsolated {
-                if let window {
+                if let window = notification.object as? NSWindow {
                     removePortal(for: window)
                 } else {
                     removePortal(windowId: windowId, window: nil)

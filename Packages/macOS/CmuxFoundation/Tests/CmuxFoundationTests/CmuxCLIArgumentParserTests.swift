@@ -33,4 +33,22 @@ struct CmuxCLIArgumentParserTests {
             _ = try parser.parse(["list", "--id-format"])
         }
     }
+
+    @Test("auth subcommands accept only their documented arguments")
+    func parsesAuthSubcommands() {
+        #expect(parser.parseAuthSubcommand([]) == "status")
+        #expect(parser.parseAuthSubcommand(["status"]) == "status")
+        #expect(parser.parseAuthSubcommand(["login"]) == "login")
+        #expect(parser.parseAuthSubcommand(["logout"]) == "logout")
+        #expect(parser.parseAuthSubcommand(["team", "use", "team-id"]) == "team")
+
+        for args in [
+            ["status", "--typo"],
+            ["login", "--typo"],
+            ["logout", "--typo"],
+            ["team", "list", "--typo"],
+        ] {
+            #expect(parser.parseAuthSubcommand(args) == nil)
+        }
+    }
 }

@@ -363,10 +363,7 @@ extension DockSplitStore {
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil,
-                hasReceivedExplicitInput: terminal.hasReceivedExplicitInput,
-                resumeWithContinuation: localTmuxStartCommand == nil
-                    ? UpdateRelaunchContinuationNudges.shared.marksPanel(panelId)
-                    : nil
+                hasReceivedExplicitInput: terminal.hasReceivedExplicitInput
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil
@@ -389,7 +386,7 @@ extension DockSplitStore {
                     forwardHistoryURLStrings: history.forwardHistoryURLStrings,
                     transparentBackground: browser.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewer?.token,
-                    diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession,
+                    diffViewerRequestPath: diffViewer?.requestPath, cloudResource: browser.cloudResourceForSession, interactionState: browser.persistableInteractionStateForSessionSnapshot(), keepsPageActive: browser.keepsPageActiveForSessionSnapshot,
                     cloudTeamID: browser.cloudTeamIDForSession
                 )
             } else if let deferred = panel as? DeferredBrowserPanel {
@@ -589,7 +586,7 @@ extension DockSplitStore {
         let managedBinding = managedResumeBinding
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }
         guard restorableAgent != nil || managedBinding != nil else { return nil }
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+        if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: terminal.id,
             matching: restorableAgent
         ) {
@@ -633,8 +630,12 @@ extension DockSplitStore {
            confirmedRuntimeIdentities.isEmpty {
             return false
         }
+        if restorableAgent?.resumeCommand == nil,
+           terminal.shellActivity.state == .commandRunning {
+            return false
+        }
         return (relevantObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: terminal.shellActivity.state,
+            fallingBackTo: terminal.shellActivity.state == .promptIdle ? .promptIdle : nil,
             recordedProcessIdentities: relevantObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,

@@ -122,6 +122,10 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Optional owner hook for a manual mirror that becomes the active pane.
     /// Ordinary terminals leave this unset.
     var onTerminalFocus: (() -> Void)?
+    /// Optional input hook owned by a manual-mirror session. Workspace routing
+    /// composes this hook into its current owner callback so a panel that moves
+    /// between workspaces keeps its Cloud input behavior.
+    var onManualMirrorExplicitInput: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
     /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
@@ -818,7 +822,7 @@ final class TerminalPanel: Panel, ObservableObject {
            now < attentionFlashActiveUntil {
             return
         }
-        attentionFlashActiveUntil = now + FocusFlashPattern.duration
+        attentionFlashActiveUntil = now + FocusFlashPattern.current.duration
 
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:

@@ -101,23 +101,17 @@ struct CloudInitialWorkspaceNamingTests {
 
     @Test("Projection discovery submits a creation-time user rename before reconciling the old graph")
     func projectionBindingPreservesCreationRename() async throws {
-        let sampler = TempHangSampler.arm("naming-projection", after: 30)
-        defer { sampler.cancel() }
         try await withUnboundFixture { fixture in
-            NSLog("HANGPHASE naming bind")
             fixture.catalog.bindCloudWorkspace(localWorkspaceID: fixture.workspace.id,
                 machine: fixture.provider.machine, remoteWorkspaceID: nil, generatedTitle: "Cloud VM")
             #expect(fixture.workspace.setCustomTitle("Chosen during creation", source: .user))
-            NSLog("HANGPHASE naming record")
             fixture.catalog.record(SurfaceProjection(
                 resource: .init(machine: fixture.provider.machine, kind: .terminal, key: "term_a"),
                 workspaceID: fixture.workspace.id, panelID: fixture.panelID,
                 remoteWorkspaceID: "a", remoteTabID: "tab_a"
             ))
             #expect(fixture.workspace.title == "Chosen during creation")
-            NSLog("HANGPHASE naming settle")
             try await fixture.settle()
-            NSLog("HANGPHASE naming settled")
             try fixture.expectParity("terminal", workspaceName: "Chosen during creation")
             #expect(fixture.provider.writes.map { $0.0 } == ["a"])
             #expect(fixture.provider.graph.lookupIndex.workspace(id: "b")?.name == "Same workspace")

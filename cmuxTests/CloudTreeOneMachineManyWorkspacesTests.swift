@@ -123,7 +123,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
     private func rows(_ snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
         CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
             machines: [fleetRow()], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false
-        ))
+        )).withoutCoderouterSection
     }
 
     /// Exercise the shipped CLI binary through its socket boundary. `CMUXCLI` belongs to
@@ -796,6 +796,25 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let terminals = try #require(lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "terminals/" })
 
         #expect(lines[terminals...].contains { $0.contains("term_sleeping") })
+    }
+
+    @Test("CLI shows a failed link's message, never its raw error code")
+    func cliTreeShowsLinkErrorMessageNotCode() throws {
+        let machine: [String: Any] = [
+            "id": machineID,
+            "status": "running",
+            "link_state": "error",
+            "link_error": "cloud_api_unavailable",
+            "link_error_message": "cmux cannot reach the Cloud service for this machine right now.",
+            "remote_workspaces": [],
+        ]
+
+        let result = try runCLICloudTree(machine: machine, resources: [])
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let lines = result.stdout.split(whereSeparator: \.isNewline).map(String.init)
+
+        #expect(lines.contains { $0.contains("cmux cannot reach the Cloud service") })
+        #expect(!lines.contains { $0.contains("cloud_api_unavailable") })
     }
 
     @Test("An exited terminal with no resolved views is not marked detached")

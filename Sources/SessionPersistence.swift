@@ -80,8 +80,10 @@ enum SessionPersistencePolicy {
         return String(text[safeStart...])
     }
 
-    /// If truncation starts in the middle of an ANSI CSI escape sequence, advance to
-    /// the first printable character after that sequence to avoid replaying malformed control bytes.
+    /// If truncation starts in the middle of an ANSI control sequence, advance
+    /// past its terminator so replay never begins with a partial escape payload.
+    private static let maxAnsiStringSequenceScanCharacters = 1_024
+
     private static func ansiSafeTruncationStart(in text: String, initialStart: String.Index) -> String.Index {
         guard initialStart > text.startIndex else { return initialStart }
         let escape = "\u{001B}"
@@ -89,24 +91,61 @@ enum SessionPersistencePolicy {
         guard let lastEscape = text[..<initialStart].lastIndex(of: Character(escape)) else {
             return initialStart
         }
-        let csiMarker = text.index(after: lastEscape)
-        guard csiMarker < text.endIndex, text[csiMarker] == "[" else {
-            return initialStart
-        }
+        let marker = text.index(after: lastEscape)
+        guard marker < text.endIndex else { return initialStart }
 
-        // If a final CSI byte exists before the truncation boundary, we are not
-        // inside a partial sequence.
-        if csiFinalByteIndex(in: text, from: csiMarker, upperBound: initialStart) != nil {
-            return initialStart
-        }
+        switch text[marker] {
+        case "[":
+            // If a final CSI byte exists before the truncation boundary, we are
+            // not inside a partial sequence.
+            if csiFinalByteIndex(in: text, from: marker, upperBound: initialStart) != nil {
+                return initialStart
+            }
+            guard let final = csiFinalByteIndex(
+                in: text,
+                from: marker,
+                upperBound: text.endIndex
+            ) else {
+                return initialStart
+            }
+            let next = text.index(after: final)
+            return next < text.endIndex ? next : text.endIndex
 
-        // We are inside a CSI sequence. Skip to the first character after the
-        // sequence terminator if it exists.
-        guard let final = csiFinalByteIndex(in: text, from: csiMarker, upperBound: text.endIndex) else {
+        case "]", "P", "X", "_", "^":
+            let allowsBEL = text[marker] == "]"
+            if allowsBEL,
+               hasRecentBELTerminator(
+                   in: text,
+                   after: marker,
+                   before: initialStart
+               ) {
+                return initialStart
+            }
+            if allowsBEL,
+               ansiStringSequenceEnd(
+                   in: text,
+                   from: text.index(after: marker),
+                   upperBound: initialStart,
+                   allowsBEL: true
+               ) != nil {
+                return initialStart
+            }
+            return ansiStringSequenceEnd(
+                in: text,
+                from: initialStart,
+                upperBound: text.endIndex,
+                allowsBEL: allowsBEL
+            ) ?? initialStart
+
+        case "\\":
+            // The cut itself can land on the second byte of an ST terminator.
+            guard marker == initialStart else { return initialStart }
+            let next = text.index(after: marker)
+            return next < text.endIndex ? next : text.endIndex
+
+        default:
             return initialStart
         }
-        let next = text.index(after: final)
-        return next < text.endIndex ? next : text.endIndex
     }
 
     private static func csiFinalByteIndex(
@@ -124,6 +163,45 @@ enum SessionPersistencePolicy {
                 return index
             }
             index = text.index(after: index)
+        }
+        return nil
+    }
+
+    private static func hasRecentBELTerminator(
+        in text: String,
+        after marker: String.Index,
+        before boundary: String.Index
+    ) -> Bool {
+        var index = marker
+        while index < boundary {
+            if text[index] == "\u{0007}" {
+                return true
+            }
+            index = text.index(after: index)
+        }
+        return false
+    }
+
+    private static func ansiStringSequenceEnd(
+        in text: String,
+        from start: String.Index,
+        upperBound: String.Index,
+        allowsBEL: Bool
+    ) -> String.Index? {
+        var index = start
+        var scanned = 0
+        while index < upperBound, scanned < maxAnsiStringSequenceScanCharacters {
+            if allowsBEL, text[index] == "\u{0007}" {
+                return text.index(after: index)
+            }
+            if text[index] == "\u{001B}" {
+                let next = text.index(after: index)
+                if next < upperBound, text[next] == "\\" {
+                    return text.index(after: next)
+                }
+            }
+            index = text.index(after: index)
+            scanned += 1
         }
         return nil
     }
@@ -1490,9 +1568,6 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var wasAgentRunning: Bool?
     /// Whether the terminal has received user input. Nil means unknown in older snapshots.
     var hasReceivedExplicitInput: Bool?
-    /// Whether an update relaunch cut this panel's agent off mid-task, so its automatic resume
-    /// asks it to continue. Only the update relaunch saves set it; nil otherwise.
-    var resumeWithContinuation: Bool?
 
     init(
         workingDirectory: String? = nil,
@@ -1508,8 +1583,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
-        hasReceivedExplicitInput: Bool? = nil,
-        resumeWithContinuation: Bool? = nil
+        hasReceivedExplicitInput: Bool? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1525,7 +1599,6 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
-        self.resumeWithContinuation = resumeWithContinuation
     }
 }
 
@@ -1918,6 +1991,7 @@ enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
     static let boundaryPrefix = "/.cmux/session-scrollback-replay/"
     private static let directoryName = "cmux-session-scrollback"
+    static let staleReplayLifetime: TimeInterval = 60 * 60
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
     nonisolated static func replayEnvironment(
@@ -1936,6 +2010,67 @@ enum SessionScrollbackReplayStore {
     nonisolated static func replayEnvironment(forFileURL replayFileURL: URL?) -> [String: String] {
         guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]
+    }
+
+    nonisolated static func sweepStaleReplayFiles(
+        olderThan cutoff: Date,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) {
+        let fileManager = FileManager.default
+        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        guard let directoryValues = try? directory.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        ),
+        directoryValues.isDirectory == true,
+        directoryValues.isSymbolicLink != true else {
+            return
+        }
+
+        // Existing replay directories may predate the private-permission write path.
+        // Harden the directory before reading retained entries.
+        try? fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directory.path
+        )
+
+        guard let fileURLs = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [
+                .contentModificationDateKey,
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+            ],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        for fileURL in fileURLs where fileURL.pathExtension == "txt" {
+            guard let values = try? fileURL.resourceValues(
+                forKeys: [
+                    .contentModificationDateKey,
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                ]
+            ),
+            values.isRegularFile == true,
+            values.isSymbolicLink != true else {
+                continue
+            }
+
+            // Fresh legacy replay files survive the sweep, but must not retain
+            // pre-upgrade world/group-readable permissions.
+            try? fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: fileURL.path
+            )
+
+            guard let modifiedAt = values.contentModificationDate,
+                  modifiedAt < cutoff else {
+                continue
+            }
+            try? fileManager.removeItem(at: fileURL)
+        }
     }
     nonisolated static func startBoundaryValue(forReplayFilePath path: String) -> String {
         boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/start"
@@ -2072,18 +2207,27 @@ enum SessionScrollbackReplayStore {
     }
     nonisolated private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
+        let fileManager = FileManager.default
         let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
 
         do {
-            try FileManager.default.createDirectory(
+            try fileManager.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true,
-                attributes: nil
+                attributes: [.posixPermissions: 0o700]
+            )
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: directory.path
             )
             let fileURL = directory
                 .appendingPathComponent(UUID().uuidString, isDirectory: false)
                 .appendingPathExtension("txt")
             try data.write(to: fileURL, options: .atomic)
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: fileURL.path
+            )
             return fileURL
         } catch {
             return nil
