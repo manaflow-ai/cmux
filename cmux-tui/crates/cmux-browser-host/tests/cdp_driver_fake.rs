@@ -46,6 +46,9 @@ struct Browser {
     held_captures: Vec<(Value, String)>,
     /// The most captures one session had in flight at once.
     most_captures_at_once: usize,
+    /// A fetch shell's navigation never answers (Chromium seen stalling a
+    /// first connection on the Testbox).
+    stall_shell_navigation: bool,
 }
 
 struct FakeWire {
@@ -194,6 +197,12 @@ impl FakeWire {
             {
                 let context = params["contextId"].as_i64().unwrap_or(0);
                 json!({"result": {"type": "boolean", "value": browser.agent_in.contains(&context)}})
+            }
+            "Page.navigate"
+                if browser.stall_shell_navigation
+                    && params["url"].as_str().is_some_and(|u| u.contains("cmux-fetch-shell")) =>
+            {
+                return (Value::Null, events);
             }
             "Page.navigate" => {
                 let url = params["url"].as_str().unwrap().to_owned();
