@@ -449,16 +449,22 @@ rest. Measurements: [performance.md](performance.md).
   refused, so no client can hide a shared name from the others. An owner token is at most 128 bytes and a working
   directory at most 1024 bytes (`PATH_MAX`); a longer one is refused
   before a session is made.
-- A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
-  to the focused workspace when the caller is outside cmux or the id is unknown
-  to this instance. A named session belongs to that workspace: the same
-  `--session` name in another workspace is another session, with its own
-  variables, secrets, directory and tabs. `cmux browser repl list` and
-  `reset NAME` act on the caller's workspace's sessions; `--all-workspaces`
-  lists or resets every workspace's. The interactive REPL and `mcp` keep
-  the workspace their first call bound, so a change of focus outside cmux
-  does not switch sessions; separate calls from outside cmux follow the
-  focused workspace (pass `--workspace` to pin one). A `--workspace` that
+- A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`).
+  A named session belongs to that workspace: the same `--session` name in
+  another workspace is another session, with its own variables, secrets,
+  directory and tabs. A caller outside cmux (no `CMUX_WORKSPACE_ID`, or
+  one this instance does not know) shares one session per `--session` name
+  with every other caller outside cmux, whatever workspace is focused: it
+  is made in the workspace focused at its first call, where its tabs open,
+  and it is never the session of that name a workspace's own callers use.
+  `cmux browser repl list` and `reset NAME` act on the caller's sessions (a
+  workspace's, or from outside cmux the ones callers outside cmux share,
+  which `list --json` marks `outside_cmux`); `--all-workspaces` lists or
+  resets every one. A run without `--session`, the interactive REPL and
+  `mcp` from outside cmux bind to the focused workspace; the interactive
+  REPL and `mcp` keep the workspace their first call bound, so a change of
+  focus does not switch sessions. Pass `--workspace` to use a workspace's
+  own session from outside cmux. A `--workspace` that
   names no workspace of this cmux instance (unknown, blank, or a ref that
   does not resolve) is refused; it never falls back to another workspace.
 - A session name is 1 to 64 characters of letters, digits, `.`, `_` and

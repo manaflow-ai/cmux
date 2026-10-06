@@ -5,10 +5,16 @@ public import Foundation
 public struct BrowserReplSessionKey: Hashable, Sendable {
     public let workspaceID: UUID
     public let name: String
+    /// A named session callers outside cmux share: one per name, whatever
+    /// workspace they focus, apart from the session of that name a
+    /// workspace's own callers share. `workspaceID` is where its tabs open,
+    /// the workspace focused when it was made.
+    public let outsideCmux: Bool
 
-    public init(workspaceID: UUID, name: String) {
+    public init(workspaceID: UUID, name: String, outsideCmux: Bool = false) {
         self.workspaceID = workspaceID
         self.name = name
+        self.outsideCmux = outsideCmux
     }
 
     /// The key an instance id from ``BrowserReplSessionRegistry/session(for:make:)``
@@ -50,6 +56,8 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         public let workspaceID: UUID
         public let cwd: String
         public let idleSeconds: Int
+        /// Whether callers outside cmux share it (``BrowserReplSessionKey/outsideCmux``).
+        public let outsideCmux: Bool
     }
 
     /// Why ``session(for:make:)`` made no session.
@@ -70,6 +78,9 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         /// An owner token came with a shared name, one that is not a
         /// client-made private name (``isPrivateName(_:)``).
         case ownerOnSharedName
+        /// A caller outside cmux named a session that is not live, and no
+        /// workspace is focused to open its tabs in.
+        case noWorkspace
     }
 
     /// The prefixes of the names clients make for a session only they use
@@ -155,10 +166,52 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         owner: String? = nil,
         make: (_ instanceID: String) -> BrowserReplSession
     ) throws -> BrowserReplSession {
-        guard Self.isValidName(key.name) else { throw Refusal.invalidName }
+        try obtain(owner: owner, key: { key }, make: { make($0.makeInstanceID()) }).session
+    }
+
+    /// The session callers outside cmux share under `name`: the live one,
+    /// in whatever workspace it was made, or a new one made with `make`
+    /// (given its key and instance id) in `focusedWorkspace`. Such a
+    /// session is never the session of that name a workspace's own callers
+    /// share (``BrowserReplSessionKey/outsideCmux``). Re-arms its idle timer.
+    /// - Throws: ``Refusal``; ``Refusal/noWorkspace`` when none is live and
+    ///   `focusedWorkspace` is nil.
+    public func outsideSession(
+        named name: String,
+        focusedWorkspace: UUID?,
+        make: (_ key: BrowserReplSessionKey, _ instanceID: String) -> BrowserReplSession
+    ) throws -> (key: BrowserReplSessionKey, session: BrowserReplSession) {
+        try obtain(owner: nil, key: {
+            if let live = sessions.first(where: { $0.key.outsideCmux && $0.key.name == name && !$0.value.isClosed })?.key { return live }
+            guard let focusedWorkspace else { throw Refusal.noWorkspace }
+            return BrowserReplSessionKey(workspaceID: focusedWorkspace, name: name, outsideCmux: true)
+        }, make: { make($0, $0.makeInstanceID()) })
+    }
+
+    /// Returns the live session for the key `key` picks (called with the
+    /// lock held), creating it with `make` when absent.
+    private func obtain(
+        owner: String?,
+        key pick: () throws -> BrowserReplSessionKey,
+        make: (BrowserReplSessionKey) -> BrowserReplSession
+    ) throws -> (key: BrowserReplSessionKey, session: BrowserReplSession) {
         guard Self.isValidOwner(owner) else { throw Refusal.invalidOwner }
-        guard owner == nil || Self.isPrivateName(key.name) else { throw Refusal.ownerOnSharedName }
         lock.lock()
+        let key: BrowserReplSessionKey
+        do {
+            key = try pick()
+        } catch {
+            lock.unlock()
+            throw error
+        }
+        guard Self.isValidName(key.name) else {
+            lock.unlock()
+            throw Refusal.invalidName
+        }
+        guard owner == nil || Self.isPrivateName(key.name) else {
+            lock.unlock()
+            throw Refusal.ownerOnSharedName
+        }
         let session: BrowserReplSession
         if let existing = sessions[key], !existing.isClosed {
             guard owners[key] == owner else {
@@ -176,7 +229,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
                 lock.unlock()
                 throw Refusal.tooManyPrivateSessions(limit: maximumPrivateSessions)
             }
-            session = make(key.makeInstanceID())
+            session = make(key)
             // A session that ended by itself (its JavaScript heap passed
             // its limit) tells the next one of its name, for the same client.
             if let ended = sessions[key], owners[key] == owner, let reason = ended.endedReason {
@@ -193,7 +246,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         }()
         lock.unlock()
         scheduler.schedule(id: timerID, after: idleTimeout, repeating: false)
-        return session
+        return (key, session)
     }
 
     /// Closes and forgets the session for `key`, when `owner` is its owner
@@ -225,29 +278,56 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
     /// Closes and forgets the sessions named `name` in `workspaceID`, or in
     /// every workspace when it is `nil`, that `owner` may reset.
     /// - Returns: How many sessions existed.
+    /// A workspace's sessions (`workspaceID`) are its own callers', never
+    /// the outside-cmux ones made in it; `nil` resets both kinds.
     @discardableResult
     public func reset(name: String, workspaceID: UUID?, owner: String? = nil) -> Int {
         let keys = lock.withLock {
-            sessions.keys.filter { $0.name == name && (workspaceID == nil || $0.workspaceID == workspaceID) }
+            sessions.keys.filter { $0.name == name && (workspaceID == nil || ($0.workspaceID == workspaceID && !$0.outsideCmux)) }
         }
         return keys.filter { reset($0, owner: owner) }.count
     }
 
-    /// Live sessions of `workspaceID`, or of every workspace when it is
-    /// `nil`, sorted by name: the shared ones and those `owner` owns.
+    /// Closes and forgets the session callers outside cmux share under
+    /// `name` (``outsideSession(named:focusedWorkspace:make:)``).
+    /// - Returns: Whether it existed.
+    @discardableResult
+    public func reset(outsideNamed name: String) -> Bool {
+        let keys = lock.withLock { sessions.keys.filter { $0.outsideCmux && $0.name == name } }
+        return keys.filter { reset($0) }.count > 0
+    }
+
+    /// Live sessions of `workspaceID` (its own callers', not the
+    /// outside-cmux ones made in it), or of every kind in every workspace
+    /// when it is `nil`, sorted by name: the shared ones and those `owner`
+    /// owns.
     public func list(workspaceID: UUID?, owner: String? = nil) -> [Entry] {
+        entries(owner: owner) { key in workspaceID == nil || (key.workspaceID == workspaceID && !key.outsideCmux) }
+    }
+
+    /// Live sessions callers outside cmux share, sorted by name.
+    public func listOutside() -> [Entry] {
+        entries(owner: nil) { $0.outsideCmux }
+    }
+
+    private func entries(owner: String?, where include: (BrowserReplSessionKey) -> Bool) -> [Entry] {
         lock.lock()
         let current = sessions.filter { key, session in
-            !session.isClosed && (workspaceID == nil || key.workspaceID == workspaceID)
-                && (owners[key] == nil || owners[key] == owner)
+            !session.isClosed && include(key) && (owners[key] == nil || owners[key] == owner)
         }
         lock.unlock()
         let now = ContinuousClock.now
         return current
             .map { key, session in
-                Entry(name: key.name, workspaceID: key.workspaceID, cwd: session.cwd, idleSeconds: Int((now - session.lastUsed).components.seconds))
+                Entry(
+                    name: key.name,
+                    workspaceID: key.workspaceID,
+                    cwd: session.cwd,
+                    idleSeconds: Int((now - session.lastUsed).components.seconds),
+                    outsideCmux: key.outsideCmux
+                )
             }
-            .sorted { ($0.name, $0.workspaceID.uuidString) < ($1.name, $1.workspaceID.uuidString) }
+            .sorted { ($0.name, $0.workspaceID.uuidString, $0.outsideCmux ? 1 : 0) < ($1.name, $1.workspaceID.uuidString, $1.outsideCmux ? 1 : 0) }
     }
 
     private func expire(timerID: Int) {

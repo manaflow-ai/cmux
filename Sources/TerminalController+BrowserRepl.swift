@@ -41,8 +41,12 @@ final class BrowserReplHost: @unchecked Sendable {
 /// Socket methods `browser.repl.eval`, `browser.repl.reset` and `browser.repl.list`.
 ///
 /// A named session belongs to one workspace (`BrowserReplSessionKey`): the
-/// workspace `workspace_id` names, else the caller's (`caller_workspace_id`),
-/// else the focused one. `reset` and `list` act on that workspace unless
+/// workspace `workspace_id` names, else the caller's (`caller_workspace_id`).
+/// A caller outside cmux (neither, or a caller workspace this instance does
+/// not know) shares one session per name with every other such caller,
+/// made in the workspace focused when it was made and never the session of
+/// that name a workspace's own callers share; its `reset` and `list` act on
+/// those sessions. `reset` and `list` act on the caller's sessions unless
 /// `all_workspaces` is true.
 ///
 /// A session a client makes without `--session` (the interactive REPL and
@@ -125,10 +129,14 @@ extension TerminalController {
             let count = registry.reset(name: name, workspaceID: nil, owner: owner)
             return .ok(["session": name, "existed": count > 0, "count": count])
         }
-        switch await v2BrowserReplResolvedWorkspace(params: params) {
+        switch await v2BrowserReplCaller(params: params) {
         case .failure(let error):
             return error
-        case .success(let workspaceID):
+        case .success(.outside) where !BrowserReplSessionRegistry.isPrivateName(name):
+            let existed = registry.reset(outsideNamed: name)
+            return .ok(["session": name, "existed": existed, "count": existed ? 1 : 0, "outside_cmux": true])
+        case .success(let caller):
+            guard let workspaceID = Self.browserReplWorkspace(of: caller) else { return Self.browserReplNoWorkspaceError }
             let existed = registry.reset(BrowserReplSessionKey(workspaceID: workspaceID, name: name), owner: owner)
             return .ok(["session": name, "existed": existed, "count": existed ? 1 : 0, "workspace_id": workspaceID.uuidString])
         }
@@ -138,39 +146,61 @@ extension TerminalController {
     /// `all_workspaces` every workspace's.
     private nonisolated func v2BrowserReplList(request: ControlRequest) async -> V2CallResult {
         let params = request.params.mapValues(\.foundationObject)
-        var workspaceID: UUID?
-        if params["all_workspaces"] as? Bool != true {
-            switch await v2BrowserReplResolvedWorkspace(params: params) {
+        let registry = BrowserReplHost.shared.registry
+        let owner = Self.browserReplOwner(params)
+        let entries: [BrowserReplSessionRegistry.Entry]
+        if params["all_workspaces"] as? Bool == true {
+            entries = registry.list(workspaceID: nil, owner: owner)
+        } else {
+            switch await v2BrowserReplCaller(params: params) {
             case .failure(let error):
                 return error
-            case .success(let id):
-                workspaceID = id
+            case .success(.outside):
+                // A caller outside cmux lists the sessions such callers share.
+                entries = registry.listOutside()
+            case .success(.inside(let id)):
+                entries = registry.list(workspaceID: id, owner: owner)
             }
         }
-        let sessions = BrowserReplHost.shared.registry.list(
-            workspaceID: workspaceID,
-            owner: Self.browserReplOwner(params)
-        ).map { entry -> [String: Any] in
+        let sessions = entries.map { entry -> [String: Any] in
             [
                 "session": entry.name,
                 "workspace_id": entry.workspaceID.uuidString,
                 "cwd": entry.cwd,
                 "idle_seconds": entry.idleSeconds,
+                "outside_cmux": entry.outsideCmux,
             ]
         }
         return .ok(["sessions": sessions])
     }
 
-    /// The workspace a call acts on, or the error that ends the call.
-    private enum BrowserReplWorkspaceResolution {
-        case success(UUID)
+    /// Where a call comes from, or the error that ends the call.
+    private enum BrowserReplCallerResolution {
+        case success(BrowserReplWorkspaceBinding.Caller)
         case failure(V2CallResult)
     }
 
-    private nonisolated func v2BrowserReplResolvedWorkspace(params: [String: Any]) async -> BrowserReplWorkspaceResolution {
-        switch await v2BrowserReplWorkspaceID(params: params) {
-        case .success(let id):
-            return .success(id)
+    private nonisolated static var browserReplNoWorkspaceError: V2CallResult {
+        .err(
+            code: "not_found",
+            message: String(localized: "cli.browser.repl.error.workspace", defaultValue: "No workspace to bind the REPL session to"),
+            data: nil
+        )
+    }
+
+    /// The workspace a call from `caller` binds a workspace's session to:
+    /// its own, or for a caller outside cmux the focused one, if any.
+    private nonisolated static func browserReplWorkspace(of caller: BrowserReplWorkspaceBinding.Caller) -> UUID? {
+        switch caller {
+        case .inside(let id): id
+        case .outside(let focused): focused
+        }
+    }
+
+    private nonisolated func v2BrowserReplCaller(params: [String: Any]) async -> BrowserReplCallerResolution {
+        switch await v2BrowserReplWorkspaceCaller(params: params) {
+        case .success(let caller):
+            return .success(caller)
         case .failure(.explicitWorkspaceNotFound(let id)):
             let prefix = String(localized: "cli.browser.repl.error.workspaceNotFound", defaultValue: "Workspace not found")
             return .failure(.err(code: "not_found", message: "\(prefix): \(id.uuidString)", data: nil))
@@ -178,11 +208,7 @@ extension TerminalController {
             let prefix = String(localized: "cli.browser.repl.error.workspaceInvalid", defaultValue: "Not a workspace in this cmux instance")
             return .failure(.err(code: "not_found", message: "\(prefix): \(handle.debugDescription)", data: nil))
         case .failure(.noFocusedWorkspace):
-            return .failure(.err(
-                code: "not_found",
-                message: String(localized: "cli.browser.repl.error.workspace", defaultValue: "No workspace to bind the REPL session to"),
-                data: nil
-            ))
+            return .failure(Self.browserReplNoWorkspaceError)
         }
     }
 
@@ -235,12 +261,23 @@ extension TerminalController {
         // A one-shot session is this call's alone: a token no client holds.
         let owner = named == nil ? UUID().uuidString : Self.browserReplOwner(params)
 
-        let workspaceID: UUID
-        switch await v2BrowserReplResolvedWorkspace(params: params) {
-        case .success(let id):
-            workspaceID = id
+        let caller: BrowserReplWorkspaceBinding.Caller
+        switch await v2BrowserReplCaller(params: params) {
+        case .success(let found):
+            caller = found
         case .failure(let error):
             return error
+        }
+        // A shared name from outside cmux is one session per name, made in
+        // the workspace focused then; a client-made private name (the
+        // interactive REPL's and mcp's, which pin the workspace their first
+        // call bound) and every caller inside cmux use a workspace's session.
+        var isOutsideNamed = false
+        if case .outside = caller, let named, !BrowserReplSessionRegistry.isPrivateName(named) {
+            isOutsideNamed = true
+        }
+        if !isOutsideNamed, Self.browserReplWorkspace(of: caller) == nil {
+            return Self.browserReplNoWorkspaceError
         }
 
         let host = BrowserReplHost.shared
@@ -252,20 +289,35 @@ extension TerminalController {
             return .err(code: "unavailable", message: "Error: \(error.description)", data: nil)
         }
         // A named session is the caller's workspace's: the same name in
-        // another workspace is another session. Each instance gets an id of
+        // another workspace is another session, and a shared name from
+        // outside cmux is the one session such callers share. Each instance gets an id of
         // its own, so driver state never outlives it into a later session
         // of the same name.
-        let key = BrowserReplSessionKey(workspaceID: workspaceID, name: sessionName)
+        let key: BrowserReplSessionKey
         let session: BrowserReplSession
         do {
-            session = try host.registry.session(for: key, owner: owner) { instanceID in
+            let make = { (key: BrowserReplSessionKey, instanceID: String) in
                 BrowserReplSession(
                     id: sessionName,
                     cwd: cwd,
                     bundle: bundle,
-                    driver: WebKitBrowserReplDriver(sessionID: instanceID, workspaceID: workspaceID, bundle: bundle)
+                    driver: WebKitBrowserReplDriver(sessionID: instanceID, workspaceID: key.workspaceID, bundle: bundle)
                 )
             }
+            if isOutsideNamed {
+                // A shared name takes no owner token, from anywhere.
+                if owner != nil { throw BrowserReplSessionRegistry.Refusal.ownerOnSharedName }
+                guard case .outside(let focused) = caller else { return Self.browserReplNoWorkspaceError }
+                let found = try host.registry.outsideSession(named: sessionName, focusedWorkspace: focused, make: make)
+                key = found.key
+                session = found.session
+            } else {
+                guard let workspaceID = Self.browserReplWorkspace(of: caller) else { return Self.browserReplNoWorkspaceError }
+                key = BrowserReplSessionKey(workspaceID: workspaceID, name: sessionName)
+                session = try host.registry.session(for: key, owner: owner) { make(key, $0) }
+            }
+        } catch BrowserReplSessionRegistry.Refusal.noWorkspace {
+            return Self.browserReplNoWorkspaceError
         } catch BrowserReplSessionRegistry.Refusal.tooManySessions(let limit) {
             let prefix = String(
                 localized: "cli.browser.repl.error.tooManySessions",
@@ -307,7 +359,8 @@ extension TerminalController {
         }
         var payload: [String: Any] = [
             "session": named ?? NSNull(),
-            "workspace_id": workspaceID.uuidString,
+            "workspace_id": key.workspaceID.uuidString,
+            "outside_cmux": key.outsideCmux,
             "ok": outcome.error == nil,
             "output": outcome.lines.map { ["level": $0.level, "text": $0.text] },
             "duration_ms": outcome.durationMilliseconds,
@@ -316,20 +369,20 @@ extension TerminalController {
         return .ok(payload)
     }
 
-    /// The workspace a new session binds to. `workspace_id` is an explicit
-    /// choice and must exist; `caller_workspace_id` (the CLI's
-    /// `CMUX_WORKSPACE_ID`) falls back to the focused workspace of the key or
-    /// frontmost window when this instance does not know it.
-    private nonisolated func v2BrowserReplWorkspaceID(
+    /// Where a call comes from. `workspace_id` is an explicit choice and
+    /// must exist; `caller_workspace_id` (the CLI's `CMUX_WORKSPACE_ID`)
+    /// counts when this instance knows it; otherwise the caller is outside
+    /// cmux, with the focused workspace of the key or frontmost window.
+    private nonisolated func v2BrowserReplWorkspaceCaller(
         params: [String: Any]
-    ) async -> Result<UUID, BrowserReplWorkspaceBinding.Failure> {
+    ) async -> Result<BrowserReplWorkspaceBinding.Caller, BrowserReplWorkspaceBinding.Failure> {
         // Present is explicit, whatever it holds: one that is not a
         // workspace id fails instead of falling back.
         let explicit: String? = params["workspace_id"].flatMap { value in
             value is NSNull ? nil : (value as? String) ?? String(describing: value)
         }
         let caller = v2UUID(params, "caller_workspace_id")
-        return await Task { @MainActor [weak self] () -> Result<UUID, BrowserReplWorkspaceBinding.Failure> in
+        return await Task { @MainActor [weak self] () -> Result<BrowserReplWorkspaceBinding.Caller, BrowserReplWorkspaceBinding.Failure> in
             BrowserReplWorkspaceBinding(
                 exists: { AppDelegate.shared?.workspaceFor(tabId: $0) != nil },
                 focused: {
@@ -338,7 +391,7 @@ extension TerminalController {
                           manager.tabs.contains(where: { $0.id == selected }) else { return nil }
                     return selected
                 }
-            ).resolve(explicitHandle: explicit, caller: caller)
+            ).caller(explicitHandle: explicit, caller: caller)
         }.value
     }
 }
