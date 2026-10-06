@@ -13,7 +13,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
-import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
+import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl, runDevCells } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { siteOf } from "../lib/public-suffix.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
@@ -273,6 +273,44 @@ test("secrets: a registered value never appears in output, errors, page reads or
     }, { maxOutput: 6000, readable: new Set([fs.realpathSync(secretsFile)]) });
   } finally {
     removeTestDir(secretsDir);
+    await servers.close();
+  }
+});
+
+// A page that receives a typed secret can send it on; only the domain
+// policy's content rules, which hold in the tabs the session opened, stop
+// that. So a secret is typed only into such a tab while the policy keeps it
+// on the secret's domains, never into a user's tab or another session's.
+test("secrets: typed only into the session's own tab under a policy within the secret's domains", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const fill = `await page.fill("#apikey", secret("key")).then(() => "typed", (e) => e.message)`;
+  try {
+    const outputs = await runDevCells([
+      { code: `const t = await tabs.open(${JSON.stringify(primary)} + "/agent-tools.html?user-owned"); await t.keep(); console.log("kept");` },
+      {
+        session: "typist",
+        code: `
+secrets.set("key", "sk-owned-4242", { domains: ["localhost"] });
+const out = {};
+await page.goto(${JSON.stringify(primary)} + "/agent-tools.html");
+out.noPolicy = ${fill};
+session.allowedDomains(["http://localhost", "http://127.0.0.1"]);
+out.widerPolicy = ${fill};
+session.allowedDomains(["http://localhost"]);
+out.withinPolicy = ${fill};
+const row = (await tabs.list()).find((t) => t.url.endsWith("?user-owned"));
+const user = await tabs.use(row.id);
+out.userTab = await user.fill("#apikey", secret("key")).then(() => "typed", (e) => e.message);
+out.userValue = await user.locator("#apikey").inputValue();
+console.log(JSON.stringify(out));`,
+      },
+    ]);
+    const out = JSON.parse(outputs[1].output.trim().split("\n").at(-1));
+    assert.equal(out.withinPolicy, "typed", JSON.stringify(out));
+    for (const key of ["noPolicy", "widerPolicy", "userTab"]) assert.notEqual(out[key], "typed", `${key}: ${JSON.stringify(out)}`);
+    assert.equal(out.userValue, "", JSON.stringify(out));
+  } finally {
     await servers.close();
   }
 });
