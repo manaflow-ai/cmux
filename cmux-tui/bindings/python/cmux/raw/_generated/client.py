@@ -159,6 +159,9 @@ class GeneratedClientMixin:
     def conversation_history(self, before_seq: int, conversation: str, limit: int) -> ConversationHistoryResult:
         return self._invoke_command('conversation-history', ConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
 
+    def conversation_import(self, conversation: str, messages: List[ConversationImportMessage]) -> ConversationImportResult:
+        return self._invoke_command('conversation-import', ConversationImportRequest(conversation=conversation, messages=messages))
+
     def conversation_list(self) -> ConversationListResult:
         return self._invoke_command('conversation-list', ConversationListRequest())
 
@@ -755,6 +758,7 @@ GeneratedClientMixin.conversation_attachment_upload.__cmux_command__ = COMMANDS[
 GeneratedClientMixin.conversation_bind.__cmux_command__ = COMMANDS['conversation-bind']
 GeneratedClientMixin.conversation_create.__cmux_command__ = COMMANDS['conversation-create']
 GeneratedClientMixin.conversation_history.__cmux_command__ = COMMANDS['conversation-history']
+GeneratedClientMixin.conversation_import.__cmux_command__ = COMMANDS['conversation-import']
 GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation-list']
 GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
 GeneratedClientMixin.conversation_search.__cmux_command__ = COMMANDS['conversation-search']

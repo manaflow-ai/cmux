@@ -100,12 +100,14 @@ public final class TabStripView: NSView {
     /// Press-and-hold on + opens the new tab menu (`showNewTabMenu`).
     var newTabHoldTask: Task<Void, Never>?
     var newTabHoldOpenedMenu = false
-    /// Whether the plus shows (pointer, open menu): the strip's inputs to
-    /// `reveal` (HoverReveal, R120).
+    /// Whether the plus shows (pointer, open menu, VoiceOver focus): the
+    /// strip's inputs to `reveal` (HoverReveal, R120).
     var buttonReveal = TabStripButtonReveal() {
         didSet { reveal.sync(buttonReveal, from: oldValue) }
     }
     private(set) lazy var reveal = TabStripRevealController(strip: self)
+    /// Strip elements (the strip, tab elements, the plus) VoiceOver focuses now.
+    var accessibilityFocusedElements: Set<ObjectIdentifier> = []
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
@@ -155,6 +157,10 @@ public final class TabStripView: NSView {
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
+        newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
+            guard let newTabButton else { return }
+            self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
+        }
         reveal.install()
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
 
@@ -192,6 +198,12 @@ public final class TabStripView: NSView {
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let local = superview.map { convert(point, from: $0) } ?? point
         return bounds.contains(local) ? self : nil
+    }
+
+    /// VoiceOver on the strip itself reveals the plus (`noteAccessibilityFocus`).
+    public override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        noteAccessibilityFocus(ObjectIdentifier(self), accessibilityFocused)
     }
 
     public override func accessibilityChildren() -> [Any]? {
