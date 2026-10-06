@@ -131,13 +131,19 @@ fn main() {
         }
         Some("import-claude-code") => {
             let paths = Paths::new(&home(&flags));
-            let projects = flags.values.get("projects").map(PathBuf::from).unwrap_or_else(|| {
-                let user_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-                optchat_chief::claude_import::default_projects_dir(
-                    &user_home,
-                    std::env::var("CLAUDE_CONFIG_DIR").ok(),
-                )
-            });
+            let projects = flags
+                .values
+                .get("projects")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| {
+                    let user_home = std::env::var_os("HOME")
+                        .map(PathBuf::from)
+                        .unwrap_or_default();
+                    optchat_chief::claude_import::default_projects_dir(
+                        &user_home,
+                        std::env::var("CLAUDE_CONFIG_DIR").ok(),
+                    )
+                });
             let mode = flags.words.get(1).map(String::as_str);
             let converted = match mode {
                 Some("dry-run" | "write") => {

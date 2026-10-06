@@ -167,7 +167,8 @@ impl Brain {
             return;
         };
         let text = message_text(&message);
-        if !text.trim().is_empty() && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
+        if !text.trim().is_empty()
+            && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
         {
             self.queue(text, Source::Message { seq: message.seq });
             return;

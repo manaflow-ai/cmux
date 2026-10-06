@@ -39,8 +39,8 @@ pub fn chief_wakes(
     is_mux_message: impl Fn(&str) -> bool,
 ) -> bool {
     let author = summary.participants.iter().find(|p| p.id == message.author);
-    let remote_author = author.is_some_and(|a| a.person.is_some())
-        || message.author.starts_with(REMOTE_PREFIX);
+    let remote_author =
+        author.is_some_and(|a| a.person.is_some()) || message.author.starts_with(REMOTE_PREFIX);
     if message.origin.is_none() && !remote_author {
         // A local message: the shared rule (which refuses any device).
         return wakes(summary, message, is_mux_message);
@@ -99,7 +99,9 @@ fn remote_wakes(
     let mentioned = message.parts.iter().any(|part| match part {
         Part::Text {
             runs: Some(runs), ..
-        } => runs.iter().any(|run| run.mention.as_deref() == Some(AGENT_MUX)),
+        } => runs
+            .iter()
+            .any(|run| run.mention.as_deref() == Some(AGENT_MUX)),
         _ => false,
     });
     mentioned

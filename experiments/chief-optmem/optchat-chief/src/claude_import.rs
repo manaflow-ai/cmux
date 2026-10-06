@@ -121,13 +121,7 @@ pub fn convert_projects(projects: &Path) -> io::Result<(Vec<Imported>, Stats)> {
     let mut seen_pastes: HashSet<String> = HashSet::new();
     let mut items = Vec::new();
     for (_, name, lines) in sessions {
-        let session = convert_session(
-            &name,
-            &lines,
-            &mut seen_uuids,
-            &mut seen_pastes,
-            &mut stats,
-        );
+        let session = convert_session(&name, &lines, &mut seen_uuids, &mut seen_pastes, &mut stats);
         if !session.is_empty() {
             stats.sessions += 1;
             items.extend(session);
@@ -197,11 +191,11 @@ fn convert_session(
     let mut turn = Turn::default();
     let mut header: Option<(String, Option<String>)> = None;
     for line in lines {
-        if let Some(uuid) = line.get("uuid").and_then(Value::as_str) {
-            if !seen_uuids.insert(uuid.to_owned()) {
-                stats.copied_lines += 1;
-                continue;
-            }
+        if let Some(uuid) = line.get("uuid").and_then(Value::as_str)
+            && !seen_uuids.insert(uuid.to_owned())
+        {
+            stats.copied_lines += 1;
+            continue;
         }
         let date = line
             .get("timestamp")
@@ -256,12 +250,11 @@ fn convert_session(
                                     .iter()
                                     .find_map(|k| i.get(*k).and_then(Value::as_str))
                             });
-                            if let Some(file) = file {
-                                if turn.files.len() < SUMMARY_FILES
-                                    && !turn.files.iter().any(|f| f == file)
-                                {
-                                    turn.files.push(file.to_owned());
-                                }
+                            if let Some(file) = file
+                                && turn.files.len() < SUMMARY_FILES
+                                && !turn.files.iter().any(|f| f == file)
+                            {
+                                turn.files.push(file.to_owned());
                             }
                         }
                         _ => {}

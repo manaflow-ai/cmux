@@ -7,9 +7,7 @@ mod common;
 
 use std::sync::Arc;
 
-use cmux_conversation::{
-    Change, Message, Origin, Participant, ParticipantKind, Summary, TextRun,
-};
+use cmux_conversation::{Change, Message, Origin, Participant, ParticipantKind, Summary, TextRun};
 use common::*;
 use optchat_chief::brain::Input;
 use optchat_chief::daemon::DaemonEvent;
@@ -32,8 +30,11 @@ fn participant(id: &str, kind: ParticipantKind, person: Option<&str>) -> Partici
 /// user's phone (the same person, as the relay's pairing path adds it).
 fn paired() -> Summary {
     let mut s = summary();
-    s.participants
-        .push(participant(DEVICE, ParticipantKind::Human, Some("user_local")));
+    s.participants.push(participant(
+        DEVICE,
+        ParticipantKind::Human,
+        Some("user_local"),
+    ));
     s
 }
 
@@ -50,15 +51,26 @@ fn from_device(seq: u64, author: &str, install: &str, text: &str) -> Message {
 #[test]
 fn the_users_own_paired_device_wakes_the_chief() {
     let s = paired();
-    assert!(chief_wakes(&s, &from_device(1, DEVICE, "inst_1", "hi"), |_| false));
+    assert!(chief_wakes(
+        &s,
+        &from_device(1, DEVICE, "inst_1", "hi"),
+        |_| false
+    ));
     // Local messages keep the shared rule.
     assert!(chief_wakes(&s, &message(2, "user_local", "hi"), |_| false));
     // A conversation of only the phone and the Chief is one person too.
     let mut only = summary();
     only.participants.retain(|p| p.id != "user_local");
-    only.participants
-        .push(participant(DEVICE, ParticipantKind::Human, Some("user_local")));
-    assert!(chief_wakes(&only, &from_device(1, DEVICE, "inst_1", "hi"), |_| false));
+    only.participants.push(participant(
+        DEVICE,
+        ParticipantKind::Human,
+        Some("user_local"),
+    ));
+    assert!(chief_wakes(
+        &only,
+        &from_device(1, DEVICE, "inst_1", "hi"),
+        |_| false
+    ));
 }
 
 #[test]
@@ -66,7 +78,11 @@ fn a_group_message_from_a_device_wakes_only_with_a_mention() {
     let mut s = paired();
     s.participants
         .push(participant("user_2", ParticipantKind::Human, None));
-    assert!(!chief_wakes(&s, &from_device(1, DEVICE, "inst_1", "hi all"), |_| false));
+    assert!(!chief_wakes(
+        &s,
+        &from_device(1, DEVICE, "inst_1", "hi all"),
+        |_| false
+    ));
     let mut mentioned = from_device(2, DEVICE, "inst_1", "@Chief hi");
     if let cmux_conversation::Part::Text { runs, .. } = &mut mentioned.parts[0] {
         *runs = Some(vec![TextRun {
@@ -85,9 +101,17 @@ fn every_other_device_message_is_refused() {
     // No origin: the owner did not stamp it as relayed.
     assert!(!chief_wakes(&s, &message(1, DEVICE, "hi"), |_| false));
     // The origin names another install than the author.
-    assert!(!chief_wakes(&s, &from_device(2, DEVICE, "inst_2", "hi"), |_| false));
+    assert!(!chief_wakes(
+        &s,
+        &from_device(2, DEVICE, "inst_2", "hi"),
+        |_| false
+    ));
     // A local author with a remote origin.
-    assert!(!chief_wakes(&s, &from_device(3, "user_local", "inst_1", "hi"), |_| false));
+    assert!(!chief_wakes(
+        &s,
+        &from_device(3, "user_local", "inst_1", "hi"),
+        |_| false
+    ));
     // A device of another person (another account), or of no person.
     for person in [Some("user_2"), None] {
         let mut other = summary();
@@ -101,23 +125,40 @@ fn every_other_device_message_is_refused() {
     }
     // A device participant that is not a human.
     let mut agent = summary();
-    agent
-        .participants
-        .push(participant(DEVICE, ParticipantKind::Agent, Some("user_local")));
-    assert!(!chief_wakes(&agent, &from_device(5, DEVICE, "inst_1", "hi"), |_| false));
+    agent.participants.push(participant(
+        DEVICE,
+        ParticipantKind::Agent,
+        Some("user_local"),
+    ));
+    assert!(!chief_wakes(
+        &agent,
+        &from_device(5, DEVICE, "inst_1", "hi"),
+        |_| false
+    ));
     // A participant id without the `remote_` prefix, even with a person.
     let mut odd = summary();
-    odd.participants
-        .push(participant("user_9", ParticipantKind::Human, Some("user_local")));
+    odd.participants.push(participant(
+        "user_9",
+        ParticipantKind::Human,
+        Some("user_local"),
+    ));
     assert!(!chief_wakes(&odd, &message(6, "user_9", "hi"), |_| false));
     // Not a participant, retracted, or a conversation without the Chief.
-    assert!(!chief_wakes(&summary(), &from_device(7, DEVICE, "inst_1", "hi"), |_| false));
+    assert!(!chief_wakes(
+        &summary(),
+        &from_device(7, DEVICE, "inst_1", "hi"),
+        |_| false
+    ));
     let mut retracted = from_device(8, DEVICE, "inst_1", "hi");
     retracted.retracted_at = Some("2026-10-06T00:00:00Z".into());
     assert!(!chief_wakes(&s, &retracted, |_| false));
     let mut without = paired();
     without.participants.retain(|p| p.id != "agent_mux");
-    assert!(!chief_wakes(&without, &from_device(9, DEVICE, "inst_1", "hi"), |_| false));
+    assert!(!chief_wakes(
+        &without,
+        &from_device(9, DEVICE, "inst_1", "hi"),
+        |_| false
+    ));
 }
 
 /// End to end: the phone's message is logged as `user`, word for word, and

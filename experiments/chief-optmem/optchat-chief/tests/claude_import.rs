@@ -36,24 +36,83 @@ fn fixture(dir: &Path) {
         "s1",
         &[
             json!({"type": "summary", "summary": "fix the build"}),
-            user("u1", "2026-03-01T10:00:00.000Z", json!("fix the build, it fails on CI")),
-            assistant("a1", "2026-03-01T10:00:05.000Z", "m1", json!({"type": "thinking", "thinking": "secret plan"})),
-            assistant("a2", "2026-03-01T10:00:06.000Z", "m1", json!({"type": "text", "text": "Let me look."})),
-            assistant("a3", "2026-03-01T10:00:07.000Z", "m1", json!({"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/w/app/build.rs"}})),
-            user("u2", "2026-03-01T10:00:08.000Z", json!([{"type": "tool_result", "tool_use_id": "t1", "content": "fn main() {}"}])),
-            assistant("a4", "2026-03-01T10:00:09.000Z", "m2", json!({"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "TOKEN=abc cargo build"}})),
-            user("u3", "2026-03-01T10:00:10.000Z", json!([{"type": "tool_result", "tool_use_id": "t2", "content": "error: x"}])),
-            assistant("a5", "2026-03-01T10:00:11.000Z", "m3", json!({"type": "tool_use", "id": "t3", "name": "Read", "input": {"file_path": "/w/app/Cargo.toml"}})),
-            assistant("a6", "2026-03-01T10:00:20.000Z", "m4", json!({"type": "text", "text": "Fixed: build.rs used a removed API."})),
+            user(
+                "u1",
+                "2026-03-01T10:00:00.000Z",
+                json!("fix the build, it fails on CI"),
+            ),
+            assistant(
+                "a1",
+                "2026-03-01T10:00:05.000Z",
+                "m1",
+                json!({"type": "thinking", "thinking": "secret plan"}),
+            ),
+            assistant(
+                "a2",
+                "2026-03-01T10:00:06.000Z",
+                "m1",
+                json!({"type": "text", "text": "Let me look."}),
+            ),
+            assistant(
+                "a3",
+                "2026-03-01T10:00:07.000Z",
+                "m1",
+                json!({"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "/w/app/build.rs"}}),
+            ),
+            user(
+                "u2",
+                "2026-03-01T10:00:08.000Z",
+                json!([{"type": "tool_result", "tool_use_id": "t1", "content": "fn main() {}"}]),
+            ),
+            assistant(
+                "a4",
+                "2026-03-01T10:00:09.000Z",
+                "m2",
+                json!({"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "TOKEN=abc cargo build"}}),
+            ),
+            user(
+                "u3",
+                "2026-03-01T10:00:10.000Z",
+                json!([{"type": "tool_result", "tool_use_id": "t2", "content": "error: x"}]),
+            ),
+            assistant(
+                "a5",
+                "2026-03-01T10:00:11.000Z",
+                "m3",
+                json!({"type": "tool_use", "id": "t3", "name": "Read", "input": {"file_path": "/w/app/Cargo.toml"}}),
+            ),
+            assistant(
+                "a6",
+                "2026-03-01T10:00:20.000Z",
+                "m4",
+                json!({"type": "text", "text": "Fixed: build.rs used a removed API."}),
+            ),
             // Noise: a meta line, a slash command, an interruption, a subagent.
             json!({"type": "user", "uuid": "u4", "timestamp": "2026-03-01T10:01:00.000Z", "isMeta": true,
                    "message": {"role": "user", "content": "Caveat: local commands"}}),
-            user("u5", "2026-03-01T10:01:01.000Z", json!("<command-name>/clear</command-name>")),
-            user("u6", "2026-03-01T10:01:02.000Z", json!([{"type": "text", "text": "[Request interrupted by user]"}])),
+            user(
+                "u5",
+                "2026-03-01T10:01:01.000Z",
+                json!("<command-name>/clear</command-name>"),
+            ),
+            user(
+                "u6",
+                "2026-03-01T10:01:02.000Z",
+                json!([{"type": "text", "text": "[Request interrupted by user]"}]),
+            ),
             json!({"type": "assistant", "uuid": "a7", "timestamp": "2026-03-01T10:01:03.000Z", "isSidechain": true,
                    "message": {"role": "assistant", "id": "m5", "content": [{"type": "text", "text": "subagent words"}]}}),
-            user("u7", "2026-03-01T10:02:00.000Z", json!([{"type": "text", "text": paste.clone()}])),
-            assistant("a8", "2026-03-01T10:02:05.000Z", "m6", json!({"type": "text", "text": "Got the log."})),
+            user(
+                "u7",
+                "2026-03-01T10:02:00.000Z",
+                json!([{"type": "text", "text": paste.clone()}]),
+            ),
+            assistant(
+                "a8",
+                "2026-03-01T10:02:05.000Z",
+                "m6",
+                json!({"type": "text", "text": "Got the log."}),
+            ),
         ],
     );
     // A later session: the same long paste again (skipped), and a line the
@@ -63,10 +122,23 @@ fn fixture(dir: &Path) {
         "-w-app",
         "s2",
         &[
-            user("u1", "2026-03-01T10:00:00.000Z", json!("fix the build, it fails on CI")),
+            user(
+                "u1",
+                "2026-03-01T10:00:00.000Z",
+                json!("fix the build, it fails on CI"),
+            ),
             user("v1", "2026-03-02T09:00:00.000Z", json!(paste)),
-            user("v2", "2026-03-02T09:00:01.000Z", json!("and again tomorrow")),
-            assistant("b1", "2026-03-02T09:00:04.000Z", "n1", json!({"type": "text", "text": "Will do."})),
+            user(
+                "v2",
+                "2026-03-02T09:00:01.000Z",
+                json!("and again tomorrow"),
+            ),
+            assistant(
+                "b1",
+                "2026-03-02T09:00:04.000Z",
+                "n1",
+                json!({"type": "text", "text": "Will do."}),
+            ),
             json!("not an object"),
             Value::String("{torn".into()),
         ],
@@ -124,7 +196,16 @@ fn sessions_become_user_messages_final_replies_and_tool_summaries_with_their_dat
     // Thinking, tool input values (the command), tool output, meta lines,
     // slash commands, interruptions and subagents never appear.
     let all: String = items.iter().map(|i| i.text.clone()).collect();
-    for absent in ["secret plan", "TOKEN", "fn main", "Caveat", "/clear", "interrupted", "subagent", "Let me look."] {
+    for absent in [
+        "secret plan",
+        "TOKEN",
+        "fn main",
+        "Caveat",
+        "/clear",
+        "interrupted",
+        "subagent",
+        "Let me look.",
+    ] {
         assert!(!all.contains(absent), "{absent}");
     }
     assert_eq!(stats.sessions, 2);
