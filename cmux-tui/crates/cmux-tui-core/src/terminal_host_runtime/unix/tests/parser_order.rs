@@ -13,11 +13,8 @@ use super::*;
 fn host_with_queued_output() -> (Arc<HostShared>, Receiver<ParserCommand>, u64) {
     let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
     let (parser_commands, receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
-    let host = test_host_shared_with(
-        term,
-        parser_commands,
-        ClipboardReads::new(Arc::new(SystemClock)),
-    );
+    let host =
+        test_host_shared_with(term, parser_commands, ClipboardReads::new(Arc::new(SystemClock)));
     let queued = host.smart.publish(Frame::new(MessageKind::Output, b"queued".to_vec()));
     host.parser_commands
         .send(ParserCommand::Output {
@@ -29,7 +26,10 @@ fn host_with_queued_output() -> (Arc<HostShared>, Receiver<ParserCommand>, u64) 
     (host, receiver, queued)
 }
 
-fn start_parser(host: &Arc<HostShared>, receiver: Receiver<ParserCommand>) -> thread::JoinHandle<()> {
+fn start_parser(
+    host: &Arc<HostShared>,
+    receiver: Receiver<ParserCommand>,
+) -> thread::JoinHandle<()> {
     let initial_colors = host.term.lock().unwrap().color_overrides();
     let parser_host = host.clone();
     let signals = ParserSignals {
