@@ -831,6 +831,36 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: root) == ["source.bin"])
     }
 
+    /// copyFile keeps a file's extended attributes; their bytes are
+    /// written like the data's, so they count toward the write budget and
+    /// cannot carry a copy past it.
+    @Test("copyFile counts extended attributes toward the write budget")
+    func copyCountsExtendedAttributes() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let source = scratch.root + "/source.bin"
+        try Data("ten bytes!".utf8).write(to: URL(fileURLWithPath: source))
+        let small = Data("tag".utf8)
+        let big = Data(count: 256 << 10)
+        for (name, value) in [("com.cmux.test.small", small), ("com.cmux.test.big", big)] {
+            let set = value.withUnsafeBytes { setxattr(source, name, $0.baseAddress, value.count, 0, 0) }
+            #expect(set == 0, "setxattr \(name): \(errno)")
+        }
+        let tight = makeFileSystem(scratch, budget: BrowserReplWriteBudget(perCall: 64 << 10, perSession: 1 << 20))
+
+        let refused = tight.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"])
+
+        #expect(refused.failureCode == "EFBIG", "\(refused)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root) == ["source.bin"])
+
+        let roomy = makeFileSystem(scratch, budget: BrowserReplWriteBudget())
+        #expect(roomy.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"]).failureCode == "ok")
+        var buffer = [UInt8](repeating: 0, count: 16)
+        let length = getxattr(scratch.root + "/copy.bin", "com.cmux.test.small", &buffer, buffer.count, 0, 0)
+        #expect(length == small.count && Data(buffer.prefix(max(0, length))) == small)
+        #expect(getxattr(scratch.root + "/copy.bin", "com.cmux.test.big", nil, 0, 0, 0) == big.count)
+    }
+
     @Test("copyFile copies the bytes, the mode and replaces the destination")
     func copyKeepsBytesAndMode() throws {
         let scratch = try Scratch()
