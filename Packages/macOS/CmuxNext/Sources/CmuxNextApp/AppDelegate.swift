@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.services?.crashRecovery.applicationWillTerminate()
+            self?.services?.home.applicationWillTerminate()
             exit(0)
         })
         control.startWatchdog()
@@ -287,6 +288,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
+        services?.home.applicationWillTerminate()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }

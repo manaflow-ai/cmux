@@ -12,13 +12,13 @@ use cmux_chief::acp::SessionSummary;
 use cmux_chief::rules::PARENT_TAG;
 use serde_json::{Value, json};
 
-use crate::acpmux::{SessionSpec, new_session, sessions};
+use crate::acpmux::{SessionSpec, sessions};
 use crate::brain::parent_tag;
 use crate::cli::{Flags, env};
 use crate::rpc::{Notification, RpcClient};
 
-pub const USAGE: &str = "chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME";
+pub const USAGE: &str =
+    "chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME";
 
 type Notes = (Sender<Notification>, Receiver<Notification>);
 
@@ -160,38 +160,44 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
     }
 }
 
+/// The policy a child gets: the host's floor (`ask` while the Chief works
+/// for a paired device, README "Remote-origin messages") wins over
+/// `--policy` and `MUX_POLICY`.
+pub fn apply_floor(requested: &str, floor: Option<&str>) -> String {
+    floor.unwrap_or(requested).to_owned()
+}
+
+fn asks(s: &SessionSummary) -> bool {
+    s.tags.get(crate::approval::POLICY_TAG).map(String::as_str) == Some(crate::approval::ASK)
+}
+
+/// Whether `agents allow|deny` may answer `child`: not a child that runs with
+/// policy `ask`, whose approvals a person gives in the Chief chat.
+pub fn cli_may_answer(child: &SessionSummary) -> Result<(), String> {
+    if asks(child) {
+        return Err(format!(
+            "{} needs approvals from a person: answer allow or deny in the Chief chat",
+            child.name
+        ));
+    }
+    Ok(())
+}
+
+/// `agents spawn` is retired: its children got no workspace and no chat tab.
+pub const SPAWN_RETIRED: &str = "chief agents spawn is retired: use chief spawn \"task\" [\"task\" ...] (a workspace and chat per subagent, one combined report); chief tell ID \"message\" steers one";
+
+/// The refusal for a retired `agents` verb in `words` (`agents VERB ...`).
+pub fn retired(words: &[String]) -> Option<&'static str> {
+    (words.get(1).map(String::as_str) == Some("spawn")).then_some(SPAWN_RETIRED)
+}
+
 /// Runs one `agents` verb; Ok carries what to print.
 pub fn run(flags: &Flags) -> Result<String, String> {
     let words = &flags.words[1..];
     let verb = words.first().map(String::as_str).unwrap_or("");
     let args = &words[words.len().min(1)..];
     match verb {
-        "spawn" => {
-            let name = flags.value("name").ok_or("spawn needs --name")?;
-            let cwd = flags.value("cwd").ok_or("spawn needs --cwd")?;
-            let task = args.join(" ");
-            if task.trim().is_empty() {
-                return Err(format!("spawn needs a task\n{USAGE}"));
-            }
-            let (client, notes) = connect()?;
-            let parent = parent();
-            let existing = spawn_target(&sessions(&client)?, name, &parent)?;
-            let id = match existing {
-                Some(id) => id,
-                None => new_session(&client, &child_spec(flags, name, cwd), None)?,
-            };
-            client
-                .request(
-                    "_acpmux/tag",
-                    json!({"sessionId": id, "set": {PARENT_TAG: parent}}),
-                )
-                .map_err(|e| format!("tag: {e}"))?;
-            prompt_accepted(&client, &notes, &id, &task)?;
-            client.close();
-            Ok(format!(
-                "started {name} ({id}) in {cwd}; its report comes back as a \"[{name}] ...\" message"
-            ))
-        }
+        "spawn" => Err(SPAWN_RETIRED.into()),
         "list" => {
             let (client, _) = connect()?;
             let rows: Vec<String> = mine(sessions(&client)?)
@@ -233,6 +239,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             let name = args.first().ok_or(USAGE)?;
             let (client, _) = connect()?;
             let target = child(&client, name)?;
+            cli_may_answer(&target)?;
             let info = client
                 .request("_acpmux/info", json!({"sessionId": target.session_id}))
                 .map_err(|e| e.to_string())?;

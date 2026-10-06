@@ -47,6 +47,10 @@ enum Fixture {
     /// outgoing blue lighter (red 0.5 x + 61, green 0.67 x + 57, blue 248),
     /// connectors 66. Set on the main thread; a change bumps `paletteGeneration`.
     static var inactive = false { didSet { if inactive != oldValue { paletteGeneration += 1 } } }
+    /// Light system appearance (the host sets it from its effective appearance).
+    /// Link cards follow it: Messages' light card is the light incoming grey
+    /// (#E9E9EB) with dark text. A change bumps `paletteGeneration`.
+    static var lightAppearance = false { didSet { if lightAppearance != oldValue { paletteGeneration += 1 } } }
     /// Bumped by a palette or a scale change: cached bitmaps are stale.
     static fileprivate(set) var paletteGeneration = 0
 

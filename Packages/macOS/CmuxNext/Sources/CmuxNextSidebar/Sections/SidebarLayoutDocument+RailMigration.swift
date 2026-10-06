@@ -4,8 +4,10 @@ import Foundation
 // sidebar's sections and changed the default layout; R52 (Lawrence,
 // 2026-10-03) removed the rail. A stored layout that still equals the
 // rail's default moves back to the sections default; a layout the user
-// changed in any way is theirs and never migrates. The sections default
-// before R53 (an inline bottom line) moves to the grid bottom row too.
+// changed in any way is theirs and never migrates. The sections defaults
+// before SIDEBAR-FOOTER-MINIMAL (an inline bottom line, then R53's grid
+// with the Settings label) move to the minimal footer too; for R53's grid
+// only the bottom section must be untouched.
 extension SidebarLayoutDocument {
     /// What an old exact default migrates to: the sections default of that
     /// time, which still held CodeRouter. A stored layout keeps its items;
@@ -16,31 +18,41 @@ extension SidebarLayoutDocument {
         return target
     }
 
-    /// The ops that move a layout equal to the rail default back to the
-    /// sections default, or none. The revision does not matter. They are
-    /// ordinary layout ops, so the owner applies and syncs them like any
-    /// edit, and Settings keeps its item id as it returns to the bottom line.
+    /// The ops that move a layout equal to an older default to the current
+    /// one, or none. The revision does not matter. They are ordinary layout
+    /// ops, so the owner applies and syncs them like any edit, and Settings
+    /// and the account keep their item ids.
     public nonisolated var sectionsMigrationOps: [SidebarLayoutOp] {
         let top = Self.topSectionID, bottom = Self.bottomSectionID
-        // The bottom row as a grid: Settings over 7 of 8 columns, the
-        // account over 1 (R53). Items are re-added to carry their span.
-        let gridBottom: [SidebarLayoutOp] = [
-            .sectionUpdate(bottom, SectionPatch(layout: .grid, columns: .set(8))),
+        // The minimal footer: the avatar, then the gear, icons only, on one
+        // leading line (SIDEBAR-FOOTER-MINIMAL). Items are re-added to drop
+        // a span and a label.
+        let minimalFooter: [SidebarLayoutOp] = [
+            .sectionUpdate(bottom, SectionPatch(layout: .inline, align: .leading, columns: .clear)),
             .itemRemove(LayoutItemID("itm_settings")),
             .itemRemove(LayoutItemID("itm_account")),
-            .itemAdd(LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), span: 7), section: bottom, index: 0),
-            .itemAdd(LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false, span: 1),
-                     section: bottom, index: 1),
+            .itemAdd(LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false), section: bottom, index: 0),
+            .itemAdd(LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false), section: bottom, index: 1),
         ]
-        if sections == Self.inlineBottomDefaults.sections { return gridBottom }
+        if sections == Self.inlineBottomDefaults.sections || section(bottom) == Self.gridBottomSection { return minimalFooter }
         guard sections == Self.railDefaults.sections else { return [] }
         return [
             .itemRemove(LayoutItemID("itm_history")),
             .itemRemove(LayoutItemID("itm_notifications")),
             .itemRemove(LayoutItemID("itm_customize")),
             .sectionUpdate(top, SectionPatch(maxRows: .clear)),
-        ] + gridBottom
+        ] + minimalFooter
     }
+
+    /// R53's bottom row (Settings with its label over 7 of 8 columns, the
+    /// account over the last), the default until SIDEBAR-FOOTER-MINIMAL,
+    /// only to recognize it.
+    public nonisolated static let gridBottomSection = LayoutSection(
+        id: bottomSectionID, region: .bottom, look: .builtIn,
+        arrangement: SectionArrangement(layout: .grid, align: .fill, columns: 8), items: [
+            LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), span: 7),
+            LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false, span: 1),
+        ])
 
     /// This layout with `sectionsMigrationOps` applied by the reducer; the
     /// layout itself when nothing migrates.

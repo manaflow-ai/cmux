@@ -116,6 +116,74 @@ final class TranscriptSelection {
 
     var isEmpty: Bool { anchor == nil || anchor == focus }
 
+    // MARK: Selected message (a click on a bubble)
+
+    /// Real Messages (macOS 27, click-incoming / click-outgoing / click-empty references): a
+    /// click on a bubble selects that message. Its bubble brightens (incoming 59 -> 98, white
+    /// at 20 %) or darkens (outgoing (72,147,247) -> (45,89,192), multiply), easing in over
+    /// 0.22 s from about 30 ms after the release (ours starts 10 ms after its mouse-up event,
+    /// fitted on click-incoming take 13); a click elsewhere (another bubble, the empty
+    /// transcript) or the second press of a double-click takes it off: ease-out 0.2 s.
+    /// The layer follows the row (refresh() runs on every scroll and layout).
+    let bubbleLayer = CAShapeLayer()
+    private(set) var selectedKey: String?
+    static let bubbleOnDelay: CFTimeInterval = 0.01, bubbleOnDuration: CFTimeInterval = 0.22
+    static let bubbleOffDuration: CFTimeInterval = 0.2
+
+    func selectBubble(_ key: String, outgoing: Bool) {
+        if selectedKey == key { return }
+        if selectedKey != nil { deselectBubble() }
+        selectedKey = key
+        let l = CAShapeLayer()
+        l.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
+        if outgoing {
+            // Messages multiplies by (159, 154, 198); a blend filter does not reach the rows from
+            // this layer host, so a normal-blended fill that gives the same result on both the
+            // blue (72,147,247 -> 45,91,192) and the white text (255 -> 158,158,197).
+            l.fillColor = NSColor(srgbRed: 0, green: 0, blue: 102 / 255, alpha: 0.38).cgColor
+        } else {
+            l.fillColor = NSColor(white: 1, alpha: 0.2).cgColor
+        }
+        bubbleLayer.addSublayer(l)
+        current = l
+        refresh()
+        fade(l, to: 1, delay: Self.bubbleOnDelay, duration: Self.bubbleOnDuration, timing: .easeInEaseOut)
+    }
+
+    func deselectBubble() {
+        guard selectedKey != nil, let l = current else { selectedKey = nil; return }
+        selectedKey = nil
+        current = nil
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { l.removeFromSuperlayer() }
+        fade(l, to: 0, delay: 0, duration: Self.bubbleOffDuration, timing: .easeOut)
+        CATransaction.commit()
+    }
+
+    private var current: CAShapeLayer?
+    private func fade(_ l: CAShapeLayer, to v: Float, delay: CFTimeInterval, duration: CFTimeInterval, timing: CAMediaTimingFunctionName) {
+        let a = CABasicAnimation(keyPath: "opacity")
+        a.fromValue = l.presentation()?.opacity ?? (v == 1 ? 0 : 1)
+        a.toValue = v
+        a.beginTime = CACurrentMediaTime() + delay
+        a.duration = duration
+        a.fillMode = .backwards
+        a.timingFunction = CAMediaTimingFunction(name: timing)
+        l.opacity = v
+        l.add(a, forKey: "select")
+    }
+
+    /// The selected bubble's outline on screen now (nil when its row is not on screen).
+    private func selectedBubblePath() -> CGPath? {
+        guard let key = selectedKey, let demo = controller.demo else { return nil }
+        for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
+            guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
+            let body = cell.convert(RowDraw.bodyRect(spec), to: demo)
+            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail).cgPath
+        }
+        return nil
+    }
+
     func mouseDown(_ p: CGPoint) {
         downPoint = p
         dragging = false
@@ -242,6 +310,7 @@ final class TranscriptSelection {
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         layer.path = path.isEmpty ? nil : path
+        if let l = current { l.path = selectedBubblePath() }
         CATransaction.commit()
     }
 }

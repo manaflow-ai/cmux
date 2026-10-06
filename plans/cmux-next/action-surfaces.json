@@ -5354,7 +5354,6 @@
       "default_shortcut" : {
         "key" : "=",
         "modifiers" : [
-          "ctrl",
           "cmd"
         ]
       },
@@ -5386,7 +5385,6 @@
       "default_shortcut" : {
         "key" : "-",
         "modifiers" : [
-          "ctrl",
           "cmd"
         ]
       },
@@ -5418,7 +5416,6 @@
       "default_shortcut" : {
         "key" : "0",
         "modifiers" : [
-          "ctrl",
           "cmd"
         ]
       },
@@ -6587,6 +6584,58 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "app show-pane",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.focus",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Pane",
+      "title_key" : "action.pane.focus",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "app show-screen",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "screen.focus",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.screen",
+        "order" : 103,
+        "title" : "Screens",
+        "title_key" : "category.screen",
+        "title_table" : "ScreenActions"
+      },
+      "title" : "Show Screen",
+      "title_key" : "action.screen.focus",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab clear-name",
       "context_menu" : "offered",
       "context_menus" : [
@@ -7568,6 +7617,136 @@
       },
       "title" : "Attach Files…",
       "title_key" : "action.home.attachFiles",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-new-message",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.newMessage",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Message…",
+      "title_key" : "action.home.newMessage",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home invite",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.invite",
+      "mcp" : "credentials",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Invite to cmux-next…",
+      "title_key" : "action.home.invite",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home new-chief",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.newChief",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Chief…",
+      "title_key" : "action.home.newChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home archive-chief",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.archiveChief",
+      "mcp" : "offered",
+      "palette" : "noTargetSurface",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Archive Chief",
+      "title_key" : "action.home.archiveChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action home-open-conversation",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.openConversation",
+      "mcp" : "focusMove",
+      "palette" : "focusMove",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Conversation",
+      "title_key" : "action.home.openConversation",
       "title_table" : "HomeActions"
     },
     {
@@ -16399,6 +16578,32 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-toggle-chief-settings",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.toggleChiefSettings",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Toggle Chief Settings",
+      "title_key" : "action.home.toggleChiefSettings",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "agent activity",
       "context_menu" : "noObject",
@@ -19444,6 +19649,102 @@
       },
       "title" : "Reset Interface Size",
       "title_key" : "action.appearance.interfaceSize.reset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "settings increase-interface-scale",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "appearance.uiScale.increase",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Increase Interface Scale",
+      "title_key" : "action.appearance.uiScale.increase",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "settings decrease-interface-scale",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "appearance.uiScale.decrease",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Decrease Interface Scale",
+      "title_key" : "action.appearance.uiScale.decrease",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "settings reset-interface-scale",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "appearance.uiScale.reset",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Reset Interface Scale",
+      "title_key" : "action.appearance.uiScale.reset",
       "title_table" : "ActionCatalog"
     },
     {
@@ -22567,8 +22868,8 @@
       "title_table" : "ServerActions"
     },
     {
-      "cli" : "ownerVerb",
-      "cli_name" : "action server-add-server",
+      "cli" : "offered",
+      "cli_name" : "servers add",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -22579,7 +22880,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "server.addServer",
-      "mcp" : "ownerVerb",
+      "mcp" : "credentials",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",

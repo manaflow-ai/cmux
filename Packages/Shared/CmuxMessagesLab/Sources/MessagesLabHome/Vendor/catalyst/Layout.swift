@@ -115,7 +115,18 @@ struct Metrics: Hashable {
     var rightEdge: CGFloat { Fixture.rightEdge + dx }
     var centerX: CGFloat { Fixture.centerX + dx / 2 }
     var receiptRight: CGFloat { Fixture.receiptRight + dx }
-    var maxTextWidth: CGFloat { (Fixture.maxTextWidth * width / Fixture.windowWidth * 10).rounded() / 10 }
+    /// Text column: 358.4 pt at the 628 pt window, then 0.654 pt per point of window width.
+    /// Measured on macOS 27 Messages at 434, 480, 520, 560 and 600 pt (lossless stills,
+    /// references/real-messages/recordings/stills/widths; line breaks bound it per width to
+    /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
+    /// the width (0.5707 W), wrapped later than Messages below 600 pt.
+    var maxTextWidth: CGFloat {
+        // cmux: a Home pane can be narrower than Messages' 434 pt window minimum (the
+        // pane layout has no per-content minimum): below 434 pt the column keeps its
+        // 434 pt share of the width (the rule alone reaches 0 pt at 80 pt).
+        guard width < 434 else { return ((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - width)) * 10).rounded() / 10 }
+        return (((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - 434)) * width / 434) * 10).rounded() / 10
+    }
     var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
     var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
 }
@@ -214,7 +225,7 @@ struct ThreadPreview: Hashable {
     static let textFont = UIFont.systemFont(ofSize: 10)
     var textLine: String {
         guard case let .text(t, _) = part else { return "" }
-        let one = t.replacingOccurrences(of: "\n", with: " ")
+        let one = String(t.prefix(80)).replacingOccurrences(of: "\n", with: " ")
         return one.count > 40 ? String(one.prefix(39)) + "…" : one
     }
     static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
@@ -224,7 +235,7 @@ struct ThreadPreview: Hashable {
         switch part {
         case let .link(url, title, site, _, _): return (title ?? site ?? url, site ?? url)
         case let .text(t, _):
-            let one = t.replacingOccurrences(of: "\n", with: " ")
+            let one = String(t.prefix(80)).replacingOccurrences(of: "\n", with: " ")
             return (String(one.prefix(28)), one.count > 28 ? String(one.dropFirst(28).prefix(30)) : "")
         case let .attachment(a): return (a.fileName, Format.bytes(a.byteSize))
         case let .location(_, _, title, _): return (title ?? Strings.location, "")
@@ -269,7 +280,8 @@ enum Sizing {
             let tl = TextLayout.make(t, runs: runs, maxWidth: maxTextWidth)
             let w = min(tl.width, maxTextWidth) + 2 * Fixture.bubblePadX
             return (CGSize(width: w, height: CGFloat(tl.lines.count) * Fixture.lineHeight + 2 * Fixture.bubblePadY), tl)
-        case let .link(_, title, _, image, _):
+        case let .link(_, title, site, image, _):
+            if Sizing.linkPending(title: title, site: site, image: image) { return (Sizing.linkPlaceholder, nil) }
             let (w, ih) = linkImageSize(image, maxWidth: m.maxLinkWidth)
             let lines = linkTitleLines(title ?? "", width: w)
             return (CGSize(width: w, height: ih + linkCaptionHeight(lines: lines.count)), nil)
@@ -280,8 +292,9 @@ enum Sizing {
                 var pw = CGFloat(a.width ?? 480), ph = CGFloat(a.height ?? 360)
                 // Never larger than the source pixels allow (resolution brief):
                 // a 354 px asset is at most 177 pt wide at 2x, whatever the metadata says.
-                if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
-                    let srcW = img.size.width * Images.assetScale
+                // Pixel size from metadata (MediaCache): no decode to size a row.
+                if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let px = Images.pixelSize(ref) {
+                    let srcW = px.width
                     if srcW < pw { ph = ph * srcW / pw; pw = srcW }
                 }
                 let w = min(max(mediaWidth, min(300, m.maxTextWidth + 2 * Fixture.bubblePadX)), pw / 2)
@@ -304,7 +317,19 @@ enum Sizing {
     }
 
     /// Link previews: the image at its 2x point size, width capped at 350.
+    /// A link whose metadata is still loading: Messages shows a grey rounded
+    /// square (137.5 x 103.5 pt, 15 pt corners, no tail; lossless take
+    /// link-url-and-text, t+0.6-1.9 s) until the card replaces it.
+    static let linkPlaceholder = CGSize(width: 137.5, height: 103.5)
+    static func linkPending(title: String?, site: String?, image: String?) -> Bool { title == nil && site == nil && image == nil }
+
     static func linkImageSize(_ image: String?, maxWidth: CGFloat = Fixture.maxLinkWidth) -> (CGFloat, CGFloat) {
+        // Raster previews are sized from metadata (no decode while rows are derived); an asset
+        // with a vector sibling keeps the drawn image's size.
+        if let image, !VectorAsset.hasSibling(image), let px = Images.pixelSize(image) {
+            let w = min(maxWidth, px.width / 2)
+            return (w, w * px.height / px.width)
+        }
         guard let image, let img = Images.load(image) else { return (min(266, maxWidth), 0) }
         let px = img.size.width * img.scale, py = img.size.height * img.scale
         let w = min(maxWidth, px / 2)
@@ -328,27 +353,21 @@ enum Images {
     /// Map snapshots are assets named `real/map-<lat>_<lon>.png` (no network).
     static let mapOverhang: CGFloat = 5
     static func mapSnapshot(_ lat: Double, _ lon: Double) -> UIImage? { load(String(format: "real/map-%.4f_%.4f.png", lat, lon)) }
-    private static var cache: [String: UIImage] = [:]
-    private static let lock = NSLock()
     /// Assets are 2x bitmaps (their point size is pixels / 2). An asset with
     /// a vector sibling (`name.svg`, see `VectorAsset`) is drawn from the
     /// vector at the current render scale instead, at the same point size.
-    /// Thread safe; decoded once per scale (prefetch warms it).
+    /// Thread safe; decoded once per scale into MediaCache (bounded by bytes;
+    /// sources above 2048 px are decoded downsampled).
     static func load(_ ref: String) -> UIImage? {
         let scale = Fixture.renderScale
         let key = ref + "@" + String(describing: scale)
-        lock.lock()
-        if let c = cache[key] { lock.unlock(); return c }
-        lock.unlock()
+        if let c = MediaCache.shared.cached(key) { return c }
         if let v = VectorAsset.image(for: ref, scale: scale) {
-            lock.lock(); cache[key] = v; lock.unlock()
+            MediaCache.shared.store(key, v)
             return v
         }
-        guard let data = try? Data(contentsOf: Fixtures.assetURL(ref)), let raw = UIImage(data: data),
-              let cg = raw.cgImage else { return nil }
-        let s = Images.assetScale
-        let img = UIImage(cgImage: cg, scale: s, orientation: .up).preparingForDisplay() ?? UIImage(cgImage: cg, scale: s, orientation: .up)
-        lock.lock(); cache[key] = img; lock.unlock()
+        guard let img = MediaCache.shared.decode(Fixtures.assetURL(ref), scale: Images.assetScale) else { return nil }
+        MediaCache.shared.store(key, img)
         return img
     }
 }
@@ -459,13 +478,36 @@ final class MeasureCache: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var hits = 0, misses = 0, estimates = 0
 
+    /// A part whose content changes in place is a new measurement: text a host
+    /// replaces under the same message id (an optimistic send, then the stored
+    /// message), a link preview's metadata (title, site, image), an
+    /// attachment's dimensions. The key used to be the message id and its edit
+    /// count only: the bubble kept the size of the first text while the row
+    /// drew the new one (cmux-next: a one-line bubble under a two-line text, the
+    /// second line outside it), and a card kept the domain card's size while
+    /// it drew the image (its text below the card).
+    static func partVersion(_ p: Part) -> Int {
+        var h = Hasher()
+        switch p {
+        case let .text(t, runs): h.combine(t); h.combine(runs.count); for r in runs { h.combine(r.start); h.combine(r.length); h.combine(r.style) }
+        case let .link(url, title, site, image, theme): h.combine(url); h.combine(title); h.combine(site); h.combine(image); h.combine(theme)
+        case let .attachment(a): h.combine(a.kind); h.combine(a.asset); h.combine(a.poster); h.combine(a.width); h.combine(a.height)
+        default: return 0
+        }
+        return h.finalize()
+    }
+
     static func version(_ m: Message) -> Int { ((m.edits?.count ?? 0) * 2 + (m.retractedAt == nil ? 0 : 1)) * 2 + (m.deletedAt == nil ? 0 : 1) }
 
     /// The part's size at `width`. With `estimate`, a miss does not run Core
     /// Text: it scales a measurement taken at another width (no text layout;
     /// the row is re-measured before it draws). Exact misses measure now.
     func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
-        let version = MeasureCache.version(m)
+        // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
+        if case let .text(t, _) = m.parts[pi], LongText.isLong(t) {
+            return Value(size: LongTextStore.shared.size(t, width: width, message: m.id), text: nil, width: width)
+        }
+        let version = MeasureCache.version(m) &+ MeasureCache.partVersion(m.parts[pi])
         let k = Key(id: m.id, part: pi, version: version, width: width)
         lock.lock()
         if let v = store[k] { hits += 1; lock.unlock(); return v }
@@ -542,7 +584,10 @@ enum RowBuilder {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
             }
         }
-        var prev: Message? = span.lowerBound > 0 ? messages[span.lowerBound - 1] : nil
+        // The message above the range: the nearest one that is not deleted.
+        var prevIndex = span.lowerBound - 1
+        while prevIndex >= 0, messages[prevIndex].deletedAt != nil { prevIndex -= 1 }
+        var prev: Message? = prevIndex >= 0 ? messages[prevIndex] : nil
         for idx in span {
             let m = messages[idx]
             if m.deletedAt != nil { continue }
@@ -661,12 +706,19 @@ enum RowBuilder {
     static func receiptTargets(_ messages: [Message], me: ID) -> [ID: (String, String)] {
         var lastRead: (Int, Message, String)?
         var lastDelivered: (Int, Message)?
-        for (i, m) in messages.enumerated() where m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
-            switch m.status {
-            case let .read(at): lastRead = (i, m, at)
-            case .delivered: lastDelivered = (i, m)
-            default: break
+        // From the newest message back to my newest read one (a delivered one older than it
+        // shows nothing): O(tail), not O(loaded window), per derive.
+        var i = messages.count - 1
+        scan: while i >= 0 {
+            let m = messages[i]
+            if m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
+                switch m.status {
+                case let .read(at): lastRead = (i, m, at); break scan
+                case .delivered: if lastDelivered == nil { lastDelivered = (i, m) }
+                default: break
+                }
             }
+            i -= 1
         }
         var out: [ID: (String, String)] = [:]
         if let r = lastRead { out[r.1.id] = (Strings.read, "\u{00A0}" + Format.time(Instant.parse(r.2))) }

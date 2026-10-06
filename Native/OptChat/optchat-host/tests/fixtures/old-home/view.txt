@@ -1,0 +1,42 @@
+<chat>
+0+1|sum 0+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite
+1+1|talk: line one 1 line two with "quotes" and a tab	here
+2+1|tool: unicode 2: café, 日本語, emoji 🚀, rtl עברית
+3+1|echo: Bash {"command":"rg -n needle3 src"}
+4+1|note: short message 4 about the deploy pipeline
+5+1|user: short message 5 about the deploy pipeline
+6+1|talk: short message 6 about the deploy pipeline
+7+1|sum 7+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; ite
+8+1|echo: line one 8 line two with "quotes" and a tab	here
+9+1|note: unicode 9: café, 日本語, emoji 🚀, rtl עברית
+10+1|user: Bash {"command":"rg -n needle10 src"}
+11+1|talk: short message 11 about the deploy pipeline
+12+1|tool: short message 12 about the deploy pipeline
+13+1|echo: short message 13 about the deploy pipeline
+14+1|sum 14+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; it
+15+1|user: line one 15 line two with "quotes" and a tab	here
+16+1|talk: unicode 16: café, 日本語, emoji 🚀, rtl עברית
+17+1|tool: Bash {"command":"rg -n needle17 src"}
+18+1|echo: short message 18 about the deploy pipeline
+19+1|note: short message 19 about the deploy pipeline
+20+1|user: short message 20 about the deploy pipeline
+21+1|sum 21+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; it
+22+1|tool: line one 22 line two with "quotes" and a tab	here
+23+1|echo: unicode 23: café, 日本語, emoji 🚀, rtl עברית
+24+1|note: Bash {"command":"rg -n needle24 src"}
+25+1|user: short message 25 about the deploy pipeline
+26+1|talk: short message 26 about the deploy pipeline
+27+1|tool: short message 27 about the deploy pipeline
+28+1|sum 28+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; it
+29+1|note: line one 29 line two with "quotes" and a tab	here
+30+1|user: unicode 30: café, 日本語, emoji 🚀, rtl עברית
+31+1|talk: Bash {"command":"rg -n needle31 src"}
+32+1|tool: short message 32 about the deploy pipeline
+33+1|echo: short message 33 about the deploy pipeline
+34+1|note: short message 34 about the deploy pipeline
+35+1|sum 35+1: item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; item; it
+36+1|talk: line one 36 line two with "quotes" and a tab	here
+37+1|tool: unicode 37: café, 日本語, emoji 🚀, rtl עברית
+38+1|echo: Bash {"command":"rg -n needle38 src"}
+39+1|note: short message 39 about the deploy pipeline
+</chat>

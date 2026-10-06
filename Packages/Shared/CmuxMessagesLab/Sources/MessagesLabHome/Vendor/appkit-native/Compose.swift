@@ -47,6 +47,106 @@ final class FieldTextView: NSTextView {
         super.keyDown(with: event)
     }
 
+    // MARK: Caret (UIKit's, as Messages draws it)
+
+    /// Messages' caret is UIKit's, not AppKit's insertion indicator (lossless references,
+    /// macOS 27): it shows at once when the field takes focus or the caret moves (AppKit's
+    /// fades in over 0.15 s), stays solid 0.55 s, then blinks with a 1.0 s period in four
+    /// steps of 25 % about 35 ms apart (out at +0.55, in at +0.89); it is 1 x 17 pt, 0.5 pt
+    /// left of and 1.25 pt below AppKit's 1 x 16 pt one. AppKit's blink has the same period,
+    /// so only the reset, the fade-in and the geometry differ; this layer replaces it.
+    let caretLayer = CALayer()
+    /// Off: AppKit's own indicator (`--appkit-caret`, and capture mode, which draws its own).
+    static let ownCaret = !ProcessInfo.processInfo.arguments.contains("--appkit-caret")
+    static let caretLog = ProcessInfo.processInfo.arguments.contains("--caret-log")
+    var caretSuspended = false { didSet { updateCaret(reset: false) } }
+
+    func installCaret() {
+        guard Self.ownCaret else { return }
+        insertionPointColor = .clear
+        caretLayer.backgroundColor = Fixture.caret.cgColor
+        caretLayer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "opacity": NSNull()]
+        caretLayer.isHidden = true
+        layer?.addSublayer(caretLayer)
+    }
+
+    /// Places the caret and, with `reset`, restarts its blink (solid first).
+    func updateCaret(reset: Bool = true) {
+        guard Self.ownCaret, let window else { caretLayer.isHidden = true; return }
+        if caretLayer.superlayer == nil, let l = layer { l.addSublayer(caretLayer) }
+        let sel = selectedRange()
+        let show = !caretSuspended && window.isKeyWindow && window.firstResponder === self && sel.length == 0
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard show else { caretLayer.isHidden = true; caretLayer.removeAllAnimations(); return }
+        let screen = firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
+        let r = convert(window.convertFromScreen(screen), from: nil)
+        caretLayer.frame = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: 1, height: 17)
+        if Self.caretLog { NSLog("caret line %@ in window %@ -> %@", NSStringFromRect(r), NSStringFromRect(convert(r, to: nil)), NSStringFromRect(convert(caretLayer.frame, to: nil))) }
+        let wasHidden = caretLayer.isHidden
+        caretLayer.isHidden = false
+        if reset || wasHidden || caretLayer.animation(forKey: "blink") == nil { startBlink() }
+    }
+
+    /// Caret geometry against the line rect AppKit reports (fitted on swipe-partial and
+    /// field-focus-type: Messages' caret 62.5-63.5 x 1007-1024 pt in the one-line field).
+    static let caretDX: CGFloat = -0.5, caretDY: CGFloat = -8.5 + 1.25
+
+    private func startBlink() {
+        caretLayer.removeAnimation(forKey: "blink")
+        caretLayer.opacity = 1
+        let a = CAKeyframeAnimation(keyPath: "opacity")
+        a.calculationMode = .discrete
+        // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
+        a.values = [0.75, 0.5, 0.25, 0, 0.25, 0.5, 0.75, 1, 1]
+        a.keyTimes = [0, 0.035, 0.07, 0.105, 0.34, 0.375, 0.41, 0.445, 1]
+        a.duration = 1.0
+        a.repeatCount = .infinity
+        // A solid lead-in of 0.55 s, then the repeating blink, in one group.
+        let solid = CABasicAnimation(keyPath: "opacity")
+        solid.fromValue = 1; solid.toValue = 1; solid.duration = 0.55
+        let g = CAAnimationGroup()
+        a.beginTime = 0.55
+        g.animations = [solid, a]
+        g.duration = .infinity
+        g.beginTime = CACurrentMediaTime()
+        g.isRemovedOnCompletion = false
+        caretLayer.add(g, forKey: "blink")
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        updateCaret()
+    }
+    override func didChangeText() {
+        super.didChangeText()
+        updateCaret()
+    }
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        DispatchQueue.main.async { [weak self] in self?.updateCaret() }
+        return ok
+    }
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
+        return ok
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        let nc = NotificationCenter.default
+        nc.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        nc.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        guard let window else { return }
+        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didBecomeKeyNotification, object: window)
+        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didResignKeyNotification, object: window)
+    }
+    @objc private func keyChanged() { updateCaret() }
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateCaret(reset: false)
+    }
+
     /// The pasteboard Paste reads (a check injects its own).
     var pasteboard: NSPasteboard = .general
 
@@ -98,7 +198,9 @@ final class ComposeView: UIView {
     private let tint = CALayer()
     private let rim = CALayer()
     static let rimFadeDepth = 0.45
-    private let chipsLayer = CALayer()
+    /// Attachments: images as the image, files as pills (shared, ComposeAttachments.swift).
+    let strip = ComposeAttachmentStrip()
+    private var chipsLayer: CALayer { strip.layer }
     /// Catalyst's plus UIButton's layer (empty; keeps the layer order).
     private let plusLayer = CALayer()
     /// Capture mode draws its own caret (the text view's blinks on its own timer).
@@ -114,7 +216,8 @@ final class ComposeView: UIView {
         didSet {
             caret.isHidden = !captureMode
             textSnapshot.isHidden = !captureMode
-            textView.view.insertionPointColor = captureMode ? .clear : Fixture.caret
+            textView.view.insertionPointColor = captureMode || FieldTextView.ownCaret ? .clear : Fixture.caret
+            textView.view.caretSuspended = captureMode
         }
     }
     var onRemoveChip: (ID) -> Void = { _ in }
@@ -124,6 +227,10 @@ final class ComposeView: UIView {
     }
     /// Field height changed in this transaction: (old, new, element, begin).
     var onFieldResize: ((CGFloat, CGFloat, SpringElement, CFTimeInterval) -> Void)?
+    /// The field changed height at once (attachments): the native glass follows without animation.
+    var onFieldJump: (() -> Void)?
+    /// The attachments changed (the host's hover tracking follows them).
+    var onAttachmentsChanged: (() -> Void)?
     /// The send's field opacity pulse (begin), for the live glass view.
     var onSendPulse: ((CFTimeInterval) -> Void)?
 
@@ -196,6 +303,7 @@ final class ComposeView: UIView {
         tv.font = ComposeView.font
         tv.textColor = Fixture.incomingText
         tv.insertionPointColor = Fixture.caret
+        tv.installCaret()
         tv.textContainer?.lineFragmentPadding = 0
         tv.textContainerInset = NSSize(width: 0, height: ComposeView.textTopInset)
         tv.isRichText = false
@@ -270,13 +378,13 @@ final class ComposeView: UIView {
     /// Text view frame (window coordinates) for a field height.
     private func textFrame(height h: CGFloat) -> CGRect {
         let f = rect(height: h)
-        let chipH: CGFloat = chips.isEmpty ? 0 : 30
+        let chipH: CGFloat = strip.height
         return CGRect(x: f.minX + 12, y: f.minY + chipH, width: f.width - 24 - (text.isEmpty ? 30 : 0), height: f.height - chipH)
     }
 
     private func place(height h: CGFloat) {
         let f = rect(height: h)
-        let chipH: CGFloat = chips.isEmpty ? 0 : 30
+        let chipH: CGFloat = strip.height
         CATransaction.begin(); CATransaction.setDisableActions(true)
         glass.bounds = CGRect(x: 0, y: 0, width: f.width, height: f.height)
         glass.position = CGPoint(x: f.midX, y: f.maxY)
@@ -284,7 +392,8 @@ final class ComposeView: UIView {
         tint.backgroundColor = Fixture.background.withAlphaComponent(0.2).cgColor
         placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
         waveLayer.frame = CGRect(x: f.maxX - 30, y: f.maxY - 30, width: 24, height: 30)
-        chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: 30)
+        chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
+        strip.update(chips, width: f.width, scale: DisplayScale.current)
         textSnapshot.frame = textFrame(height: h)
         CATransaction.commit()
         let tv = textFrame(height: h)
@@ -359,36 +468,24 @@ final class ComposeView: UIView {
     }
 
     private func renderChips() {
-        guard !chips.isEmpty else { chipsLayer.contents = nil; return }
-        let f = fieldRect
-        let fmt = UIGraphicsImageRendererFormat()
-        fmt.opaque = false
-        let list = chips
-        chipsLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: f.width, height: 30), format: fmt).image { ctx in
-            var x: CGFloat = 8
-            for a in list {
-                let font = NSFont.systemFont(ofSize: 11, weight: .medium)
-                let w = min(200, TextDraw.width(a.fileName, font: font) + 34)
-                let r = CGRect(x: x, y: 5, width: w, height: 22)
-                Fixture.chipFill.setFill()  // cmux: themed
-                UIBezierPath(roundedRect: r, cornerRadius: 11).fill()
-                TextDraw.line(a.fileName, font: font, color: Fixture.incomingText, x: r.minX + 10, baseline: r.minY + 15, in: ctx.cgContext)
-                TextDraw.line("\u{2715}", font: .systemFont(ofSize: 9, weight: .bold), color: Fixture.secondaryText, x: r.maxX - 16,
-                              baseline: r.minY + 15, in: ctx.cgContext)
-                x += w + 6
-            }
-        }.cgImage
-        chipsLayer.contentsScale = fmt.scale
+        strip.update(chips, width: ComposeView.fieldWidth(bounds.width), scale: DisplayScale.current)
     }
 
+    /// The attachment whose remove control is at p (window coordinates).
     func chip(at p: CGPoint) -> ID? {
-        var x = fieldRect.minX + 8
-        for a in chips {
-            let w = min(200, TextDraw.width(a.fileName, font: .systemFont(ofSize: 11, weight: .medium)) + 34)
-            if CGRect(x: x, y: fieldRect.minY + 5, width: w, height: 22).contains(p) { return a.id }
-            x += w + 6
-        }
-        return nil
+        let f = fieldRect
+        return strip.removeHit(CGPoint(x: p.x - f.minX, y: p.y - f.minY))
+    }
+
+    /// The field's glass is animating its height (tests).
+    var glassAnimating: Bool { (glass.animationKeys() ?? []).contains { $0.contains("bounds") } }
+    var glassKeys: [String] { glass.animationKeys() ?? [] }
+
+    /// Hover over the attachments (window coordinates; nil: outside): an image
+    /// shows its remove button.
+    func hoverAttachments(_ p: CGPoint?) {
+        let f = fieldRect
+        strip.hover(p.map { CGPoint(x: $0.x - f.minX, y: $0.y - f.minY) })
     }
 
     /// Mirror the draft and animate the field to its new height in this
@@ -406,17 +503,24 @@ final class ComposeView: UIView {
         }
         let newPlaceholder = state.ui.openThread != nil ? Strings.replyPlaceholder : Strings.placeholder
         if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
-        if d.attachments != chips { chips = d.attachments; renderChips() }
+        // Messages grows the field for an attachment at once (no in-between frame at
+        // 120 Hz, compose-attach-image paste take); typing still uses the growth spring.
+        let attachmentsChanged = d.attachments != chips
+        if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
         text = d.text
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        placeholderLayer.opacity = text.isEmpty ? 1 : 0
-        waveLayer.opacity = text.isEmpty ? 1 : 0
+        // With an attachment Messages shows neither the placeholder nor the audio glyph
+        // (compose-attach-image stills).
+        placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
+        waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
         CATransaction.commit()
-        let h = ComposeView.height(lines: lines(d.text), chips: !d.attachments.isEmpty)
+        let h = ComposeView.height(lines: lines(d.text), chips: false) + strip.height  // cmux: per view
         let old = fieldHeight
         fieldHeight = h
         place(height: h)
-        if h != old {
+        if h != old && attachmentsChanged && !send {
+            onFieldJump?()
+        } else if h != old {
             let e = send ? Springs.fieldTop : Springs.fieldGrow
             onFieldResize?(old, h, e, begin)
             Animate.scalar(glass, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin)
@@ -492,7 +596,7 @@ final class ComposeView: UIView {
         let row = CGFloat(max(0, tl.lines.count - 1))
         let last = text.isEmpty ? "" : (text.components(separatedBy: "\n").last ?? "")
         let cx = f.minX + 12 + TextDraw.width(last, font: ComposeView.font, kern: Fixture.bodyKern)
-        let base = f.minY + (chips.isEmpty ? 0 : 30) + ComposeView.firstBaseline
+        let base = f.minY + (strip.height) + ComposeView.firstBaseline
         CATransaction.begin(); CATransaction.setDisableActions(true)
         caret.frame = CGRect(x: cx.px, y: base - 12.5 + row * 16, width: 1, height: 16.5)
         caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor

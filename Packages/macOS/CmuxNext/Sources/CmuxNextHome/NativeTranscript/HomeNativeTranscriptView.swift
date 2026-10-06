@@ -43,7 +43,7 @@ public final class HomeNativeTranscriptView: NSView {
     public var isSendEnabled = true {
         didSet { transcript.isSendEnabled = isSendEnabled }
     }
-    /// A user-chosen sent-bubble colour; nil follows the theme.
+    /// A chosen sent-bubble colour (opt in); nil keeps iMessage blue on every theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
@@ -66,7 +66,7 @@ public final class HomeNativeTranscriptView: NSView {
         addSubview(transcript)
         addSubview(firstRun)
         noticeLabel.isHidden = true
-        noticeLabel.font = .systemFont(ofSize: 11)
+        noticeLabel.font = Typography.caption
         noticeLabel.alignment = .center
         noticeLabel.maximumNumberOfLines = 2
         noticeLabel.isSelectable = false
@@ -81,6 +81,7 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
+        followTextSize()
         applyTheme()
         updateFirstRun()
     }
@@ -103,12 +104,42 @@ public final class HomeNativeTranscriptView: NSView {
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
+    /// A click on the header's name pill (the Chief's settings sidebar).
+    public var onNamePill: () -> Void {
+        get { transcript.onNamePill }
+        set { transcript.onNamePill = newValue }
+    }
+
+    /// The header avatar's text; nil shows the conversation's initials.
+    public var avatarText: String? {
+        get { transcript.avatarText }
+        set { transcript.avatarText = newValue }
+    }
+
+    /// The name pill's VoiceOver help.
+    public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
+
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
 
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
+    }
+
+    /// The live interface scale applies to the native first-run chrome. The
+    /// MessagesLab transcript owns its own text and field metrics.
+    private func followTextSize() {
+        withObservationTracking {
+            applyTextScale(Typography.userScale)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followTextSize() }
+        }
+    }
+
+    func applyTextScale(_ scale: CGFloat) {
+        firstRun.applyScale(scale)
+        needsLayout = true
     }
 
     public override func layout() {
