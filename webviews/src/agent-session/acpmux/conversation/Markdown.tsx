@@ -4,31 +4,34 @@
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useMemo, useRef, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
-import { ArxivMark, Check, FileDoc, GitHubMark, Globe } from "./icons";
+import { ArxivMark, Check, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
-import { IncrementalMarkdown } from "./incrementalMarkdown";
+import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 
 export type Align = "left" | "center" | "right" | null;
 
 export type MdBlock =
-  | { type: "heading"; level: 1 | 2 | 3 | 4; text: string }
+  | { type: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
   | { type: "paragraph"; text: string }
   | { type: "hr" }
   | { type: "blockquote"; children: MdBlock[] }
   | { type: "list"; ordered: boolean; start: number; items: MdListItem[] }
   | { type: "table"; align: Align[]; header: string[]; rows: string[][] }
   | { type: "code"; lang: string; code: string }
-  | { type: "math"; tex: string };
+  | { type: "math"; tex: string }
+  /** `[^id]: text`, drawn in the notes under the reply (`Markdown`), not where it is written. */
+  | { type: "footnote"; id: string; text: string };
 
 export type MdListItem = { text: string; task?: boolean; checked?: boolean; children: MdBlock[] };
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 
 /** Parse the supported Markdown subset into blocks. */
 export function parseMarkdown(src: string): MdBlock[] {
@@ -60,9 +63,18 @@ function parseLines(lines: string[]): MdBlock[] {
       i = display.next;
       continue;
     }
-    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    const note = line.match(FOOTNOTE_DEF);
+    if (note) {
+      // Lines indented under the definition continue it.
+      const text = [note[2]!];
+      i++;
+      while (i < lines.length && /^\s{2,}\S/.test(lines[i]!)) text.push(lines[i++]!.trim());
+      out.push({ type: "footnote", id: note[1]!, text: text.join(" ").trim() });
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
     if (h) {
-      out.push({ type: "heading", level: h[1].length as 1 | 2 | 3 | 4, text: h[2] });
+      out.push({ type: "heading", level: h[1].length as 1 | 2 | 3 | 4 | 5 | 6, text: h[2] });
       i++;
       continue;
     }
@@ -111,7 +123,8 @@ function parseLines(lines: string[]): MdBlock[] {
     while (
       i < lines.length &&
       lines[i].trim() &&
-      !/^(#{1,4})\s/.test(lines[i]) &&
+      !/^(#{1,6})\s/.test(lines[i]) &&
+      !FOOTNOTE_DEF.test(lines[i]) &&
       !/^\s*```/.test(lines[i]) &&
       !/^\s*\$\$/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
@@ -203,7 +216,28 @@ function parseList(lines: string[], start: number): [MdBlock, number] {
 export type InlineOptions = {
   /** Icon drawn before a link's text; default `linkIcon` below. */
   linkIcon?: (href: string) => ReactNode | null;
+  /** The reply's footnotes: each id's number and the element id of its note. */
+  notes?: FootnoteNumbers;
 };
+
+export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: string) => string };
+
+/// Footnotes are numbered in the order the reply first refers to them, so a number never
+/// changes as the reply streams (a note's definition usually arrives last). Code is skipped, and
+/// so is a label shaped like a regex class (`[^a-z]`), which prose writes outside code too.
+export function footnoteOrder(source: string): string[] {
+  const prose = source.replace(/^\s*```[\s\S]*?(?:^\s*```|(?![\s\S]))/gm, "").replace(/(`+)[^`]*?\1/g, "");
+  const ids: string[] = [];
+  for (const match of prose.matchAll(/\[\^([\w-]+)\](?!:)/g)) {
+    const id = match[1]!;
+    if (!/^\w-\w$/.test(id) && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/// An image's source the pane can show: a data URL of a raster or SVG image. The pane's CSP
+/// loads no other image, so a web image draws as a link to it.
+const INLINE_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);/i;
 
 /**
  * A link is marked with its site: GitHub mark, the arXiv favicon (a citation), a file
@@ -224,12 +258,12 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
-// Groups: code, bold, strikethrough, italic, link, line break, `$$…$$` inside a paragraph,
+// Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a paragraph,
 // `$…$` (Pandoc's rule: no space inside either dollar and no digit after the closer, so
 // "$5 and $10" stays text; no backtick inside, so "$5 or `$PATH`" does too), and a backslash
-// escape (`\$`, `\*`) that draws its character.
+// escape (`\$`, `\*`) that draws its character, and a footnote reference (`[^id]`).
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[] {
@@ -248,6 +282,7 @@ export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[
     else if (m[2]) out.push(<strong key={k++}>{renderInline(t.slice(2, -2), opts)}</strong>);
     else if (m[3]) out.push(<del key={k++}>{renderInline(t.slice(2, -2), opts)}</del>);
     else if (m[4]) out.push(<em key={k++}>{renderInline(t.slice(1, -1), opts)}</em>);
+    else if (m[5]?.startsWith("!")) out.push(<InlineImage key={k++} source={t} opts={opts} />);
     else if (m[5]) {
       const lm = t.match(/^\[([^\]]+)\]\((.+)\)$/)!;
       const href = safeHref(lm[2]);
@@ -271,10 +306,51 @@ export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[
     else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);
     else if (m[8]) out.push(<MathInline key={k++} tex={t.slice(1, -1)} />);
     else if (m[9]) out.push(t.slice(1));
+    else if (m[10]) {
+      const id = t.slice(2, -1);
+      const number = opts.notes?.numbers.get(id);
+      if (!number || !opts.notes) out.push(t);
+      else {
+        const anchor = opts.notes.anchor(id);
+        out.push(
+          <sup key={k++} className="cv-fnref">
+            <button
+              type="button"
+              aria-describedby={anchor}
+              onClick={() => document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: "smooth" })}
+            >
+              {number}
+            </button>
+          </sup>,
+        );
+      }
+    }
     last = m.index! + t.length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+
+/// `![alt](src)`: a data URL image draws inline; a web image the pane cannot load draws as a link
+/// to it, named by its alt text or file name.
+function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
+  const [, alt = "", src = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+  if (INLINE_IMAGE.test(src)) return <img className="cv-img" src={src} alt={alt} />;
+  const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
+  const href = safeHref(src);
+  if (!href)
+    return (
+      <span className="cv-link is-image" title={src}>
+        <ImageIcon size={16} className="cv-link__icon" />
+        {renderInline(name, opts)}
+      </span>
+    );
+  return (
+    <a className="cv-link is-image" href={href} rel="noreferrer" title={src}>
+      <ImageIcon size={16} className="cv-link__icon" />
+      {renderInline(name, opts)}
+    </a>
+  );
 }
 
 /* ---------------- Blocks ---------------- */
@@ -302,8 +378,9 @@ function Block({
   const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
   switch (block.type) {
     case "heading": {
+      // h5 and h6 draw as h4, the smallest heading the column has.
       const H = `h${block.level}` as "h1";
-      return <H className={`cv-h cv-h${block.level}${motion}`}>{inline(block.text)}</H>;
+      return <H className={`cv-h cv-h${Math.min(block.level, 4)}${motion}`}>{inline(block.text)}</H>;
     }
     case "paragraph":
       return <p className={`cv-p${motion}`}>{inline(block.text)}</p>;
@@ -379,6 +456,14 @@ function Block({
       return <CodeBlock code={block.code} lang={block.lang} />;
     case "math":
       return <MathDisplay tex={block.tex} />;
+    case "footnote": {
+      const number = opts.notes?.numbers.get(block.id);
+      return (
+        <li id={opts.notes?.anchor(block.id)} className="cv-footnote" value={number}>
+          {inline(block.text)}
+        </li>
+      );
+    }
   }
 }
 
@@ -440,6 +525,10 @@ export type MarkdownProps = InlineOptions & {
   waiting?: boolean;
 };
 
+function noteRank(block: MdBlock, opts: InlineOptions): number {
+  return block.type === "footnote" ? (opts.notes?.numbers.get(block.id) ?? Number.MAX_SAFE_INTEGER) : 0;
+}
+
 /** Assistant-message Markdown. A growing source (a streaming reply) is parsed incrementally. */
 export function Markdown({
   children,
@@ -456,7 +545,15 @@ export function Markdown({
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
-  const opts = useMemo(() => ({ linkIcon }), [linkIcon]);
+  // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
+  // same object until a new reference arrives.
+  const noteIds = footnoteOrder(children).join(" ");
+  const notePrefix = useId();
+  const opts = useMemo<InlineOptions>(() => {
+    const ids = noteIds ? noteIds.split(" ") : [];
+    const numbers = new Map(ids.map((id, index) => [id, index + 1]));
+    return { linkIcon, notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` } };
+  }, [linkIcon, noteIds, notePrefix]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
@@ -467,24 +564,36 @@ export function Markdown({
       : undefined;
   // An odd number of fence lines: the last block is a fence still arriving.
   const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
+  const draw = (entry: KeyedBlock, index: number) => {
+    const live = !atMount.current!.has(entry.key);
+    const open = openFence && index === blocks.length - 1;
+    if (open) streamedFences.current.add(entry.key);
+    return (
+      <BlockView
+        key={entry.key}
+        block={entry.block}
+        opts={opts}
+        depth={0}
+        enter={streaming && live}
+        code={open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
+        tail={index === blocks.length - 1 ? freshTail : undefined}
+      />
+    );
+  };
+  // Footnote definitions draw as the reply's notes, under a rule, in reference order (an
+  // unreferenced note last).
+  const notes = blocks
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => entry.block.type === "footnote")
+    .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
   return (
     <div className={`cv-md selectable ${className}${streaming && waiting ? " is-waiting" : ""}`}>
-      {blocks.map((entry, index) => {
-        const live = !atMount.current!.has(entry.key);
-        const open = openFence && index === blocks.length - 1;
-        if (open) streamedFences.current.add(entry.key);
-        return (
-          <BlockView
-            key={entry.key}
-            block={entry.block}
-            opts={opts}
-            depth={0}
-            enter={streaming && live}
-            code={open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
-            tail={index === blocks.length - 1 ? freshTail : undefined}
-          />
-        );
-      })}
+      {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
+      {notes.length > 0 && (
+        <section className="cv-footnotes" role="doc-endnotes">
+          <ol>{notes.map(({ entry, index }) => draw(entry, index))}</ol>
+        </section>
+      )}
     </div>
   );
 }
