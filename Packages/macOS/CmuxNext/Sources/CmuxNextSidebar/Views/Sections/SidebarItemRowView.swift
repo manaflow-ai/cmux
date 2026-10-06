@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
@@ -255,6 +256,7 @@ final class SidebarItemRowView: NSView {
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
+        if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
         if let name = info.icon { return NSImage.icon(name, size: side) }
         let symbol = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
