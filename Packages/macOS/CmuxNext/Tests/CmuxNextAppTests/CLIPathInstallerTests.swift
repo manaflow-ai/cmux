@@ -66,9 +66,32 @@ struct CLIPathInstallerTests {
         try FileManager.default.createDirectory(at: box.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("old".utf8).write(to: box.destination)
         let outcome = try await box.installer().install()
-        #expect(outcome == .init(usedAdministratorPrivileges: false, destination: box.destination, source: box.source.standardizedFileURL))
+        #expect(outcome == .init(usedAdministratorPrivileges: false, destination: box.destination, source: box.source.standardizedFileURL,
+                                 replaced: .file))
         #expect(box.installer().isInstalled())
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: box.destination.path) == box.source.path)
+    }
+
+    /// Install never replaces another app's `cmux` silently: the outcome
+    /// names the link it replaced, and the sheet says so.
+    @Test func reportsTheLinkItReplaces() async throws {
+        let box = try Sandbox()
+        defer { box.cleanUp() }
+        try FileManager.default.createDirectory(at: box.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let other = "/Applications/cmux.app/Contents/Resources/bin/cmux"
+        try FileManager.default.createSymbolicLink(atPath: box.destination.path, withDestinationPath: other)
+        let outcome = try await box.installer().install()
+        #expect(outcome.replaced == .link(target: other))
+        let fresh = try await box.installer().install()
+        #expect(fresh.replaced == nil, "reinstalling over this app's own link replaces nothing")
+    }
+
+    @Test @MainActor func theSheetNamesWhatWasReplaced() {
+        let outcome = CLIPathInstaller.InstallOutcome(usedAdministratorPrivileges: false, destination: URL(fileURLWithPath: "/usr/local/bin/cmux"),
+                                                      source: URL(fileURLWithPath: "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux"),
+                                                      replaced: .link(target: "/Applications/cmux.app/Contents/Resources/bin/cmux"))
+        #expect(CLIInstallStrings.body(outcome).hasSuffix(
+            "It replaced the previous link to /Applications/cmux.app/Contents/Resources/bin/cmux."))
     }
 
     @Test func createsTheBinFolderWhenMissing() async throws {

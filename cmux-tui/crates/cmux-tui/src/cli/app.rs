@@ -27,6 +27,7 @@ mod call;
 mod keybinding;
 mod run;
 mod settings;
+mod skew;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
