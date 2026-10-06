@@ -27,7 +27,7 @@ extension AppActions {
                 return
             }
             guard let address = ContactAddress.parse(text), address.isEmail else {
-                registry.refuse(HomeConversationStrings.outcome(.invalidAddress(text)) ?? text)
+                registry.refuse(HomeComposeOutcome.invalidAddress(text).message ?? text)
                 return
             }
             runHome(services) { await services.home.invite(address) }
@@ -89,7 +89,7 @@ extension AppActions {
             let outcome = await body()
             switch outcome {
             case .opened, .invited: return nil
-            default: return ActionWorkFailure(refusal: .unavailable, reason: HomeConversationStrings.outcome(outcome) ?? "")
+            default: return ActionWorkFailure(refusal: .unavailable, reason: outcome.message ?? "")
             }
         }
         services.registry.track(work)

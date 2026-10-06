@@ -66,7 +66,7 @@ struct HomeComposer {
             case "not_reachable": return .notReachable(naming)
             case "home.rate_limited": return .rateLimited
             case "invalid_invite": return .invalidAddress(naming)
-            default: return .refused(HomeConversationStrings.inviteRefusal(reason))
+            default: return .refusal(code: reason)
             }
         }
     }

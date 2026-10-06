@@ -46,19 +46,19 @@ import Testing
     }
 
     @Test func chiefsComeFirstThenPinnedThenMessagesByRecencyThenInvited() {
-        let sections = HomeConversationList.sections(Self.rows)
+        let sections = Self.rows.homeSections
         #expect(sections.map(\.kind) == [.chiefs, .pinned, .messages, .invited])
         #expect(sections[0].rows.map(\.id.rawValue) == ["conv_sub", "conv_chief"])
         #expect(sections[1].rows.map(\.id.rawValue) == ["conv_pinned"])
         #expect(sections[2].rows.map(\.id.rawValue) == ["conv_austin", "conv_group"])
         #expect(sections[3].rows.map(\.id.rawValue) == ["conv_invited"])
-        #expect(HomeConversationList.pendingInvites(Self.rows).map(\.contact) == ["lee@example.com"])
+        #expect(Self.rows.pendingInvites.map(\.contact) == ["lee@example.com"])
     }
 
     /// Chiefs are optional: someone with only DMs sees no Chiefs section.
     @Test func withoutChiefsThereIsNoChiefsSection() {
         let rows = [Self.row("conv_austin", with: [Self.person("user_austin", "Austin")], at: 1)]
-        #expect(HomeConversationList.sections(rows).map(\.kind) == [.messages])
+        #expect(rows.homeSections.map(\.kind) == [.messages])
     }
 
     @Test func connectionsAreTheActivePeopleOfMyDMs() {

@@ -40,7 +40,7 @@ extension HomeService {
         } catch FeedServiceError.signedOut {
             return .offline
         } catch FeedServiceError.owner(let code, let message) {
-            return .refused(code == "policy.denied" || code == "validation.invalid" ? message : HomeConversationStrings.inviteRefusal(code))
+            return code == "policy.denied" || code == "validation.invalid" ? .refused(message) : .refusal(code: code)
         } catch {
             return .refused("")
         }

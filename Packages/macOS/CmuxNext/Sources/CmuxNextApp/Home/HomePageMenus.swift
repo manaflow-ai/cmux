@@ -10,7 +10,7 @@ enum HomePageMenus {
     /// Archive Chief for one of my cloud Chiefs that is not the default.
     static func chiefMenu(chief: String, registry: ActionRegistry) -> NSMenu {
         let menu = NSMenu()
-        let item = HomeMenuTarget.item(title: HomeConversationStrings.archiveChief, symbol: "archivebox") {
+        let item = HomeMenuTarget.item(title: NSMenuItem.homeArchiveChiefTitle, symbol: "archivebox") {
             _ = registry.perform("home.archiveChief", invocation: ActionInvocation(arguments: ["chief": .string(chief)], origin: .user))
         }
         menu.addItem(item)

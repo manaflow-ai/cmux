@@ -2752,6 +2752,138 @@
           }
         }
       }
+    },
+    "home.chief.mergeBlocked": {
+      "comment": "Home notice while older cmux DEV builds still run their own Chief, so its history cannot be merged yet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit older cmux DEV builds to merge Chief history"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أغلق إصدارات cmux DEV الأقدم لدمج سجل Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatvorite starije cmux DEV verzije da spojite historiju Chiefa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut ældre cmux DEV-builds for at samle Chief-historikken"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beende ältere cmux-DEV-Builds, um den Chief-Verlauf zusammenzuführen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cierra las compilaciones antiguas de cmux DEV para unir el historial de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quittez les anciennes versions cmux DEV pour fusionner l’historique de Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiudi le build cmux DEV meno recenti per unire la cronologia di Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の履歴を統合するには、古い cmux DEV ビルドを終了してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទកំណែ cmux DEV ចាស់ៗ ដើម្បីបញ្ចូលប្រវត្តិ Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 기록을 병합하려면 이전 cmux DEV 빌드를 종료하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt eldre cmux DEV-bygg for å slå sammen Chief-historikken"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij starsze kompilacje cmux DEV, aby scalić historię Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Feche as builds antigas do cmux DEV para mesclar o histórico do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закройте старые сборки cmux DEV, чтобы объединить историю Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด cmux DEV รุ่นเก่าเพื่อรวมประวัติของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief geçmişini birleştirmek için eski cmux DEV derlemelerini kapatın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрийте старі збірки cmux DEV, щоб об’єднати історію Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thoát các bản dựng cmux DEV cũ để hợp nhất lịch sử Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "退出旧版 cmux DEV 构建以合并 Chief 历史记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "結束舊版 cmux DEV 組建以合併 Chief 歷史紀錄"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

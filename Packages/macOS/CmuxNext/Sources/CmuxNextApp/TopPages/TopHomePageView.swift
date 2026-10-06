@@ -118,15 +118,16 @@ final class TopHomePageView: NSView {
         }
     }
 
-    /// The Chief's conversation (the chief placed on a server, else the
-    /// local one: `HomeChiefSource`), else the first listed conversation.
+    /// The Chief's conversation (the chief placed on a server takes over a
+    /// local one without history: `HomeChiefSource`), else the first listed conversation.
     private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
         if let chief = Self.chief(home) { return ConversationID(chief) }
-        return HomeConversationList.lines(rows).lazy.compactMap(\.conversation).first
+        return rows.homeLines.lazy.compactMap(\.conversation).first
     }
 
     static func chief(_ home: HomeService) -> String? {
-        HomeChiefSource.choose(local: HomeChiefName.select(from: home.conversations)?.id, placed: home.cloudChief)
+        let local = HomeChiefName.select(from: home.conversations)
+        return HomeChiefSource.choose(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, placed: home.cloudChief)
     }
 
     /// Shows `id` in the transcript column and selects it in the list.
@@ -166,7 +167,7 @@ final class TopHomePageView: NSView {
     func presentInvite(prefill: String) {
         guard let services else { return }
         let home = services.home
-        let pending = HomeConversationList.pendingInvites(home.homeStore.rows).map(\.contact)
+        let pending = home.homeStore.rows.pendingInvites.map(\.contact)
         let sheet = HomeInviteSheet(prefill: prefill, pending: pending)
         sheet.onSend = { address in await home.invite(address) }
         present(sheet)

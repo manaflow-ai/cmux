@@ -1,21 +1,22 @@
+public import AppKit
 public import CmuxHomeCore
 import Foundation
 
 /// The strings of the Home page's conversation list and its sheets
 /// (Localizable.xcstrings, keys `home.list.*`, `home.compose.*`,
 /// `home.invite.*`, `home.chief.new.*`).
-public enum HomeConversationStrings {
-    public static var listTitle: String { String(localized: "home.list.title", defaultValue: "Conversations", bundle: .module) }
+enum HomeConversationStrings {
+    static var listTitle: String { String(localized: "home.list.title", defaultValue: "Conversations", bundle: .module) }
     static var newMenu: String { String(localized: "home.list.new", defaultValue: "New", bundle: .module) }
-    public static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
-    public static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
-    public static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
-    public static var archiveChief: String { String(localized: "home.list.archiveChief", defaultValue: "Archive Chief", bundle: .module) }
+    static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
+    static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
+    static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
+    static var archiveChief: String { String(localized: "home.list.archiveChief", defaultValue: "Archive Chief", bundle: .module) }
     static var empty: String {
         String(localized: "home.list.empty", defaultValue: "No conversations yet. Start one with New Message.", bundle: .module)
     }
 
-    static func header(_ kind: HomeConversationList.SectionKind) -> String {
+    static func header(_ kind: HomeConversationSectionKind) -> String {
         switch kind {
         case .chiefs: String(localized: "home.list.section.chiefs", defaultValue: "Chiefs", bundle: .module)
         case .pinned: String(localized: "home.list.section.pinned", defaultValue: "Pinned", bundle: .module)
@@ -83,7 +84,7 @@ public enum HomeConversationStrings {
     // MARK: Outcomes
 
     /// What the sheet says after a start or an invite; nil when it closes.
-    public static func outcome(_ outcome: HomeComposeOutcome) -> String? {
+    static func outcome(_ outcome: HomeComposeOutcome) -> String? {
         switch outcome {
         case .opened: nil
         case .invited: String(localized: "home.outcome.invited", defaultValue: "Invite sent.", bundle: .module)
@@ -110,7 +111,7 @@ public enum HomeConversationStrings {
     }
 
     /// A refused invite's reason as the user reads it (the owner's codes).
-    public static func inviteRefusal(_ code: String) -> String {
+    static func inviteRefusal(_ code: String) -> String {
         switch code {
         case "invite.blocked", "invite.recipient_limited":
             String(localized: "home.outcome.inviteBlocked", defaultValue: "This address can’t be invited right now.", bundle: .module)
@@ -123,4 +124,17 @@ public enum HomeConversationStrings {
         default: code
         }
     }
+}
+
+extension HomeComposeOutcome {
+    /// What the sheet (or a refused action) says for this outcome; nil when it closes.
+    public var message: String? { HomeConversationStrings.outcome(self) }
+
+    /// An invite or op the owner refused with `code`, as the user reads it.
+    public static func refusal(code: String) -> HomeComposeOutcome { .refused(HomeConversationStrings.inviteRefusal(code)) }
+}
+
+extension NSMenuItem {
+    /// The list row menu's Archive Chief title.
+    public static var homeArchiveChiefTitle: String { HomeConversationStrings.archiveChief }
 }

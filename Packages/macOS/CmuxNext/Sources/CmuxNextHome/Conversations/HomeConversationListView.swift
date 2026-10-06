@@ -15,7 +15,7 @@ public final class HomeConversationListView: NSView {
     /// The row's right-click menu (Archive Chief), or nil for none.
     public var contextMenu: (InboxRow) -> NSMenu? = { _ in nil }
 
-    public private(set) var lines: [HomeConversationList.Line] = []
+    public private(set) var lines: [HomeConversationLine] = []
     public private(set) var selection: ConversationID?
     private var me: ParticipantID?
 
@@ -77,7 +77,7 @@ public final class HomeConversationListView: NSView {
     /// Shows `rows` (inbox order) and keeps the selection when its row stays.
     public func update(rows: [InboxRow], me: ParticipantID?) {
         self.me = me
-        let next = HomeConversationList.lines(rows)
+        let next = rows.homeLines
         guard next != lines else { return }
         lines = next
         table.reloadData()
@@ -218,9 +218,11 @@ final class HomeConversationTableView: NSTableView {
 
     func step(_ offset: Int) {
         guard let delegate = delegate as? HomeConversationListView else { return }
-        var index = selectedRow < 0 ? (offset > 0 ? -1 : numberOfRows) : selectedRow
-        repeat { index += offset } while index >= 0 && index < numberOfRows && delegate.lines[index].conversation == nil
-        guard index >= 0, index < numberOfRows else { return }
+        let start = selectedRow < 0 ? (offset > 0 ? -1 : numberOfRows) : selectedRow
+        // The next conversation row in the direction of `offset` (headers skipped).
+        let candidates = offset > 0 ? Array(stride(from: start + 1, to: numberOfRows, by: 1))
+                                    : Array(stride(from: start - 1, through: 0, by: -1))
+        guard let index = candidates.first(where: { delegate.lines[$0].conversation != nil }) else { return }
         selectRowIndexes([index], byExtendingSelection: false)
         scrollRowToVisible(index)
     }

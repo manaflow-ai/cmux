@@ -152,7 +152,7 @@ final class HomeConversationHeaderView: NSTableCellView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    func show(_ kind: HomeConversationList.SectionKind) {
+    func show(_ kind: HomeConversationSectionKind) {
         label.stringValue = HomeConversationStrings.header(kind)
         setAccessibilityLabel(label.stringValue)
         performWithTheme {

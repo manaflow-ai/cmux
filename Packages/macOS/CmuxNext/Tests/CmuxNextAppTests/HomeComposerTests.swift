@@ -58,7 +58,7 @@ import Testing
         recorder.answer = { _ in throw HomeRejection.ownerUnreachable }
         #expect(await recorder.composer.start([.contact(Self.austin)], title: "") == .offline)
         recorder.answer = { _ in throw HomeRejection.invalid("invite.rate_limited") }
-        #expect(await recorder.composer.invite(.email("lee@example.com")) == .refused(HomeConversationStrings.inviteRefusal("invite.rate_limited")))
+        #expect(await recorder.composer.invite(.email("lee@example.com")) == .refusal(code: "invite.rate_limited"))
     }
 
     @Test func anInviteIsADMInviteToTheAddress() async {
