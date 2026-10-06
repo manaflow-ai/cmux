@@ -68,8 +68,8 @@ import Testing
         #expect(groups[0].color != .grey)
         #expect(h.list.inlineRename.session?.key == .group(groups[0].id), "the new group renames in place")
         let field = try #require(h.list.inlineRename.session?.field)
-        let header = try h.frame(.group(groups[0].id))
-        #expect(abs(field.frame.midY - header.midY) < 1, "the rename field sits on the header's settled frame")
+        let header = try h.frame(.group(groups[0].id)), title = try #require(h.list.rowViews[.group(groups[0].id)]).titleFrame
+        #expect(abs(field.frame.midY - (header.minY + title.midY)) < 1, "the rename field sits on the header's settled title")
 
         h.list.inlineRename.end(commit: false)
         h.window.undoManager?.undo()
@@ -102,7 +102,7 @@ import Testing
         defer { h.window.close() }
         try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.5)
         let x = try h.frame(.workspace(id("x")))
-        h.move(to: x.minY + x.height * 0.8)
+        h.move(to: x.minY + x.height * 0.73)
         #expect(h.list.drag?.target == .ontoWorkspace(id("x")), "past the band's edge, still grouping")
         h.list.cancelDrag()
         #expect(h.groups(cloudSection).isEmpty, "Esc groups nothing")

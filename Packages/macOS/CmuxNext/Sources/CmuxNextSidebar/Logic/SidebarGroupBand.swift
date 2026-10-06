@@ -16,7 +16,8 @@ nonisolated struct SidebarGroupBand: Sendable {
 
     /// The onto band; empty when grouping on drop is off.
     static var zone: ClosedRange<CGFloat> { DropResolver.ontoBand.start...max(DropResolver.ontoBand.start, DropResolver.ontoBand.end) }
-    static var holdZone: ClosedRange<CGFloat> { (zone.lowerBound - 0.15)...(zone.upperBound + 0.15) }
+    /// A sliver wide, so the centre band's reorder zones keep their size (spec 1780d02).
+    static var holdZone: ClosedRange<CGFloat> { (zone.lowerBound - 0.05)...(zone.upperBound + 0.05) }
 
     /// The row the band has grouped with, if any.
     private(set) var armed: WorkspaceID?

@@ -33,9 +33,9 @@ import Testing
         let a = id("a")
         #expect(band.update(.init(anchor: a, fraction: 0.1)) == nil)
         #expect(band.update(.init(anchor: a, fraction: 0.5)) == a, "no dwell")
-        #expect(band.update(.init(anchor: a, fraction: 0.8)) == a, "sticky past the band's edge")
-        #expect(band.update(.init(anchor: a, fraction: 0.9)) == nil)
-        #expect(band.update(.init(anchor: a, fraction: 0.8)) == nil, "not sticky until entered again")
+        #expect(band.update(.init(anchor: a, fraction: 0.73)) == a, "sticky past the band's edge")
+        #expect(band.update(.init(anchor: a, fraction: 0.8)) == nil)
+        #expect(band.update(.init(anchor: a, fraction: 0.73)) == nil, "not sticky until entered again")
     }
 
     @Test func anotherRowStartsOver() {
