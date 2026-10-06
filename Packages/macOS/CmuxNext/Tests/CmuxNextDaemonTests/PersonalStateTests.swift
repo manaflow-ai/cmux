@@ -36,6 +36,21 @@ import Testing
         #expect(state.workspaces.first?.group == "grp_1")
     }
 
+    /// `personal-mixed-order-v1`: a group's place among the loose rows.
+    @Test func aGroupsTopIndexDecodesAndIsNilWhenAbsent() throws {
+        let json = """
+        {"personal_revision":1,
+         "groups":[{"id":"grp_1","profile":"default","name":"G","color":null,"collapsed":false,"index":0,"top_index":1},
+                   {"id":"grp_2","profile":"default","name":"H","color":null,"collapsed":false,"index":1,"top_index":null},
+                   {"id":"grp_3","profile":"default","name":"K","color":null,"collapsed":false,"index":2}]}
+        """
+        let state = try WireCoding.decoder().decode(PersonalState.self, from: Data(json.utf8))
+        try #require(state.groups.count == 3)
+        #expect(state.groups[0].topIndex == 1)
+        #expect(state.groups[1].topIndex == nil)
+        #expect(state.groups[2].topIndex == nil)
+    }
+
     @Test func requestsUseSnakeCaseAndNullClears() throws {
         let follows = try object(SetProfileFollowsRequest(profile: "prof_a", sessionIDs: ["s1"]))
         #expect(follows["session_ids"] == .array([.string("s1")]))
