@@ -126,6 +126,39 @@ import Testing
         #expect(await rig.cwd(inProject) == project)
     }
 
+    /// nxdog62 (2d88394fdea2): New Agent Chat (palette.newAgentChat, Cmd-I) from a terminal at
+    /// `~` in a workspace with no other folder started Claude Code in `~`. The chat's seed is the
+    /// terminal's cwd, and that terminal also makes `~` a workspace root. Neither is a chat folder
+    /// or a root: the page gets no cwd and the offer to choose one, and the chat starts in
+    /// agent-home. The same for a terminal at `/`.
+    @Test func aNewChatFromATerminalAtTheHomeFolderStartsInAgentHomeNeverTheHomeFolder() async throws {
+        for terminal in ["home", "/"] {
+            let rig = AgentPaneProductRulesTests.Rig()
+            try await rig.start()
+            defer { rig.server.stop() }
+            let userHome = rig.folder("home")
+            let folder = terminal == "/" ? "/" : userHome
+            // What `agentSeedFromSelectedTab` gives: the selected terminal's cwd, no New Tab page.
+            let model = AgentPaneModel(host: MockAgentPaneHost(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: folder)),
+                                       transport: rig.transport)
+            rig.transport.homeFolder = userHome
+            let home = AgentHome(base: rig.folder("support") + "/cmux/agent-home")
+            model.workspaceRoots = { [folder] }
+            model.workspaceAgentHome = { AgentHomeFill(home: home, workspace: "ws-terminal") }
+            model.onChooseFolder = { .cancelled }
+            let handshake = await model.respond(to: .ready)["value"] as? [String: Any]
+            #expect(handshake?["cwd"] == nil, "the page got \(folder) as the chat folder")
+            #expect(handshake?["chooseFolder"] as? Bool == true)
+            #expect(model.transport.primaryRoot() == nil)
+            // The page's first chat (no cwd): agent-home, never the terminal's folder.
+            let chat = await rig.send("session/new", ["mcpServers": [Any]()])
+            #expect(await rig.cwd(chat) == home.base + "/ws-terminal")
+            // A page that names the folder itself is refused: it is no root.
+            await rig.send("session/new", ["cwd": folder, "mcpServers": [Any]()], expect: .pathOutsideRoots)
+            await rig.send("session/new", ["cwd": "/", "mcpServers": [Any]()], expect: .pathOutsideRoots)
+        }
+    }
+
     @Test func theModelGivesItsTransportTheWorkspaceAgentHome() throws {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         let home = AgentHome(base: try base())
