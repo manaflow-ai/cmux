@@ -2385,7 +2385,6 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-quick-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 10px 6px;color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
 .acpmux-quick-key{display:inline-flex;align-items:center}
 .acpmux-quick-key .acpmux-keycap{margin-right:4px}
-.acpmux-copy-link{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:pointer}.acpmux-copy-link:hover{background:color-mix(in srgb,currentColor 8%,transparent)}.acpmux-copy-link:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}.acpmux-copy-link:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-copy-link{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 .acpmux-link-missing{margin:8px 24px;color:var(--agent-text);font-size:12px}
 .acpmux-turn-revealed{background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 10%,transparent)}@media (prefers-reduced-motion:no-preference){.acpmux-turn-revealed{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
@@ -4439,6 +4438,36 @@ fieldset.acpmux-permission-card {
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 .acpmux-summary-empty{margin:0;padding:10px 8px;color:var(--agent-muted);font-size:12px;line-height:16px}
+/* The chat header's tools (header/ChatHeaderTools.tsx): 26px small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface. */
+.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
+.acpmux-header-tool,.acpmux-header-changes{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-header-tool{width:26px}
+.acpmux-header-changes{gap:6px;margin-right:4px;padding:0 8px;font-size:12px;font-variant-numeric:tabular-nums;box-shadow:inset 0 0 0 .5px var(--agent-border)}
+.acpmux-header-changes .acpmux-diff-counts{display:inline-flex;gap:4px}
+.acpmux-header-changes:disabled,.acpmux-header-tool:disabled{color:var(--agent-muted)}
+.acpmux-header-changes:disabled .acpmux-diff-counts{opacity:.6}
+.acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open],.acpmux-header-changes:not(:disabled):hover,.acpmux-header-changes[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-header-tool:not(:disabled):active,.acpmux-header-changes:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
+.acpmux-header-tool:focus-visible,.acpmux-header-changes:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:4px;box-sizing:border-box;border:0;border-radius:10px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;-webkit-user-select:none;user-select:none;cursor:default;outline:none}
+.ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:28px;height:28px;padding:0 8px;box-sizing:border-box;border-radius:6px;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
+.ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
+.ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
+.acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font:12px/18px -apple-system,BlinkMacSystemFont,sans-serif}
+.ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
+/* The agent pane does not load src/ui/ui.css, so the menu carries the primitive's stacking and submenu chevron. */
+.ui-positioner:has(>.acpmux-chat-menu-popover){z-index:50;outline:none}
+.acpmux-chat-menu-popover .ui-submenu-chevron{flex:none;margin-inline-start:auto;width:6px;height:6px;border-block-start:1.5px solid currentColor;border-inline-end:1.5px solid currentColor;transform:rotate(45deg);opacity:.6}
+.acpmux-chat-menu-popover .ui-submenu-chevron:dir(rtl){transform:rotate(-45deg)}
+/* Changes beside the transcript once the pane is wide enough for both, as in the Codex app; narrower, it covers the transcript. */
+.acpmux-stage{container-type:inline-size}
+@container (min-width:1160px){
+  .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:visible}
+  .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:56%}
+  .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
+}
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat, no accent color. */
 .nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(48px,18vh,180px) max(16px,calc((100% - 720px)/2)) 32px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 .nt-screen>*{width:100%}
