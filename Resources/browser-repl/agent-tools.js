@@ -490,7 +490,10 @@
     };
     const collapse = (s) => s.replace(/[\s ]+/g, " ");
     const esc = (s) => s.replace(/([\\`*_[\]])/g, "\\$1");
+    // A URL longer than the budget has left (with the base it resolves
+    // against) is not resolved: text() charges and cuts it as written.
     const absURL = (v) => {
+      if (v.length + document.baseURI.length > B.sizeLeft) return v;
       try {
         return new URL(v, document.baseURI).href;
       } catch (e) {

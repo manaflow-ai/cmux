@@ -776,32 +776,30 @@
   // value after the reply leaves the page, so a summary made here (or any
   // cut) could hand on part of a value.
   const siteOf = (host) => host.replace(/^www\./, "").split(".").slice(-2).join(".");
-  function isOffsite(el) {
-    const href = el.href;
-    if (!href || typeof href !== "string") return false;
-    let url;
-    try {
-      url = new global.URL(href);
-    } catch {
-      return false;
-    }
-    if (!/^https?:$/.test(url.protocol) || !global.location.hostname) return false;
-    return siteOf(url.hostname) !== siteOf(global.location.hostname);
-  }
+  const isOffsite = (url) => /^https?:$/.test(url.protocol) && !!global.location.hostname && siteOf(url.hostname) !== siteOf(global.location.hostname);
 
   // A link's URL, whole (snapshot.js drops an on-site link's origin and
-  // caps it after masking), and whether it is on the page's own origin.
-  function displayUrl(el) {
+  // caps it after masking), whether it is on the page's own origin, and
+  // whether it goes to another site. The caller charges `href` to the
+  // snapshot's size budget (fit), so a URL longer than the budget has left
+  // is never resolved or parsed: its attribute, then its resolved form, is
+  // handed on as written, for fit to charge and cut, and counts as neither
+  // same-origin nor offsite.
+  function displayUrl(el, ctx) {
+    const raw = el.getAttribute("href");
+    if (typeof raw === "string" && raw.length > ctx.sizeLeft) return /^\s*(javascript|data):/i.test(raw.slice(0, 64).replace(/[\t\n\r]/g, "")) ? null : { href: raw, sameOrigin: false, offsite: false };
     const href = el.href;
     if (!href || typeof href !== "string" || /^javascript:/i.test(href)) return null;
+    if (href.length > ctx.sizeLeft) return /^data:/i.test(href) ? null : { href, sameOrigin: false, offsite: false };
     let url;
     try {
       url = new global.URL(href);
     } catch {
-      return { href, sameOrigin: false };
+      return { href, sameOrigin: false, offsite: false };
     }
     if (url.protocol === "data:") return null;
-    return { href: url.href, sameOrigin: url.origin !== "null" && url.origin === global.location.origin };
+    const sameOrigin = url.origin !== "null" && url.origin === global.location.origin;
+    return { href: url.href, sameOrigin, offsite: !sameOrigin && isOffsite(url) };
   }
 
   // A value is charged to the snapshot's size budget by the caller; what
@@ -909,6 +907,11 @@
       spend: (count) => spend(b, count === undefined ? 1 : count),
       charge: (count) => chargeSize(b, count),
       fit: (s) => fit(b, s),
+      // The characters left to charge, so a caller can refuse work (such as
+      // parsing a URL) on a value fit would cut anyway.
+      get sizeLeft() {
+        return b.sizeLeft;
+      },
       // `s` with its cuts settled, for a page function that cuts or
       // searches its own text before it replies (sealing settles the rest).
       settle: (s) => settleCuts(s),
@@ -1417,11 +1420,11 @@
     const value = valueOf(el, role, tag, ctx);
     if (value !== null) node.value = fit(ctx, value);
     if (role === "link") {
-      const url = displayUrl(el);
+      const url = displayUrl(el, ctx);
       if (url) {
         node.url = fit(ctx, url.href);
         if (url.sameOrigin) node.sameOrigin = 1;
-        else if (isOffsite(el)) node.offsite = 1;
+        else if (url.offsite) node.offsite = 1;
       }
     }
     const placeholder = el.getAttribute("placeholder");

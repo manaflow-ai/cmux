@@ -288,7 +288,9 @@ rest. Measurements: [performance.md](performance.md).
   is bounded too, because a hostile page can hold millions of nodes and the
   walk runs on the page's main thread: one snapshot reads at most 250,000
   nodes and 2,000,000 characters of text, names, values and URLs (one text
-  node or field value can hold megabytes) over all its frames (frames
+  node or field value can hold megabytes; a link URL longer than what is
+  left is cut as written, never resolved or parsed first, and so is a
+  Markdown link or image URL) over all its frames (frames
   inside a frame split what that frame left of its own share, reserved
   before any of them is read, so frames read at the same time never pass
   the budget; one past it prints
