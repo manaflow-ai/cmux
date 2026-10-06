@@ -6,21 +6,24 @@ use serde_json::json;
 
 use crate::mux::*;
 use crate::state::commit::StateEffects;
-use crate::state::kept_tab_store as store;
+use crate::state::kept_tab_store::{self as store, KeptTab};
 use crate::state::prelude::*;
 use crate::state::store::StateChanges;
 use crate::state::values::fresh_upserts;
 
 impl Mux {
-    /// Record `tabs` (public tab id, shell directory) as kept.
-    pub(crate) fn commit_kept_tabs(&self, tabs: &[(String, Option<String>)]) -> anyhow::Result<()> {
+    /// Record `tabs` (public tab id, shell directory, last title) as kept.
+    pub(crate) fn commit_kept_tabs(&self, tabs: &[KeptTab]) -> anyhow::Result<()> {
         store::validate_kept_tabs(tabs)?;
         if tabs.is_empty() {
             return Ok(());
         }
         let fingerprint = json!({
             "operation": "tab.kept_layout.record",
-            "tabs": tabs,
+            "tabs": tabs
+                .iter()
+                .map(|tab| json!([tab.tab_id, tab.cwd, tab.title]))
+                .collect::<Vec<_>>(),
             "nonce": crate::workspace_registry::new_uuid_v4(),
         });
         self.commit_state(
@@ -31,7 +34,7 @@ impl Mux {
             StateEffects::PRESENTATION,
             |transaction, _| {
                 store::write_kept_tabs(transaction, tabs)?;
-                let ids = tabs.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
+                let ids = tabs.iter().map(|tab| tab.tab_id.clone()).collect::<Vec<_>>();
                 let changes = fresh_upserts(transaction, &[], &[], &ids)?;
                 Ok(StateChanges::new(json!({"tabs": ids}), changes))
             },

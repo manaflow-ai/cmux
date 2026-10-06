@@ -18,6 +18,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 
 use super::*;
+use crate::state::kept_tab_store::{KeptTab, kept_title};
 
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
@@ -399,7 +400,8 @@ impl Mux {
     /// Writes a keep-layout record (`kept_tabs`) for every tab of every live
     /// placed terminal, with the directory its shell is in (the session
     /// host's fact: the foreground process's directory, else the OSC 7 or
-    /// launch directory). Returns the host ids of those terminals.
+    /// launch directory) and the terminal's title. Returns the host ids of
+    /// those terminals.
     fn record_kept_tabs(&self, terminals: &[RegistryTerminal]) -> anyhow::Result<HashSet<String>> {
         // Tab ids and process ids under the locks; directories after.
         let mut placed = Vec::new();
@@ -430,7 +432,16 @@ impl Mux {
                     .and_then(crate::platform::foreground_cwd)
                     .or_else(|| surface.local_cwd())
             });
-            rows.extend(tab_ids.into_iter().map(|tab_id| (tab_id, cwd.clone())));
+            // The title the tab shows now; the next owner has no surface to
+            // ask once the terminal ended.
+            let title = runtime
+                .as_ref()
+                .and_then(|surface| kept_title(&surface.title()));
+            rows.extend(tab_ids.into_iter().map(|tab_id| KeptTab {
+                tab_id,
+                cwd: cwd.clone(),
+                title: title.clone(),
+            }));
             kept.insert(terminal_id);
         }
         self.commit_kept_tabs(&rows)?;
