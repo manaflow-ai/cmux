@@ -504,6 +504,20 @@ class FormatBeforeLanding(unittest.TestCase):
         self.assertEqual(controller.format_pr(target, "next-batch/x-1"), "")
         self.assertEqual([call[0] for call in calls], ["regen-linux"])
 
+    def test_an_owner_push_during_formatting_waits_for_the_next_batch(self):
+        controller, _ = self.controller({"ok": True, "patch": self.patch})
+
+        def git(*args, cwd=None):
+            if args[0] == "push":
+                raise RuntimeError("git push --quiet failed: ! [rejected] (non-fast-forward)")
+            return subprocess.run(["git", *args], cwd=cwd or self.root, env=self.env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        controller.git = git
+        target = pr(9, sha=self.head, head_ref="lane-9", files=["webviews/a.ts"])
+        with mock.patch.dict(os.environ, self.env), self.assertRaises(nb.OwnerPushed):
+            controller.format_pr(target, "next-batch/x-1")
+
     def test_land_formats_only_a_pr_with_a_red_format_check(self):
         controller = nb.Controller.__new__(nb.Controller)
         controller.args = Namespace(repo="o/r", dry_run=False, no_land=False)
