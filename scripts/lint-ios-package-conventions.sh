@@ -43,8 +43,8 @@ if [ -n "$FILES_FROM" ]; then
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     case "$path" in
-      Packages/*.swift) [ -f "$path" ] || { echo "error: file does not exist: $path" >&2; exit 2; } ;;
-      *) echo "error: scoped lint only accepts Packages/*.swift: $path" >&2; exit 2 ;;
+      Packages/*.swift|ios/cmux/*.swift) [ -f "$path" ] || { echo "error: file does not exist: $path" >&2; exit 2; } ;;
+      *) echo "error: scoped lint only accepts Packages/*.swift or ios/cmux/*.swift: $path" >&2; exit 2 ;;
     esac
     TARGET_FILES+=("$path")
   done < "$FILES_FROM"

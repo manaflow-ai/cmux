@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "Packages/**/*.swift"
+      - "ios/cmux/**/*.swift"
       - "scripts/lint-ios-package-conventions.sh"
       - "scripts/lint_swift_namespaces.py"
       - "scripts/swift_source_mask.py"
@@ -69,6 +70,23 @@ jobs:
           # Never run hooks from a reused checkout: the PR tree is untrusted.
           git -c core.hooksPath=/dev/null checkout --detach "$HEAD_SHA"
 
+          workspace="$(pwd -P)"
+          assert_safe_path() {
+            local path="$1" component="$1" real
+            while [ "$component" != "." ] && [ "$component" != "/" ]; do
+              if [ -L "$component" ]; then
+                echo "::error::Refusing symlinked PR path: $path"
+                exit 1
+              fi
+              component="$(dirname "$component")"
+            done
+            real="$(realpath -e -- "$path" 2>/dev/null || true)"
+            case "$real" in
+              "$workspace"/*) ;;
+              *) echo "::error::Refusing path outside the checkout: $path"; exit 1 ;;
+            esac
+          }
+
           # Restore every executable and baseline from the trusted base before
           # inspecting PR source. No PR-controlled script is executed here.
           for path in \
@@ -78,16 +96,22 @@ jobs:
             scripts/lint-namespace-types-baseline.txt \
             scripts/lint-namespace-types-ratchet.txt \
             scripts/lint-ios-package-conventions-baseline.txt; do
+            assert_safe_path "$(dirname "$path")"
+            [ ! -L "$path" ] || { echo "::error::Refusing symlinked helper path: $path"; exit 1; }
             git show "$BASE_SHA:$path" > "$path"
           done
 
           git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
-            | awk '/^Packages\/.*\.swift$/ { print }' \
+            | awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' \
             | sort -u > "$RUNNER_TEMP/namespace-files.txt"
           if [ ! -s "$RUNNER_TEMP/namespace-files.txt" ]; then
             echo "No changed package Swift files; namespace autofix is clean."
             exit 0
           fi
+          while IFS= read -r path; do
+            assert_safe_path "$path"
+            [ -f "$path" ] || { echo "::error::Changed Swift path is not a regular file: $path"; exit 1; }
+          done < "$RUNNER_TEMP/namespace-files.txt"
 
           set +e
           bash scripts/lint-ios-package-conventions.sh --namespace-fix \
