@@ -99,6 +99,7 @@ enum ControlTopologyMapper {
         info.remoteSessionID = model.remote?.sessionID
         info.remoteTerminalID = model.remote?.terminalID.rawValue
         if model.kind == .browser { info.browserProfileID = model.snapshot.browserProfileID ?? "default" }
+        info.agentSessionID = model.snapshot.conversation?.agentSession?.session
         return info
     }
 }

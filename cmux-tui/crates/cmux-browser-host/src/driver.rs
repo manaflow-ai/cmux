@@ -38,6 +38,13 @@ impl Reply {
 /// block on a driver call.
 pub type EventSink = Arc<dyn Fn(DriverEvent) + Send + Sync>;
 
+/// The host-internal event that carries an entry for the session's policy
+/// log (an event of a shared browser no session took, D2): the host's
+/// session sink writes it to the gate's log and never passes it to the
+/// session. Only a tab source's policy log hook sends it; the session
+/// engine drops an engine or app event with this name.
+pub const POLICY_LOG_EVENT: &str = "host.policyLog";
+
 /// One network request for the [`RequestFilter`].
 #[derive(Debug, Clone, Copy)]
 pub struct RequestInfo<'a> {

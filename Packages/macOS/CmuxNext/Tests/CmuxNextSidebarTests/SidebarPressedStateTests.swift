@@ -62,9 +62,12 @@ import Testing
         #expect(presses == 0, "released outside the item: no action")
     }
 
-    @Test func activeItemKeepsItsSelectionAndTilesRest() {
+    /// SIDEBAR-SELECTION-ONE-MODEL: an active list item draws no fill of its
+    /// own (the sidebar's one highlight sits under it); a resting tile keeps
+    /// its raised fill.
+    @Test func activeItemLeavesItsSelectionToTheHighlightAndTilesRest() {
         let active = row(active: true), tile = row(style: .tile)
-        #expect(active.fill == active.performWithTheme { Palette.selectionFill })
+        #expect(active.fill == nil)
         #expect(tile.fill == tile.performWithTheme { Palette.hoverFill })
     }
 

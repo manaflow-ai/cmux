@@ -28,6 +28,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty default",
     "keybindings.page.source.removed": "Removed",
+    "keybindings.page.source.removedByGhostty": "Ghostty config",
     "keybindings.page.source.user": "User",
     "keybindings.page.title": "Keyboard Shortcuts",
     "keybindings.page.unsupported": "Editing needs keybindings.json support. It is coming soon."
@@ -61,6 +62,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "افتراضي Ghostty",
     "keybindings.page.source.removed": "محذوف",
+    "keybindings.page.source.removedByGhostty": "إعدادات Ghostty",
     "keybindings.page.source.user": "المستخدم",
     "keybindings.page.title": "اختصارات لوحة المفاتيح",
     "keybindings.page.unsupported": "يتطلب التعديل دعم keybindings.json. سيتوفر قريبًا."
@@ -94,6 +96,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty zadano",
     "keybindings.page.source.removed": "Uklonjeno",
+    "keybindings.page.source.removedByGhostty": "Ghostty konfiguracija",
     "keybindings.page.source.user": "Korisnik",
     "keybindings.page.title": "Prečice na tastaturi",
     "keybindings.page.unsupported": "Uređivanje traži podršku za keybindings.json. Uskoro dolazi."
@@ -127,6 +130,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty-standard",
     "keybindings.page.source.removed": "Fjernet",
+    "keybindings.page.source.removedByGhostty": "Ghostty-konfiguration",
     "keybindings.page.source.user": "Bruger",
     "keybindings.page.title": "Tastaturgenveje",
     "keybindings.page.unsupported": "Redigering kræver understøttelse af keybindings.json. Det kommer snart."
@@ -160,6 +164,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty-Standard",
     "keybindings.page.source.removed": "Entfernt",
+    "keybindings.page.source.removedByGhostty": "Ghostty-Konfiguration",
     "keybindings.page.source.user": "Benutzer",
     "keybindings.page.title": "Tastaturkurzbefehle",
     "keybindings.page.unsupported": "Bearbeiten braucht Unterstützung für keybindings.json. Sie kommt bald."
@@ -193,6 +198,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Predeterminado de Ghostty",
     "keybindings.page.source.removed": "Eliminado",
+    "keybindings.page.source.removedByGhostty": "Configuración de Ghostty",
     "keybindings.page.source.user": "Usuario",
     "keybindings.page.title": "Atajos de teclado",
     "keybindings.page.unsupported": "La edición necesita compatibilidad con keybindings.json. Llegará pronto."
@@ -226,6 +232,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty par défaut",
     "keybindings.page.source.removed": "Supprimé",
+    "keybindings.page.source.removedByGhostty": "Configuration Ghostty",
     "keybindings.page.source.user": "Utilisateur",
     "keybindings.page.title": "Raccourcis clavier",
     "keybindings.page.unsupported": "La modification nécessite la prise en charge de keybindings.json. Elle arrive bientôt."
@@ -259,6 +266,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Predefinito di Ghostty",
     "keybindings.page.source.removed": "Rimosso",
+    "keybindings.page.source.removedByGhostty": "Configurazione Ghostty",
     "keybindings.page.source.user": "Utente",
     "keybindings.page.title": "Scorciatoie da tastiera",
     "keybindings.page.unsupported": "La modifica richiede il supporto di keybindings.json. Arriverà presto."
@@ -292,6 +300,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty のデフォルト",
     "keybindings.page.source.removed": "削除済み",
+    "keybindings.page.source.removedByGhostty": "Ghostty 設定",
     "keybindings.page.source.user": "ユーザー",
     "keybindings.page.title": "キーボードショートカット",
     "keybindings.page.unsupported": "編集には keybindings.json のサポートが必要です。近日対応予定です。"
@@ -325,6 +334,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "លំនាំដើម Ghostty",
     "keybindings.page.source.removed": "បានដកចេញ",
+    "keybindings.page.source.removedByGhostty": "ការកំណត់ Ghostty",
     "keybindings.page.source.user": "អ្នកប្រើ",
     "keybindings.page.title": "ផ្លូវកាត់ក្ដារចុច",
     "keybindings.page.unsupported": "ការកែត្រូវការការគាំទ្រ keybindings.json។ នឹងមកដល់ឆាប់ៗ។"
@@ -358,6 +368,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty 기본값",
     "keybindings.page.source.removed": "제거됨",
+    "keybindings.page.source.removedByGhostty": "Ghostty 구성",
     "keybindings.page.source.user": "사용자",
     "keybindings.page.title": "키보드 단축키",
     "keybindings.page.unsupported": "편집하려면 keybindings.json 지원이 필요합니다. 곧 제공됩니다."
@@ -391,6 +402,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty-standard",
     "keybindings.page.source.removed": "Fjernet",
+    "keybindings.page.source.removedByGhostty": "Ghostty-konfigurasjon",
     "keybindings.page.source.user": "Bruker",
     "keybindings.page.title": "Hurtigtaster",
     "keybindings.page.unsupported": "Redigering krever støtte for keybindings.json. Det kommer snart."
@@ -424,6 +436,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Domyślny Ghostty",
     "keybindings.page.source.removed": "Usunięty",
+    "keybindings.page.source.removedByGhostty": "Konfiguracja Ghostty",
     "keybindings.page.source.user": "Użytkownik",
     "keybindings.page.title": "Skróty klawiszowe",
     "keybindings.page.unsupported": "Edycja wymaga obsługi keybindings.json. Wkrótce będzie dostępna."
@@ -457,6 +470,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Padrão do Ghostty",
     "keybindings.page.source.removed": "Removido",
+    "keybindings.page.source.removedByGhostty": "Configuração do Ghostty",
     "keybindings.page.source.user": "Usuário",
     "keybindings.page.title": "Atalhos de teclado",
     "keybindings.page.unsupported": "A edição precisa de suporte a keybindings.json. Em breve."
@@ -490,6 +504,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "По умолчанию Ghostty",
     "keybindings.page.source.removed": "Удалено",
+    "keybindings.page.source.removedByGhostty": "Конфигурация Ghostty",
     "keybindings.page.source.user": "Пользователь",
     "keybindings.page.title": "Сочетания клавиш",
     "keybindings.page.unsupported": "Для редактирования нужна поддержка keybindings.json. Она скоро появится."
@@ -523,6 +538,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "ค่าเริ่มต้นของ Ghostty",
     "keybindings.page.source.removed": "ถูกลบ",
+    "keybindings.page.source.removedByGhostty": "การกำหนดค่า Ghostty",
     "keybindings.page.source.user": "ผู้ใช้",
     "keybindings.page.title": "แป้นพิมพ์ลัด",
     "keybindings.page.unsupported": "การแก้ไขต้องรองรับ keybindings.json ซึ่งจะมาเร็วๆ นี้"
@@ -556,6 +572,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty varsayılanı",
     "keybindings.page.source.removed": "Kaldırıldı",
+    "keybindings.page.source.removedByGhostty": "Ghostty yapılandırması",
     "keybindings.page.source.user": "Kullanıcı",
     "keybindings.page.title": "Klavye Kısayolları",
     "keybindings.page.unsupported": "Düzenleme için keybindings.json desteği gerekir. Yakında geliyor."
@@ -589,6 +606,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Типове Ghostty",
     "keybindings.page.source.removed": "Вилучено",
+    "keybindings.page.source.removedByGhostty": "Конфігурація Ghostty",
     "keybindings.page.source.user": "Користувач",
     "keybindings.page.title": "Сполучення клавіш",
     "keybindings.page.unsupported": "Для редагування потрібна підтримка keybindings.json. Вона скоро з’явиться."
@@ -622,6 +640,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Mặc định của Ghostty",
     "keybindings.page.source.removed": "Đã xóa",
+    "keybindings.page.source.removedByGhostty": "Cấu hình Ghostty",
     "keybindings.page.source.user": "Người dùng",
     "keybindings.page.title": "Phím tắt",
     "keybindings.page.unsupported": "Chỉnh sửa cần hỗ trợ keybindings.json. Sắp ra mắt."
@@ -655,6 +674,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty 默认",
     "keybindings.page.source.removed": "已移除",
+    "keybindings.page.source.removedByGhostty": "Ghostty 配置",
     "keybindings.page.source.user": "用户",
     "keybindings.page.title": "键盘快捷键",
     "keybindings.page.unsupported": "编辑需要 keybindings.json 支持，即将推出。"
@@ -688,6 +708,7 @@
     "keybindings.page.source.ghostty": "Ghostty",
     "keybindings.page.source.ghosttyDefault": "Ghostty 預設",
     "keybindings.page.source.removed": "已移除",
+    "keybindings.page.source.removedByGhostty": "Ghostty 設定",
     "keybindings.page.source.user": "使用者",
     "keybindings.page.title": "鍵盤快速鍵",
     "keybindings.page.unsupported": "編輯需要 keybindings.json 支援，即將推出。"

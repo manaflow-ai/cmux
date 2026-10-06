@@ -23,7 +23,7 @@ import Testing
     @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
         #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
-        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
+        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.account), .builtIn(.settings)])
         #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
         #expect(defaults.sections.allSatisfy { $0.content != .app })
         #expect(defaults.firstTopItem(room: nil)?.ref == .app("cmux/home"))
@@ -71,14 +71,14 @@ import Testing
 
     @Test func moveAcrossRegionsKeepsTheItem() throws {
         let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_account")])
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_account"), home, settings])
         #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store")])
         #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 
     @Test func moveWithinASectionExcludesItself() throws {
-        let doc = try reduce(defaults, .itemMove(settings, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_account"), settings])
+        let doc = try reduce(defaults, .itemMove(settings, section: SidebarLayoutDocument.bottomSectionID, index: 0))
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, LayoutItemID("itm_account")])
     }
 
     @Test func moveOntoASectionHoldingTheSameRefIsRefused() throws {

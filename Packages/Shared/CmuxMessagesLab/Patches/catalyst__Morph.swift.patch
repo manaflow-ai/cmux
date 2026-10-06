@@ -1,0 +1,11 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
+@@ -254,6 +254,8 @@
+     /// The outgoing gradient's colour at a window y (pt).
+     static func blue(atWindowY y: CGFloat) -> UIColor {
+         let px = y * 2
++        // cmux: a themed accent interpolates its own stops.
++        if let t = Fixture.themedGradient { return Fixture.color(in: t, atPx: px) }
+         let s = Fixture.gradientStops
+         var i = 1
+         while i < s.count - 1, s[i].0 < px { i += 1 }

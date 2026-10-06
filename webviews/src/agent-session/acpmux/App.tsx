@@ -1925,11 +1925,6 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}
-              cwd={newTab.cwd}
-              projects={newTabProjects}
-              loadProjects={loadNewTabProjects}
-              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
-              onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
               home={newTab.home}
               {...newTabScreenActions({
                 callNative,
@@ -1954,19 +1949,16 @@ function AcpmuxPane() {
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}
-              loadProjects={loadNewTabProjects}
               chips={ComposerChips}
               onSubmit={openFromNewTab}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
-              onOpenFile={(path) => void callNative("file.open", { path, where: "tab" }).catch(() => undefined)}
-              onAction={(id) => void callNative("app.action", { id }).catch(() => undefined)}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
                 selectSession(sessionId);
               }}
               onShowAll={() => searchEvent("toggle")}
               onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
-              onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
+              onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
           ) : (

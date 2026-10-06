@@ -18,11 +18,10 @@ export function newTabScreenActions(deps: {
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text, projectCwd) {
+    onAsk(harness, text) {
       remember(harness);
       deps.leave();
-      const folder = projectCwd ?? cwd;
-      const params: Record<string, unknown> = { harness, ...(folder ? { cwd: folder } : {}) };
+      const params: Record<string, unknown> = { harness, ...(cwd ? { cwd } : {}) };
       ignore(callNative("chat.new", params).then(() => (text ? callNative("chat.send", { text }) : undefined)));
     },
     onOpen: (url) => {
@@ -30,12 +29,11 @@ export function newTabScreenActions(deps: {
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
       ignore(callNative("tab.open", { kind: "browser", text: url }));
     },
-    onAction: (id) => ignore(callNative("app.action", { id })),
     onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
-    // `!cmd`: the page becomes a chat in the folder, its first block the command; no terminal tab.
-    onShell(command, projectCwd) {
+    // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
+    onShell(command) {
       deps.leave();
-      deps.runShell(command, projectCwd ?? cwd);
+      deps.runShell(command, cwd);
     },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onOpenSession(sessionId) {

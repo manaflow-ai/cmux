@@ -32,14 +32,6 @@
 .nt-card[data-state=error] .nt-card-message{color:var(--agent-danger)}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card{transition:background-color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out)}}
-.nt-project{display:flex;align-items:center;justify-content:space-between;color:var(--agent-muted);font-size:12px}
-.nt-project .acpmux-project-menu{top:100%;bottom:auto;z-index:30}
-.nt-project>button{border:0;background:none;color:inherit;font:inherit;cursor:pointer}
-.nt-project>button:hover{color:var(--agent-text)}
-
-.nt-project .acpmux-project-button{display:inline-flex;align-items:center;gap:6px;padding:4px 0;background:none;color:var(--agent-muted);font:inherit}
-.nt-project .acpmux-project-button:hover{background:none;color:var(--agent-text)}
-
 /* Shell mode on the new tab field (`!` first): a `!` glyph in the theme's magenta before a
    monospace command, inside the same box. */
 .nt-shell-glyph {

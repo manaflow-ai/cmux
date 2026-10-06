@@ -1,0 +1,102 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/FlightRecorder.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/FlightRecorder.swift
+@@ -21,7 +21,8 @@
+ /// same without a finding.
+ final class FlightRecorder: NSObject {
+     static let shared = FlightRecorder()
+-    static var enabled: Bool { !ProcessInfo.processInfo.arguments.contains("--no-flight-recorder") }
++    // cmux: the app's policy (HomeFlightRecorder: DEV on, NIGHTLY opt-in, Release off), read live.
++    static var enabled: Bool { HomeFlightRecorder.isEnabled() && !ProcessInfo.processInfo.arguments.contains("--no-flight-recorder") }
+ 
+     /// Raw per-frame storage, preallocated (no strings, dictionaries or allocation per
+     /// frame; formatting happens only in `dump`). Rows are interned key ids.
+@@ -62,16 +63,21 @@
+     private static var bursts: [DispatchSourceTimer] = []
+     private static let dumpQueue = DispatchQueue(label: "flight.dump", qos: .utility)
+ 
++    // cmux: the pane's window comes and goes and the policy can switch on later: attach (from
++    // ChatController.windowChanged) always, replacing the previous window's observers.
++    private var observers: [NSObjectProtocol] = []
+     func attach(_ c: ChatController) {
+-        guard FlightRecorder.enabled else { return }
+         self.c = c
+         let nc = NotificationCenter.default
++        observers.forEach { nc.removeObserver($0) }
++        observers = []
++        guard let window = c.window else { return }
+         for n in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.didChangeScreenNotification,
+                   NSWindow.didChangeBackingPropertiesNotification] {
+-            nc.addObserver(forName: n, object: c.window, queue: .main) { [weak self] note in
++            observers.append(nc.addObserver(forName: n, object: window, queue: .main) { [weak self] note in
+                 self?.event(note.name.rawValue.replacingOccurrences(of: "NSWindow", with: ""))
+                 self?.kick()
+-            }
++            })
+         }
+     }
+ 
+@@ -185,7 +191,7 @@
+         let listOrigin = list.superlayer == nil ? CGPoint.zero : list.convert(CGPoint.zero, to: v.layer)
+         // Container motion: the transcript's sublayer transform moves every row (WindowView.animateRows).
+         let originY = Float(listOrigin.y + list.bounds.minY - lp.bounds.minY + lp.sublayerTransform.m42)
+-        var s = RawSample(t: now, offset: Float(v.collection.contentOffset.y), key: c.window.isKeyWindow)
++        var s = RawSample(t: now, offset: Float(v.collection.contentOffset.y), key: c.window?.isKeyWindow ?? false)  // cmux: optional window
+         let base = slot * FlightRecorder.maxRows
+         var n = 0
+         // Coverage gaps from the same rows (FlashCheck.coverageGaps rules), unfilled outgoing bubbles.
+@@ -351,10 +357,11 @@
+         guard let c else { return }
+         let f = DateFormatter()
+         f.dateFormat = "yyyyMMdd-HHmmss.SSS"
+-        let dir = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Logs/MessagesLab/blink-\(f.string(from: Date()))")
++        // cmux: ~/Library/Logs/<app>/ (HomeFlightRecorder.logFolder), not MessagesLab's folder.
++        let dir = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Logs/\(HomeFlightRecorder.logFolder)/blink-\(f.string(from: Date()))")
+         try? FileManager.default.createDirectory(atPath: dir + "/frames", withIntermediateDirectories: true)
+-        screenName = c.window.screen?.localizedName ?? "?"
+-        screenHz = c.window.screen?.maximumFramesPerSecond ?? 0
++        screenName = c.window?.screen?.localizedName ?? "?"  // cmux: the pane's window is optional
++        screenHz = c.window?.screen?.maximumFramesPerSecond ?? 0
+         let order = (0..<filled).map { (head - filled + $0 + FlightRecorder.capacity) % FlightRecorder.capacity }
+         let t0 = order.first.map { self.samples[$0].t } ?? CACurrentMediaTime()
+         // Formatting and writing run off main on copies of the raw arrays (a dump cost 8-9 ms on main).
+@@ -381,20 +388,23 @@
+         }
+         try? lines.joined(separator: "\n").write(toFile: dir + "/frames.ndjson", atomically: true, encoding: .utf8)
+         }
+-        LiveProbes.write(["reason": reason, "findings": all, "events": events.map { ["t": $0.0 - t0, "event": $0.1] },
+-                          "window": ["key": c.window.isKeyWindow, "screen": c.window.screen?.localizedName ?? "?",
+-                                     "hz": c.window.screen?.maximumFramesPerSecond ?? 0, "scale": c.window.backingScaleFactor,
+-                                     "frame": NSStringFromRect(c.window.frame)],
+-                          "load": Bench.loadAverage, "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? ""],
++        // cmux: LiveProbes and Bench are not vendored (HomeFlightRecorder); the pane's window is optional.
++        HomeFlightRecorder.writeJSON(["reason": reason, "findings": all, "events": events.map { ["t": $0.0 - t0, "event": $0.1] },
++                          "window": ["key": c.window?.isKeyWindow ?? false, "screen": c.window?.screen?.localizedName ?? "?",
++                                     "hz": c.window?.screen?.maximumFramesPerSecond ?? 0, "scale": c.window?.backingScaleFactor ?? 0,
++                                     "frame": c.window.map { NSStringFromRect($0.frame) } ?? ""],
++                          "load": HomeFlightRecorder.loadAverage, "build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? ""],
+                          dir + "/meta.json")
+         FileHandle.standardError.write("MessagesLab flight recorder: \(reason) -> \(dir)\n".data(using: .utf8)!)
+         dumps.append(dir)
+-        burst(dir, c, count: 30)
++        // cmux: window captures only with their own opt-in (HomeFlightRecorder.capturesWindow).
++        if HomeFlightRecorder.capturesWindow() { burst(dir, c, count: 30) }
+     }
+ 
+     /// About 0.5 s of window captures, one per display frame, off the main thread.
+     private func burst(_ dir: String, _ c: ChatController, count: Int) {
+-        let wid = UInt32(c.window.windowNumber)
++        guard let window = c.window else { return }  // cmux: the pane's window is optional
++        let wid = UInt32(window.windowNumber)
+         let q = DispatchQueue(label: "flight.burst", qos: .utility)
+         let start = CACurrentMediaTime()
+         var i = 0
+@@ -402,7 +412,8 @@
+         timer.schedule(deadline: .now(), repeating: 1.0 / 60)
+         timer.setEventHandler {
+             let t = CACurrentMediaTime() - start
+-            if let img = LiveSendRun.grab(wid) { LiveSendRun.writeJPEG(img, String(format: "%@/frames/burst_%02d_%.3f.jpg", dir, i, t)) }
++            // cmux: LiveRecord is not vendored (HomeFlightRecorder.grab, .writeJPEG).
++            if let img = HomeFlightRecorder.grab(wid) { HomeFlightRecorder.writeJPEG(img, String(format: "%@/frames/burst_%02d_%.3f.jpg", dir, i, t)) }
+             i += 1
+             if i >= count { timer.cancel(); FlightRecorder.bursts.removeAll { $0 === timer } }
+         }

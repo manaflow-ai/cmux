@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { newTabScreenActions } from "./screenActions";
 
-test("the selected project replaces the inherited folder for chat and shell command", async () => {
+test("the page's chat and shell command start in the folder the tab inherited", async () => {
   const calls: unknown[] = [];
   const actions = newTabScreenActions({
     callNative: async (method, params) => {
@@ -13,14 +13,12 @@ test("the selected project replaces the inherited folder for chat and shell comm
     showAllChats() {},
     runShell: (command, cwd) => calls.push(["runShell", command, cwd]),
   });
-  actions.onAsk("codex", "hello", "/src/new");
-  actions.onShell("git status", "/src/new");
-  actions.onShell("ls");
+  actions.onAsk("codex", "hello");
+  actions.onShell("git status");
   await Promise.resolve();
-  expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/new" }]);
+  expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/old" }]);
   // `!cmd` leaves for a chat that runs it; no terminal tab replaces the page.
-  expect(calls).toContainEqual(["runShell", "git status", "/src/new"]);
-  expect(calls).toContainEqual(["runShell", "ls", "/src/old"]);
+  expect(calls).toContainEqual(["runShell", "git status", "/src/old"]);
   expect(calls.some((call) => (call as unknown[])[0] === "tab.open")).toBe(false);
 });
 

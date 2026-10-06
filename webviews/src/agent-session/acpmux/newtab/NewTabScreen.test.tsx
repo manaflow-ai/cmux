@@ -93,7 +93,7 @@ async function mount(extra: Record<string, unknown> = {}) {
 test("the field has the keyboard when the screen appears, and the cards show recent chats", async () => {
   const { container, root, field } = await mount();
   expect(dom.window.document.activeElement).toBe(field);
-  expect(field.placeholder).toBe("Ask an agent, search, or type a URL");
+  expect(field.placeholder).toBe("Search or type a URL");
   const cards = [...container.querySelectorAll(".nt-card")];
   expect(cards.map((card) => card.querySelector(".nt-card-title")!.textContent)).toEqual(["Fix upload", "Billing"]);
   expect(cards[0]!.querySelector(".nt-card-message")!.textContent).toBe("Done, tests pass.");
@@ -118,11 +118,12 @@ test("! puts the field in shell mode in place: no terminal, no rows, the cards s
   await act(async () => root.unmount());
 });
 
-test("Enter in shell mode starts a chat in the chosen folder that runs the command", async () => {
-  const { root, type, key, calls } = await mount({ cwd: "/src/app" });
+// The page's folder is added by screenActions (screenActions.test.ts).
+test("Enter in shell mode hands the command to a chat; no terminal opens", async () => {
+  const { root, type, key, calls } = await mount();
   await type("!npm test");
   await key("Enter");
-  expect(calls).toEqual(["shell:npm test:/src/app"]);
+  expect(calls).toEqual(["shell:npm test"]);
   await act(async () => root.unmount());
 });
 
@@ -196,25 +197,65 @@ test("a card opens its chat and All Chats opens the list", async () => {
   await act(async () => root.unmount());
 });
 
-test("Enter on an untouched new tab starts the preferred chat in its project", async () => {
-  const { root, key, calls } = await mount({ cwd: "/src/app", lastAgent: "codex" });
-  await key("Enter");
-  expect(calls).toEqual(["ask:codex::/src/app"]);
+// No flash (Lawrence, 2026-10-06): the first commit is already the final layout. The pill field
+// has the keyboard, "Chats" with "All Chats" heads exactly three cards from the sessions already
+// in memory, and nothing else is on the page (no rows, no project row, no chat-first controls).
+test("the first commit is the final layout: field, Chats and three cards", async () => {
+  const sessions = [1, 2, 3, 4].map((n) => ({ sessionId: `c${n}`, title: `chat ${n}`, updatedAt: now - n * 60_000 }));
+  const { container, root, field } = await mount({ snapshot: { ...snapshot, sessions } });
+  const screen = container.querySelector(".nt-screen")!;
+  expect([...screen.children].map((child) => child.className)).toEqual(["nt-box", "nt-chats"]);
+  expect(dom.window.document.activeElement).toBe(field);
+  expect(field.placeholder).toBe("Search or type a URL");
+  expect(container.querySelector(".nt-chats-tab")!.textContent).toBe("Chats");
+  expect(container.querySelector(".nt-chats-all")!.textContent).toBe("All Chats");
+  expect([...container.querySelectorAll(".nt-card-title")].map((title) => title.textContent)).toEqual([
+    "chat 1",
+    "chat 2",
+    "chat 3",
+  ]);
+  expect(container.querySelectorAll(".nt-box button").length).toBe(0);
   await act(async () => root.unmount());
 });
 
-test("new tab offers recent projects inline before Browse", async () => {
-  const { container, root, key, calls } = await mount({
+// The original one-input page (Lawrence, 2026-10-06, NEW-TAB-PAGE-RESTORED): Enter on an empty
+// field opens nothing, and the page has no project row or Import button above its field.
+test("Enter on an untouched new tab opens nothing", async () => {
+  const { root, key, calls } = await mount({ cwd: "/src/app", lastAgent: "codex" });
+  await key("Enter");
+  expect(calls).toEqual([]);
+  await act(async () => root.unmount());
+});
+
+test("the page is one field: no project chooser or Import button above it", async () => {
+  const { container, root } = await mount({
     cwd: "/src/old",
     projects: [{ cwd: "/src/new", label: "new" }],
+    onImport: () => {},
+    onBrowseProject: async () => "/src/picked",
   });
-  const trigger = container.querySelector<HTMLButtonElement>(".nt-project button")!;
-  expect(trigger).not.toBeNull();
-  await act(async () => trigger.click());
-  const option = container.querySelector<HTMLElement>('[role="option"][title="/src/new"]')!;
-  expect(option).not.toBeNull();
-  await act(async () => option.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
-  await key("Enter");
-  expect(calls).toEqual(["ask:claude::/src/new"]);
+  expect(container.querySelector(".nt-project")).toBeNull();
+  expect(container.querySelector(".acpmux-project-button")).toBeNull();
+  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).not.toContain(
+    "Import and sync",
+  );
+  await act(async () => root.unmount());
+});
+
+test("typed text offers no app action rows", async () => {
+  const { container, root, type } = await mount({
+    omnibar: {
+      tabs: [],
+      workspaces: [],
+      sessions: [],
+      folders: [],
+      commands: [],
+      history: [],
+      actions: [{ id: "keybindings.open", title: "Keyboard Shortcuts", keywords: ["preferences"] }],
+    },
+  });
+  await type("Keyboard");
+  const titles = [...container.querySelectorAll(".nt-row-title")].map((row) => row.textContent);
+  expect(titles).not.toContain("Keyboard Shortcuts");
   await act(async () => root.unmount());
 });

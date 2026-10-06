@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextActions
 import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -98,7 +99,7 @@ enum DebugKey {
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
             if services.keyRouter.interceptKeyDown(event, in: window) {
-                return ("app", services.keyRouter.lastInterception.map { .string($0.action.rawValue) } ?? .null)
+                return ("app", services.keyRouter.lastInterception.map { verdict($0)["action"] ?? .null } ?? .null)
             } else if isChord, window.performKeyEquivalent(with: event) {
                 return (window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
             } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
@@ -134,8 +135,19 @@ enum DebugKey {
                             "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
-        return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
-                        "trace": .array(trace.map(JSONValue.string))])
+        var report: [String: JSONValue] = ["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
+                                           "trace": .array(trace.map(JSONValue.string))]
+        if handledBy == "app", let interception = services.keyRouter.lastInterception {
+            report.merge(verdict(interception)) { _, new in new }
+        }
+        return .object(report)
+    }
+
+    /// What debug.key reports for an intercepted chord: the action when it ran.
+    /// A refused run reports no action and names it as `refused_action`.
+    static func verdict(_ interception: (action: ActionID, window: String, ran: Bool)) -> [String: JSONValue] {
+        interception.ran ? ["action": .string(interception.action.rawValue)]
+            : ["action": .null, "refused_action": .string(interception.action.rawValue)]
     }
 
     /// The first enabled main-menu item with `event`'s key equivalent (what
