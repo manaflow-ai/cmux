@@ -16,6 +16,15 @@ public struct BrowserReplFileSystemError: Error, Equatable, Sendable {
     static func escape(_ path: String) -> Self {
         Self(code: "EACCES", message: "EACCES: permission denied, path is outside the REPL working directory '\(path)'")
     }
+
+    /// A path through a copy's staging file
+    /// (``BrowserReplFileSandbox/isCopyStagingName(_:)``).
+    static func copyStaging(_ path: String) -> Self {
+        Self(
+            code: "EACCES",
+            message: "EACCES: permission denied, '\(path)' goes through a staging file an fs.copyFile is writing; no session's fs reads, lists or changes it"
+        )
+    }
 }
 
 /// Resolves REPL `fs` paths against a session's working directory.
@@ -139,7 +148,8 @@ public struct BrowserReplFileSandbox: Sendable {
     /// string without a scheme is left to the driver, which reads it as a
     /// web address; one that looks like a path is refused. So is a file
     /// `secrets.load` read, by its identity under any name
-    /// (``BrowserReplSecretSources``).
+    /// (``BrowserReplSecretSources``), and a path through a copy's staging
+    /// file (``isCopyStagingName(_:)``).
     public static func navigationRefusal(_ urlString: String, roots: [String]) -> String? {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else {
@@ -161,6 +171,9 @@ public struct BrowserReplFileSandbox: Sendable {
                 var current = root
                 for part in path.dropFirst(root.count).split(separator: "/") {
                     current += "/" + part
+                    if isCopyStagingName(part) {
+                        return "\(urlString) goes through a staging file an fs.copyFile is writing"
+                    }
                     var info = stat()
                     if lstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFLNK {
                         return "\(urlString) goes through the symbolic link \(current), which may lead outside the session's directories"
@@ -245,6 +258,28 @@ public struct BrowserReplFileSandbox: Sendable {
             out.append(character)
         }
         return out
+    }
+
+    /// The marker in the name of the staging file `fs.copyFile` writes next
+    /// to its destination (``copyStagingName(for:)``).
+    private static let copyStagingMarker = ".cmux-copy-"
+
+    /// A new name for `fs.copyFile`'s staging file for the destination
+    /// `name`: `.<name>.cmux-copy-<UUID>`.
+    static func copyStagingName(for name: String) -> String {
+        "." + name + copyStagingMarker + UUID().uuidString
+    }
+
+    /// Whether `name` (one path component) is a staging file name
+    /// ``copyStagingName(for:)`` makes. Until its copy checked that no
+    /// `secrets.load` protected the source meanwhile, a staging file holds
+    /// bytes no session may read, so the fs refuses every path through such
+    /// a name (any session, any operation), `readdir` leaves it out and a
+    /// tab does not load it (``navigationRefusal(_:roots:)``).
+    static func isCopyStagingName(_ name: some StringProtocol) -> Bool {
+        guard name.hasPrefix("."), let marker = name.range(of: copyStagingMarker, options: .backwards) else { return false }
+        let suffix = name[marker.upperBound...]
+        return suffix.utf8.count == 36 && UUID(uuidString: String(suffix)) != nil
     }
 
     /// Held by every REPL `fs.rename` around its `renameat`, by `copyFile`

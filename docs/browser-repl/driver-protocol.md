@@ -1129,9 +1129,14 @@ file beside the destination before renaming it into place, so an existing
 destination stays intact until the new file is complete. That rename runs
 while no REPL `fs.rename` and no browser file grant runs, and only while
 the temporary entry is still the regular file the copy wrote (same device
-and inode, not followed); another session sharing the directory that
-moved a link in for it makes the copy fail with `EBUSY`, never publishes
-the link.
+and inode, not followed); a link moved in for it makes the copy fail with
+`EBUSY`, never publishes the link. The temporary file (named
+`.<name>.cmux-copy-<UUID>`) is made with no permissions and gets the
+source's mode only after the copy checked that no `secrets.load` protected
+the source meanwhile; no session's `fs` reaches a path through such a name
+(`EACCES` for every op), `readdir` leaves it out and a tab does not load it,
+so a source another session protected during the copy is never readable
+under the temporary name.
 The descriptor walk, not a lock, keeps a session moving a link (agent code
 cannot create one) from changing what another session's checked path
 reaches.

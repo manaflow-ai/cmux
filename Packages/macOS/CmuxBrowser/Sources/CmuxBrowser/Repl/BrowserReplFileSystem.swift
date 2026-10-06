@@ -250,7 +250,8 @@ public struct BrowserReplFileSystem: Sendable {
             let display = try raw("path")
             let directory = try openDirectory(try locate(.read), display: display)
             let entries = try Self.entries(of: directory, display: display, isCancelled: isCancelled, limit: Self.maxDirectoryEntries)
-            return entries.map { entry -> [String: Any] in
+            // A copy's staging file is never listed (no path reaches it).
+            return entries.filter { !BrowserReplFileSandbox.isCopyStagingName($0.name) }.map { entry -> [String: Any] in
                 ["name": entry.name, "type": entry.type]
             }
         case "stat":
@@ -333,10 +334,16 @@ public struct BrowserReplFileSystem: Sendable {
             if (try? destination.status()) == nil { try writeBudget.takeEntryChange(syscall: "copyfile", display: pair) }
             try writeBudget.take(contents?.count ?? size, syscall: "copyfile", display: pair)
             // Copy next to the destination, then swap it in, so a failed copy
-            // leaves an existing destination untouched.
-            let staging = ".\(name).cmux-copy-\(UUID().uuidString)"
+            // leaves an existing destination untouched. Until the copy checked
+            // that no secrets.load protected the source meanwhile, the staging
+            // file holds bytes no one may read: no session's fs reaches its
+            // name (BrowserReplFileSandbox.isCopyStagingName: refused, never
+            // listed, no tab loads it), and it is made with no permissions,
+            // so nothing that opens files by path (a page's file read) can
+            // open it; the write goes through the descriptor opened here.
+            let staging = BrowserReplFileSandbox.copyStagingName(for: name)
             let (descriptor, number) = try destination.withinRoot(syscall: "copyfile", display: pair) { fd in
-                let opened = openat(fd, staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o666)
+                let opened = openat(fd, staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0)
                 return (opened, errno)
             }
             guard descriptor >= 0 else { throw Self.posixError(number, syscall: "copyfile", display: pair) }
@@ -348,14 +355,15 @@ public struct BrowserReplFileSystem: Sendable {
                 } else {
                     try copyData(from: source, to: copy, size: size, display: pair)
                 }
-                // Extended attributes through the write budget, then mode
-                // and times as fcopyfile's own copy.
+                // Extended attributes through the write budget.
                 skipped = try copyExtendedAttributes(from: source, to: copy, callBytes: contents?.count ?? size, display: pair)
+                // A secrets.load that protected the source while it was copied.
+                try Self.refuseSecretSource(source, display: fromDisplay, syscall: "copyfile")
+                // Mode and times as fcopyfile's own copy, only now: the mode
+                // is what first makes the staging file readable.
                 guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT)) == 0 else {
                     throw Self.posixError(errno, syscall: "copyfile", display: pair)
                 }
-                // A secrets.load that protected the source while it was copied.
-                try Self.refuseSecretSource(source, display: fromDisplay, syscall: "copyfile")
                 try Self.publish(staging, as: name, in: destination, holding: copy, display: pair)
             } catch {
                 // Left in place when its directory was moved out of the root.
@@ -375,9 +383,10 @@ public struct BrowserReplFileSystem: Sendable {
     /// Renames the staging entry `staging` in `directory` to `name` while
     /// it is still the regular file `copy` holds open, checked and renamed
     /// while no REPL `fs.rename` and no browser file grant runs
-    /// (``BrowserReplFileSandbox/pathChangeLock``). The staging name is
-    /// visible to another session sharing the directory, which can move a
-    /// link into its place while the copy runs; `fs.rename` is the only
+    /// (``BrowserReplFileSandbox/pathChangeLock``). No session's fs reaches
+    /// the staging name (``BrowserReplFileSandbox/isCopyStagingName(_:)``),
+    /// but should something move a link into its place while the copy
+    /// runs, it is not published: `fs.rename` is the only
     /// fs operation that puts a link at a path, and it takes the same
     /// lock, so the entry checked is the one renamed, and a link is never
     /// published under the destination's name. Nor is anything published
@@ -654,6 +663,8 @@ public struct BrowserReplFileSystem: Sendable {
                 try reopen()
                 continue
             }
+            // Also a component a link's target names.
+            if BrowserReplFileSandbox.isCopyStagingName(component) { throw BrowserReplFileSystemError.copyStaging(display) }
             let isLast = pending.allSatisfy { $0.isEmpty || $0 == "." }
             if isLast, !followingLastLink {
                 return location(component)
@@ -722,6 +733,9 @@ public struct BrowserReplFileSystem: Sendable {
     private func walkWithoutLinks(_ path: String, display: String) throws -> Location {
         var components = path.split(separator: "/").map(String.init)
         guard let name = components.popLast() else { throw BrowserReplFileSystemError.escape(display) }
+        if (components + [name]).contains(where: BrowserReplFileSandbox.isCopyStagingName) {
+            throw BrowserReplFileSystemError.copyStaging(display)
+        }
         var descriptor = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "open", display: display) }
         var directory = BrowserReplDescriptor(descriptor)
