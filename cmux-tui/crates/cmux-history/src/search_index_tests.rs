@@ -203,3 +203,74 @@ fn backfill_works_in_bounded_steps_and_resumes_after_a_restart() {
     let more = Messages { sessions: feed.sessions.clone(), count: 8 };
     assert_eq!(Backfill::step(&mut index, &more, 100).unwrap().indexed, 2);
 }
+
+/// The budget for a first page of results.
+const FIRST_RESULTS: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// A big history: 100,000 chat messages, 20,000 commands and 1,000 names,
+/// queried on a fresh connection.
+#[test]
+fn first_results_on_a_big_history_come_in_under_50ms() {
+    const WORDS: &str = "the deploy relay sidebar flaky test branch merge build release \
+        socket daemon terminal workspace café agent review commit palette search index render \
+        window focus";
+    let words: Vec<&str> = WORDS.split_whitespace().collect();
+    let dir = TempDir::new("big");
+    let path = dir.0.join("search.sqlite");
+    let mut seed: u64 = 7;
+    let mut word = || {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        words[(seed >> 33) as usize % words.len()]
+    };
+    {
+        let mut index = SearchIndex::open(&path).unwrap();
+        for session in 0..1_000 {
+            let docs: Vec<SearchDoc> = (0..100)
+                .map(|turn| {
+                    let text: Vec<&str> = (0..24).map(|_| word()).collect();
+                    let mut doc = chat(&format!("s{session}"), turn, &text.join(" "));
+                    if turn == 42 {
+                        doc.text.push_str(&format!(" needle{session:04}"));
+                    }
+                    doc
+                })
+                .collect();
+            index.append(&format!("acpmux:s{session}"), &docs, Some(100)).unwrap();
+        }
+        for terminal in 0..200 {
+            let docs: Vec<SearchDoc> = (0..100)
+                .map(|line| {
+                    let mut doc = named(SearchKind::Command, &format!("t{terminal}:{line}"), "");
+                    doc.text = format!("cargo test -p {} --{}", word(), word());
+                    doc.source = format!("shell:t{terminal}");
+                    doc
+                })
+                .collect();
+            index.append(&format!("shell:t{terminal}"), &docs, Some(100)).unwrap();
+        }
+        for id in 0..1_000 {
+            let kind = if id % 2 == 0 { SearchKind::Tab } else { SearchKind::Workspace };
+            let name = format!("{} {}", word(), word());
+            index.upsert(&named(kind, &format!("n{id}"), &name)).unwrap();
+        }
+    }
+    let index = SearchIndex::open(&path).unwrap();
+    let queries: [(&str, &[SearchKind]); 7] = [
+        ("needle0500", &[]),
+        ("deploy", &[]),
+        ("the", &[]),
+        ("flaky sidebar test", &[]),
+        ("cafe", &[]),
+        ("cargo relay", &[SearchKind::Command]),
+        ("ui", &[]),
+    ];
+    let mut timings = Vec::new();
+    for (query, kinds) in queries {
+        let started = std::time::Instant::now();
+        let hits = index.search(query, kinds, 50).unwrap();
+        timings.push((query, started.elapsed(), hits.len()));
+    }
+    let slow: Vec<_> = timings.iter().filter(|(_, took, _)| *took >= FIRST_RESULTS).collect();
+    assert!(slow.is_empty(), "over {FIRST_RESULTS:?}: {slow:?} (all: {timings:?})");
+    assert_eq!(timings[0].2, 1, "the needle is found once");
+}

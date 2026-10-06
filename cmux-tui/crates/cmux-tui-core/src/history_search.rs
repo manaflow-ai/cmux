@@ -83,7 +83,16 @@ fn index_loop(
     pace: SearchPace,
     stop: &AtomicBool,
 ) {
-    let _ = (&mut index, feeds, pace, stop, Backfill::step);
+    while !stop.load(Ordering::Relaxed) {
+        let mut backlog = false;
+        for feed in &feeds {
+            match Backfill::step(&mut index, feed.as_ref(), pace.budget) {
+                Ok(step) => backlog |= !step.done,
+                Err(error) => eprintln!("cmux-tui: history search indexing failed: {error}"),
+            }
+        }
+        rest(if backlog { pace.pause } else { pace.idle }, stop);
+    }
 }
 
 /// Sleeps for `period`, waking early when `stop` is set.
