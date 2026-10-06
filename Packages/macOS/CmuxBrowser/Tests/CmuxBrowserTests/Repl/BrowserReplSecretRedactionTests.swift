@@ -215,6 +215,7 @@ struct BrowserReplSecretRedactionTests {
         // the new secret is typed.
         let result = await run(session, """
         secrets.set("a", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["example.com"]);
         await page.goto("https://example.com/login");
         const shot = page.screenshot().then(() => "captured", (e) => "refused " + (e.code || e.message));
         while ((await page.evaluate(() => 0)) !== "capturing") {}
@@ -275,6 +276,89 @@ struct BrowserReplSecretRedactionTests {
         expected.append(Data("<secret:pw>".utf8))
         expected.append(Data([0x80]))
         #expect(bytes == expected, "\(Array(bytes))")
+    }
+
+    /// File reads mask a loaded value by its UTF-8 bytes and their escaped
+    /// forms (except a short digit value's, masked by shape). A source in
+    /// another encoding, or one that spells a digit value with JSON escapes,
+    /// would come back from `fs.readFile` with the value readable, so either
+    /// `secrets.load` refuses it or the value read back is masked.
+    @Test("A secrets file fs reads back never shows a loaded value in another encoding or escaped form")
+    func encodedSourceIsNeverReadBackUnmasked() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-encoded-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let json = #"{"example.com":{"pw":"\#(Self.value)"}}"#
+        var utf16 = Data([0xff, 0xfe])
+        utf16.append(json.data(using: .utf16LittleEndian) ?? Data())
+        try utf16.write(to: work.appendingPathComponent("utf16.json"))
+        try (json.data(using: .utf32BigEndian) ?? Data()).write(to: work.appendingPathComponent("utf32.json"))
+        // 4271, each digit escaped.
+        try Data(#"{"example.com":{"pin":"\u0034\u0032\u0037\u0031"}}"#.utf8).write(to: work.appendingPathComponent("escaped.json"))
+        // How agent code decodes each file's bytes (`b`, a Buffer).
+        let cases: [(file: String, decode: String, value: String)] = [
+            ("utf16.json", #"b.toString("utf16le")"#, Self.value),
+            ("utf32.json", #"Array.from(b).filter((_, i) => i % 4 === 3).map((c) => String.fromCharCode(c)).join("")"#, Self.value),
+            ("escaped.json", #"JSON.stringify(JSON.parse(b.toString("utf8")))"#, "4271"),
+        ]
+        for item in cases {
+            let session = try #require(makeSession(ScriptedPageDriver(), cwd: work.path))
+            defer { session.close() }
+            let result = await run(session, """
+            const fs = await import("node:fs");
+            let loaded = true;
+            try { secrets.load("./\(item.file)"); } catch (e) { loaded = false; console.log("refused: " + e.message); }
+            const b = fs.readFileSync("./\(item.file)");
+            console.log("loaded " + loaded);
+            if (loaded) console.log((\(item.decode)).split("").join(" "));
+            """)
+            let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+            #expect(result?.error == nil, "\(item.file): \(result?.error ?? "")")
+            #expect(output.contains("loaded "), "\(item.file): \(output)")
+            #expect(!output.contains(spelled(item.value)), "\(item.file): a loaded value was read back unmasked: \(output)")
+        }
+    }
+
+    /// Value masking covers what `fs` reads back, but a tab renders a local
+    /// file's text as pixels no mask covers, and its page scripts read it.
+    /// So the file `secrets.load` read never loads in a tab, by its identity
+    /// (device and inode): renamed, or hard-linked under another name, too.
+    @Test("A file secrets.load read never loads in a tab, also renamed or hard-linked")
+    func secretsSourceNeverLoadsInATab() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-source-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        try Data(#"{"example.com":{"pw":"\#(Self.value)"}}"#.utf8).write(to: work.appendingPathComponent("secrets.json"))
+        try Data("plain".utf8).write(to: work.appendingPathComponent("other.txt"))
+        let driver = ScriptedPageDriver()
+        let session = try #require(makeSession(driver, cwd: work.path))
+        defer { session.close() }
+        let base = "file://" + work.path
+        var result = await run(session, """
+        const fs = await import("node:fs");
+        secrets.load("./secrets.json");
+        console.log(await page.goto("\(base)/secrets.json").then(() => "loaded", (e) => e.message));
+        fs.renameSync("./secrets.json", "./notes.txt");
+        """)
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        // Another name for the same file, made outside the session.
+        try FileManager.default.linkItem(at: work.appendingPathComponent("notes.txt"), to: work.appendingPathComponent("alias.txt"))
+        result = await run(session, """
+        for (const name of ["notes.txt", "alias.txt", "other.txt"]) {
+          console.log(name, await page.goto("\(base)/" + name).then(() => "loaded", (e) => e.message));
+        }
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        let navigated = driver.params("tab.navigate").compactMap { $0["url"] as? String }
+        for name in ["secrets.json", "notes.txt", "alias.txt"] {
+            #expect(!navigated.contains { $0.hasSuffix("/" + name) }, "\(name) loaded in a tab: \(navigated) \(output)")
+        }
+        // A page's own navigation to it (a link, a frame) is refused by the same rule.
+        for name in ["notes.txt", "alias.txt"] {
+            #expect(BrowserReplFileSandbox.navigationRefusal("\(base)/\(name)", roots: [work.path]) != nil, "\(name)")
+        }
+        #expect(navigated.contains { $0.hasSuffix("/other.txt") }, "another file in the directory did not load: \(navigated) \(output)")
     }
 
     private func currentCode() -> String {

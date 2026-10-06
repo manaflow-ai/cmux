@@ -137,7 +137,9 @@ public struct BrowserReplFileSandbox: Sendable {
     /// is a symbolic link, which WebKit would follow out of the root. Any
     /// other scheme (cmux's internal ones, `javascript:`) is refused. A
     /// string without a scheme is left to the driver, which reads it as a
-    /// web address; one that looks like a path is refused.
+    /// web address; one that looks like a path is refused. So is a file
+    /// `secrets.load` read, by its identity under any name
+    /// (``BrowserReplSecretSources``).
     public static func navigationRefusal(_ urlString: String, roots: [String]) -> String? {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else {
@@ -163,6 +165,9 @@ public struct BrowserReplFileSandbox: Sendable {
                     if lstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFLNK {
                         return "\(urlString) goes through the symbolic link \(current), which may lead outside the session's directories"
                     }
+                }
+                if BrowserReplSecretSources.shared.contains(path: path) {
+                    return "\(urlString) is a file secrets.load read (under this or another name); a tab would show its values unmasked"
                 }
                 return nil
             }
@@ -382,5 +387,46 @@ public struct BrowserReplFileRoot: Sendable, Equatable {
             device = nil
             inode = nil
         }
+    }
+}
+
+/// The files any session's `secrets.load` read, by identity
+/// (``BrowserReplFileIdentity``): no session's tab loads one from then on
+/// (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``), under any name,
+/// for the app's life. Value masking covers what `fs` reads back, but a tab
+/// renders the file as pixels no mask covers, and its page scripts read it.
+final class BrowserReplSecretSources: @unchecked Sendable {
+    static let shared = BrowserReplSecretSources()
+
+    private let lock = NSLock()
+    private var identities: Set<BrowserReplFileIdentity> = []
+
+    func protect(_ identity: BrowserReplFileIdentity) {
+        _ = lock.withLock { identities.insert(identity) }
+    }
+
+    /// Whether the file at `path` (links followed) is one `secrets.load` read.
+    func contains(path: String) -> Bool {
+        guard let identity = BrowserReplFileIdentity(path: path) else { return false }
+        return lock.withLock { identities.contains(identity) }
+    }
+}
+
+/// A file by its device and inode, which a rename or another hard link
+/// keeps.
+struct BrowserReplFileIdentity: Hashable, Sendable {
+    let device: UInt64
+    let inode: UInt64
+
+    init(_ info: stat) {
+        device = UInt64(bitPattern: Int64(info.st_dev))
+        inode = UInt64(info.st_ino)
+    }
+
+    /// The identity of the file at `path`, links followed, or nil.
+    init?(path: String) {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        self.init(info)
     }
 }

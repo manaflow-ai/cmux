@@ -115,13 +115,16 @@ public struct BrowserReplFileSystem: Sendable {
     ///   first, so a source over ``maxReadFileBytes`` is refused
     ///   (`ERR_FS_FILE_TOO_LARGE`); an error it throws fails the copy and
     ///   leaves no file.
+    /// - Parameter opened: Told the identity of the file `readFile` opened
+    ///   (`secrets.load` protects that file from the browser).
     func perform(
         _ operation: String,
         arguments: [String: Any],
-        copyContents: ((Data) throws -> Data)?
+        copyContents: ((Data) throws -> Data)?,
+        opened: ((BrowserReplFileIdentity) -> Void)? = nil
     ) -> Result<Any, BrowserReplFileSystemError> {
         do {
-            return .success(try run(operation, arguments, copyContents: copyContents))
+            return .success(try run(operation, arguments, copyContents: copyContents, opened: opened))
         } catch let error as BrowserReplFileSystemError {
             return .failure(error)
         } catch {
@@ -135,7 +138,12 @@ public struct BrowserReplFileSystem: Sendable {
         [sandbox.root] + (temporaryRoot.map { [$0] } ?? [])
     }
 
-    private func run(_ operation: String, _ arguments: [String: Any], copyContents: ((Data) throws -> Data)?) throws -> Any {
+    private func run(
+        _ operation: String,
+        _ arguments: [String: Any],
+        copyContents: ((Data) throws -> Data)?,
+        opened: ((BrowserReplFileIdentity) -> Void)?
+    ) throws -> Any {
         // Every path is bounded before it is normalized, canonicalized or walked.
         let paths = try writeBudget.holdPaths(["path", "from", "to"].compactMap { arguments[$0] as? String }, operation: operation)
         defer { writeBudget.releasePaths(paths) }
@@ -164,6 +172,11 @@ public struct BrowserReplFileSystem: Sendable {
             let display = try raw("path")
             let (file, size) = try openFile(try locate(.read), display: display)
             guard size <= Self.maxReadFileBytes else { throw Self.fileTooLarge(size) }
+            if let opened {
+                var info = stat()
+                guard fstat(file.fd, &info) == 0 else { throw Self.posixError(errno, syscall: "fstat", display: display) }
+                opened(BrowserReplFileIdentity(info))
+            }
             do {
                 return try readAll(file, display: display).browserReplBase64EncodedString(isCancelled: isCancelled)
             } catch is CancellationError {

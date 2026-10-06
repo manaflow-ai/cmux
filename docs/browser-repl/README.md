@@ -48,7 +48,7 @@ reference ([parity-report.md](parity-report.md)).
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
 | `sites` | Site tools that run through the signed-in browser session: Google Docs/Sheets/Slides/Drive, Gmail, Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira, page assets, WebMCP and a secure sign-in sheet. Writes to other people are drafts until confirmed. See [site-tools.md](site-tools.md). |
 | `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session created. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [reference-c-parity.md](reference-c-parity.md). |
-| `secret(name)`, `secrets` | Named secrets scoped to domains, typed with `locator.fill(secret(name))` and masked as `<secret:name>` in every output, read and file. Values stay in the native session, never in the REPL's JavaScript ([reference-c-parity.md](reference-c-parity.md#secrets)). |
+| `secret(name)`, `secrets` | Named secrets scoped to domains, typed with `locator.fill(secret(name))` (only into a tab the session opened, while `session.allowedDomains` allows only the secret's domains) and masked as `<secret:name>` in every output, read and file. Values stay in the native session, never in the REPL's JavaScript ([reference-c-parity.md](reference-c-parity.md#secrets)). |
 | `search(query, options)` | `[{ title, url, snippet }]` from DuckDuckGo, Bing or Google. |
 | `tools` | `register(name, fn, { description, params, domains })`, `list()`, `call(name, args)`: the session's own callable tools. |
 
@@ -510,7 +510,8 @@ rest. Measurements: [performance.md](performance.md).
   the session ends and when cmux replaces the tab's web view to restore an
   unloaded page or recover from a crash), the domain policy's content rules block
   subresources, pages load local files (frames and subresources) only
-  from the session's working and temporary directories, and plain-http
+  from the session's working and temporary directories (never a file a
+  `secrets.load` read, under any name), and plain-http
   pages load without cmux's prompt. Another
   session that drives such a tab does not change these; they follow the
   creating session. Any other tab is the user's, also one a session drives

@@ -770,7 +770,10 @@
   }
 
   // "host/first-segment/…" for a link to another site (hosts that differ
-  // after "www." and ignoring subdomains of the same two-label base), capped.
+  // after "www." and ignoring subdomains of the same two-label base). Not
+  // shortened here: secrets are masked natively by whole value after the
+  // reply leaves the page, so a cut here could hand on a value's prefix.
+  // The snapshot renderer (snapshot.js) caps it after masking.
   const siteOf = (host) => host.replace(/^www\./, "").split(".").slice(-2).join(".");
   function offsiteSummary(el) {
     const href = el.href;
@@ -786,7 +789,7 @@
     const segments = url.pathname.split("/").filter(Boolean);
     let out = url.hostname.replace(/^www\./, "") + (segments.length ? "/" + segments[0] : "");
     if (segments.length > 1 || url.search) out += "/…";
-    return out.length > 48 ? out.slice(0, 47) + "…" : out;
+    return out;
   }
 
   function displayUrl(el) {
@@ -800,7 +803,8 @@
     }
     if (url.protocol === "data:") return null;
     if (url.origin !== "null" && url.origin === global.location.origin) return url.pathname + url.search + url.hash;
-    return url.href.length > 300 ? url.href.slice(0, 299) + "…" : url.href;
+    // Whole, as the off-site summary: snapshot.js caps it after masking.
+    return url.href;
   }
 
   // A value is charged to the snapshot's size budget by the caller; what

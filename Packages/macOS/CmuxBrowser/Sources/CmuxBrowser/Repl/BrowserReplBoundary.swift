@@ -23,6 +23,10 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// The session's working and temporary directories, the only places a
     /// navigation may load a file from.
     private var fileRoots: [String] = []
+    /// The domains of each secret the session sent to be typed: the policy
+    /// may not let pages reach past any of them from then on
+    /// (``secretTypingRefusal(name:domains:)``).
+    private var typedSecretDomains: [[BrowserReplDomainPattern]] = []
 
     /// - Parameters:
     ///   - publicSuffixes: The list `site` and `publicSuffix` answers come
@@ -134,6 +138,14 @@ final class BrowserReplBoundary: @unchecked Sendable {
                     if args.keys.contains("allowed") {
                         let list = try patterns(args["allowed"], title: title)
                         next.allowed = (list?.isEmpty ?? true) ? nil : list
+                        // A page that holds a typed secret may send it
+                        // wherever the policy lets it reach.
+                        if let domains = typedSecretDomains.first(where: { !Self.keeps(next.allowed, within: $0) }) {
+                            throw BrowserReplDriverError(
+                                code: "invalid",
+                                message: "\(title): a secret was typed under the domain policy, so it may only keep pages on that secret's domains (\(domains.map(\.raw).joined(separator: ", "))) for the rest of the session"
+                            )
+                        }
                     }
                     if args.keys.contains("prohibited") {
                         next.prohibited = try patterns(args["prohibited"], title: title) ?? []
@@ -199,6 +211,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
                     let quoted = JSONSerialization.browserReplString(name) ?? "?"
                     return .failure(BrowserReplDriverError(code: "invalid", message: "secret \(quoted) was deleted"))
                 }
+                if let refusal = secretTypingRefusal(name: name, domains: typed.domains) { return .failure(refusal) }
                 params["text"] = typed.text
                 params["secretName"] = name
                 params["secretDomains"] = typed.domains.map(\.json)
@@ -237,6 +250,41 @@ final class BrowserReplBoundary: @unchecked Sendable {
             break
         }
         return .success(JSONSerialization.browserReplString(params) ?? "{}")
+    }
+
+    /// Why the secret `name` may not be typed now, or nil. The driver types
+    /// it only where the focused frame is on its domains, but the page that
+    /// receives it can send it on; only the domain policy's content rules,
+    /// in the tabs the session opened, stop that (the driver refuses any
+    /// other tab). So the policy must allow nothing outside the secret's
+    /// domains, and it may not widen past them later: the secret's domains
+    /// are kept from here on (``policyOperation(_:_:)``).
+    private func secretTypingRefusal(name: String, domains: [BrowserReplDomainPattern]) -> BrowserReplDriverError? {
+        lock.withLock {
+            let list = domains.map(\.raw).joined(separator: ", ")
+            guard let allowed = policy.allowed else {
+                return BrowserReplDriverError(
+                    code: "invalid",
+                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([\(domains.map { "\"\($0.raw)\"" }.joined(separator: ", "))]) first"
+                )
+            }
+            guard Self.keeps(allowed, within: domains) else {
+                let outside = allowed.filter { pattern in !domains.contains { $0.covers(pattern) } }.map(\.raw).joined(separator: ", ")
+                return BrowserReplDriverError(
+                    code: "invalid",
+                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains (\(list)); the policy also allows \(outside)"
+                )
+            }
+            if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
+            return nil
+        }
+    }
+
+    /// Whether a policy's `allowed` list keeps pages on `domains`: it is set,
+    /// and each of its patterns is covered by one of them.
+    private static func keeps(_ allowed: [BrowserReplDomainPattern]?, within domains: [BrowserReplDomainPattern]) -> Bool {
+        guard let allowed else { return false }
+        return allowed.allSatisfy { pattern in domains.contains { $0.covers(pattern) } }
     }
 
     /// Whether the secret an `input.insertText` call carries (its

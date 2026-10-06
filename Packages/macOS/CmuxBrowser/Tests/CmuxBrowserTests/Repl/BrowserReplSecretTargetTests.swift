@@ -11,6 +11,15 @@ import WebKit
 @MainActor
 @Suite("Browser REPL secret typing target", .serialized)
 struct BrowserReplSecretTargetTests {
+    @Test("A secret is typed only into a tab the typing session created")
+    func secretOnlyInTheSessionsOwnTab() {
+        #expect(BrowserReplSecretTarget.tabRefusal(name: "k", creator: "a", sessionID: "a") == nil)
+        let user = BrowserReplSecretTarget.tabRefusal(name: "k", creator: nil, sessionID: "a")
+        let other = BrowserReplSecretTarget.tabRefusal(name: "k", creator: "b", sessionID: "a")
+        #expect(user?.code == "invalid" && user?.message.contains("the user's") == true, "\(String(describing: user))")
+        #expect(other?.code == "invalid" && other?.message.contains("another session's") == true, "\(String(describing: other))")
+    }
+
     /// Collects each frame's `WKFrameInfo` as its document posts its name.
     private final class Frames: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var infos: [String: WKFrameInfo] = [:]

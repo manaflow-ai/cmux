@@ -180,6 +180,9 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
         let data = args.object;
         if (args.path !== undefined) {
           const text = readFile(args.path);
+          // As BrowserReplSecretStore.loadSourceRefusal: UTF-8 only, and no digit spelled as a JSON escape.
+          if (/[\u0000\ufffd]/.test(text)) throw new BoundaryError("invalid", `secrets.load: ${args.path} is not UTF-8; save it as UTF-8, so files read back can mask its values`);
+          if (/\\u003[0-9]/.test(text)) throw new BoundaryError("invalid", `secrets.load: ${args.path} spells a digit with a JSON escape (\\u0030 to \\u0039); write digits as they are, so files read back can mask its values`);
           try {
             data = JSON.parse(text);
           } catch {
@@ -309,6 +312,8 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     if ("allowed" in args) {
       const l = parse(args.allowed);
       next.allowed = l && l.length ? l : null;
+      const typed = typedSecretDomains.find((d) => !keeps(next.allowed, d));
+      if (typed) throw new BoundaryError("invalid", `${title}: a secret was typed under the domain policy, so it may only keep pages on that secret's domains (${typed.map((d) => d.raw).join(", ")}) for the rest of the session`);
     }
     if ("prohibited" in args) next.prohibited = parse(args.prohibited) || [];
     if (typeof args.blockIPs === "boolean") next.blockIPs = args.blockIPs;
@@ -317,6 +322,21 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     for (const fn of policyListeners) fn(policy, blockReason);
     return policyJSON();
   }
+
+  // As BrowserReplDomainPattern.covers: every URL `other` lets load is on `p`.
+  const hostOf = (p, host) => p.host === "*" || (p.host.startsWith("*.") ? host === p.host.slice(2) || host.endsWith("." + p.host.slice(2)) : host === p.host || (p.host.split(".").length === 2 && host === "www." + p.host));
+  function covers(p, other) {
+    if (p.port !== null && other.port !== p.port) return false;
+    if (p.scheme && !(other.scheme && new RegExp("^" + p.scheme.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$").test(other.scheme))) return false;
+    if (p.host === "*") return true;
+    if (other.host === "*") return false;
+    if (other.host.startsWith("*.")) return p.host.startsWith("*.") && hostOf(p, other.host.slice(2));
+    if (!hostOf(p, other.host)) return false;
+    return other.host.split(".").length !== 2 || hostOf(p, "www." + other.host);
+  }
+  // As BrowserReplBoundary: the policy keeps pages on `domains`.
+  const keeps = (allowed, domains) => !!allowed && allowed.every((a) => domains.some((d) => covers(d, a)));
+  const typedSecretDomains = [];
 
   function prepare(method, params = {}) {
     if (!PREPARED.includes(method)) return params;
@@ -327,6 +347,13 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       delete p.secret;
       const s = store.get(name);
       if (!s) throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} was deleted`);
+      // As BrowserReplBoundary.secretTypingRefusal.
+      if (!policy.allowed) throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([${s.domains.map((d) => JSON.stringify(d.raw)).join(", ")}]) first`);
+      if (!keeps(policy.allowed, s.domains)) {
+        const outside = policy.allowed.filter((a) => !s.domains.some((d) => covers(d, a))).map((a) => a.raw).join(", ");
+        throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains (${s.domains.map((d) => d.raw).join(", ")}); the policy also allows ${outside}`);
+      }
+      if (!typedSecretDomains.includes(s.domains)) typedSecretDomains.push(s.domains);
       p.text = s.totp ? T.totp(s.value, now()) : s.value;
       p.secretName = name;
       p.secretDomains = s.domains;

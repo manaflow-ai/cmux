@@ -1772,7 +1772,12 @@ public final class BrowserReplSession: @unchecked Sendable {
             // secrets.load(path) reads the file here, so its values never
             // reach JavaScript.
             if op == "load", let path = args["path"] as? String {
-                switch self.fileSystem.perform("readFile", arguments: ["path": path]) {
+                // The file, under any name, never loads in a tab
+                // (BrowserReplSecretSources): a tab would show its values
+                // as pixels no mask covers. Protected once opened, before
+                // its values are known to be readable.
+                let opened: (BrowserReplFileIdentity) -> Void = { BrowserReplSecretSources.shared.protect($0) }
+                switch self.fileSystem.perform("readFile", arguments: ["path": path], copyContents: nil, opened: opened) {
                 case .failure(let error):
                     return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))))
                 case .success(let base64):
@@ -1791,6 +1796,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                         data = try Data(browserReplBase64: text, isCancelled: isCancelled)
                     } catch {
                         return self.boundary.egress(.host(.failure(BrowserReplBoundary.cancelled("secrets.load"))))
+                    }
+                    if let data, let reason = BrowserReplSecretStore.loadSourceRefusal(data) {
+                        return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) \(reason)"))))
                     }
                     guard let data, !isCancelled(), let object = try? JSONSerialization.jsonObject(with: data) else {
                         if isCancelled() { return self.boundary.egress(.host(.failure(BrowserReplBoundary.cancelled("secrets.load")))) }

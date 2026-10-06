@@ -331,6 +331,42 @@ struct BrowserReplBoundaryTests {
         #expect(!navigations.contains { $0.lowercased().contains("example.org") }, "\(navigations)")
     }
 
+    /// The focused frame's origin decides where a secret is typed, but the
+    /// page that receives it can send it on. Only the domain policy's
+    /// content rules stop that, so a secret is typed only while the policy
+    /// keeps the session's tabs on the secret's domains, and the policy may
+    /// not widen past them once one was typed.
+    @Test("A secret is typed only while the domain policy keeps the tab on its domains, and the policy cannot widen after")
+    func secretNeedsAPolicyWithinItsDomains() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try makeSession(driver)
+        defer { session.close() }
+        let typed = { driver.params("input.insertText").filter { $0["secretName"] != nil }.count }
+        let refused = await run(session, """
+        secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        await page.goto("https://example.com/login");
+        console.log("none:", await page.locator("#f").fill(secret("k"), { timeout: 2000 }).then(() => "typed", (e) => e.message));
+        session.allowedDomains(["example.com", "other.test"]);
+        console.log("wider:", await page.locator("#f").fill(secret("k"), { timeout: 2000 }).then(() => "typed", (e) => e.message));
+        """)
+        let refusedOutput = refused?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(typed() == 0, "a secret was typed without a policy within its domains: \(refusedOutput)")
+        #expect(refusedOutput.contains("none: ") && !refusedOutput.contains("none: typed"), "\(refusedOutput)")
+        #expect(refusedOutput.contains("wider: ") && !refusedOutput.contains("wider: typed"), "\(refusedOutput)")
+        let allowed = await run(session, """
+        session.allowedDomains(["example.com"]);
+        console.log("within:", await page.locator("#f").fill(secret("k"), { timeout: 2000 }).then(() => "typed", (e) => e.message));
+        for (const list of [["example.com", "evil.test"], null]) {
+          try { session.allowedDomains(list); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
+        }
+        """)
+        let allowedOutput = allowed?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(allowedOutput.contains("within: typed"), "\(allowedOutput)")
+        #expect(typed() == 1, "\(allowedOutput)")
+        #expect(!allowedOutput.contains("widened"), "\(allowedOutput)")
+        #expect(allowedOutput.components(separatedBy: "kept: ").count == 3, "\(allowedOutput)")
+    }
+
     @Test("A secret fill that retries after the page moved to another origin is refused")
     func secretFillRetryIsRechecked() async throws {
         let driver = ScriptedPageDriver()
@@ -339,6 +375,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         _ = await run(session, """
         secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["example.com"]);
         await page.goto("https://example.com/login");
         await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
         """)
@@ -355,6 +392,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         _ = await run(session, """
         secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["example.com"]);
         await page.goto("https://example.com/login");
         await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
         """)

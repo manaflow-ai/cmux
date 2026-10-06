@@ -17,6 +17,11 @@
   const NAME_LIMIT = 100;
   // Longest URL printed without { urls: true }.
   const URL_LIMIT = 100;
+  // Longest cross-origin URL printed with { urls: true }, and longest
+  // off-site link summary ("host/first-segment/…").
+  const CROSS_ORIGIN_URL_LIMIT = 300;
+  const OFFSITE_LIMIT = 48;
+  const cap = (s, limit) => (s.length > limit ? s.slice(0, limit - 1) + "…" : s);
   // Unnamed wrappers that print as their only element child.
   const TRANSPARENT_WRAPPERS = new Set(["listitem", "cell", "gridcell"]);
   // Printing prefers the diff whenever it is shorter than the tree; above
@@ -201,8 +206,11 @@
     if (n.scrollable) head += " [scrollable]";
     // An iframe whose frame did not answer in time.
     if (n.unread) head += ` [not read: ${n.unread}]`;
-    if (n.url && options.urls) head += ` [url=${n.url}]`;
-    else if (n.offsite) head += ` [url=${n.offsite}]`;
+    // The page agent sends link URLs whole, so a secret in one is masked
+    // whole before these caps cut it (a cross-origin URL at
+    // CROSS_ORIGIN_URL_LIMIT, an off-site summary at OFFSITE_LIMIT).
+    if (n.url && options.urls) head += ` [url=${n.url.startsWith("/") ? n.url : cap(n.url, CROSS_ORIGIN_URL_LIMIT)}]`;
+    else if (n.offsite) head += ` [url=${cap(n.offsite, OFFSITE_LIMIT)}]`;
     // An unnamed link's on-site URL, capped: enough to tell such links apart.
     else if (n.url && n.showUrl) head += ` [url=${n.url.length > URL_LIMIT ? n.url.slice(0, URL_LIMIT - 1) + "…" : n.url}]`;
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;

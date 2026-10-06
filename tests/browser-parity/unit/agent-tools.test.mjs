@@ -13,7 +13,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
-import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
+import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl, runDevCells } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
 import { siteOf } from "../lib/public-suffix.mjs";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
@@ -211,6 +211,7 @@ test("secrets: a registered value never appears in output, errors, page reads or
       assert.match(r.output, /name: 'apikey', domains: \[ 'localhost' \]/);
       r = await run(`
         const rec = session.record();
+        session.allowedDomains(["http://localhost"]);
         await page.goto("${primary}/agent-tools.html?peer=${peer}");
         await page.fill("#apikey", secret("apikey"));
         await page.locator("#pass").pressSequentially(secret("pw"));
@@ -256,11 +257,13 @@ test("secrets: a registered value never appears in output, errors, page reads or
       assert.match(r.error, /thrown .*<secret:apikey>/);
       assert.match(r.formatted, /<secret:apikey>/);
       assert.match(r.output, /# output continues in .*output-\d+\.txt/);
-      // A secret is refused outside its domains, also in a frame of another site.
-      r = await run(`await page.frameLocator("#peer-frame").locator("#frame-pass").fill(secret("pw"))`);
-      assert.match(r.error, /may not be typed into http:\/\/127\.0\.0\.1:\d+; its domains are localhost/);
+      // A secret is refused outside its domains: a frame of another site
+      // does not load under the policy its typing needs, and a secret of
+      // other domains is refused while the policy allows this page.
+      r = await run(`await page.frameLocator("#peer-frame").locator("#frame-pass").fill(secret("pw"), { timeout: 2000 })`);
+      assert.match(r.error, /Timeout|blocked|may not be typed/);
       r = await run(`secrets.set("other", "elsewhere-value-1", { domains: ["example.com"] }); await page.fill("#user", secret("other"))`);
-      assert.match(r.error, /may not be typed into http:\/\/localhost:\d+; its domains are example\.com/);
+      assert.match(r.error, /secret "other" is typed only while the domain policy keeps the session's tabs on its domains \(example\.com\); the policy also allows http:\/\/localhost/);
       assert.equal(await run(`await page.locator("#user").inputValue()`).then((o) => o.output), "ada");
 
       const texts = outputs.flatMap((o) => [o.output, o.error || "", o.formatted || ""]);
@@ -277,6 +280,44 @@ test("secrets: a registered value never appears in output, errors, page reads or
   }
 });
 
+// A page that receives a typed secret can send it on; only the domain
+// policy's content rules, which hold in the tabs the session opened, stop
+// that. So a secret is typed only into such a tab while the policy keeps it
+// on the secret's domains, never into a user's tab or another session's.
+test("secrets: typed only into the session's own tab under a policy within the secret's domains", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  const fill = `await page.fill("#apikey", secret("key")).then(() => "typed", (e) => e.message)`;
+  try {
+    const outputs = await runDevCells([
+      { code: `const t = await tabs.open(${JSON.stringify(primary)} + "/agent-tools.html?user-owned"); await t.keep(); console.log("kept");` },
+      {
+        session: "typist",
+        code: `
+secrets.set("key", "sk-owned-4242", { domains: ["localhost"] });
+const out = {};
+await page.goto(${JSON.stringify(primary)} + "/agent-tools.html");
+out.noPolicy = ${fill};
+session.allowedDomains(["http://localhost", "http://127.0.0.1"]);
+out.widerPolicy = ${fill};
+session.allowedDomains(["http://localhost"]);
+out.withinPolicy = ${fill};
+const row = (await tabs.list()).find((t) => t.url.endsWith("?user-owned"));
+const user = await tabs.use(row.id);
+out.userTab = await user.fill("#apikey", secret("key")).then(() => "typed", (e) => e.message);
+out.userValue = await user.locator("#apikey").inputValue();
+console.log(JSON.stringify(out));`,
+      },
+    ]);
+    const out = JSON.parse(outputs[1].output.trim().split("\n").at(-1));
+    assert.equal(out.withinPolicy, "typed", JSON.stringify(out));
+    for (const key of ["noPolicy", "widerPolicy", "userTab"]) assert.notEqual(out[key], "typed", `${key}: ${JSON.stringify(out)}`);
+    assert.equal(out.userValue, "", JSON.stringify(out));
+  } finally {
+    await servers.close();
+  }
+});
+
 test("secrets: a TOTP secret types the current code, and reading it back shows the mask", async () => {
   const servers = await startFixtureServers();
   try {
@@ -287,6 +328,7 @@ test("secrets: a TOTP secret types the current code, and reading it back shows t
       const candidates = [T.totp(seed, now), T.totp(seed, now + 30_000), T.totp(seed, now + 60_000)];
       const r = await run(`
         secrets.set("otp", "${seed}", { domains: ["localhost"], totp: true });
+        session.allowedDomains(["http://localhost"]);
         await page.goto("${servers.origins.primary}/agent-tools.html");
         await page.fill("#otp", secret("otp"));
         const typed = await page.evaluate((codes) => codes.includes(document.getElementById("otp").value), ${JSON.stringify(candidates)});

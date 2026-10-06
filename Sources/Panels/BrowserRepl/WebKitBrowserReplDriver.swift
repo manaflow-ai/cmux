@@ -2479,6 +2479,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // commit types only while the panel still shows it.
         let checkTarget: @MainActor @Sendable (WKWebView) async throws -> Void = { webView in
             guard let name = params["secretName"] as? String else { return }
+            // Only a tab this session created runs under its domain policy,
+            // which keeps the page from sending the secret elsewhere.
+            if let refusal = BrowserReplSecretTarget.tabRefusal(
+                name: name,
+                creator: BrowserReplTabAttachments.shared.attachment(for: panel.id)?.liveCreatorSessionID,
+                sessionID: sessionID
+            ) {
+                throw refusal
+            }
             let frames = await BrowserReplFrameTree.frames(of: webView)
             let rawDomains = params["secretDomains"] as? [[String: Any]] ?? []
             try await BrowserReplSecretGuard.checkSecretTarget(

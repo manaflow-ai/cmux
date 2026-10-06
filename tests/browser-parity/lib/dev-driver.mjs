@@ -774,9 +774,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         }, cmd);
       }
     },
-    "input.insertText": async ({ targetId, text, secretName, secretDomains }) => {
+    "input.insertText": async ({ targetId, text, secretName, secretDomains }, driver) => {
       const tab = tabFor(targetId);
       if (secretName) {
+        // As BrowserReplSecretTarget.tabRefusal: only the typing session's own tab.
+        if (!(tab.creator === driver && drivers.has(driver))) {
+          throw new DriverError("invalid", `secret ${JSON.stringify(secretName)} is typed only into a tab this session opened (tabs.open), where its domain policy keeps the page from sending it elsewhere; this tab is ${tab.creator && drivers.has(tab.creator) ? "another session's" : "the user's"}`);
+        }
         // As the app's driver: the frame that has focus must be on one of
         // the secret's domains, by its own origin.
         let focused = tab.page.mainFrame();
