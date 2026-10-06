@@ -1,7 +1,7 @@
 // Fenced code inside a transcript, rendered by @pierre/diffs `File` with the pane's
 // syntax theme (a ```diff fence is highlighted as a diff). Ported from
 // the agent-pane reference prototype (src/conversation/CodeBlock.tsx).
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
@@ -9,7 +9,7 @@ import { copyText } from "./clipboard";
 import { CodeBrackets, Copy, WrapLines } from "./icons";
 import { translate, type Translate, useT } from "../i18n";
 import { highlightsCode, MAX_TOKENIZED_LINE } from "./highlightLimits";
-import { paneHighlightPool } from "./highlightPool";
+import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
 import { PlainCode } from "./StreamingCode";
 
 /// Pierre paints its own lines; they are transparent so the card's fill shows through.
@@ -78,6 +78,10 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
   const view = useRef<PierreFile | undefined>(undefined);
   const [wrap, setWrap] = useState(false);
   const [copied, setCopied] = useState(false);
+  // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
+  const name = `snippet-${useId()}`;
+  const [tooSlow, setTooSlow] = useState(false);
+  useLayoutEffect(() => onHighlightTimeout(name, () => setTooSlow(true)), [name]);
   useLayoutEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -114,9 +118,10 @@ function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
     // Shiki throws for a language the bundle does not ship; those draw as plain text.
     file.render({
       fileContainer: el,
-      file: { name: "snippet", contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
+      file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
-  }, [code, lang, wrap]);
+  }, [code, lang, wrap, name]);
+  if (tooSlow) return <PlainCode code={code} lang={lang} />;
   return (
     <div className="cv-codeblock">
       <div className="cv-codeblock__header">

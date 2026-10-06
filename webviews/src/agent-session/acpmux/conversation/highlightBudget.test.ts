@@ -36,7 +36,11 @@ function fakeClock() {
     clearTimeout: (id: number) => void timers.delete(id),
     advance(ms: number) {
       now += ms;
-      for (const [id, timer] of [...timers]) if (timer.at <= now) (timers.delete(id), timer.run());
+      const due = [...timers].filter(([, timer]) => timer.at <= now);
+      for (const [id, timer] of due) {
+        timers.delete(id);
+        timer.run();
+      }
     },
   };
 }
