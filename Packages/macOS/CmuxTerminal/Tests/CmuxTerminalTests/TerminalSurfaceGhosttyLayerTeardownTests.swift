@@ -26,7 +26,9 @@ import Testing
         let surface = makeSurface()
         let fixture = installGhosttyLayer(on: surface)
         surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        let probe = NativeFreeDisplayProbe(layer: fixture.layer)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            probe.sampleAtNativeFree()
             recorder.record(.nativeFree)
         }
         defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
@@ -35,6 +37,7 @@ import Testing
         surface.teardownSurface()
 
         #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
+        probe.expectDetachedAtNativeFree()
         fixture.expectDisplayNoLongerReachesRenderer()
     }
 
@@ -43,7 +46,9 @@ import Testing
         var surface: TerminalSurface? = makeSurface()
         let fixture = installGhosttyLayer(on: surface!)
         surface?.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        let probe = NativeFreeDisplayProbe(layer: fixture.layer)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            probe.sampleAtNativeFree()
             recorder.record(.nativeFree)
         }
         defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
@@ -52,6 +57,7 @@ import Testing
         surface = nil
 
         #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
+        probe.expectDetachedAtNativeFree()
         fixture.expectDisplayNoLongerReachesRenderer()
     }
 
@@ -64,7 +70,9 @@ import Testing
         defer { runtimeSurface.deallocate() }
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let probe = NativeFreeDisplayProbe(layer: fixture.layer)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            probe.sampleAtNativeFree()
             recorder.record(.nativeFree)
         }
         defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
@@ -73,6 +81,7 @@ import Testing
         #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate"))
 
         #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
+        probe.expectDetachedAtNativeFree()
         fixture.expectDisplayNoLongerReachesRenderer()
     }
 
@@ -107,6 +116,48 @@ import Testing
                 renderer.displayCount == countBeforeDisplay,
                 "a Core Animation display after the native free reached the freed renderer"
             )
+        }
+    }
+
+    /// Samples the layer's display slots from inside the native-free
+    /// override, so a detach that only happens after the free still fails.
+    ///
+    /// `@unchecked Sendable`: the override runs on the coordinator's worker;
+    /// the samples are guarded by `lock`, and the layer slots are only read.
+    private final class NativeFreeDisplayProbe: @unchecked Sendable {
+        private let layer: CALayer
+        private let lock = NSLock()
+        private var samples: [(callback: UnsafeMutableRawPointer?, context: UnsafeMutableRawPointer?)] = []
+
+        init(layer: CALayer) {
+            self.layer = layer
+        }
+
+        func sampleAtNativeFree() {
+            let sample = (
+                callback: FakeGhosttyIOSurfaceLayer.displayCallbackPointer(of: layer),
+                context: FakeGhosttyIOSurfaceLayer.displayContextPointer(of: layer)
+            )
+            lock.lock()
+            samples.append(sample)
+            lock.unlock()
+        }
+
+        func expectDetachedAtNativeFree() {
+            lock.lock()
+            let samples = samples
+            lock.unlock()
+            #expect(samples.count == 1, "expected exactly one native free")
+            for sample in samples {
+                #expect(
+                    sample.callback == nil,
+                    "the native free began while the layer's display callback still pointed at its renderer"
+                )
+                #expect(
+                    sample.context == nil,
+                    "the native free began while the layer's display context still pointed at its renderer"
+                )
+            }
         }
     }
 

@@ -40,8 +40,16 @@ enum FakeGhosttyIOSurfaceLayer {
     }
 
     /// The layer's current display callback, or nil once it is detached.
-    static func displayCallbackPointer(of layer: CALayer) -> UnsafeMutableRawPointer? {
+    /// Nonisolated so a native-free override can sample it off the main
+    /// thread, after teardown's main-actor work has happened-before the free.
+    nonisolated static func displayCallbackPointer(of layer: CALayer) -> UnsafeMutableRawPointer? {
         loadPointer(ivarNamed: "display_cb", in: layer)
+    }
+
+    /// The layer's current display context (the renderer), or nil once it is
+    /// detached.
+    nonisolated static func displayContextPointer(of layer: CALayer) -> UnsafeMutableRawPointer? {
+        loadPointer(ivarNamed: "display_ctx", in: layer)
     }
 
     private typealias DisplayCallback = @convention(c) (UnsafeMutableRawPointer?) -> Void

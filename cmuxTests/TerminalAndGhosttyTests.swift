@@ -3711,18 +3711,41 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         )
         // The renderer thread binds the display callback on loop entry.
         XCTAssertTrue(
-            waitUntil(timeout: 5.0) { ghosttyLayerDisplayCallback(ghosttyLayer) != nil },
+            waitUntil(timeout: 5.0) { GhosttyLayerNativeFreeProbe.displaySlot("display_cb", of: ghosttyLayer) != nil },
             "Expected the live renderer to bind the layer's display callback"
         )
+
+        // Sample the layer's display slots as the real native free begins:
+        // the callback must already be cut when the renderer is destroyed,
+        // not merely some time afterwards.
+        let freeProbe = GhosttyLayerNativeFreeProbe(layer: ghosttyLayer)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { runtimeSurface in
+            freeProbe.sampleAtNativeFree()
+            ghostty_surface_free(runtimeSurface)
+            freeProbe.markFreed()
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
 
         surface.killShellProcessesForTesting()
         surface.beginPortalCloseLifecycle(reason: "test.close")
         surface.teardownSurface()
         XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
 
-        // The native free runs on the teardown coordinator; the callback must
-        // be cut on the main thread before that free is scheduled.
-        let detached = waitUntil(timeout: 5.0) { ghosttyLayerDisplayCallback(ghosttyLayer) == nil }
+        XCTAssertTrue(
+            waitUntil(timeout: 10.0) { freeProbe.didFree },
+            "Expected the teardown coordinator to run the native free"
+        )
+        let sample = freeProbe.sample
+        XCTAssertNotNil(sample, "Expected a display-slot sample at the native free")
+        XCTAssertNil(
+            sample?.callback,
+            "The native free began while the Ghostty layer's display callback still pointed at its renderer"
+        )
+        XCTAssertNil(
+            sample?.context,
+            "The native free began while the Ghostty layer's display context still pointed at its renderer"
+        )
+        let detached = sample != nil && sample?.callback == nil && sample?.context == nil
         XCTAssertTrue(
             detached,
             "Teardown left the Ghostty layer's display callback pointing at the renderer it frees"
@@ -3741,17 +3764,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
-    }
-
-    /// Reads the raw `display_cb` slot of Ghostty's `IOSurfaceLayer`. The
-    /// slot holds a function pointer, so it must not be read as an object.
-    private func ghosttyLayerDisplayCallback(_ layer: CALayer) -> UnsafeMutableRawPointer? {
-        guard let layerClass = object_getClass(layer),
-              let ivar = class_getInstanceVariable(layerClass, "display_cb") else { return nil }
-        return Unmanaged.passUnretained(layer).toOpaque().load(
-            fromByteOffset: ivar_getOffset(ivar),
-            as: UnsafeMutableRawPointer?.self
-        )
     }
 
     func testUnavailableTerminalConsumesEscapeInsteadOfFallingThroughToAppKit() throws {
@@ -7336,4 +7348,64 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.isHealthy)
     }
 
+}
+
+/// Samples the `display_cb`/`display_ctx` slots of Ghostty's `IOSurfaceLayer`
+/// from inside the native-free override, on the teardown coordinator's worker.
+///
+/// `@unchecked Sendable`: the samples are guarded by `lock`; the layer slots
+/// are only read, after teardown's main-actor work happened-before the free.
+private final class GhosttyLayerNativeFreeProbe: @unchecked Sendable {
+    struct Sample {
+        let callback: UnsafeMutableRawPointer?
+        let context: UnsafeMutableRawPointer?
+    }
+
+    private let layer: CALayer
+    private let lock = NSLock()
+    private var storedSample: Sample?
+    private var storedDidFree = false
+
+    init(layer: CALayer) {
+        self.layer = layer
+    }
+
+    var sample: Sample? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSample
+    }
+
+    var didFree: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedDidFree
+    }
+
+    func sampleAtNativeFree() {
+        let sample = Sample(
+            callback: Self.displaySlot("display_cb", of: layer),
+            context: Self.displaySlot("display_ctx", of: layer)
+        )
+        lock.lock()
+        storedSample = sample
+        lock.unlock()
+    }
+
+    func markFreed() {
+        lock.lock()
+        storedDidFree = true
+        lock.unlock()
+    }
+
+    /// Reads a raw pointer slot of Ghostty's layer. The slots hold a function
+    /// pointer and the renderer, so they must not be read as objects.
+    static func displaySlot(_ name: String, of layer: CALayer) -> UnsafeMutableRawPointer? {
+        guard let layerClass = object_getClass(layer),
+              let ivar = class_getInstanceVariable(layerClass, name) else { return nil }
+        return Unmanaged.passUnretained(layer).toOpaque().load(
+            fromByteOffset: ivar_getOffset(ivar),
+            as: UnsafeMutableRawPointer?.self
+        )
+    }
 }
