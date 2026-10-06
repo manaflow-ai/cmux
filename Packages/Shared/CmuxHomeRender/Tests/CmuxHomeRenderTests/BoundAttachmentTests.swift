@@ -1,4 +1,4 @@
-import CmuxHomeCore
+@testable import CmuxHomeCore
 import CoreGraphics
 import Foundation
 import Testing
@@ -76,8 +76,8 @@ import Testing
         var refused: [HomeRejection] = []
         binding.onRefusal = { _, rejection in refused.append(rejection) }
         let intent = HomeIntent(op: .sendMessage(conversation: conversation, parts: [.text("resumed")]))
-        let report = try #require(store.onRefusal, "the binding listens for refusals of resumed uploads and resends")
-        report(intent, .notAuthorized)
+        // How the store reports a refusal of a resumed upload or a resend.
+        store.reportRefusal(intent, .notAuthorized)
         #expect(refused == [.notAuthorized])
     }
 
@@ -105,7 +105,8 @@ import Testing
         defer { binding.stop() }
         var unanswered: [IdempotencyKey] = []
         binding.onUnanswered = { unanswered.append($0.key) }
-        let report = try #require(store.onUnanswered, "the binding listens for ops that ran out of resends")
+        // How the store reports an op that ran out of resends.
+        let report = store.reportUnanswered
         let mine = HomeIntent(op: .setReadCursor(conversation: conversation, seq: 3))
         let other = HomeIntent(op: .setReadCursor(conversation: ConversationID("conv_other"), seq: 3))
         report(mine)

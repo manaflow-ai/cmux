@@ -22,6 +22,9 @@ MACOS_15_FORK_JOBS = {
     ("ci-macos.yml", "swift-package-tests"),
     ("release.yml", "build-ghostty-cli-helper"),
     ("nightly.yml", "build-nightly-ghostty-cli-helper"),
+    # Checks the release Ghostty CLI helper's Zig fetch list with a real
+    # build, which must use the same macOS 15 SDK as the helper it describes.
+    ("cmux-next-source-archive.yml", "archive"),
     # Its matrix exists to cover each macOS major; only the macOS 15 row.
     ("ci-macos-compat.yml", "compat-tests"),
     # Exists to exercise the paste worker on macOS 15.

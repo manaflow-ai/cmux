@@ -87,13 +87,20 @@ public struct HomeMirror: Hashable, Sendable {
         return joined
     }
 
+    /// The transcript left the screen: its window goes, so nothing is
+    /// fetched for it until it opens again, and that open loads its tail.
+    public mutating func endTranscript(_ conversation: ConversationID) {
+        windows[conversation] = nil
+        stale.remove(.conversation(conversation))
+    }
+
     /// A refetch failed: the stream stays stale until a later fetch succeeds.
     public mutating func markStale(_ stream: HomeStream) { stale.insert(stream) }
 
     @discardableResult
     public mutating func apply(_ event: HomeEvent) -> MirrorOutcome {
         switch event {
-        case .connection, .typing:
+        case .connection, .typing, .ownerRecovered, .intentsRevoked:
             return .applied
         case .inbox(let snapshot):
             return apply(inbox: snapshot).first.map(MirrorOutcome.gap) ?? .applied
@@ -110,6 +117,15 @@ public struct HomeMirror: Hashable, Sendable {
             return outcome
         case .message(let message, let rev):
             return apply(message: message, rev: rev)
+        case .conversationPage(let page):
+            let id = page.conversation.id
+            if windows[id] != nil { return apply(page: page) }
+            let stream = HomeStream.conversation(id)
+            if let known = revisions[stream], known > page.conversation.rev { return .ignoredStale }
+            conversations[id] = mergedSummary(page.conversation, fromInbox: false)
+            revisions[stream] = page.conversation.rev
+            stale.remove(stream)
+            return .applied
         }
     }
 

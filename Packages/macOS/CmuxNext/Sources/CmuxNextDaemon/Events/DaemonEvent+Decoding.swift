@@ -68,6 +68,11 @@ extension DaemonEvent {
             case "terminal-clipboard-read": return .terminalClipboardRead(try d(TerminalClipboardRead.self))
             case "terminal-clipboard-read-cancelled":
                 return .terminalClipboardReadCancelled(requestID: try d(EventPayload.RequestField.self).requestID)
+            case _ where CloudConversationsEvent.eventNames.contains(name):
+                guard let event = try CloudConversationsEvent.decode(name: name, line: line, decoder: decoder) else {
+                    return .unknown(name: name, payload: payload())
+                }
+                return .cloudConversations(event)
             case "client-attached", "client-changed", "client-detached", "client-list-invalidated":
                 return .client(name: name, payload: payload())
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")

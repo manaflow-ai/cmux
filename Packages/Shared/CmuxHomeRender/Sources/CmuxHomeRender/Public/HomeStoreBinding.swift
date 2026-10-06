@@ -6,11 +6,25 @@ import Observation
 /// `update` (observed, no polling) and the controller's intents go to
 /// `HomeStore.perform` with their idempotency keys. Hosts that own their own
 /// plumbing can call `update` and handle `onIntent` themselves instead.
+///
+/// The binding owns its conversation's open/close pair: it opens the
+/// conversation on the store when it starts and `stop()` closes exactly
+/// that open, also when it stops while the first page loads (the store
+/// drops that page). Hosts do not call `HomeStore.open` themselves. A
+/// binding freed without `stop()` closes that open from its deinit.
 @MainActor
 public final class HomeStoreBinding {
     public let store: HomeStore
     public let controller: HomeController
+    /// `controller.conversation`, readable from the deinit.
+    private let conversation: ConversationID
     private var stopped = false
+    /// This binding's entry in the store's hooks for its conversation:
+    /// registered at init, unregistered by `stop()` (the store holds it
+    /// weakly, so a binding freed without stopping leaves nothing behind).
+    private let hooks: HomeConversationHooks
+    /// The first page load this binding's open started.
+    private var opening: Task<Void, Never>?
     /// A refused op other than a send (a tapback now), on the main actor, so
     /// the host can say why (iOS: an alert with `HomeText.explanation(for:)`).
     /// A refused send restores its draft instead.
@@ -39,36 +53,44 @@ public final class HomeStoreBinding {
         self.store = store
         self.controller = controller
         let id = controller.conversation
+        conversation = id
+        hooks = HomeConversationHooks(conversation: id)
         self.fetchAttachment = { [weak store] ref, variant in
             guard let store else { throw CancellationError() }
             return try await store.fetchAttachment(ref, variant: variant, in: id)
         }
         controller.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment)
-        // Refusals nobody awaits (a resumed upload, a resend after backoff)
-        // reach the host like any other refusal. One store serves several
-        // bindings: each takes its own conversation and passes the rest on.
-        let previous = store.onRefusal
-        store.onRefusal = { [weak self] intent, rejection in
-            guard intent.op.conversation == id else { previous?(intent, rejection); return }
+        // Refusals and unanswered ops nobody awaits (a resumed upload, a
+        // resend after backoff) reach the host like any other: the store
+        // tells every live binding of this conversation, once each. The
+        // store snapshots the hooks before a delivery, so a binding stopped
+        // by an earlier handler of the same intent checks `stopped` itself.
+        hooks.onRefusal = { [weak self] intent, rejection in
             guard let self, !self.stopped else { return }
             self.onRefusal(intent, rejection)
         }
-        let previousUnanswered = store.onUnanswered
-        store.onUnanswered = { [weak self] intent in
-            guard intent.op.conversation == id else { previousUnanswered?(intent); return }
+        hooks.onUnanswered = { [weak self] intent in
             guard let self, !self.stopped else { return }
             self.onUnanswered(intent)
         }
+        store.register(hooks)
         controller.onIntent = { [weak self] intent in self?.perform(intent) }
         controller.onNeedsOlder = { [weak store] in
             guard let store else { return }
             Task { await store.loadOlder(id) }
         }
+        // Counted as shown at once, so the `close` in `stop()` always pairs with it.
+        opening = store.beginOpen(id)
         refresh()
         observe()
     }
 
-    /// Stops forwarding (the conversation closed).
+    /// Returns once the conversation's first page is in (at once when it
+    /// already was), for hosts that draw only after it.
+    public func opened() async {
+        await opening?.value
+    }
+
     /// Cancels my pending send `key` (an upload, a queued send or a failed
     /// one; `HomeController.cancellableSend` says when it can). The row leaves
     /// the transcript. Returns false when the store could not cancel it.
@@ -77,10 +99,43 @@ public final class HomeStoreBinding {
         store.cancelSend(key)
     }
 
+    /// Stops forwarding (the conversation closed) and closes the
+    /// conversation on the store, pairing the binding's own open. A second
+    /// call does nothing.
     public func stop() {
+        guard !stopped else { return }
+        store.close(conversation)
+        store.unregister(hooks)
         stopped = true
         controller.onIntent = { _ in }
         controller.onNeedsOlder = {}
+    }
+
+    /// Freed without `stop()` (a host that went away without a last
+    /// callback): closes the binding's open and drops its hooks on the
+    /// main actor, at once when the last reference went on it. On the main
+    /// thread `hooks` is still alive here (stored properties go after the
+    /// deinit body), so pruning freed entries would keep it: it is
+    /// unregistered by identity instead. Off the main thread the hop runs
+    /// after `hooks` is freed, so pruning drops it without keeping it alive.
+    /// An `isolated deinit` would need iOS 18.4 and macOS 15.4.
+    deinit {
+        guard !stopped else { return }
+        let store = store
+        let id = conversation
+        if Thread.isMainThread {
+            let hooks = hooks
+            MainActor.assumeIsolated {
+                store.close(id)
+                store.unregister(hooks)
+            }
+        } else {
+            // task-owner: one hop to the main actor; ends at once
+            Task { @MainActor in
+                store.close(id)
+                store.pruneHooks(for: id)
+            }
+        }
     }
 
     private func refresh() {
