@@ -36,8 +36,9 @@ BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-MUX_HOME = os.path.expanduser(f"~/.cmux/mux/tags/{TAG}")
-ACPMUX_HOME = os.path.expanduser(f"~/.acpmux/tags/{TAG}")
+# A no-activate launch is an isolated Chief home (ChiefHome.swift).
+MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
+ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-flows-{TAG}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}")
@@ -139,19 +140,33 @@ def chief_conversation():
     return next((c for c in home.get("conversations", []) if "agent_mux" in c.get("participants", [])), None)
 
 
+def memory(query, args=()):
+    """Read-only rows of the Chief's memory database (optchat/memory.sqlite3)."""
+    import sqlite3
+    path = os.path.join(MUX_HOME, "optchat", "memory.sqlite3")
+    if not os.path.exists(path):
+        return []
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            return db.execute(query, args).fetchall()
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return []
+
+
 def log_items():
     """The Chief's OptChat log (user, talk, tool, echo, work items), oldest first."""
-    folder = os.path.join(MUX_HOME, "optchat", "chat", "main")
-    items = []
-    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
-        for line in open(os.path.join(folder, name)):
-            line = line.strip()
-            if line:
-                try:
-                    items.append(json.loads(line))
-                except ValueError:
-                    pass
-    return items
+    return [{"kind": kind, "text": text} for kind, text in memory("SELECT kind, text FROM messages ORDER BY id")]
+
+
+def host_state(key):
+    rows = memory("SELECT value FROM state WHERE key = ?", (f"host/{key}",))
+    try:
+        return json.loads(rows[0][0]) if rows else None
+    except ValueError:
+        return None
 
 
 def ask(text):
@@ -255,16 +270,20 @@ def cleanup():
                    capture_output=True, timeout=30)
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    # Anything of this bundle left with ppid 1, by exact pid.
-    ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    for line in ps.splitlines():
-        parts = line.split(None, 2)
-        if len(parts) == 3 and parts[1] == "1" and APP in parts[2]:
-            print("leftover", line[:200], flush=True)
-            try:
-                os.kill(int(parts[0]), signal.SIGTERM)
-            except OSError:
-                pass
+    # Every process left from this tag's bundle (its own path), by exact pid;
+    # twice, as terminal hosts outlive their session owner.
+    for _ in range(2):
+        ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+        for line in ps.splitlines():
+            parts = line.split(None, 1)
+            # The bundle's own executables only (this script's argv names the bundle too).
+            if len(parts) == 2 and parts[1].startswith(APP + "/") and int(parts[0]) != os.getpid():
+                print("leftover", line[:160], flush=True)
+                try:
+                    os.kill(int(parts[0]), signal.SIGTERM)
+                except OSError:
+                    pass
+        time.sleep(3)  # test harness: let them exit
 
 
 def host_log():
@@ -388,11 +407,8 @@ def main():
     @flow
     def subagent():
         def subs():
-            try:
-                state = json.load(open(os.path.join(MUX_HOME, "optchat", "host.json")))
-            except (OSError, ValueError):
-                return []
-            return [sub for run in (state.get("spawns") or {}).values() for sub in run.get("subs", [])]
+            spawns = host_state("spawns") or {}
+            return [sub for run in spawns.values() for sub in run.get("subs", [])]
 
         def chat_tab(sub):
             """The agent chat tab bound to the subagent's session in its workspace (app tree)."""
