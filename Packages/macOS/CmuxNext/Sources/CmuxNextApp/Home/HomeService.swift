@@ -1,5 +1,7 @@
 import CmuxHomeCore
+import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextHome
 import Foundation
 import Observation
 import os
@@ -49,6 +51,9 @@ final class HomeService {
 
     init(services: AppServices) {
         self.services = services
+        // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
+        HomeFlightRecording.install(available: DevTools.isEnabled,
+                                    logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
     }
 
     /// Observes the local daemon: each new connection that serves
