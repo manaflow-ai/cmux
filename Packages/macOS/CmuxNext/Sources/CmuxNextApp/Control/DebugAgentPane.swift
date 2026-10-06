@@ -70,6 +70,13 @@ enum DebugAgentPane {
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
         }
+        if action == "gesture_state" {
+            // The relay's gesture record (no ticket value), for a live repro of a gesture refusal.
+            let state = view.model.transport.gestures.debugState
+            var fields: [String: JSONValue] = ["pane": .string(pane), "available": .bool(state.available), "scope_available": .bool(state.scopeAvailable), "tickets": .number(Double(state.tickets))]
+            fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
+            return .object(fields)
+        }
         if action == "full_rate" {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
@@ -78,7 +85,7 @@ enum DebugAgentPane {
             return await readiness(pane: pane, view: view)
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, pid, full_rate or gesture_state")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
