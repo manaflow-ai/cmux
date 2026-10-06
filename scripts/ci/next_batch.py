@@ -152,6 +152,7 @@ class GitHub:
 
     def __init__(self, repo: str, token_env: str = "GH_TOKEN") -> None:
         self.repo = repo
+        self.workflow_ids: dict[str, int] = {}
         self.env = dict(os.environ)
         if token_env != "GH_TOKEN":
             self.env["GH_TOKEN"] = os.environ.get(token_env, "")
@@ -176,8 +177,23 @@ class GitHub:
             args += ["-F", f"{key}={value}"]
         return json.loads(self.gh(*args).stdout)["data"]
 
+    def workflow(self, name: str) -> str:
+        """The workflow's numeric id. A file name resolves only on the default
+        branch (main), and feat-cmux-next-only workflows like this one are not
+        there; the id works for every registered workflow."""
+        if not self.workflow_ids:
+            listed = self.gh("api", "--paginate", f"repos/{self.repo}/actions/workflows?per_page=100",
+                             "--jq", ".workflows[] | [.id, .path] | @tsv").stdout
+            for line in listed.splitlines():
+                workflow_id, _, path = line.partition("\t")
+                self.workflow_ids[path.rsplit("/", 1)[-1]] = int(workflow_id)
+        return str(self.workflow_ids.get(name, name))
+
+    def runs(self, workflow: str, query: str) -> list[dict]:
+        return self.api(f"repos/{self.repo}/actions/workflows/{self.workflow(workflow)}/runs?{query}")["workflow_runs"]
+
     def dispatch(self, workflow: str, ref: str, inputs: dict[str, str] | None = None) -> None:
-        self.api(f"repos/{self.repo}/actions/workflows/{workflow}/dispatches", method="POST",
+        self.api(f"repos/{self.repo}/actions/workflows/{self.workflow(workflow)}/dispatches", method="POST",
                  body={"ref": ref, "inputs": inputs or {}})
 
     def comment(self, number: int, body: str) -> None:
@@ -343,7 +359,7 @@ def first_trigger_since_dispatch(runs: list[dict], at: dt.datetime) -> dt.dateti
 
 def cmd_debounce(args: argparse.Namespace) -> int:
     gh = GitHub(args.repo)
-    runs = gh.api(f"repos/{args.repo}/actions/workflows/{WORKFLOW}/runs?per_page=60")["workflow_runs"]
+    runs = gh.runs(WORKFLOW, "per_page=60")
     at = now()
     first = first_trigger_since_dispatch(runs, at)
     wait = debounce_wait(at, first)
@@ -637,8 +653,7 @@ class Controller:
         deadline = time.monotonic() + timeout
         while True:
             time.sleep(15)
-            runs = self.gh.api(f"repos/{self.args.repo}/actions/workflows/{workflow}/runs"
-                               f"?event=workflow_dispatch&branch={branch}&per_page=30")["workflow_runs"]
+            runs = self.gh.runs(workflow, f"event=workflow_dispatch&branch={branch}&per_page=30")
             for run in runs:
                 if match(run) and parse_time(run["created_at"]) >= since - dt.timedelta(seconds=60):
                     return run
@@ -663,8 +678,7 @@ class Controller:
         """Jobs already red on the base head's own cmux-next run (inherited, not the batch's)."""
         if self.base_failures is not None:
             return self.base_failures
-        runs = self.gh.api(f"repos/{self.args.repo}/actions/workflows/{HEAVY_WORKFLOW}/runs"
-                           f"?head_sha={base_sha}&per_page=10")["workflow_runs"]
+        runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&per_page=10")
         done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
         self.base_failures = set(self.failed_jobs(done[0]["id"])) if done else set()
         return self.base_failures
