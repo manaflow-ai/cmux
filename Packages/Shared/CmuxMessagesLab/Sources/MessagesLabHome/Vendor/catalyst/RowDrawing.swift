@@ -133,7 +133,8 @@ enum PartRenderer {
         case let .link(url, title, site, image, _) where Sizing.linkPending(title: title, site: site, image: image):
             // Messages' loading card: a grey rounded square, an activity spinner
             // and the domain under it (link-url-and-text take, t+0.6-1.9 s).
-            Fixture.incoming.setFill()
+            let light = Fixture.lightAppearance
+            (light ? Fixture.p3(233, 233, 235) : Fixture.incoming).setFill()
             UIBezierPath(roundedRect: body, cornerRadius: 15).fill()
             let c = CGPoint(x: body.midX, y: body.midY - 6)
             for k in 0..<8 {
@@ -142,13 +143,16 @@ enum PartRenderer {
                 p.move(to: CGPoint(x: c.x + 4.5 * cos(a), y: c.y + 4.5 * sin(a)))
                 p.addLine(to: CGPoint(x: c.x + 9 * cos(a), y: c.y + 9 * sin(a)))
                 p.lineWidth = 2; p.lineCapStyle = .round
-                UIColor(white: 1, alpha: 0.25 + 0.6 * CGFloat(k) / 7).setStroke(); p.stroke()
+                UIColor(white: light ? 0 : 1, alpha: 0.25 + 0.6 * CGFloat(k) / 7).setStroke(); p.stroke()
             }
             let host = URL(string: url).map(TextParts.host) ?? url
             let f = UIFont.systemFont(ofSize: 10)
             TextDraw.line(host, font: f, color: Fixture.secondaryText, x: body.midX - TextDraw.width(host, font: f) / 2, baseline: c.y + 24, in: ctx)
         case let .link(_, title, site, image, theme):
-            drawLink(ctx, body: body, title: title ?? "", site: site ?? "", image: image, dark: theme == "dark" || image == nil,
+            // A light appearance draws every card light; a dark one keeps the card's
+            // own theme (a card with no image is dark).
+            drawLink(ctx, body: body, title: title ?? "", site: site ?? "", image: image,
+                     dark: !Fixture.lightAppearance && (theme == "dark" || image == nil),
                      tail: p.tail, outgoing: p.outgoing)
         case let .attachment(a):
             drawAttachment(ctx, a, body: body, row: p, windowY: windowY)
@@ -192,6 +196,7 @@ enum PartRenderer {
                          tail: Bool, outgoing: Bool) {
         let (_, ih) = Sizing.linkImageSize(image)
         let captionColor = dark ? (image == nil ? UIColor(white: 49 / 255, alpha: 1) : UIColor(red: 35 / 255, green: 55 / 255, blue: 68 / 255, alpha: 1))
+            : Fixture.lightAppearance ? Fixture.p3(233, 233, 235)   // light appearance: Messages' light incoming grey
             : UIColor(white: 235 / 255, alpha: 1)   // light caption: 235, title 36, site 118 (lossless still)
         let shape = BubblePath.make(body: card, outgoing: outgoing, tail: tail)
         ctx.saveGState()

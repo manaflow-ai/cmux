@@ -144,21 +144,21 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "increaseWorkspaceTerminalFontSize",
                 title: String(localized: "action.increaseWorkspaceTerminalFontSize", defaultValue: "Increase Workspace Font Size", bundle: .module),
-                keywords: ["zoom", "bigger"], defaultShortcut: Shortcut("=", modifiers: [.control, .command]),
+                keywords: ["zoom", "bigger"], defaultShortcut: Shortcut("=", modifiers: [.command]),
                 category: .pane, symbol: "textformat.size.larger", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane increase-workspace-font-size"
             ),
             ActionDescriptor(
                 id: "decreaseWorkspaceTerminalFontSize",
                 title: String(localized: "action.decreaseWorkspaceTerminalFontSize", defaultValue: "Decrease Workspace Font Size", bundle: .module),
-                keywords: ["zoom", "smaller"], defaultShortcut: Shortcut("-", modifiers: [.control, .command]),
+                keywords: ["zoom", "smaller"], defaultShortcut: Shortcut("-", modifiers: [.command]),
                 category: .pane, symbol: "textformat.size.smaller", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane decrease-workspace-font-size"
             ),
             ActionDescriptor(
                 id: "resetWorkspaceTerminalFontSize",
                 title: String(localized: "action.resetWorkspaceTerminalFontSize", defaultValue: "Reset Workspace Font Size", bundle: .module),
-                keywords: ["zoom", "default"], defaultShortcut: Shortcut("0", modifiers: [.control, .command]),
+                keywords: ["zoom", "default"], defaultShortcut: Shortcut("0", modifiers: [.command]),
                 category: .pane, symbol: "textformat.size", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane reset-workspace-font-size"
             ),

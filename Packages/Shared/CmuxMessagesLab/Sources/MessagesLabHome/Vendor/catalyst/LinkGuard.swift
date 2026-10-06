@@ -52,7 +52,26 @@ enum LinkGuard {
 
     // MARK: URL and name
 
+    #if MESSAGESLAB_SELFTEST
+    /// Self-test builds only (`SELFTEST=1 ./build.sh`): the one loopback origin of the
+    /// self-test's local page ("127.0.0.1:port"). Release builds have no exception.
+    static var testOrigin: String?
+    #endif
+    static func isTestOrigin(_ u: URL) -> Bool {
+        #if MESSAGESLAB_SELFTEST
+        if let o = testOrigin, u.scheme == "http", let h = u.host, let p = u.port, "\(h):\(p)" == o { return true }
+        #endif
+        return false
+    }
+    static func isTestAddress(_ a: String) -> Bool {
+        #if MESSAGESLAB_SELFTEST
+        if testOrigin != nil, a == "127.0.0.1" { return true }
+        #endif
+        return false
+    }
+
     static func checkURL(_ u: URL) -> Refusal? {
+        if isTestOrigin(u) { return nil }
         guard let scheme = u.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return .scheme }
         if let p = u.port, p != (scheme == "https" ? 443 : 80) { return .port }
         if u.user != nil || u.password != nil { return .credentials }
@@ -67,6 +86,7 @@ enum LinkGuard {
 
     /// The URL's checks, then its host's addresses (blocking: call off main).
     static func check(_ u: URL) -> Refusal? {
+        if isTestOrigin(u) { return nil }
         if let r = checkURL(u) { return r }
         var host = u.host ?? ""
         if host.hasPrefix("[") { host = String(host.dropFirst().dropLast()) }
@@ -259,7 +279,7 @@ final class GuardedFetcher: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
         guard let j = job(task) else { return }
         for t in metrics.transactionMetrics {
-            if let a = t.remoteAddress, !LinkGuard.isPublicAddress(a) { j.refusal = j.refusal ?? .connectedTo(a) }
+            if let a = t.remoteAddress, !LinkGuard.isPublicAddress(a), !LinkGuard.isTestAddress(a) { j.refusal = j.refusal ?? .connectedTo(a) }
         }
     }
 

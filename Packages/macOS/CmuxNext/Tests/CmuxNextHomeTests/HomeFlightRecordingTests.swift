@@ -3,16 +3,16 @@ import CmuxNextDesign
 import MessagesLabHome
 import Testing
 
-/// The Home flight recorder follows the build: DEV records by default (this
-/// test process is a Debug compile), a build without developer tools never
-/// records, and window captures need the recorder on as well.
+/// The Home flight recorder is an opt-in in every build until MessagesLab's
+/// recorder costs at most 0.3 ms a frame (it cost more main-thread time than
+/// a send in DEV): off by default even in a Debug compile, a build without
+/// developer tools never records, and window captures need the recorder on.
 @MainActor @Suite(.serialized) struct HomeFlightRecordingTests {
-    @Test func aDebugBuildRecordsByDefaultWithCaptures() {
+    @Test func aDebugBuildDoesNotRecordByDefault() {
         HomeFlightRecording.install(available: true, logFolder: "cmux DEV test")
         defer { HomeFlightRecording.install(available: false, logFolder: "cmux") }
-        #expect(HomeTunables.flightRecorder.defaultValue)
-        #expect(HomeFlightRecorder.isEnabled())
-        #expect(HomeFlightRecorder.capturesWindow())
+        #expect(!HomeTunables.flightRecorder.defaultValue)
+        #expect(!HomeTunables.flightRecorderCaptures.defaultValue)
         #expect(HomeFlightRecorder.logFolder == "cmux DEV test")
     }
 

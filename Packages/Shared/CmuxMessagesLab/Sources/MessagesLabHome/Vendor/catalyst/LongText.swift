@@ -552,6 +552,8 @@ enum LongTextStats {
     static var publishes = 0
     static var indexBuilds = 0
     static var streamExtends = 0
+    /// Phases of the last fold change (ms), for the bench.
+    static var lastFoldMs: [String: Double] = [:]
 }
 
 /// Main-thread delivery of measured line counts, in batches. `handler(lineages, apply)`
@@ -762,8 +764,9 @@ enum LongTextFold {
     static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
     static let defaultsKey = "messageslab.collapseLongMessages"
     /// Setting (UserDefaults, default on). `--no-collapse` turns it off for one run.
+    private static let disabledByArgument = ProcessInfo.processInfo.arguments.contains("--no-collapse")
     static var enabled: Bool {
-        if ProcessInfo.processInfo.arguments.contains("--no-collapse") { return false }
+        if disabledByArgument { return false }
         return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
     }
     private static let lock = NSLock()
@@ -771,7 +774,9 @@ enum LongTextFold {
     /// Session only: expanded messages are not stored (they fold again at launch).
     static func expand(_ id: ID) { lock.lock(); expanded.insert(id); lock.unlock() }
     static func collapse(_ id: ID) { lock.lock(); expanded.remove(id); lock.unlock() }
-    static func isFoldable(_ l: LongTextLayout) -> Bool { enabled && l.index.ready && l.estimatedLines > maxLines }
+    /// A text still scanned off main (above 512 KB, thousands of lines) folds from its first
+    /// frame, so the end of the scan changes no height.
+    static func isFoldable(_ l: LongTextLayout) -> Bool { enabled && (l.index.ready ? l.estimatedLines > maxLines : l.totalLines > maxLines) }
     static func isExpanded(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return expanded.contains(id) }
     static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool { isFoldable(l) && !isExpanded(id) }
     static func size(_ l: LongTextLayout) -> CGSize {
