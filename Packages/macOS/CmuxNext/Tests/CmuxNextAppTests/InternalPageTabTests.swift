@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextPages
@@ -58,6 +59,17 @@ struct InternalPageTabTests {
         let pane = try #require(content.panes[paneID])
         content.layoutModel.focus(paneID)
         return (services, window, pane)
+    }
+
+    /// nxdog53: with Settings focused, snapshot.get reported focus.tab null
+    /// while debug.focus showed the page. The focused internal page tab is
+    /// the topology's focused tab.
+    @Test func aFocusedInternalPageIsTheTopologysFocusedTab() async throws {
+        let (services, _, pane) = try await world()
+        #expect(services.registry.perform("openSettings", invocation: ActionInvocation()))
+        let key = try #require(services.pages.keys(of: .settings).first)
+        await BrowserTabTests.settle { pane.stripModel.selectedID?.rawValue == key }
+        #expect(ControlSnapshotPublisher.topology(services).focus.tabID == key)
     }
 
     @Test func openSettingsOpensATabNotAWindow() async throws {
