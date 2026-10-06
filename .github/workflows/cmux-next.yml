@@ -697,7 +697,7 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
-          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests --skip OmnibarTypingTests --skip BranchStateResourcesTests
+          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests --skip OmnibarTypingTests --skip OmnibarFieldEditorTests --skip BranchStateResourcesTests
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
@@ -725,13 +725,16 @@ jobs:
       # The real field editor and state-resource event round trips need their
       # own process: unrelated UI suites can change focus or delay callbacks
       # beyond these tests' existing deadlines. Every test still runs.
+      # OmnibarFieldEditorTests: in the shared process the field editor lost its
+      # IME marked text mid-test (1 of 4 package runs; 0 of 11 alone or with
+      # only the browser target).
       - name: Run field-editor and state-resource regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBrowserTests') || contains(env.SWIFT_TARGETS, 'CmuxNextDaemonTests')) }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'OmnibarTypingTests|BranchStateResourcesTests'
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'OmnibarTypingTests|OmnibarFieldEditorTests|BranchStateResourcesTests'
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
       # deadlines through main-actor navigation callbacks. They run in a
