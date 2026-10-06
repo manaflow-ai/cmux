@@ -804,7 +804,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextLayout",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -812,7 +812,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextLayoutTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextLayout"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextIcons"],
             swiftSettings: uiSwiftSettings
         ),
         .target(

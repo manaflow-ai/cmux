@@ -619,6 +619,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -627,6 +628,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLayoutTests",
       "targets": [
+        "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextWakeups"
       ],
