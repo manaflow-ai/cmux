@@ -15,7 +15,8 @@ fn an_i420_picture_starts_black_in_video_range() {
 fn openh264_from_source_encodes_an_idr_on_request() {
     use cmux_encode::openh264::{OpenH264, OpenH264Api};
     use cmux_encode::{EncCfg, H264Encoder};
-    let cfg = EncCfg { width: 64, height: 64, fps: 30, kbps: 500, threads: 1, screen_content: true };
+    let cfg =
+        EncCfg { width: 64, height: 64, fps: 30, kbps: 500, threads: 1, screen_content: true };
     let mut enc = OpenH264::new(&cfg, OpenH264Api::from_source()).expect("encoder");
     let pic = I420::new(64, 64);
     let mut au = Vec::new();
@@ -40,7 +41,10 @@ mod runtime {
         }
         let linux = CiscoBinary::for_platform(Platform::LinuxX64);
         assert_eq!(linux.url, "http://ciscobinary.openh264.org/libopenh264-2.6.0-linux64.8.so.bz2");
-        assert_eq!(linux.sha256, "2f0cde7c6a6abcf5cae76942894ea42897fa677bce4ed6c91a24dd1b041d5f04");
+        assert_eq!(
+            linux.sha256,
+            "2f0cde7c6a6abcf5cae76942894ea42897fa677bce4ed6c91a24dd1b041d5f04"
+        );
     }
 
     #[test]
@@ -57,7 +61,29 @@ mod runtime {
             Err(other) => panic!("expected a hash mismatch, got {other:?}"),
             Ok(_) => panic!("a foreign library was loaded"),
         }
-        assert!(matches!(load_verified(dir.join("missing.so"), Platform::LinuxX64), Err(LoadError::Io(_))));
+        assert!(matches!(
+            load_verified(dir.join("missing.so"), Platform::LinuxX64),
+            Err(LoadError::Io(_))
+        ));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Real check with Cisco's library, downloaded from Cisco by the person
+    /// running it: CMUX_OPENH264_LIB=<decompressed library> cargo test --features
+    /// openh264-runtime -- --ignored. Not in CI (no download there).
+    #[test]
+    #[ignore = "needs Cisco's library downloaded on this machine"]
+    fn ciscos_library_loads_and_encodes_an_idr() {
+        use cmux_encode::openh264::OpenH264;
+        use cmux_encode::{EncCfg, H264Encoder, I420};
+        let path = std::env::var("CMUX_OPENH264_LIB").expect("CMUX_OPENH264_LIB");
+        let api =
+            load_verified(&path, Platform::current().expect("platform")).expect("verified load");
+        let cfg =
+            EncCfg { width: 64, height: 64, fps: 30, kbps: 500, threads: 1, screen_content: true };
+        let mut enc = OpenH264::new(&cfg, api).expect("encoder");
+        let mut au = Vec::new();
+        assert!(enc.encode(&I420::new(64, 64), true, 0, &mut au).expect("encode"));
+        assert!(au.starts_with(&[0, 0, 0, 1]));
     }
 }

@@ -3,7 +3,7 @@
 //! no frame reordering, infinite GOP with IDR on request; output converted from the
 //! length-prefixed (AVCC) form to Annex-B with SPS/PPS before every IDR.
 
-use crate::convert::I420;
+use cmux_encode::I420;
 use crate::encoder::H264Encoder;
 use crate::Res;
 use std::ffi::c_void;

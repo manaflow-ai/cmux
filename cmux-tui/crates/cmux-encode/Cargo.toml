@@ -17,7 +17,8 @@ default = []
 openh264-source = ["dep:openh264-sys2", "openh264-sys2/source"]
 # Cisco's prebuilt OpenH264, downloaded from Cisco at first use and loaded
 # with a pinned SHA-256 check (Cisco's patent license covers only that binary).
-openh264-runtime = ["dep:openh264-sys2", "openh264-sys2/libloading"]
+openh264-runtime = ["dep:openh264-sys2", "openh264-sys2/libloading", "dep:sha2"]
 
 [dependencies]
 openh264-sys2 = { version = "=0.9.8", default-features = false, optional = true }
+sha2 = { version = "0.10", optional = true }
