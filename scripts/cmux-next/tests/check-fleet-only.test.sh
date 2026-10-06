@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# The check scripts that build Swift (swift test or xcodebuild) run only as a
+# The check scripts that build (swift test, xcodebuild or zig build) run only as a
 # fleet CI step (`cmux-ci run`, which sets CMUX_CI_STEP_KEY) or on a GitHub
 # runner, never on a developer Mac (agents ran them on the laptop on
-# 2026-10-04 and 2026-10-06). Stub `swift` and `xcodebuild` record whether a
-# build was reached.
+# 2026-10-04 and 2026-10-06). Stub `swift`, `xcodebuild` and `zig` record
+# whether a build was reached.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/pkg"
-for tool in swift xcodebuild; do
+for tool in swift xcodebuild zig; do
   printf '#!/bin/sh\necho ran >"%s/ran"\n' "$TMP" > "$TMP/bin/$tool"
   chmod +x "$TMP/bin/$tool"
 done
@@ -36,4 +36,5 @@ check() {
 check check-action-surfaces.sh 'cmux-next generated files'
 check check-release-compile.sh 'cmux-next Release compile (Xcode 26)'
 check check-cmux-scheme-compile.sh 'cmux app scheme compile (Debug)'
+check check-ghostty-fetch-list.sh 'cmux-next source archive (dry run) / archive'
 printf 'check fleet-only tests: ok\n'
