@@ -1,6 +1,6 @@
 # cmux next: remote tab step r2 (macOS server host)
 
-Status: plan, 2026-10-06, remote tab lead. Parent: remote-tab.md, remote-tab-r1.md, remote-tab-protocol.md. Fork side done: manaflow-ai/cef `cmux/8037-remote` (RP1-RP9 green on macOS arm64, job 529b32b2f2868c1541d4b4d3; `cmux_rp_*` API 19, renumbered at landing in cmux.19).
+Status: plan, 2026-10-06, remote tab lead. Decisions (umbrella, 2026-10-06): design approved (C++ shim behind a C ABI, Rust owns session, encoding and transport); B4 approved (own workspace); B1: build on a fleet Mac with `cmux-ci run --class isolated`, run the prebuilt binary on cmux-lawrence-2; B5: the cmux.19 release asset (sha256 ddbe20e2b475baf33d0c07a2d629cd95fea844e5e804a9d70a0f755c2f22c7be). Parent: remote-tab.md, remote-tab-r1.md, remote-tab-protocol.md. Fork side done: manaflow-ai/cef `cmux/8037-remote` (RP1-RP9 green on macOS arm64, job 529b32b2f2868c1541d4b4d3; `cmux_rp_*` API 19, renumbered at landing in cmux.19).
 
 ## 1. Shape
 
@@ -42,3 +42,42 @@ cmux-remote-browser-host (macOS app bundle; Rust main)            viewer (Rust l
 3. Host session loop: `session.rs` effects -> shim calls; frames -> encoder (B2) -> rd source (B3).
 4. Loopback viewer (Rust, cmux-rd-ffi receiver + VideoToolbox decode through the app's Swift path is D-RT-RD1; for the loopback the viewer writes the decoded IOSurface as PNG) on the same machine over loopback.
 5. Input back (C2 tag carries `rp_input` events), menus and dialogs (rb control), measurements (section 2).
+
+## 5. API shapes requested from lane 17 (B2, B3)
+
+Against the landed `cmux-rd-engine` (3ee5cf1a4b1: `MediaEngine`, `EncodeRequest`, `Encoded`, `Output`) and `cmux-encode` (`H264Encoder` over `I420`). Names are proposals; the semantics are the need.
+
+### B2: encode an IOSurface without a CPU copy (`cmux-encode`, macOS)
+
+```rust
+// cmux_encode::videotoolbox (macOS only)
+pub enum SurfaceFormat { Bgra, Nv12 }          // the fork captures BGRA today (RP2)
+pub enum ColorTag { Srgb, DisplayP3 }           // REMOTE-TAB-R1: P3 tagged, sRGB fallback
+pub struct SurfaceFrame {
+    pub io_surface: *mut core::ffi::c_void,     // IOSurfaceRef; the caller keeps it alive until encode returns
+    pub format: SurfaceFormat,
+    pub width: u32,                              // pixels; a size change recreates the session inside
+    pub height: u32,
+    pub color: ColorTag,
+}
+pub trait SurfaceEncoder: Send {
+    /// Wraps the surface (CVPixelBufferCreateWithIOSurface, no copy), encodes it with the
+    /// existing low-latency settings and returns when the access unit is in `out`
+    /// (Annex-B, SPS/PPS before every IDR, as `H264Encoder`). After it returns the caller
+    /// releases the capture lease (cmux_rp_frame_release). `damage` is a hint (frame pixels).
+    fn encode_surface(&mut self, frame: &SurfaceFrame, damage: Rect, force_idr: bool,
+                      pts_us: i64, out: &mut Vec<u8>) -> Res<bool>;   // true = IDR
+    fn set_bitrate(&mut self, kbps: u32);
+    fn kbps(&self) -> u32;
+}
+```
+
+The Linux host keeps `H264Encoder` over `I420` (CPU frames from the fork, `prefer_gpu = 0`); a `bgra_to_i420` that takes the fork's stride is enough there.
+
+### B3: one rd session per peer with several streams and an rb service channel (`cmux-rd-engine`)
+
+1. Streams: a remote tab has the page (stream 0) and popup surfaces (RP7, one stream each, opened and closed at run time). One congestion controller and pacer per peer (REMOTE-TAB-R1). Request: `MediaEngine::add_stream(stream: u16, width: u32, height: u32)`, `remove_stream(stream)`, `damage(stream, rect, now_us)`, `encoded(stream, ...)`, and `EncodeRequest.stream`; the bitrate split across streams is the engine's (page first, surfaces small). Per-stream feedback and recovery are C6.
+2. Service control: rb messages (`schemas/remote-tab/messages.json`) ride the rd control stream as typed passthrough: `Control::Service { service: String, body: serde_json::Value }` (C7 typed control), routed by the hello `service` (C1). The engine or carrier hands them to the source unchanged and never parses them.
+3. Service input: `InputEvent::Service(Vec<u8>)` (C2) applied exactly once and in order, delivered in `Output.inject`; the host decodes it to `cmux_remote_browser::proto::InputEvent` and calls `rp_input::map_input`.
+4. Begin-frame timing (RT12): C8's `offset_us` and `rtt_us` exposed to the source, so `rb.vsync` (viewer clock) converts to host time.
+5. Idle: `next_deadline_us()` returns `None` when nothing is pending, so the host's loop sleeps on the frame callback and the socket only (0 wakeups while the page is idle).

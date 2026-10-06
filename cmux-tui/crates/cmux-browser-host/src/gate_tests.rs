@@ -1223,3 +1223,29 @@ fn more_than_five_redirects_fail() {
     assert!(error.message.contains("redirect"), "{error}");
     assert_eq!(engine_fetches(&driver).len(), 6, "the first fetch and 5 hops");
 }
+
+/// HOP-ADDRESS (ff): a redirect hop whose address never arrived (the engine
+/// waited for it) is not silent: the host's fetch log (policy op corsLog)
+/// names it.
+#[test]
+fn a_redirect_hop_without_its_address_is_logged() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    route(&driver, "https://a.test/r", redirect_hop("https://a.test/r", 302, "https://a.test/x"));
+    route(&driver, "https://a.test/x", final_hop("https://a.test/x"));
+    gate.driver_call("net.fetch", json!({"url": "https://a.test/r"})).unwrap();
+    let log = policy(&gate, "corsLog", json!({})).unwrap();
+    assert!(
+        log.as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["url"] == "https://a.test/r" && e["what"] == "hop address missing, waited"),
+        "{log}"
+    );
+    // A hop whose address arrived is not logged.
+    let mut with_ip = redirect_hop("https://a.test/r2", 302, "https://a.test/x");
+    with_ip["remoteIPAddress"] = json!("93.184.216.34");
+    route(&driver, "https://a.test/r2", with_ip);
+    gate.driver_call("net.fetch", json!({"url": "https://a.test/r2"})).unwrap();
+    let log = policy(&gate, "corsLog", json!({})).unwrap();
+    assert!(!log.to_string().contains("https://a.test/r2"), "{log}");
+}
