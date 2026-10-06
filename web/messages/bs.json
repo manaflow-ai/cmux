@@ -512,7 +512,11 @@
             "Prioritetna podrška"
           ]
         },
-        "billedAnnually": "naplaćuje se godišnje"
+        "billedAnnually": "naplaćuje se godišnje",
+        "badgeEndsOn": "{plan} · ističe {date}",
+        "badgeCancelled": "{plan} · otkazano",
+        "badgePastDue": "{plan} · plaćanje nije uspjelo",
+        "resubscribe": "Ponovo se pretplati na {plan}"
       },
       "change": {
         "title": "Preći na {plan}?",
@@ -555,6 +559,13 @@
         "title": "Naplaćuje se putem App Storea",
         "body": "Vaš plan je kupljen u cmux aplikaciji za iPhone i naplaćuje ga Apple. Promijenite ga ili otkažite u svojim App Store pretplatama.",
         "manage": "Upravljajte u App Storeu"
+      },
+      "notice": {
+        "cancelledTitle": "Vaš {plan} plan je otkazan",
+        "cancelledBody": "{plan} zadržavate do {date}. Nakon toga račun prelazi na Free i gubite:",
+        "cancelledBodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga račun prelazi na Free i gubite:",
+        "endedBody": "Vaš {plan} plan je istekao {date}. Sada ste na Free. Ponovo se pretplatite ispod da vratite {plan}.",
+        "endedBodyNoDate": "Vaš {plan} plan je istekao. Sada ste na Free. Ponovo se pretplatite ispod da vratite {plan}."
       }
     },
     "mobileDevices": {

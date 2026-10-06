@@ -512,7 +512,11 @@
             "Öncelikli destek"
           ]
         },
-        "billedAnnually": "yıllık faturalandırılır"
+        "billedAnnually": "yıllık faturalandırılır",
+        "badgeEndsOn": "{plan} · {date} tarihinde bitiyor",
+        "badgeCancelled": "{plan} · iptal edildi",
+        "badgePastDue": "{plan} · ödeme başarısız",
+        "resubscribe": "{plan} planına yeniden abone ol"
       },
       "change": {
         "title": "{plan} planına geçilsin mi?",
@@ -555,6 +559,13 @@
         "title": "App Store üzerinden faturalandırılır",
         "body": "Planınız cmux iPhone uygulamasında satın alındı ve Apple tarafından faturalandırılıyor. Planı App Store aboneliklerinizden değiştirin veya iptal edin.",
         "manage": "App Store'da yönet"
+      },
+      "notice": {
+        "cancelledTitle": "{plan} planınız iptal edildi",
+        "cancelledBody": "{plan} planını {date} tarihine kadar kullanabilirsiniz. Sonra hesabınız Free planına geçer ve şunları kaybedersiniz:",
+        "cancelledBodyNoDate": "{plan} planını bu fatura döneminin sonuna kadar kullanabilirsiniz. Sonra hesabınız Free planına geçer ve şunları kaybedersiniz:",
+        "endedBody": "{plan} planınız {date} tarihinde sona erdi. Şu anda Free planındasınız. {plan} planını geri almak için aşağıdan yeniden abone olun.",
+        "endedBodyNoDate": "{plan} planınız sona erdi. Şu anda Free planındasınız. {plan} planını geri almak için aşağıdan yeniden abone olun."
       }
     },
     "mobileDevices": {

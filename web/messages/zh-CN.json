@@ -512,7 +512,11 @@
             "优先支持"
           ]
         },
-        "billedAnnually": "按年计费"
+        "billedAnnually": "按年计费",
+        "badgeEndsOn": "{plan} · {date} 到期",
+        "badgeCancelled": "{plan} · 已取消",
+        "badgePastDue": "{plan} · 付款失败",
+        "resubscribe": "重新订阅 {plan}"
       },
       "change": {
         "title": "切换到 {plan}？",
@@ -555,6 +559,13 @@
         "title": "通过 App Store 计费",
         "body": "你的方案是在 cmux iPhone 应用中购买的，由 Apple 计费。请在 App Store 订阅中更改或取消。",
         "manage": "在 App Store 中管理"
+      },
+      "notice": {
+        "cancelledTitle": "你的 {plan} 方案已取消",
+        "cancelledBody": "你可以使用 {plan} 到 {date}。之后账户将转为 Free，并失去：",
+        "cancelledBodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后账户将转为 Free，并失去：",
+        "endedBody": "你的 {plan} 方案已于 {date} 结束。你现在使用的是 Free。在下方重新订阅即可恢复 {plan}。",
+        "endedBodyNoDate": "你的 {plan} 方案已结束。你现在使用的是 Free。在下方重新订阅即可恢复 {plan}。"
       }
     },
     "mobileDevices": {

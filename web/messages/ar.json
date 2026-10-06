@@ -512,7 +512,11 @@
             "دعم ذو أولوية"
           ]
         },
-        "billedAnnually": "تُدفع سنويًا"
+        "billedAnnually": "تُدفع سنويًا",
+        "badgeEndsOn": "{plan} · ينتهي في {date}",
+        "badgeCancelled": "{plan} · ملغى",
+        "badgePastDue": "{plan} · فشل الدفع",
+        "resubscribe": "أعد الاشتراك في {plan}"
       },
       "change": {
         "title": "التبديل إلى {plan}؟",
@@ -555,6 +559,13 @@
         "title": "تتم الفوترة عبر App Store",
         "body": "تم شراء خطتك في تطبيق cmux على iPhone وتتولى Apple فوترتها. يمكنك تغييرها أو إلغاؤها من اشتراكات App Store.",
         "manage": "الإدارة في App Store"
+      },
+      "notice": {
+        "cancelledTitle": "تم إلغاء خطة {plan}",
+        "cancelledBody": "تحتفظ بخطة {plan} حتى {date}. بعد ذلك ينتقل حسابك إلى Free وتفقد:",
+        "cancelledBodyNoDate": "تحتفظ بخطة {plan} حتى نهاية فترة الفوترة هذه. بعد ذلك ينتقل حسابك إلى Free وتفقد:",
+        "endedBody": "انتهت خطة {plan} في {date}. أنت الآن على Free. أعد الاشتراك أدناه لاستعادة {plan}.",
+        "endedBodyNoDate": "انتهت خطة {plan}. أنت الآن على Free. أعد الاشتراك أدناه لاستعادة {plan}."
       }
     },
     "mobileDevices": {

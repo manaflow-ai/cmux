@@ -512,7 +512,11 @@
             "Приоритетная поддержка"
           ]
         },
-        "billedAnnually": "оплата за год"
+        "billedAnnually": "оплата за год",
+        "badgeEndsOn": "{plan} · до {date}",
+        "badgeCancelled": "{plan} · отменён",
+        "badgePastDue": "{plan} · платёж не прошёл",
+        "resubscribe": "Снова подписаться на {plan}"
       },
       "change": {
         "title": "Сменить на {plan}?",
@@ -555,6 +559,13 @@
         "title": "Оплата через App Store",
         "body": "Ваш тариф куплен в приложении cmux для iPhone, оплата идёт через Apple. Изменить или отменить его можно в подписках App Store.",
         "manage": "Управлять в App Store"
+      },
+      "notice": {
+        "cancelledTitle": "Ваш план {plan} отменён",
+        "cancelledBody": "{plan} останется у вас до {date}. Затем аккаунт перейдёт на Free, и вы потеряете:",
+        "cancelledBodyNoDate": "{plan} останется у вас до конца текущего расчётного периода. Затем аккаунт перейдёт на Free, и вы потеряете:",
+        "endedBody": "Ваш план {plan} закончился {date}. Сейчас у вас Free. Подпишитесь снова ниже, чтобы вернуть {plan}.",
+        "endedBodyNoDate": "Ваш план {plan} закончился. Сейчас у вас Free. Подпишитесь снова ниже, чтобы вернуть {plan}."
       }
     },
     "mobileDevices": {

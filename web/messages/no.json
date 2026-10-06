@@ -512,7 +512,11 @@
             "Prioritert støtte"
           ]
         },
-        "billedAnnually": "faktureres årlig"
+        "billedAnnually": "faktureres årlig",
+        "badgeEndsOn": "{plan} · slutter {date}",
+        "badgeCancelled": "{plan} · sagt opp",
+        "badgePastDue": "{plan} · betaling mislyktes",
+        "resubscribe": "Abonner på {plan} igjen"
       },
       "change": {
         "title": "Bytte til {plan}?",
@@ -555,6 +559,13 @@
         "title": "Faktureres gjennom App Store",
         "body": "Planen din ble kjøpt i cmux-appen for iPhone og faktureres av Apple. Endre eller avslutt den i App Store-abonnementene dine.",
         "manage": "Administrer i App Store"
+      },
+      "notice": {
+        "cancelledTitle": "{plan}-abonnementet ditt er sagt opp",
+        "cancelledBody": "Du beholder {plan} til {date}. Deretter går kontoen over til Free, og du mister:",
+        "cancelledBodyNoDate": "Du beholder {plan} til slutten av denne faktureringsperioden. Deretter går kontoen over til Free, og du mister:",
+        "endedBody": "{plan}-abonnementet ditt sluttet {date}. Du er nå på Free. Abonner igjen nedenfor for å få {plan} tilbake.",
+        "endedBodyNoDate": "{plan}-abonnementet ditt er avsluttet. Du er nå på Free. Abonner igjen nedenfor for å få {plan} tilbake."
       }
     },
     "mobileDevices": {

@@ -9,6 +9,7 @@ import {
   revokeRouteTokensForTeam,
   revokeRouteTokensForUser,
 } from "../coderouter/repository";
+import { stripeCancelScheduled } from "./cancellation";
 import { applySubscriptionUpdate } from "./purchase";
 import { stripe } from "./stripe";
 
@@ -182,7 +183,7 @@ function hasDrift(
   remote: Stripe.Subscription,
 ): boolean {
   return local.status !== remote.status ||
-    local.cancelAtPeriodEnd !== remote.cancel_at_period_end ||
+    local.cancelAtPeriodEnd !== stripeCancelScheduled(remote) ||
     epochSeconds(local.currentPeriodEnd) !==
       (remote.items.data[0]?.current_period_end ?? null);
 }

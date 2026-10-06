@@ -512,7 +512,11 @@
             "Priorisierter Support"
           ]
         },
-        "billedAnnually": "jährliche Abrechnung"
+        "billedAnnually": "jährliche Abrechnung",
+        "badgeEndsOn": "{plan} · endet am {date}",
+        "badgeCancelled": "{plan} · gekündigt",
+        "badgePastDue": "{plan} · Zahlung fehlgeschlagen",
+        "resubscribe": "{plan} erneut abonnieren"
       },
       "change": {
         "title": "Zu {plan} wechseln?",
@@ -555,6 +559,13 @@
         "title": "Abrechnung über den App Store",
         "body": "Dein Tarif wurde in der cmux iPhone-App gekauft und wird von Apple abgerechnet. Ändere oder kündige ihn in deinen App Store-Abonnements.",
         "manage": "Im App Store verwalten"
+      },
+      "notice": {
+        "cancelledTitle": "Dein {plan}-Plan ist gekündigt",
+        "cancelledBody": "Du behältst {plan} bis {date}. Danach wechselt dein Konto zu Free und du verlierst:",
+        "cancelledBodyNoDate": "Du behältst {plan} bis zum Ende dieses Abrechnungszeitraums. Danach wechselt dein Konto zu Free und du verlierst:",
+        "endedBody": "Dein {plan}-Plan ist am {date} abgelaufen. Du nutzt jetzt Free. Abonniere unten erneut, um {plan} zurückzubekommen.",
+        "endedBodyNoDate": "Dein {plan}-Plan ist abgelaufen. Du nutzt jetzt Free. Abonniere unten erneut, um {plan} zurückzubekommen."
       }
     },
     "mobileDevices": {

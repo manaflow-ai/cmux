@@ -6,8 +6,12 @@ import { useLocale, useTranslations } from "next-intl";
 import { PricingView } from "@/app/components/pricing-checkout";
 import type { PersonalBillingJson } from "@/services/billing/dashboardBilling";
 import { localeHref } from "../../lib/locale-href";
-import { dashboardBillingQuery } from "../../queries/billing";
+import { InlineError } from "@/dashboard-app/components/settings-ui";
+import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
+import { dashboardBillingQuery, useResumePlan } from "../../queries/billing";
+import { formatBillingDate } from "./billing-format";
 import { BillingPageFrame } from "./billing-frame";
+import { planStanding } from "./plan-status";
 import { personalPlanCards } from "./plan-model";
 import { PlanPicker } from "./plan-picker";
 import { PlanWelcome, welcomePlan } from "./plan-welcome";
@@ -96,14 +100,17 @@ function StripePersonalBilling({ data }: { data: PersonalBillingJson }) {
     <PlanPicker
       cards={cards}
       scope={{ kind: "personal", returnTo: localeHref(locale, "/dashboard/billing") }}
-      periodEnd={subscription?.currentPeriodEnd ?? null}
+      // A cancelled subscription ends at Stripe's `cancel_at`, which can differ from the period end.
+      periodEnd={subscription?.endsAt ?? subscription?.currentPeriodEnd ?? null}
       canManagePayment={status.billingManagement === "stripe"}
+      resubscribePlan={data.endedSubscription?.plan ?? null}
       // A plan granted without a subscription charges nothing, so it shows no price.
       currentPrice={subscription ? subscription.price : status.isPro ? null : undefined}
     />
   );
   return (
     <>
+      <PlanEndingNotice data={data} />
       {subscription?.status === "past_due" ? (
         <div className="mb-3 border border-border bg-background p-3 text-sm">
           <span>{t("banners.pastDue")}</span>{" "}
@@ -115,6 +122,77 @@ function StripePersonalBilling({ data }: { data: PersonalBillingJson }) {
       {/* A Free account is a pricing view for analytics, as before. */}
       {cards.find((card) => card.current)?.id === "free" ? <PricingView surface="dashboard_billing">{picker}</PricingView> : picker}
     </>
+  );
+}
+
+/** Cancelled but still paid for, or already ended; nothing while the plan renews. */
+function PlanEndingNotice({ data }: { data: PersonalBillingJson }) {
+  const { planStatus: status, subscription, endedSubscription } = data;
+  const standing = planStanding({
+    isPro: subscription !== null,
+    cancelScheduled: subscription?.cancelAtPeriodEnd === true,
+    endsAt: subscription?.endsAt ?? null,
+    paymentPastDue: subscription?.status === "past_due",
+  });
+  const currentPlan = paidPlan(subscription?.plan ?? status.planId);
+  if (standing.kind === "cancelling" && currentPlan) {
+    return <CancelledPlanNotice plan={currentPlan} endsAt={standing.endsAt} />;
+  }
+  if (!subscription && !status.isPro && endedSubscription) {
+    return <EndedPlanNotice plan={endedSubscription.plan} endedAt={endedSubscription.endedAt} />;
+  }
+  return null;
+}
+
+function paidPlan(value: string | null): "go" | "pro" | "max" | null {
+  return value === "go" || value === "pro" || value === "max" ? value : null;
+}
+
+/**
+ * A cancelled plan that is still paid for: the exact day it ends (Stripe's
+ * date), what Free leaves out, and Resume.
+ */
+function CancelledPlanNotice({ plan, endsAt }: { plan: "go" | "pro" | "max"; endsAt: string | null }) {
+  const t = useTranslations("dashboard.billing");
+  const locale = useLocale();
+  const resume = useResumePlan();
+  const name = t(`picker.names.${plan}`);
+  const date = formatBillingDate(endsAt, locale);
+  const lose = t.raw(`picker.features.${plan}`) as string[];
+  return (
+    <div role="status" data-testid="plan-cancelled-notice" className="mb-3 border border-foreground bg-background p-3 text-sm">
+      <p className="font-medium">{t("notice.cancelledTitle", { plan: name })}</p>
+      <p className="mt-1">
+        {date ? t("notice.cancelledBody", { plan: name, date }) : t("notice.cancelledBodyNoDate", { plan: name })}
+      </p>
+      <ul className="mt-1 list-disc pl-5 text-muted">
+        {lose.map((line) => <li key={line}>{line}</li>)}
+      </ul>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={resume.isPending}
+          onClick={() => resume.mutate({})}
+          className={settingsButtonClass("primary", "sm")}
+        >
+          {t("picker.resume", { plan: name })}
+        </button>
+        {resume.isError ? <InlineError message={t("cancelDialog.resumeError")} /> : null}
+      </div>
+    </div>
+  );
+}
+
+/** A plan that already ended: when, and that the plan's card resubscribes. */
+function EndedPlanNotice({ plan, endedAt }: { plan: "go" | "pro" | "max"; endedAt: string | null }) {
+  const t = useTranslations("dashboard.billing");
+  const locale = useLocale();
+  const name = t(`picker.names.${plan}`);
+  const date = formatBillingDate(endedAt, locale);
+  return (
+    <div role="status" data-testid="plan-ended-notice" className="mb-3 border border-border bg-background p-3 text-sm">
+      {date ? t("notice.endedBody", { plan: name, date }) : t("notice.endedBodyNoDate", { plan: name })}
+    </div>
   );
 }
 

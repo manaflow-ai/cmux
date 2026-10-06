@@ -26,6 +26,7 @@ export function PlanPicker({
   periodEnd,
   canManagePayment,
   currentPrice,
+  resubscribePlan = null,
 }: {
   readonly cards: readonly PlanCard[];
   readonly scope: PickerScope;
@@ -40,6 +41,8 @@ export function PlanPicker({
    */
   /** The current subscription's own Stripe price; null when granted; undefined for the list price. */
   readonly currentPrice?: SubscriptionPrice | null;
+  /** The plan that just ended, whose checkout reads "Resubscribe". */
+  readonly resubscribePlan?: string | null;
 }) {
   const t = useTranslations("dashboard.billing.picker");
   const locale = useLocale();
@@ -79,7 +82,7 @@ export function PlanPicker({
         const href = plan === "team" ? teamCheckoutHref(teamId ?? "") : personalCheckoutHref(plan, scope.kind === "personal" ? scope.returnTo : "/dashboard/billing");
         return (
           <a href={href} className={settingsButtonClass("primary", "sm")}>
-            {t("upgradeTo", { plan: name })}
+            {plan === resubscribePlan ? t("resubscribe", { plan: name }) : t("upgradeTo", { plan: name })}
           </a>
         );
       }

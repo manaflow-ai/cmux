@@ -512,7 +512,11 @@
             "우선 지원"
           ]
         },
-        "billedAnnually": "연간 청구"
+        "billedAnnually": "연간 청구",
+        "badgeEndsOn": "{plan} · {date} 종료",
+        "badgeCancelled": "{plan} · 해지됨",
+        "badgePastDue": "{plan} · 결제 실패",
+        "resubscribe": "{plan} 다시 구독"
       },
       "change": {
         "title": "{plan}(으)로 전환할까요?",
@@ -555,6 +559,13 @@
         "title": "App Store를 통해 결제됨",
         "body": "이 플랜은 cmux iPhone 앱에서 구입했으며 Apple이 청구합니다. App Store 구독에서 변경하거나 취소하세요.",
         "manage": "App Store에서 관리"
+      },
+      "notice": {
+        "cancelledTitle": "{plan} 플랜이 해지되었습니다",
+        "cancelledBody": "{date}까지 {plan}을(를) 사용할 수 있습니다. 그 후 계정이 Free로 전환되며 다음 기능을 잃게 됩니다:",
+        "cancelledBodyNoDate": "이번 결제 기간이 끝날 때까지 {plan}을(를) 사용할 수 있습니다. 그 후 계정이 Free로 전환되며 다음 기능을 잃게 됩니다:",
+        "endedBody": "{plan} 플랜이 {date}에 종료되었습니다. 지금은 Free입니다. 아래에서 다시 구독하면 {plan}을(를) 되찾을 수 있습니다.",
+        "endedBodyNoDate": "{plan} 플랜이 종료되었습니다. 지금은 Free입니다. 아래에서 다시 구독하면 {plan}을(를) 되찾을 수 있습니다."
       }
     },
     "mobileDevices": {

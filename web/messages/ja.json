@@ -808,7 +808,11 @@
             "優先サポート"
           ]
         },
-        "billedAnnually": "年払い"
+        "billedAnnually": "年払い",
+        "badgeEndsOn": "{plan} · {date} に終了",
+        "badgeCancelled": "{plan} · 解約済み",
+        "badgePastDue": "{plan} · 支払い失敗",
+        "resubscribe": "{plan} に再登録"
       },
       "change": {
         "title": "{plan} に切り替えますか？",
@@ -851,6 +855,13 @@
         "title": "App Store で請求されています",
         "body": "このプランは cmux の iPhone アプリで購入され、Apple から請求されています。変更や解約は App Store のサブスクリプションから行ってください。",
         "manage": "App Store で管理"
+      },
+      "notice": {
+        "cancelledTitle": "{plan} プランは解約されました",
+        "cancelledBody": "{date} まで {plan} を利用できます。その後アカウントは Free に移行し、次の機能が使えなくなります:",
+        "cancelledBodyNoDate": "今回の請求期間の終わりまで {plan} を利用できます。その後アカウントは Free に移行し、次の機能が使えなくなります:",
+        "endedBody": "{plan} プランは {date} に終了しました。現在は Free です。下から再登録すると {plan} に戻せます。",
+        "endedBodyNoDate": "{plan} プランは終了しました。現在は Free です。下から再登録すると {plan} に戻せます。"
       }
     },
     "testflight": {
@@ -2034,7 +2045,13 @@
     },
     "priceMonthlyNote": "月払いは${amount}/月",
     "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
-    "manageInAppStore": "App Store で管理"
+    "manageInAppStore": "App Store で管理",
+    "cancelled": {
+      "badge": "解約済み",
+      "endsOn": "{date} に終了",
+      "endsSoon": "今回の請求期間の終わりに終了",
+      "resubscribe": "再登録"
+    }
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
