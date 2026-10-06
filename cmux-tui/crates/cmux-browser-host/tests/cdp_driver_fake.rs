@@ -40,6 +40,12 @@ struct Browser {
     held: Option<(Value, String)>,
     /// Every new tab's setup fails (`Page.enable` errors).
     fail_setup: bool,
+    /// `Page.captureScreenshot` requests are held (no reply) until the
+    /// test releases them: (message id, session).
+    hold_captures: bool,
+    held_captures: Vec<(Value, String)>,
+    /// The most captures one session had in flight at once.
+    most_captures_at_once: usize,
 }
 
 struct FakeWire {
@@ -239,6 +245,12 @@ impl FakeWire {
                 "layoutViewport": {"clientWidth": 2560, "clientHeight": 1600},
                 "cssContentSize": {"width": 1280, "height": 3000},
             }),
+            "Page.captureScreenshot" if browser.hold_captures => {
+                browser.held_captures.push((id, session.clone()));
+                let at_once = browser.held_captures.iter().filter(|(_, s)| *s == session).count();
+                browser.most_captures_at_once = browser.most_captures_at_once.max(at_once);
+                return (Value::Null, events);
+            }
             "Page.captureScreenshot" => json!({"data": PNG_1X1}),
             "Page.handleJavaScriptDialog" => {
                 events.push(session_event(
@@ -741,6 +753,51 @@ fn screenshots_report_png_dimensions() {
     assert_eq!(capture["clip"]["height"], 3000.0);
     assert_eq!(capture["captureBeyondViewport"], true);
     assert_eq!(capture["quality"], 70);
+}
+
+/// Chromium answers overlapping `Page.captureScreenshot` calls of one page
+/// with the wrong region: each clipped capture changes the page's emulation
+/// for its duration (parity 32 secret-screenshot-concurrent got a capture of
+/// another part of the page). The driver sends one capture of a tab at a
+/// time.
+#[test]
+fn captures_of_one_tab_never_overlap() {
+    let h = Harness::new();
+    let target = h.open(None);
+    h.wire.browser.lock().unwrap().hold_captures = true;
+    let clip = json!({"x": 10, "y": 20, "width": 185, "height": 21});
+    let shots = std::thread::scope(|scope| {
+        let calls: Vec<_> = (0..2)
+            .map(|_| {
+                let (driver, params) = (&h.driver, json!({"targetId": target, "clip": clip}));
+                scope.spawn(move || driver.call("tab.screenshot", &params))
+            })
+            .collect();
+        // Hold the first capture until a second one arrives or 1 s passes,
+        // then answer every held capture until both calls end.
+        let started = std::time::Instant::now();
+        while h.wire.browser.lock().unwrap().held_captures.len() < 2
+            && started.elapsed() < std::time::Duration::from_secs(1)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        while !calls.iter().all(|call| call.is_finished()) {
+            let held = std::mem::take(&mut h.wire.browser.lock().unwrap().held_captures);
+            for (id, _) in held {
+                receive(&h, json!({"id": id, "result": {"data": PNG_1X1}}));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        calls.into_iter().map(|call| call.join().unwrap()).collect::<Vec<_>>()
+    });
+    for shot in shots {
+        assert_eq!(shot.expect("the capture succeeds")["base64"], PNG_1X1);
+    }
+    assert_eq!(
+        h.wire.browser.lock().unwrap().most_captures_at_once,
+        1,
+        "a second capture of the tab was sent while the first was in flight"
+    );
 }
 
 #[test]
