@@ -20,6 +20,7 @@ public struct UpdateManualDownloadRecovery: Sendable {
     private let stableDownloadURLString: String
     private let nightlyDownloadURLString: String
     private let rcDownloadURLString: String
+    private let devDownloadURLString: String
 
     /// Creates a recovery resolver.
     ///
@@ -29,11 +30,13 @@ public struct UpdateManualDownloadRecovery: Sendable {
     ///     nightly DMG for `hostArchitecture`, since nightly ships one DMG per architecture.
     ///   - rcDownloadURLString: Direct DMG URL for the RC channel. Defaults to the RC DMG for
     ///     `hostArchitecture`, since RC ships one DMG per architecture like nightly.
+    ///   - devDownloadURLString: Direct ZIP URL for the team dev channel.
     ///   - hostArchitecture: The architecture whose nightly and RC DMGs are offered by default.
     public init(
         stableDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
         nightlyDownloadURLString: String? = nil,
         rcDownloadURLString: String? = nil,
+        devDownloadURLString: String = "https://files.cmux.com/cmux-dev/latest.zip",
         hostArchitecture: UpdateHostArchitecture = .current
     ) {
         self.stableDownloadURLString = stableDownloadURLString
@@ -41,6 +44,7 @@ public struct UpdateManualDownloadRecovery: Sendable {
             ?? Self.nightlyDownloadURLString(for: hostArchitecture)
         self.rcDownloadURLString = rcDownloadURLString
             ?? Self.rcDownloadURLString(for: hostArchitecture)
+        self.devDownloadURLString = devDownloadURLString
     }
 
     /// The direct nightly DMG URL for `architecture`.
@@ -96,6 +100,8 @@ public struct UpdateManualDownloadRecovery: Sendable {
             return URL(string: nightlyDownloadURLString)
         case .rc:
             return URL(string: rcDownloadURLString)
+        case .dev:
+            return URL(string: devDownloadURLString)
         case .stable:
             return URL(string: stableDownloadURLString)
         }

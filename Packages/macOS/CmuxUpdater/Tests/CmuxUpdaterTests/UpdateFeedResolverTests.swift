@@ -67,10 +67,21 @@ import Testing
             == "https://files.cmux.com/rc/appcast-arm64.xml")
     }
 
+    @Test func devFeedStaysOnOneStableFeed() {
+        let resolver = UpdateFeedResolver(hostArchitecture: .x86_64)
+        let resolution = resolver.resolve(infoFeedURL: "https://files.cmux.com/cmux-dev/classic/appcast.xml")
+        #expect(resolution.channel == .dev)
+        #expect(resolution.isDev)
+        #expect(!resolution.isNightly)
+        #expect(resolution.url == "https://files.cmux.com/dev/classic/appcast.xml")
+        #expect(!resolution.usedFallback)
+    }
+
     @Test func channelsAreClassifiedFromTheFeedPath() {
         let resolver = UpdateFeedResolver(hostArchitecture: .arm64)
         #expect(resolver.resolve(infoFeedURL: "https://files.cmux.com/nightly/appcast.xml").channel == .nightly)
         #expect(resolver.resolve(infoFeedURL: "https://files.cmux.com/rc/appcast.xml").channel == .rc)
+        #expect(resolver.resolve(infoFeedURL: "https://files.cmux.com/cmux-dev/next/appcast.xml").channel == .dev)
         #expect(resolver.resolve(infoFeedURL: "https://example.com/stable/appcast.xml").channel == .stable)
         #expect(resolver.resolve(infoFeedURL: nil).channel == .stable)
     }

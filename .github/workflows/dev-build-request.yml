@@ -1,0 +1,26 @@
+name: Dev build request
+
+# This is the green-merge signal consumed by the fleet controller. The build
+# itself stays on the managed Mac fleet, so this workflow remains a small,
+# read-only post-merge job and never changes the nightly or release tracks.
+on:
+  push:
+    branches:
+      - main
+      - feat-cmux-next
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-build-request-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  request:
+    name: request fleet dev build
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Record the pushed merge commit
+        run: echo "Fleet dev build requested for ${GITHUB_REF_NAME} at ${GITHUB_SHA}"

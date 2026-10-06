@@ -35,6 +35,10 @@ AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_EXPECTED_ACCOUNT=""
 CMUX_TUI_CLIENT_MANIFEST_URL_VALUE=""
+CMUX_UPDATE_FEED_URL_VALUE="${CMUX_UPDATE_FEED_URL:-}"
+CMUX_UPDATE_PUBLIC_KEY_VALUE="${CMUX_UPDATE_PUBLIC_KEY:-}"
+CMUX_BUILD_VERSION_VALUE="${CMUX_BUILD_VERSION:-}"
+CMUX_MARKETING_VERSION_VALUE="${CMUX_MARKETING_VERSION:-}"
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -1428,6 +1432,12 @@ if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" != "1" \
   fi
 fi
 
+# Fleet-published dev tracks keep the tag for workspace and socket isolation but
+# share a stable bundle identity so Sparkle can update the installed app.
+if [[ -n "${CMUX_BUNDLE_ID_OVERRIDE:-}" ]]; then
+  BUNDLE_ID="$CMUX_BUNDLE_ID_OVERRIDE"
+fi
+
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
@@ -1636,6 +1646,18 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+if [[ -n "$CMUX_UPDATE_FEED_URL_VALUE" ]]; then
+  XCODEBUILD_ARGS+=(INFOPLIST_KEY_SUFeedURL="$CMUX_UPDATE_FEED_URL_VALUE")
+fi
+if [[ -n "$CMUX_UPDATE_PUBLIC_KEY_VALUE" ]]; then
+  XCODEBUILD_ARGS+=(INFOPLIST_KEY_SUPublicEDKey="$CMUX_UPDATE_PUBLIC_KEY_VALUE")
+fi
+if [[ -n "$CMUX_BUILD_VERSION_VALUE" ]]; then
+  XCODEBUILD_ARGS+=(CURRENT_PROJECT_VERSION="$CMUX_BUILD_VERSION_VALUE")
+fi
+if [[ -n "$CMUX_MARKETING_VERSION_VALUE" ]]; then
+  XCODEBUILD_ARGS+=(MARKETING_VERSION="$CMUX_MARKETING_VERSION_VALUE")
+fi
 # The helper is assembled before Xcode emits the host's processed Info.plist.
 # Pass the final tagged display name explicitly so its TCC entry matches the
 # app the user is dogfooding instead of falling back to the untagged product.

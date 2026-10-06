@@ -26,6 +26,8 @@ public struct UpdateFeedResolver: Sendable {
         case nightly
         /// The release-candidate feed; its path contains `/rc/`.
         case rc
+        /// The team dev feed; its path contains `/dev/` or `/cmux-dev/`.
+        case dev
 
         /// Classifies `feedURL` by the channel path segment it contains.
         static func classify(feedURL: String) -> Channel {
@@ -35,6 +37,9 @@ public struct UpdateFeedResolver: Sendable {
             if feedURL.contains("/rc/") {
                 return .rc
             }
+            if feedURL.contains("/dev/") || feedURL.contains("/cmux-dev/") {
+                return .dev
+            }
             return .stable
         }
 
@@ -43,6 +48,7 @@ public struct UpdateFeedResolver: Sendable {
             switch self {
             case .stable: false
             case .nightly, .rc: true
+            case .dev: false
             }
         }
     }
@@ -59,6 +65,8 @@ public struct UpdateFeedResolver: Sendable {
 
         /// Whether `url` points at the nightly channel (its path contains `/nightly/`).
         public var isNightly: Bool { channel == .nightly }
+        /// Whether `url` points at the team dev channel.
+        public var isDev: Bool { channel == .dev }
 
         /// Creates a resolution result.
         public init(url: String, channel: Channel, usedFallback: Bool) {

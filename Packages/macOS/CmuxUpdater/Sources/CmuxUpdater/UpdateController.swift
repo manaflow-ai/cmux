@@ -26,8 +26,9 @@ public final class UpdateController {
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let hostBundle: Bundle
-    /// Whether the running build is a cmux DEV/staging build that must never be compared against
-    /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
+    /// Whether the running build is a local DEV/staging build that must never be compared against
+    /// a public release appcast. The signed team dev track uses its own stable bundle id and is
+    /// intentionally allowed through Sparkle.
     let isDevLikeBundle: Bool
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
@@ -386,11 +387,12 @@ public final class UpdateController {
 }
 
 extension UpdateController {
-    /// Whether `bundleIdentifier` is a cmux DEV (`com.cmuxterm.app.debug[.<tag>]`) or staging
-    /// (`com.cmuxterm.app.staging[.<tag>]`) build.
+    /// Whether `bundleIdentifier` is a local cmux DEV (`com.cmuxterm.app.debug[.<tag>]`) or
+    /// staging (`com.cmuxterm.app.staging[.<tag>]`) build.
     ///
-    /// Such builds are produced from local source and are not on the public release train, so
-    /// they must never be compared against the public Sparkle appcast (#6292).
+    /// Such builds are produced from local source and are not on a published update train, so
+    /// they must never be compared against a public Sparkle appcast (#6292). The separate
+    /// `com.cmuxterm.app.dev` track is intentionally excluded from this predicate.
     ///
     /// Mirrors `SocketControlSettings.isDebugLikeBundleIdentifier` +
     /// `isStagingBundleIdentifier` (in the CmuxSettings package). The classification is
