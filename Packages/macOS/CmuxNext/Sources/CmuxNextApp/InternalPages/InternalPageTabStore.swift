@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextTabs
 
@@ -170,7 +171,7 @@ final class InternalPageTabStore {
             pane.apply(pane.snapshot())
         }
         let create = createStoreTab, handle = pane.pane.handle
-        pane.services.registry.track(Task { [weak self, weak pane] () -> String? in
+        pane.services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
                 let (created, sequence) = try await create(handle, daemon, page.rawValue, transaction)
                 self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface)
