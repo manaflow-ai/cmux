@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
 import Observation
+import os
 
 /// The user's sidebar section layout as this app shows it
 /// (plans/cmux-next/sidebar-sections.md 5). The workspace store owns the
@@ -38,6 +39,7 @@ final class SidebarLayoutService {
     /// This Mac added Recents to the layout, or saw it there, once.
     @ObservationIgnored private let recentsOffered: UserDefaults
     static let recentsOfferedKey = "cmux.next.sidebar.recentsOffered"
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar-layout")
 
     init(remote: (any SidebarLayoutRemote)? = nil, onRefused: @escaping @MainActor (String) -> Void = { _ in },
          prototypeEnabled: @escaping @MainActor () -> Bool = {
@@ -112,6 +114,7 @@ final class SidebarLayoutService {
                     self.markInterrupted(key)
                 } else {
                     self.settle(key, confirmed: nil)
+                    Self.logger.info("sidebar layout: refused \(String(describing: op), privacy: .public): \(String(describing: error), privacy: .public)")
                     self.onRefused(String(describing: error))
                 }
             }

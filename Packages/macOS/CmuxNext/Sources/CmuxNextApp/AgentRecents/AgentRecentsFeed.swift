@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextWakeups
 import Foundation
+import os
 
 /// The local acpmux daemon's chats for the sidebar's Recents: one long-lived
 /// `_acpmux/watch` connection whose `_acpmux/session_changed` pushes keep the
@@ -22,6 +23,7 @@ final class AgentRecentsFeed {
     private var watchedDirectory: String?
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-recents")
 
     init(socketPath: String) {
         socket = socketPath
@@ -48,6 +50,7 @@ final class AgentRecentsFeed {
         directoryWatch?.cancel()
         directoryWatch = nil
         watchedDirectory = nil
+        logger.info("agent recents: watching \(self.socket, privacy: .public)")
         let connection = AgentActivityLineConnection(path: socket)
         subscription = connection
         connection.start(send: Self.watchRequest,
@@ -75,6 +78,7 @@ final class AgentRecentsFeed {
         if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
             backoff.reset()
             recents.reset(result)
+            logger.info("agent recents: \((result["sessions"] as? [Any])?.count ?? 0, privacy: .public) sessions")
         } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any] {
             recents.apply(changed: params)
         } else {
@@ -90,6 +94,7 @@ final class AgentRecentsFeed {
     private func lost(_ connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         subscription = nil
+        logger.info("agent recents: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in
             guard var backoff = self?.backoff else { return }
@@ -109,6 +114,7 @@ final class AgentRecentsFeed {
             directory = (directory as NSString).deletingLastPathComponent
         }
         guard directory != watchedDirectory else { return }
+        logger.info("agent recents: waiting for the socket in \(directory, privacy: .public)")
         directoryWatch?.cancel()
         directoryWatch = nil
         let fd = open(directory, O_EVTONLY)
