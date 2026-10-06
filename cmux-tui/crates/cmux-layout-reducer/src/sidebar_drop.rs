@@ -109,13 +109,32 @@ pub struct Request {
     pub group_exit_fraction: f64,
     #[serde(default = "default_section_top_fraction")]
     pub section_top_fraction: f64,
+    /// The middle band of an ungrouped workspace row, as fractions of its
+    /// height, where a workspace drag drops onto that row (the two become a
+    /// new group) instead of opening a gap. The default, an empty band,
+    /// turns it off, so callers that do not send it keep the old rules.
+    #[serde(default)]
+    pub workspace_onto_start: f64,
+    #[serde(default)]
+    pub workspace_onto_end: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Target {
-    Position { section: SectionId, group: Option<String>, index: i32 },
-    IntoGroup { group: String },
+    Position {
+        section: SectionId,
+        group: Option<String>,
+        index: i32,
+    },
+    IntoGroup {
+        group: String,
+    },
+    /// Onto an ungrouped workspace row: the dragged workspaces and that one
+    /// become a new group.
+    OntoWorkspace {
+        workspace: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -422,6 +441,23 @@ fn is_valid(target: &Target, ids: &[String], sections: &[Section]) -> bool {
         Target::IntoGroup { group } => {
             let Some((section_index, _)) = locate_group(group, sections) else { return false };
             &sections[section_index]
+        }
+        Target::OntoWorkspace { workspace: target } => {
+            // A loose workspace of a machine section, not one of the dragged.
+            if ids.contains(target) {
+                return false;
+            }
+            let Some(section) = sections.iter().find(|section| {
+                section.nodes.iter().any(
+                    |node| matches!(node, Node::Workspace { workspace } if &workspace.id == target),
+                )
+            }) else {
+                return false;
+            };
+            if section.machine.is_none() {
+                return false;
+            }
+            section
         }
     };
     ids.iter().all(|id| {
