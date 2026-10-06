@@ -60,30 +60,70 @@ struct CLIPathInstallerTests {
         func mark() { count += 1 }
     }
 
-    @Test func installsAndReplacesASymlink() async throws {
+    /// A file that is not this app's link is refused unless the caller
+    /// chose to replace it, and the outcome then names what it replaced.
+    @Test func refusesAFileUnlessReplacing() async throws {
         let box = try Sandbox()
         defer { box.cleanUp() }
         try FileManager.default.createDirectory(at: box.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("old".utf8).write(to: box.destination)
-        let outcome = try await box.installer().install()
+        await #expect(throws: CLIPathInstaller.Failure.occupied(path: box.destination.path, existing: .file)) {
+            try await box.installer().install()
+        }
+        #expect(try String(contentsOf: box.destination, encoding: .utf8) == "old", "a refusal leaves the file alone")
+        let outcome = try await box.installer().install(replacing: true)
         #expect(outcome == .init(usedAdministratorPrivileges: false, destination: box.destination, source: box.source.standardizedFileURL,
                                  replaced: .file))
         #expect(box.installer().isInstalled())
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: box.destination.path) == box.source.path)
     }
 
-    /// Install never replaces another app's `cmux` silently: the outcome
-    /// names the link it replaced, and the sheet says so.
-    @Test func reportsTheLinkItReplaces() async throws {
+    /// Install never shadows another app's `cmux` silently: a link to
+    /// another bundle's CLI is refused; reinstalling over this app's own
+    /// link stays silent.
+    @Test func refusesAnotherAppsLinkUnlessReplacing() async throws {
         let box = try Sandbox()
         defer { box.cleanUp() }
         try FileManager.default.createDirectory(at: box.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         let other = "/Applications/cmux.app/Contents/Resources/bin/cmux"
         try FileManager.default.createSymbolicLink(atPath: box.destination.path, withDestinationPath: other)
-        let outcome = try await box.installer().install()
-        #expect(outcome.replaced == .link(target: other))
-        let fresh = try await box.installer().install()
-        #expect(fresh.replaced == nil, "reinstalling over this app's own link replaces nothing")
+        await #expect(throws: CLIPathInstaller.Failure.occupied(path: box.destination.path, existing: .link(target: other))) {
+            try await box.installer().install()
+        }
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: box.destination.path) == other)
+        let replaced = try await box.installer().install(replacing: true)
+        #expect(replaced.replaced == .link(target: other))
+        let again = try await box.installer().install()
+        #expect(again.replaced == nil, "reinstalling over this app's own link replaces nothing")
+    }
+
+    /// `cmux-next` is the name that never shadows another app's `cmux`.
+    @Test func theCmuxNextNameSitsBesideTheOtherCLI() async throws {
+        #expect(CLIPathInstaller.Name.cmuxNext.destination.path == "/usr/local/bin/cmux-next")
+        #expect(CLIPathInstaller.Name.cmux.destination.path == "/usr/local/bin/cmux")
+        let box = try Sandbox()
+        defer { box.cleanUp() }
+        try FileManager.default.createDirectory(at: box.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let other = "/Applications/cmux.app/Contents/Resources/bin/cmux"
+        try FileManager.default.createSymbolicLink(atPath: box.destination.path, withDestinationPath: other)
+        let beside = box.destination.deletingLastPathComponent().appendingPathComponent("cmux-next")
+        let outcome = try await CLIPathInstaller(destination: beside, source: box.source, privileged: { _ in }).install()
+        #expect(outcome.replaced == nil)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: box.destination.path) == other)
+    }
+
+    @Test @MainActor func theRefusalExplainsBothChoices() {
+        let text = CLIInstallStrings.message(CLIPathInstaller.Failure.occupied(
+            path: "/usr/local/bin/cmux", existing: .link(target: "/Applications/cmux.app/Contents/Resources/bin/cmux")))
+        #expect(text.contains("/Applications/cmux.app/Contents/Resources/bin/cmux"), "\(text)")
+        #expect(text.contains("--replace"), "\(text)")
+        #expect(text.contains("/usr/local/bin/cmux-next"), "\(text)")
+    }
+
+    @Test func theCLIActionTakesReplaceAndCmuxNext() throws {
+        let action = try #require(ActionCatalog.all.first { $0.id == "palette.installCLI" })
+        #expect(action.arguments.map(\.name) == ["replace", "cmux_next"])
+        #expect(action.arguments.allSatisfy { $0.kind == .bool && !$0.isRequired })
     }
 
     @Test @MainActor func theSheetNamesWhatWasReplaced() {
