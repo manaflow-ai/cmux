@@ -26,7 +26,12 @@ type Options = {
   onReady?: () => void;
 };
 
-type Message = { type?: string; id?: string; file?: { name?: string; [key: string]: unknown }; diff?: { name?: string; [key: string]: unknown } };
+type Message = {
+  type?: string;
+  id?: string;
+  file?: { name?: string; [key: string]: unknown };
+  diff?: { name?: string; [key: string]: unknown };
+};
 
 const defaultClock: Clock = {
   setTimeout: (run, ms) => globalThis.setTimeout(run, ms),
