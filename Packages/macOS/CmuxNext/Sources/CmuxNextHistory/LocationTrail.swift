@@ -157,6 +157,10 @@ public nonisolated struct LocationTrail: Hashable, Sendable, Codable {
         return copy
     }
 
+    /// Replaces the current entry's location (the same sidebar item, a newer
+    /// focus inside it) without a new step.
+    mutating func replaceCurrent(_ location: HistoryLocation) { refreshCurrent(location) }
+
     private mutating func refreshCurrent(_ location: HistoryLocation) {
         guard entries.indices.contains(cursor) else { return }
         entries[cursor].location = location

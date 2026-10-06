@@ -38,6 +38,14 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.uiScale" : {
+      "default" : 1,
+      "description" : "app.uiScale",
+      "maximum" : 1.5,
+      "minimum" : 0.85,
+      "title" : "Interface Scale",
+      "type" : "number"
+    },
     "app.warnBeforeClosingAgentSession" : {
       "default" : true,
       "description" : "Ask before closing a terminal tab whose agent is still working.",
@@ -744,6 +752,12 @@
       "title" : "Record Terminal Commands",
       "type" : "boolean"
     },
+    "home.attachments.keepLocation" : {
+      "default" : false,
+      "description" : "When off, location data is removed from photos and videos before they are attached.",
+      "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
     "labs.previewFeatures" : {
       "default" : false,
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
@@ -922,6 +936,16 @@
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
+      "type" : "string"
+    },
+    "navigation.history.scope" : {
+      "default" : "workspaces",
+      "description" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace.",
+      "enum" : [
+        "workspaces",
+        "everything"
+      ],
+      "title" : "Back and Forward Steps",
       "type" : "string"
     },
     "navigation.historyScope" : {
@@ -1286,6 +1310,16 @@
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
+    "sidebar.cmd9" : {
+      "default" : "last",
+      "description" : "Goes to the last item, as in browsers, or to the ninth.",
+      "enum" : [
+        "last",
+        "ninth"
+      ],
+      "title" : "Command-9",
+      "type" : "string"
+    },
     "sidebar.minimalMode" : {
       "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
@@ -1296,6 +1330,16 @@
         "both"
       ],
       "title" : "Minimal Mode",
+      "type" : "string"
+    },
+    "sidebar.numbering" : {
+      "default" : "allItems",
+      "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
+      "enum" : [
+        "allItems",
+        "workspacesOnly"
+      ],
+      "title" : "Command-Number Shortcuts",
       "type" : "string"
     },
     "sidebar.pinnedBandsScroll" : {
@@ -1342,6 +1386,22 @@
       ],
       "title" : "Spaces Position",
       "type" : "string"
+    },
+    "sidebar.stepping" : {
+      "default" : "allItems",
+      "description" : "What Command-Control-] and Command-Control-[ step through.",
+      "enum" : [
+        "allItems",
+        "workspacesOnly"
+      ],
+      "title" : "Next and Previous Item",
+      "type" : "string"
+    },
+    "sidebar.steppingWraps" : {
+      "default" : true,
+      "description" : "Past the last item, the next item is the first again.",
+      "title" : "Wrap Around",
+      "type" : "boolean"
     },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,

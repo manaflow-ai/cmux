@@ -502,6 +502,10 @@ public actor MockHomeSource: HomeSource {
                 _ = try? commitMessage(in: id, author: me.id, parts: firstMessage, key: intent.key)
             }
             return HomeOpResult(rev: inboxRev, conversation: id, invite: receipt)
+        case .openDirect(let peer):
+            guard let person = people[peer], peer != me.id else { throw HomeRejection.invalid("not_reachable") }
+            let id = existingDirect(with: [me, person]) ?? createConversation(title: "", participants: [me, person])
+            return HomeOpResult(rev: inboxRev, conversation: id)
         case .invite(let contact):
             // An invite changes no inbox entry, so the current revision settles it.
             let (_, receipt) = personFor(contact)

@@ -19,7 +19,7 @@ import Testing
 
         init(titles: [String], stripY: CGFloat? = nil) {
             let tabs = titles.enumerated().map { TabItem(id: TabID("t\($0.offset)"), title: $0.element) }
-            model = TabStripModel(tabs: tabs, selectedID: tabs.first?.id, trailingButtons: TabStripButtonGroupTests.splits)
+            model = TabStripModel(tabs: tabs, selectedID: tabs.first?.id)
             strip = TabStripView(model: model)
             window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 900, height: 400),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -67,8 +67,7 @@ import Testing
     }
 
     /// Every point of every tab (body, title, leading and trailing edge, top
-    /// and bottom edge, close button), the gaps between tabs, + and the
-    /// trailing buttons.
+    /// and bottom edge, close button), the gaps between tabs and +.
     @Test func noPointATabDragCanStartFromMovesTheWindow() {
         let h = Harness(titles: ["One", "Two", "Three"])
         defer { h.close() }
@@ -90,8 +89,6 @@ import Testing
         }
         let plus = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip)
         points += [("+", h.windowPoint(stripX: plus.midX)), ("+ leading edge", h.windowPoint(stripX: plus.minX + 0.5))]
-        let buttons = h.strip.contentView.convert(h.strip.buttonGroup.frame, to: h.strip)
-        points += [("trailing buttons", h.windowPoint(stripX: buttons.midX))]
         for (name, point) in points {
             #expect(h.decide(point) == .staysPut, "\(name) moves the window")
         }
@@ -101,8 +98,7 @@ import Testing
         let h = Harness(titles: ["One"])
         defer { h.close() }
         let plus = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip)
-        let buttons = h.strip.contentView.convert(h.strip.buttonGroup.frame, to: h.strip)
-        #expect(h.decide(h.windowPoint(stripX: (plus.maxX + buttons.minX) / 2)) == .movesWindow)
+        #expect(h.decide(h.windowPoint(stripX: (plus.maxX + h.strip.bounds.maxX) / 2)) == .movesWindow)
     }
 
     /// The app's layout pads panes by 2 pt, so a top-row strip starts 2 pt
@@ -112,8 +108,7 @@ import Testing
         let h = Harness(titles: ["One"], stripY: 400 - TabStripView.preferredHeight - 2)
         defer { h.close() }
         let plus = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip)
-        let buttons = h.strip.contentView.convert(h.strip.buttonGroup.frame, to: h.strip)
-        #expect(h.decide(h.windowPoint(stripX: (plus.maxX + buttons.minX) / 2)) == .movesWindow)
+        #expect(h.decide(h.windowPoint(stripX: (plus.maxX + h.strip.bounds.maxX) / 2)) == .movesWindow)
         #expect(h.decide(h.windowPoint(stripX: h.tabFrame(0).midX)) == .staysPut)
     }
 
@@ -121,8 +116,7 @@ import Testing
         let h = Harness(titles: ["One"], stripY: 200)
         defer { h.close() }
         let plus = h.strip.contentView.convert(h.strip.newTabButton.frame, to: h.strip)
-        let buttons = h.strip.contentView.convert(h.strip.buttonGroup.frame, to: h.strip)
-        #expect(h.decide(h.windowPoint(stripX: (plus.maxX + buttons.minX) / 2)) == .staysPut)
+        #expect(h.decide(h.windowPoint(stripX: (plus.maxX + h.strip.bounds.maxX) / 2)) == .staysPut)
     }
 }
 

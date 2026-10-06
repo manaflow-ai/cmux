@@ -81,6 +81,9 @@ public struct ThemeTokens: Hashable, Sendable {
     /// Glyphs and labels on `highlight`, at least 4.5:1: the opaque
     /// background or foreground, whichever contrasts more, else black or white.
     public var highlightText: ThemeRGB
+    /// The theme names its own ANSI palette, so `highlight` is the theme's
+    /// accent; false when it fell back to Ghostty's default palette.
+    public var hasThemeAccent: Bool
     /// ANSI 0...15.
     public var ansi: [ThemeRGB]
 
@@ -172,6 +175,7 @@ public struct ThemeTokens: Hashable, Sendable {
             success: status(2),
             highlight: highlight,
             highlightText: highlightText,
+            hasThemeAccent: input.palette.count >= 8,
             ansi: palette,
             backgroundOpacity: input.backgroundOpacity,
             backgroundBlur: input.backgroundBlur

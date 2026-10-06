@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextSettings
+import CmuxNextSidebar
 import Testing
 
 /// GUI proofs click the real sidebar items and read back the shown page
@@ -12,8 +13,7 @@ import Testing
 struct DebugTopPageReportTests {
     @Test func sidebarRowsListTheLayoutItemsWithTheirState() async throws {
         let (services, window, _, _) = try await TopPageTests.window()
-        window.sidebar.model.itemInfo = SidebarBridge.itemInfo(for: window.sidebar.model.layout, registered: { _ in true },
-                                                              shownPage: .page(.appStore))
+        window.sidebar.model.selectedItem = .topItem(LayoutItemID("itm_app_store"))
         let items = DebugSidebarRows.items(of: window)
         let store = try #require(items.first { $0["id"]?.stringValue == "itm_app_store" })
         #expect(store["ref_kind"]?.stringValue == "app")

@@ -73,17 +73,57 @@ pub struct TabState {
     pub nav_seq: u64,
     pub last_nav_same_document: bool,
     pub buttons: i64,
+    /// Keys pressed and not released, oldest first: (key, code, location).
+    /// Released when the last session leaves the tab.
+    pub held_keys: Vec<(String, String, i64)>,
+    /// The creating session's `session.configure` user agent and headers
+    /// (None: the browser's own). A popup starts with its opener's.
+    pub overrides: Option<std::sync::Arc<TabOverrides>>,
+    /// The tab's browser context (its cookie jar): the default one, or a
+    /// proxy store (`session.configure {proxy}`).
+    pub context: Option<String>,
     pub mouse: (f64, f64),
     pub viewport: (f64, f64),
     pub device_scale_factor: f64,
     pub crashed: bool,
     pub open_dialogs: usize,
+    /// File choosers opened whose `filechooser.opened` is not sent yet (the
+    /// driver resolves the input's agent handle first): input calls wait
+    /// for zero, so the event comes before their reply.
+    pub pending_choosers: usize,
+    /// A session drives the tab on a headful browser: its file choosers
+    /// are intercepted (`choosers.rs`).
+    pub choosers_on: bool,
+    /// The tab's virtual clipboard: `[{ type, base64 }]` (`clipboard.rs`).
+    pub clipboard: Vec<Value>,
+    /// The Copy, Cut or Paste running now: a dialog then is dismissed.
+    pub clipboard_command: Option<&'static str>,
     /// Bumps when the main frame starts a download, so a navigation that
     /// turns into a download fails instead of waiting out its deadline.
     pub download_seq: u64,
     /// A fetch shell (a9 shell-tab conditions): the host's own tab. Never
     /// listed, no events, no page agent, no calls from the session.
     pub hidden: bool,
+}
+
+/// A tab's `session.configure` request options (driver-protocol.md).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TabOverrides {
+    pub user_agent: Option<String>,
+    pub headers: Option<Map<String, Value>>,
+}
+
+impl TabOverrides {
+    /// The CDP steps that set them (missing ones go back to the browser's:
+    /// `default_ua`, no extra headers).
+    pub fn steps(this: Option<&TabOverrides>, default_ua: &str) -> Vec<(&'static str, Value)> {
+        let ua = this.and_then(|o| o.user_agent.clone()).unwrap_or_else(|| default_ua.to_owned());
+        let headers = this.and_then(|o| o.headers.clone()).unwrap_or_default();
+        vec![
+            ("Emulation.setUserAgentOverride", serde_json::json!({"userAgent": ua})),
+            ("Network.setExtraHTTPHeaders", serde_json::json!({"headers": headers})),
+        ]
+    }
 }
 
 impl TabState {
@@ -111,11 +151,18 @@ impl TabState {
             nav_seq: 0,
             last_nav_same_document: false,
             buttons: 0,
+            held_keys: Vec::new(),
+            overrides: None,
+            context: None,
             mouse: (0.0, 0.0),
             viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
             crashed: false,
             open_dialogs: 0,
+            pending_choosers: 0,
+            choosers_on: false,
+            clipboard: Vec::new(),
+            clipboard_command: None,
             download_seq: 0,
             hidden: false,
         }
@@ -150,6 +197,11 @@ pub enum FollowUp {
     /// Closed-root change detection ended for a session (closed_roots.rs):
     /// stop its DOM events; the next read turns them on again.
     DisableDom { session_id: String },
+    /// A file chooser opened (`choosers.rs`): resolve its input's agent
+    /// handle, then send `filechooser.opened`.
+    ChooserOpened { target_id: String, chooser_id: String },
+    /// A dialog opened during a clipboard command: dismiss it at once.
+    DismissDialog { dialog_id: String },
 }
 
 #[derive(Debug, Default)]
@@ -170,6 +222,9 @@ pub struct State {
     /// Dialog id -> (tab, session that opened it).
     pub dialogs: HashMap<String, (String, String)>,
     pub next_dialog: u64,
+    /// Open file choosers by id (at most one per tab: a newer one replaces it).
+    pub choosers: HashMap<String, super::choosers::Chooser>,
+    pub next_chooser: u64,
     /// Marker URLs of fetch shells being created: the page target that
     /// attaches with one is hidden from its first event.
     pub shell_markers: HashSet<String>,
@@ -196,6 +251,7 @@ impl State {
             }
             self.order.retain(|id| id != target_id);
             self.dialogs.retain(|_, (owner, _)| owner.as_str() != target_id);
+            self.choosers.retain(|_, chooser| chooser.target != target_id);
             if self.active.as_deref() == Some(target_id) {
                 self.active = None;
             }
@@ -334,6 +390,8 @@ impl State {
         let title = info.get("title").and_then(Value::as_str).unwrap_or("").to_owned();
         let opener = info.get("openerId").and_then(Value::as_str).map(str::to_owned);
         let mut tab = TabState::new(session_id.to_owned(), url.clone(), title, opener.clone());
+        tab.context = info.get("browserContextId").and_then(Value::as_str).map(str::to_owned);
+        tab.overrides = opener.as_ref().and_then(|opener| self.tabs.get(opener)?.overrides.clone());
         tab.hidden = self.shell_markers.remove(&url) || self.shell_targets.contains(target_id);
         let hidden = tab.hidden;
         self.tabs.insert(target_id.to_owned(), tab);
@@ -400,7 +458,16 @@ impl State {
                 "defaultValue".into(),
                 params.get("defaultPrompt").cloned().unwrap_or(json!("")),
             );
+            // During Copy, Cut or Paste it cannot hold the command.
+            if let Some(kind) = self.tabs.get(target_id).and_then(|tab| tab.clipboard_command) {
+                payload.insert("dismissedDuring".into(), json!(kind));
+                applied.follow_ups.push(FollowUp::DismissDialog { dialog_id });
+            }
             applied.events.push(event("dialog.opened", target_id, payload));
+            return;
+        }
+        if method == "Page.fileChooserOpened" {
+            self.chooser_opened(target_id, session_id, params, applied);
             return;
         }
         if method == "Page.javascriptDialogClosed" {
@@ -537,6 +604,19 @@ impl State {
             network if network.starts_with("Network.") => {
                 if let Some(event) = super::network::event(tab, target_id, network, params) {
                     applied.events.push(event);
+                }
+            }
+            // The page clipboard guard's writes (`clipboard.rs`).
+            "Runtime.bindingCalled"
+                if params.get("name").and_then(Value::as_str)
+                    == Some(super::clipboard::GUARD_BINDING) =>
+            {
+                let payload = params.get("payload").and_then(Value::as_str).unwrap_or("");
+                let items = serde_json::from_str::<Value>(payload).ok().and_then(|payload| {
+                    super::clipboard::clipboard_items(payload.get("items")).ok()
+                });
+                if let Some(items) = items.filter(|items| !items.is_empty()) {
+                    tab.clipboard = items;
                 }
             }
             "Runtime.consoleAPICalled" => {

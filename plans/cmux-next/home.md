@@ -142,8 +142,9 @@ first). The brain host retries an `agent_rate` reply once after the gap and drop
 ## 4. The local mux (brain host)
 
 - The mux is acpmux session `mux` (harness `claude-sr`, cwd `$MUX_HOME/session`, prompt and memory
-  hooks there). `$MUX_HOME` defaults to `~/.cmux/mux`; tagged builds use `~/.cmux/mux/tags/<tag>` so
-  tests never touch the real memory.
+  hooks there). `$MUX_HOME` is the Chief home, `~/.cmux/chief/<account>`, the same
+  for every build; isolated launches (preflights, tests) use `~/.cmux/chief/isolated/<tag>`
+  (home-state-ownership.md, 2026-10-05; replaces the per-tag `~/.cmux/mux/tags/<tag>`).
 - The brain host (`mux/host`, TypeScript on Bun, re-owned from `feat-mux` `mux/local` + `mux/cli`) is a
   client of two owners and listens on nothing: it subscribes to `conversation-changed` on the daemon
   socket, prompts the mux for each human message (acpmux `promptId` = message id, deduped by acpmux),
