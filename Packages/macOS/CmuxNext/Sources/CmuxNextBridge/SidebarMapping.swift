@@ -5,7 +5,8 @@ public import CmuxNextDesign
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
-/// section for the local daemon, loose workspaces first, then groups.
+/// section per daemon, its sections in order (loose runs and groups, which
+/// may interleave with `personal-mixed-order-v1`).
 public struct SidebarMapping {
     public static let shared = Self()
     /// The workspace kind of the home workspace (`workspace-kind-v1`).

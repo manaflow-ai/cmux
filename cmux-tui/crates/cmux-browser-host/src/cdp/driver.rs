@@ -354,6 +354,10 @@ impl Inner {
                     INTERNAL_TIMEOUT,
                 );
             }
+            FollowUp::DisableDom { session_id } => {
+                let _ =
+                    self.conn.call(Some(&session_id), "DOM.disable", json!({}), INTERNAL_TIMEOUT);
+            }
             FollowUp::SetUpFrame { target_id: _, session_id } => {
                 // Failures leave the frame unreachable; it must still run.
                 if self.set_up_frame(&session_id).is_err() {

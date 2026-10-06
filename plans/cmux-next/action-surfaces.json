@@ -22471,7 +22471,33 @@
       "title_table" : "ServerActions"
     },
     {
-      "cli" : "devOnly",
+      "cli" : "ownerVerb",
+      "cli_name" : "action server-add-server",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "server.addServer",
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Server…",
+      "title_key" : "action.server.addServer",
+      "title_table" : "ServerActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action server-show-panel",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -22483,7 +22509,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "server.showPanel",
-      "mcp" : "devOnly",
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",
@@ -22520,32 +22546,6 @@
       },
       "title" : "Server Health",
       "title_key" : "action.server.showHealth",
-      "title_table" : "ServerActions"
-    },
-    {
-      "cli" : "devOnly",
-      "cli_name" : "action server-add-server",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "server.addServer",
-      "mcp" : "devOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "title" : "Add Server…",
-      "title_key" : "action.server.addServer",
       "title_table" : "ServerActions"
     },
     {

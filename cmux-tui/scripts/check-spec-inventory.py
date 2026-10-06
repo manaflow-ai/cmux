@@ -558,7 +558,7 @@ def serialized_literal_event_names(source: str) -> set[str]:
     return names
 
 
-CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs")
+CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "server/activity.rs")
 
 
 def event_names() -> set[str]:
