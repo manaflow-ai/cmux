@@ -22,6 +22,23 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+/// A tab's closed-root cost (`tab.info closedRoots`): the bench and the
+/// parity runs read it, so a regression in the walk shows.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WalkStats {
+    pub walks: u64,
+    pub walk_ms: f64,
+    pub roots: u64,
+    /// `DOM.*` events received while the domain is on.
+    pub dom_events: u64,
+}
+
+impl WalkStats {
+    pub fn to_json(self) -> Value {
+        json!({"walks": self.walks, "walkMs": self.walk_ms, "roots": self.roots, "domEvents": self.dom_events})
+    }
+}
+
 /// One CDP session's closed roots, from its last `DOM.getDocument`.
 #[derive(Debug, Clone, Default)]
 pub struct SessionRoots {
@@ -155,17 +172,21 @@ impl Inner {
         let Some(root_frame) = root_frame else {
             return Ok(());
         };
+        let started = Instant::now();
         let document =
             self.send_on(cdp, "DOM.getDocument", json!({"depth": -1, "pierce": true}), deadline)?;
         let mut by_frame = HashMap::new();
         collect(&document["root"], &root_frame, &mut by_frame);
-        if let Some(entry) = self
-            .lock()
-            .tabs
-            .get_mut(&session.target_id)
-            .and_then(|tab| tab.closed_roots.get_mut(cdp))
-        {
-            entry.by_frame = by_frame;
+        let roots: usize = by_frame.values().map(Vec::len).sum();
+        let mut state = self.lock();
+        if let Some(tab) = state.tabs.get_mut(&session.target_id) {
+            let stats = &mut tab.closed_root_stats;
+            stats.walks += 1;
+            stats.walk_ms += started.elapsed().as_secs_f64() * 1000.0;
+            stats.roots += roots as u64;
+            if let Some(entry) = tab.closed_roots.get_mut(cdp) {
+                entry.by_frame = by_frame;
+            }
         }
         Ok(())
     }
