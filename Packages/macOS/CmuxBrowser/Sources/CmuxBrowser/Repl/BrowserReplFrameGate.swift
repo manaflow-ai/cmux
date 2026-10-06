@@ -680,6 +680,9 @@ public final class BrowserReplFrameGate {
         let parent: BrowserReplFrame
         let token: String
         let guarded: [BrowserReplFrame]
+        /// Each guarded frame's place in the parent's `window.frames` when
+        /// the guard went on (-1 in a shadow tree).
+        let positions: [Int]
     }
 
     /// Makes the element of each blocked frame without a blocked ancestor
@@ -748,7 +751,7 @@ public final class BrowserReplFrameGate {
                 ) as? [String: Any] ?? [:]
                 switch value["result"] as? String {
                 case "ok":
-                    installed.append(InputGuard(parent: parent, token: token, guarded: entries.map(\.frame)))
+                    installed.append(InputGuard(parent: parent, token: token, guarded: entries.map(\.frame), positions: entries.map(\.position)))
                 case "changed":
                     throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while input to frame \(parent.url) was prepared; try again")
                 default:
@@ -756,11 +759,57 @@ public final class BrowserReplFrameGate {
                     throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.url) shows a page the domain policy blocks (\(entry.reason)) and its frame element cannot be held out of the input's reach, so input to this tab is refused")
                 }
             }
+            try await verifyInputGuards(installed, in: webView)
         } catch {
             _ = await releaseInputGuards(installed, in: webView)
             throw error
         }
         return installed
+    }
+
+    /// Proves each guard holds the frame it is for. A position names
+    /// whatever frame is at that place in `window.frames` when the parent
+    /// runs its guard, and the page can reorder its frames after a blocked
+    /// frame reported its place: the guard would then hold an allowed
+    /// sibling and leave the blocked frame live. So each guarded frame
+    /// reports its place again, by its own window (WebKit's handle of that
+    /// frame), and its parent confirms that `window.frames` is the list it
+    /// guarded, unchanged at every point between (a mutation observer the
+    /// guard set compares it after each change of the document). Then the
+    /// element made inert holds the blocked frame, and stays with it
+    /// wherever the page moves it. Throws `stale` otherwise.
+    private func verifyInputGuards(_ guards: [InputGuard], in webView: WKWebView) async throws {
+        for entry in guards {
+            for (frame, position) in zip(entry.guarded, entry.positions) {
+                guard let info = frame.info else { continue }
+                let answer: [String: Any]
+                do {
+                    answer = try await probe(
+                        Self.positionSource, arguments: [:], in: webView, frame: info,
+                        what: "frame \(frame.url) did not report its position"
+                    ) as? [String: Any] ?? [:]
+                } catch let error as BrowserReplDriverError {
+                    throw error
+                } catch {
+                    // A frame that has gone takes no input.
+                    if Self.isGoneFrame(error) { continue }
+                    throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.url) did not report its position: \(error.localizedDescription)")
+                }
+                let now = (answer["position"] as? NSNumber)?.intValue ?? -1
+                if now != position {
+                    throw BrowserReplDriverError(code: "stale", message: "The page moved frame \(frame.url), which the domain policy blocks, while input to the tab was prepared; try again")
+                }
+            }
+        }
+        for entry in guards {
+            let value = try await probe(
+                Self.inputVerifySource, arguments: ["token": entry.token], in: webView, frame: entry.parent.info,
+                what: "frame \(entry.parent.url) did not confirm its guard"
+            ) as? [String: Any]
+            if value?["result"] as? String != "ok" {
+                throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while input to frame \(entry.parent.url) was prepared; try again")
+            }
+        }
     }
 
     /// Takes the guards off. Returns `blocked` when the page changed a
@@ -1159,7 +1208,18 @@ public final class BrowserReplFrameGate {
     }
     const entries = targets.map((el) => ({ el, had: el.hasAttribute("inert") }));
     for (const entry of entries) if (!entry.had) entry.el.setAttribute("inert", "");
-    const record = { entries, tampered: false, observer: null };
+    const listed = [];
+    for (let i = 0; i < window.frames.length; i++) listed.push(window.frames[i]);
+    const sameFrames = () => {
+      if (window.frames.length !== listed.length) return false;
+      for (let i = 0; i < listed.length; i++) if (window.frames[i] !== listed[i]) return false;
+      return true;
+    };
+    const record = { entries, tampered: false, observer: null, listed, sameFrames, moved: false, mover: null };
+    // Notes any point at which window.frames differs from the guarded list,
+    // so a reorder the page undoes before the check still counts.
+    record.mover = new MutationObserver(() => { if (!sameFrames()) record.moved = true; });
+    record.mover.observe(document, { childList: true, subtree: true, attributes: true });
     // Puts a guard the page took off back before the page's script returns.
     record.observer = new MutationObserver(() => {
       record.tampered = true;
@@ -1230,6 +1290,17 @@ public final class BrowserReplFrameGate {
     return { tampered };
     """
 
+    /// Whether `window.frames` is still, and was at every change since, the
+    /// list the guard `token` held; see ``verifyInputGuards(_:in:)``.
+    private static let inputVerifySource = """
+    const guards = globalThis.__cmuxInputGuards;
+    const record = guards && guards.get(token);
+    if (!record) return { result: "missing" };
+    if (record.mover.takeRecords().length > 0 && !record.sameFrames()) record.moved = true;
+    record.mover.disconnect();
+    return { result: record.moved || !record.sameFrames() ? "changed" : "ok" };
+    """
+
     /// Takes a guard off: restores each element's own `inert` attribute and
     /// says whether the page changed it meanwhile.
     private static let inputReleaseSource = """
@@ -1237,6 +1308,7 @@ public final class BrowserReplFrameGate {
     const record = guards && guards.get(token);
     if (!record) return { tampered: true };
     guards.delete(token);
+    record.mover.disconnect();
     const changed = record.observer.takeRecords().length > 0;
     record.observer.disconnect();
     const tampered = record.tampered || changed || record.entries.some((entry) => !entry.el.hasAttribute("inert"));
