@@ -51,7 +51,11 @@
     for (const part of f.formatToParts(d)) o[part.type] = part.value;
     return { y: Number(o.year), m: Number(o.month), d: Number(o.day), h: Number(o.hour) % 24, min: Number(o.minute) };
   }
-  // "Oct 1, 2026", "Thursday, October 1", "10/1/2026" or "2026-10-01".
+  // "Oct 1, 2026", "Thursday, October 1", "2026-10-01", or a numeric date
+  // that reads only one way ("10/13/2026", "13/10/2026", "5/5/2026"). Calendar's
+  // date format is a user setting the form does not name, so a numeric date
+  // whose month and day could be either way round ("10/1/2026": October 1
+  // or January 10) is not accepted as any date.
   function dateShows(text, p) {
     const s = String(text || "").toLowerCase();
     const nums = (s.match(/\d+/g) || []).map(Number);
@@ -60,7 +64,14 @@
     const small = nums.filter((n) => n < 1000);
     const named = MONTHS.findIndex((m) => new RegExp(`\\b${m}`).test(s));
     if (named >= 0) return named + 1 === p.m && small.length === 1 && small[0] === p.d;
-    return small.length === 2 && small.includes(p.m) && small.includes(p.d) && (p.m === p.d || small[0] !== small[1]);
+    if (small.length !== 2) return false;
+    const [a, b] = small;
+    // Year first is always year, month, day.
+    if (/^\D*\d{4}\D/.test(s)) return a === p.m && b === p.d;
+    if (a === b) return a === p.m && b === p.d;
+    // Two readings when both could be a month.
+    if (a <= 12 && b <= 12) return false;
+    return (a === p.m && b === p.d) || (a === p.d && b === p.m);
   }
   // "5:00pm", "5pm", "17:00".
   function timeShows(text, p) {
