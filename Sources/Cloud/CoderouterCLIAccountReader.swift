@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import OSLog
 
@@ -31,6 +32,7 @@ enum CoderouterCLIAccountReader {
         name cmuxTeamName: String?,
         run: Run = runCLI
     ) async throws -> Snapshot {
+        try Task.checkCancellation()
         guard let cmuxTeamName = cmuxTeamName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cmuxTeamName.isEmpty,
               let organizationID = try await matchingOrganizationID(for: cmuxTeamID, name: cmuxTeamName, run: run) else {
@@ -43,7 +45,9 @@ enum CoderouterCLIAccountReader {
         // payload and switch only when the selected team's organization is not active.
         var payload = try await readAccounts(run: run)
         if payload.organizationID != organizationID {
+            try Task.checkCancellation()
             _ = try await run(["org", "switch", organizationID])
+            try Task.checkCancellation()
             payload = try await readAccounts(run: run)
         }
         guard payload.organizationID == organizationID else {
@@ -163,34 +167,140 @@ enum CoderouterCLIAccountReader {
         guard let executable = resolvedExecutable() else {
             throw accountError("coderouter is not installed. Run cmux cr in a terminal to install it.")
         }
+        // Same isolation as `cmux cr`: CodeRouter never sees cmux's CMUX_* context.
+        let environment = ProcessInfo.processInfo.environment.filter { key, _ in
+            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
+        }
+        let result = try await runProcess(
+            executable: executable,
+            arguments: arguments,
+            environment: environment
+        )
+        return result.stdout
+    }
+
+    /// Runs a CLI while draining stdout and stderr concurrently. Waiting for
+    /// termination before reading either pipe deadlocks once a chatty command
+    /// fills the kernel pipe buffer (the old sidebar reader did exactly that).
+    /// This remains internal so the large-output behavior can be covered without
+    /// depending on a real CodeRouter installation.
+    static func runProcess(
+        executable: String,
+        arguments: [String],
+        environment: [String: String]? = nil
+    ) async throws -> (stdout: Data, stderr: Data) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        // Same isolation as `cmux cr`: CodeRouter never sees cmux's CMUX_* context.
-        process.environment = ProcessInfo.processInfo.environment.filter { key, _ in
-            !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
-        }
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output
         process.standardError = error
-        return try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { process in
-                let data = output.fileHandleForReading.readDataToEndOfFile()
-                guard process.terminationStatus == 0 else {
-                    let message = String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                    logger.error("coderouter \(arguments.joined(separator: " "), privacy: .public) failed: \(message, privacy: .public)")
-                    continuation.resume(throwing: NSError(domain: "CoderouterCLI", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message]))
-                    return
+        let stdoutFileDescriptor = output.fileHandleForReading.fileDescriptor
+        let stderrFileDescriptor = error.fileHandleForReading.fileDescriptor
+
+        let stdoutRead = Task.detached(priority: .utility) {
+            Self.drain(fileDescriptor: stdoutFileDescriptor)
+        }
+        let stderrRead = Task.detached(priority: .utility) {
+            Self.drain(fileDescriptor: stderrFileDescriptor)
+        }
+        let cancellation = CoderouterProcessCancellation(
+            process: process,
+            stdout: output.fileHandleForReading,
+            stderr: error.fileHandleForReading
+        )
+
+        let status: Int32
+        do {
+            status = try await withTaskCancellationHandler(operation: {
+                try Task.checkCancellation()
+                return try await withCheckedThrowingContinuation { continuation in
+                    process.terminationHandler = { process in
+                        continuation.resume(returning: process.terminationStatus)
+                    }
+                    do {
+                        try process.run()
+                        // Cancellation may arrive between the check above and
+                        // Process.run(); do not leave that child behind.
+                        if Task.isCancelled {
+                            cancellation.cancel()
+                        }
+                    } catch {
+                        process.terminationHandler = nil
+                        continuation.resume(throwing: error)
+                    }
                 }
-                continuation.resume(returning: data)
+            }, onCancel: {
+                cancellation.cancel()
+            })
+            try Task.checkCancellation()
+        } catch {
+            cancellation.cancel()
+            stdoutRead.cancel()
+            stderrRead.cancel()
+            _ = await stdoutRead.value
+            _ = await stderrRead.value
+            throw error
+        }
+
+        let stdout = await stdoutRead.value
+        let stderr = await stderrRead.value
+        guard status == 0 else {
+            let message = String(decoding: stderr, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            logger.error("coderouter \(arguments.joined(separator: " "), privacy: .public) failed: \(message, privacy: .public)")
+            throw NSError(domain: "CoderouterCLI", code: Int(status), userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        return (stdout, stderr)
+    }
+
+    /// Reads one pipe until EOF without blocking the task that waits for the
+    /// child process. The descriptor is the only value crossing the detached
+    /// task boundary, so Foundation pipe objects remain actor-local.
+    private static func drain(fileDescriptor: Int32) -> Data {
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(fileDescriptor, bytes.baseAddress, bytes.count)
             }
-            do {
-                try process.run()
-            } catch {
-                continuation.resume(throwing: error)
+            if count > 0 {
+                data.append(contentsOf: buffer[0..<count])
+            } else if count == 0 {
+                return data
+            } else if errno == EINTR {
+                continue
+            } else {
+                return data
             }
         }
+    }
+}
+
+/// Process and pipe handles captured by the cancellation handler. Closing the
+/// readers wakes the drain tasks, while SIGKILL guarantees a child that ignores
+/// SIGTERM cannot keep a team refresh alive after the user switches teams.
+private final class CoderouterProcessCancellation: @unchecked Sendable {
+    private let process: Process
+    private let stdout: FileHandle
+    private let stderr: FileHandle
+
+    init(process: Process, stdout: FileHandle, stderr: FileHandle) {
+        self.process = process
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+
+    func cancel() {
+        let identifier = process.processIdentifier
+        if process.isRunning, identifier > 1 {
+            process.terminate()
+            _ = Darwin.kill(identifier, SIGKILL)
+        }
+        try? stdout.close()
+        try? stderr.close()
     }
 }

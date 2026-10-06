@@ -145,6 +145,18 @@ struct CoderouterCLIAccountReaderTests {
         #expect(resolve([]) == nil)
     }
 
+    @Test("CLI output drains both pipes before waiting for a chatty child")
+    func drainsLargeOutputWithoutDeadlock() async throws {
+        let result = try await CoderouterCLIAccountReader.runProcess(
+            executable: "/bin/sh",
+            arguments: ["-c", "dd if=/dev/zero bs=1024 count=256 2>/dev/null; dd if=/dev/zero bs=1024 count=256 1>&2"],
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        #expect(result.stdout.count == 256 * 1024)
+        #expect(result.stderr.count == 256 * 1024)
+    }
+
     @Test("A malformed account ID never reaches the CLI")
     func malformedRemoveIsRejected() async {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)

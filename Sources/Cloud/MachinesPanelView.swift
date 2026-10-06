@@ -517,6 +517,10 @@ struct MachinesPanelView: View {
             coderouterDestination = nil
             return
         }
+        // A refresh is the freshness boundary for the team-to-organization
+        // mapping. Do not let a slow or failed read authorize a new account
+        // against the previous snapshot.
+        coderouterDestination = nil
         let identityID = accountFlow?.currentIdentity?.id
         do {
             let teamName = accountFlow?.availableTeams.first(where: { $0.id == teamID })?.displayName
@@ -530,7 +534,9 @@ struct MachinesPanelView: View {
             coderouter.accounts = snapshot.accounts
         } catch {
             Self.coderouterLogger.error("CodeRouter account refresh failed: \(error.localizedDescription, privacy: .public)")
-            // Keep the last successful snapshot during a transient refresh failure.
+            // Keep account rows visible during a transient failure, but never
+            // let an old organization remain eligible for a new account.
+            coderouterDestination = nil
         }
     }
 
@@ -569,6 +575,7 @@ struct MachinesPanelView: View {
     @MainActor
     private func requestCoderouterRefresh() {
         guard !coderouter.isRefreshing else { return }
+        coderouterDestination = nil
         coderouter.isRefreshing = true
         coderouterRefreshRequest += 1
     }
@@ -577,13 +584,13 @@ struct MachinesPanelView: View {
     private func addCoderouterAccount(_ provider: CoderouterProvider) {
         guard let teamID = accountFlow?.confirmedTeamID,
               !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            viewModel.noteTreeHint("Select a team before adding a coding agent account.")
+            viewModel.noteTreeHint(String(localized: "coderouter.selectTeam", defaultValue: "Select a team before adding a coding agent account."))
             return
         }
         guard let destination = coderouterDestination,
               destination.teamID == teamID,
               destination.identityID == accountFlow?.currentIdentity?.id else {
-            viewModel.noteTreeHint("CodeRouter is still loading this team's account settings. Try again in a moment.")
+            viewModel.noteTreeHint(String(localized: "coderouter.loadingTeam", defaultValue: "CodeRouter is still loading this team's account settings. Try again in a moment."))
             requestCoderouterRefresh()
             return
         }
@@ -594,6 +601,10 @@ struct MachinesPanelView: View {
 
         // Setup needs this Mac's credentials and an interactive shell. The
         // focused terminal might instead be remote or running an agent/editor.
+        guard let workspaceID = tabManager?.selectedWorkspace?.id else {
+            viewModel.noteTreeHint(String(localized: "coderouter.selectWorkspace", defaultValue: "Select a local workspace before adding a coding agent account."))
+            return
+        }
         Task { @MainActor in
             do {
                 _ = try await TerminalController.surfaceNewTerminal(
@@ -602,7 +613,7 @@ struct MachinesPanelView: View {
                     cwd: nil,
                     name: "CodeRouter",
                     remoteWorkspaceID: nil,
-                    destination: nil,
+                    destination: .workspace(id: workspaceID, placement: .split),
                     focus: true
                 )
             } catch {
