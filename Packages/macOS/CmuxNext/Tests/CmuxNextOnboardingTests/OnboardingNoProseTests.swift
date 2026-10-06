@@ -11,6 +11,14 @@ import Testing
     static let prose = ["Sign-ins cmux found", "Nothing is uploaded", "Nothing leaves this Mac", "Each profile becomes",
                          "macOS asks before", "Saved commands are never run", "newest first"]
 
+    /// Every shown text field under `view`.
+    static func fields(_ view: NSView) -> [NSTextField] {
+        var found: [NSTextField] = []
+        if let field = view as? NSTextField, !field.isHiddenOrHasHiddenAncestor { found.append(field) }
+        for child in view.subviews { found += fields(child) }
+        return found
+    }
+
     static func shownText(_ view: NSView) -> [String] {
         var found: [String] = []
         if let field = view as? NSTextField, !field.isHiddenOrHasHiddenAncestor { found.append(field.stringValue) }
