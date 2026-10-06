@@ -330,7 +330,7 @@ way reaches every session in that form.
 | `tab.created` | `{ targetId, openerTargetId?, url }` (popups and `target=_blank`; `url` as written only for the opener's live creator) |
 | `tab.closed` | |
 | `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
-| `tab.replaced` | (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; frame ids and element handles from before are gone) |
+| `tab.replaced` | `{ reason? }` (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; or, with `reason`, the creating session narrowed its domain policy and cmux loaded the page again (see Guards); frame ids and element handles from before are gone) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
 | `navigation.blocked` | `{ url, reason }`: the driver cancelled a navigation of a tab a session created because that session's domain policy blocks `url`, its file roots do, or its content rules failed; every attached session hears of it, and only the tab's live creator gets `url` as written |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
@@ -891,6 +891,17 @@ native (`BrowserReplBoundary` in the session, and the driver):
   policy: no page loads its subresources under the previous rules. A page
   already loaded keeps running meanwhile, so its own script can still
   start subresource loads under the previous rules until they are replaced.
+  Content rules judge a connection only when it opens, so when the new
+  policy may block something the previous one allowed (it blocks IP
+  addresses, prohibits a new pattern, or allows a list that lacks a
+  pattern allowed before, or there was no allow list), each live page of a
+  tab the session created is loaded again once the rules are on it: an
+  allowed page reloads, a blocked one becomes `about:blank`, and the
+  tab's sessions get `tab.replaced` with the reason. Every connection the
+  old document held (a WebSocket to a now-blocked host) ends with it. The
+  session's calls wait until this is done; a tab whose page cannot be
+  replaced within 10 s is closed. A policy that only widens reloads
+  nothing.
 - Page clipboard: in a tab a session created, page scripts read and write
   only the tab's virtual clipboard, never the system clipboard, also while
   an agent's click, key or evaluated script gives them a user gesture.
