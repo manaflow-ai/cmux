@@ -136,7 +136,9 @@ fn cstr(s: &str) -> CString {
 
 fn range(r: Option<[u32; 2]>) -> (c_int, c_int) {
     match r {
-        Some([a, b]) => (c_int::try_from(a).unwrap_or(c_int::MAX), c_int::try_from(b).unwrap_or(c_int::MAX)),
+        Some([a, b]) => {
+            (c_int::try_from(a).unwrap_or(c_int::MAX), c_int::try_from(b).unwrap_or(c_int::MAX))
+        }
         None => (-1, -1),
     }
 }
@@ -217,7 +219,9 @@ impl Presentation for ShimPresentation {
             RpCall::SendPinch { phase, scale, x, y } => unsafe {
                 rb_shim_send_pinch(browser, *phase, *scale, *x, *y)
             },
-            RpCall::ImeSetComposition { text, selection_start, selection_end, replacement, .. } => {
+            RpCall::ImeSetComposition {
+                text, selection_start, selection_end, replacement, ..
+            } => {
                 let text = cstr(text);
                 let (a, b) = range(*replacement);
                 unsafe {

@@ -89,7 +89,10 @@ fn open_sets_the_screen_before_the_window_and_captures_once_the_browser_exists()
     let mut tab = HostTab::new(1, 41, "https://example.com/");
     let out = tab.control("v1", &open("v1", screen(1200, 800, 2.0)), &mut fake);
     assert_eq!(out, vec![Control::Opened { session: 41, main_stream: 0 }]);
-    assert_eq!(fake.calls, vec!["set_screen 1200x800@2", "open_tab 1 https://example.com/ 1200x800"]);
+    assert_eq!(
+        fake.calls,
+        vec!["set_screen 1200x800@2", "open_tab 1 https://example.com/ 1200x800"]
+    );
     tab.tab_created(7, &mut fake);
     assert_eq!(fake.calls.last().map(String::as_str), Some("capture 7 true"));
     let out = tab.first_frame(&mut fake);
@@ -104,7 +107,8 @@ fn a_hidden_pane_stops_capture_and_a_screen_change_reports_its_pixel_size() {
     assert_eq!(fake.calls, vec!["capture 7 false"]);
     assert_eq!(out, vec![Control::State { state: SessionState::Paused }]);
     fake.calls.clear();
-    let out = tab.control("v1", &Control::Screen { seq: 3, screen: screen(900, 700, 2.0) }, &mut fake);
+    let out =
+        tab.control("v1", &Control::Screen { seq: 3, screen: screen(900, 700, 2.0) }, &mut fake);
     assert_eq!(fake.calls, vec!["set_screen 900x700@2"]);
     assert_eq!(
         out,
@@ -203,7 +207,10 @@ fn a_select_popup_cancels_the_open_context_menu_in_chromium_and_on_the_viewer() 
     };
     let out = tab.menu_opened(5, select.clone(), &mut fake);
     assert_eq!(fake.calls, vec!["context_menu_result 900 None"]);
-    assert_eq!(out, vec![Control::MenuCancel { token: 1 }, Control::MenuShow { token: 2, menu: select }]);
+    assert_eq!(
+        out,
+        vec![Control::MenuCancel { token: 1 }, Control::MenuShow { token: 2, menu: select }]
+    );
     tab.control(
         "v1",
         &Control::MenuResult { token: 2, choice: MenuChoice::Indices { indices: vec![0] } },
