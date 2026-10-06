@@ -5070,7 +5070,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5102,7 +5113,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5134,7 +5156,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5166,7 +5199,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "",
+              "modifiers" : [
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
