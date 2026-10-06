@@ -119,6 +119,12 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
+    private let scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
+
+    init(scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity) {
+        self.scrollbackCheckpointActivity = scrollbackCheckpointActivity
+    }
+
     /// Wraps the retained tee userdata; `release()` runs exactly where the
     /// surface released the legacy `Unmanaged` context.
     /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
@@ -126,12 +132,22 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
     /// transport.
     final class Lease: TerminalByteTeeLease, @unchecked Sendable {
         private let context: Unmanaged<TerminalOutputTeeContext>
+        private let scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
 
-        init(context: Unmanaged<TerminalOutputTeeContext>) {
+        init(
+            context: Unmanaged<TerminalOutputTeeContext>,
+            scrollbackCheckpointActivity: TerminalScrollbackCheckpointActivity
+        ) {
             self.context = context
+            self.scrollbackCheckpointActivity = scrollbackCheckpointActivity
         }
 
         func release() {
+            let teeContext = context.takeUnretainedValue()
+            scrollbackCheckpointActivity.unregister(
+                surfaceID: teeContext.surfaceID,
+                registration: teeContext.scrollbackCheckpointFlags
+            )
             context.release()
         }
     }
@@ -145,14 +161,16 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            scrollbackCheckpointFlags: scrollbackCheckpointActivity
+                .register(surfaceID: surfaceID)
         ))
         ghostty_surface_set_pty_tee_cb(
             surface,
             cmuxTerminalOutputTeeCallback,
             teeContext.toOpaque()
         )
-        return Lease(context: teeContext)
+        return Lease(context: teeContext, scrollbackCheckpointActivity: scrollbackCheckpointActivity)
     }
 
     @MainActor

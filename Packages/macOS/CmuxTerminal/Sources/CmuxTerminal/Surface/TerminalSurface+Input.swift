@@ -578,21 +578,60 @@ extension TerminalSurface {
     // the raw-text input path. Mobile builds the event from a bare keycode, so we
     // reproduce the same canonical text here, keyed purely off the keycode.
     //
-    // Only Backspace/Delete and Tab need this: their physical macOS keys carry
-    // the DEL (0x7F) and TAB (0x09) characters in `charactersIgnoringModifiers`.
-    // The text is independent of modifiers (Option-Backspace still reports DEL),
-    // so this intentionally ignores `mods`. Pure function keys (arrows, Home,
-    // End, page navigation) carry no characters and correctly encode from the
-    // keycode alone, so they return nil.
-    private static func canonicalKeyText(keycode: UInt32) -> String? {
+    // Backspace/Delete and Tab carry the DEL (0x7F) and TAB (0x09) characters
+    // in `charactersIgnoringModifiers`; letter keys carry their printable
+    // character. Ghostty needs that text even when the key has Ctrl pressed:
+    // it uses the character to derive both the legacy C0 byte and Kitty's
+    // CSI-u sequence. Pure function keys (arrows, Home, End, page navigation)
+    // carry no characters and correctly encode from the keycode alone.
+    private static func canonicalKeyCharacter(keycode: UInt32) -> Character? {
         switch keycode {
         case UInt32(kVK_Delete):
             return "\u{7F}"
         case UInt32(kVK_Tab):
             return "\t"
-        default:
-            return nil
+        case UInt32(kVK_ANSI_A): return "a"
+        case UInt32(kVK_ANSI_B): return "b"
+        case UInt32(kVK_ANSI_C): return "c"
+        case UInt32(kVK_ANSI_D): return "d"
+        case UInt32(kVK_ANSI_E): return "e"
+        case UInt32(kVK_ANSI_F): return "f"
+        case UInt32(kVK_ANSI_G): return "g"
+        case UInt32(kVK_ANSI_H): return "h"
+        case UInt32(kVK_ANSI_I): return "i"
+        case UInt32(kVK_ANSI_J): return "j"
+        case UInt32(kVK_ANSI_K): return "k"
+        case UInt32(kVK_ANSI_L): return "l"
+        case UInt32(kVK_ANSI_M): return "m"
+        case UInt32(kVK_ANSI_N): return "n"
+        case UInt32(kVK_ANSI_O): return "o"
+        case UInt32(kVK_ANSI_P): return "p"
+        case UInt32(kVK_ANSI_Q): return "q"
+        case UInt32(kVK_ANSI_R): return "r"
+        case UInt32(kVK_ANSI_S): return "s"
+        case UInt32(kVK_ANSI_T): return "t"
+        case UInt32(kVK_ANSI_U): return "u"
+        case UInt32(kVK_ANSI_V): return "v"
+        case UInt32(kVK_ANSI_W): return "w"
+        case UInt32(kVK_ANSI_X): return "x"
+        case UInt32(kVK_ANSI_Y): return "y"
+        case UInt32(kVK_ANSI_Z): return "z"
+        default: return nil
         }
+    }
+
+    private static func canonicalKeyText(
+        keycode: UInt32,
+        mods: ghostty_input_mods_e
+    ) -> String? {
+        guard let baseCharacter = canonicalKeyCharacter(keycode: keycode) else { return nil }
+        let baseText = String(baseCharacter)
+        guard mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0 else { return baseText }
+        return baseText.uppercased()
+    }
+
+    private static func canonicalUnshiftedCodepoint(keycode: UInt32) -> UInt32? {
+        canonicalKeyCharacter(keycode: keycode)?.unicodeScalars.first?.value
     }
 
     @MainActor
@@ -609,8 +648,12 @@ extension TerminalSurface {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.composing = false
 
-        let canonicalText = Self.canonicalKeyText(keycode: keycode)
-        keyEvent.unshifted_codepoint = canonicalText?.unicodeScalars.first?.value ?? 0
+        let canonicalText = Self.canonicalKeyText(keycode: keycode, mods: mods)
+        keyEvent.unshifted_codepoint =
+            Self.canonicalUnshiftedCodepoint(keycode: keycode)
+            ?? canonicalText?.unicodeScalars.first?.value
+            ?? 0
+        let generation = runtimeSurfaceGeneration
 
         let handled: Bool
         if let canonicalText {
@@ -627,6 +670,16 @@ extension TerminalSurface {
             handled = withRuntimeClipboardPasteIntent {
                 ghostty_surface_key(surface, keyEvent)
             }
+        }
+
+        // A named key is a complete stroke. Let Ghostty decide whether the
+        // negotiated protocol reports its release. A press can run a binding
+        // that tears down or replaces the runtime, so never release into a
+        // different surface generation.
+        if self.surface == surface, runtimeSurfaceGeneration == generation {
+            keyEvent.action = GHOSTTY_ACTION_RELEASE
+            keyEvent.text = nil
+            _ = ghostty_surface_key(surface, keyEvent)
         }
 
 #if DEBUG

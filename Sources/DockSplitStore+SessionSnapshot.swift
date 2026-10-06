@@ -570,15 +570,21 @@ extension DockSplitStore {
         return compatible
     }
 
-    private func sessionAgentWasRunning(
+    func sessionAgentWasRunning(
         restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
         managedResumeBinding: SurfaceResumeBindingSnapshot?,
         terminal: TerminalPanel,
         transfer: Workspace.DetachedSurfaceTransfer?,
         observation: RestorableAgentSessionIndex.Entry?,
-        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
-        agentProcessPresence: (Int) -> PIDPresence
+        currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        },
+        agentProcessPresence: (Int) -> PIDPresence = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
+            return PIDPresence.current(pid: pid_t($0))
+        }
     ) -> Bool? {
         let managedBinding = managedResumeBinding
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }

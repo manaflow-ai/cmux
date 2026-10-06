@@ -4,12 +4,6 @@ import Foundation
 import Network
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5888:
 // the browser pane must reach loopback directly even when a macOS system
 // proxy is active. WebKit has no implicit loopback bypass, so an active
