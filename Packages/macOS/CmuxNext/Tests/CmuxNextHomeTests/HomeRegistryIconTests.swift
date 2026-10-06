@@ -36,7 +36,10 @@ import Testing
     @Test func chiefConversationRowsUseTheRegistryMarkAndKeepTheirChromeBreathingRoom() throws {
         let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         list.update(rows: HomeConversationListTests.rows, me: HomeConversationListTests.me)
-        let index = try #require(list.lines.firstIndex { list.row(at: $0)?.kind == .chief })
+        let index = try #require(list.lines.firstIndex {
+            guard case .row(let row) = $0 else { return false }
+            return row.kind == .chief
+        })
         let cell = try #require(list.tableView(list.table, viewFor: nil, row: index) as? HomeConversationCellView)
         cell.layoutSubtreeIfNeeded()
 
@@ -45,6 +48,6 @@ import Testing
         #expect(icon.size == NSSize(width: Metrics.iconSize, height: Metrics.iconSize))
         #expect(cell.avatar.isHidden)
         #expect(cell.highlightFrame.maxY <= cell.bounds.height - Metrics.space1)
-        #expect(cell.time.lineBreakMode == .byClipping)
+        #expect(cell.time.lineBreakMode == NSLineBreakMode.byClipping)
     }
 }
