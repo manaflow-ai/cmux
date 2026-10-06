@@ -4,38 +4,7 @@ import CmuxNextDesign
 import QuartzCore
 // Internal drag reorder: lift, in-place slot (R77), drop, cancel, auto-scroll.
 extension SidebarListView {
-    // MARK: - Drag
-    final class Drag {
-        let payload: DragPayload
-        let grabbedKey: SidebarRowKey
-        /// Keys hidden while dragging (the lifted rows).
-        let hiddenKeys: Set<SidebarRowKey>
-        let grabOffsetY: CGFloat
-        /// Press x from the row's leading edge; with `grabOffsetY`, the
-        /// point a window-drag hand-off keeps under the pointer.
-        var grabOffsetX: CGFloat = 0
-        let gapHeight: CGFloat
-        let lift: DragLiftView
-        var target: DropTarget?
-        var lastWindowPoint: NSPoint = .zero
-        /// The last pointer y in the list and the drag's vertical direction.
-        var lastY: CGFloat = 0, movingUp = false
-        init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, target: DropTarget?) {
-            self.payload = payload
-            self.grabbedKey = grabbedKey
-            self.hiddenKeys = hiddenKeys
-            self.grabOffsetY = grabOffsetY
-            self.gapHeight = gapHeight
-            self.lift = lift
-            self.target = target
-        }
-        @MainActor func isValid(in model: SidebarModel) -> Bool {
-            switch payload {
-            case let .workspaces(ids): ids.allSatisfy { model.workspace($0) != nil }
-            case let .group(group): model.group(group) != nil
-            }
-        }
-    }
+    typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
         guard let row = displayed.row(for: press.key) else { return }
@@ -121,7 +90,10 @@ extension SidebarListView {
             model.send(.move(ids, toGroup: group))
         case let (.group(group), .position(position)):
             model.send(.reorderGroup(group, index: position.index))
-        case (.group, .intoGroup), (_, .ontoWorkspace):
+        case let (.workspaces(ids), .ontoWorkspace(anchor)):
+            // The target first, then the dragged rows (the Arc/Dia order).
+            model.send(.createGroup(.make(), name: "", color: .grey, workspaces: [anchor] + ids))
+        case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }
         // Rows land under the lifted view, stay hidden until it arrives.
