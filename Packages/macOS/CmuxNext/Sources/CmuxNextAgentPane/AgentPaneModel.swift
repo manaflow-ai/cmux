@@ -281,13 +281,8 @@ public final class AgentPaneModel {
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
             return AgentPaneReply.success()
-        case .paneAction(let id, let cwd):
-            guard newTab == nil, Self.headerActions.contains(id), let onPaneAction else { return Self.unsupported("pane.action") }
-            onPaneAction(id, cwd)
-            return AgentPaneReply.success()
-        case .tabState:
-            guard let onTabState else { return Self.unsupported("pane.tabState") }
-            return AgentPaneReply.success(onTabState())
+        case .paneAction, .tabState:
+            return respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
