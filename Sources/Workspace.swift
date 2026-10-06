@@ -2591,7 +2591,6 @@ extension Workspace {
             return matchingObservation.wasRunningForSnapshot(
                 restorableAgent,
                 binding: resumeBinding,
-                fallingBackTo: panelShellActivityStates[panelId],
                 confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                 currentProcessIdentity: currentAgentProcessIdentity,
                 processPresence: agentProcessPresence
@@ -2614,8 +2613,18 @@ extension Workspace {
             panelId: panelId,
             currentProcessIdentity: currentAgentProcessIdentity
         )
+        if restorableAgent.resumeCommand == nil,
+           panelShellActivityStates[panelId] == .commandRunning {
+            // A non-resumable agent snapshot is retired once the restored shell
+            // accepts a new command. Generic shell activity still never proves
+            // that a resumable agent is alive.
+            return false
+        }
         return (matchingObservation?.processLiveness ?? .unknown).wasRunning(
-            fallingBackTo: panelShellActivityStates[panelId],
+            // Shell activity is not proof that the restored agent is alive.
+            // The shell can be executing a stale restore scaffold after the
+            // owner has exited; require agent-specific process evidence.
+            fallingBackTo: panelShellActivityStates[panelId] == .promptIdle ? .promptIdle : nil,
             recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
             confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
             currentProcessIdentity: currentAgentProcessIdentity,
