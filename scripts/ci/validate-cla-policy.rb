@@ -155,7 +155,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "9ffdce443e15c05f7771cd548686f913e2f3b78a59491d
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "c2eb2196538a60f320c26e604a3fd199fd54246210dc9e2320ec5eee00f27c37"
+EXPECTED_GUARD_SCRIPT_DIGEST = "c25ecd95e18e01cd32681a4a2ca52e1692095a33cda08beeca010404882f1655"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -208,8 +208,7 @@ TEST_MERGE_RETRY_SECONDS = 5
 # PR author is deliberately excluded, even when they are an administrator, so
 # the validator cannot turn self-approval into a policy-change bypass. IDs are
 # used instead of names, and the review must target the exact PR head.
-# 38676809 austinywang, 67667005 azooz2003-bit, 13091533 teamleaderleo.
-TRUSTED_REVIEWER_IDS = %w[38676809 67667005 13091533].freeze
+TRUSTED_REVIEWER_IDS = %w[38676809 67667005].freeze
 TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDING].freeze
 TRUSTED_REVIEW_DECISION_STATES = %w[APPROVED CHANGES_REQUESTED DISMISSED].freeze
 MAX_REVIEW_PAGES = 3
@@ -2465,14 +2464,6 @@ def run_trusted_review_regression_matrix!
   collect_latest_trusted_review!(latest, seen, review.call(10, "APPROVED", "2026-01-05T00:00:00Z", head, 67667005))
   fail!("Aziz trusted review regression failed") unless latest.fetch("67667005")[1]["state"] == "APPROVED"
 
-  latest = {}
-  seen = {}
-  collect_latest_trusted_review!(latest, seen, review.call(14, "APPROVED", "2026-01-05T00:00:00Z", head, 13091533))
-  fail!("Leo trusted review regression failed") unless latest.fetch("13091533")[1]["state"] == "APPROVED"
-  leo_review = latest.fetch("13091533")[1]
-  fail!("Leo self-approval regression failed") if trusted_review_approves_head?(leo_review, head, 13091533)
-  fail!("Leo independent approval regression failed") unless trusted_review_approves_head?(leo_review, head, 38676809)
-
   self_review = review.call(13, "APPROVED", "2026-01-05T00:00:01Z", head, 38676809)
   fail!("trusted reviewer self-approval regression failed") if
     trusted_review_approves_head?(self_review, head, 38676809)
@@ -2507,7 +2498,7 @@ def run_trusted_review_regression_matrix!
     duplicate_failed = true
   end
   fail!("duplicate review regression failed") unless duplicate_failed
-  puts "PASS: trusted review state regression matrix (14 cases)"
+  puts "PASS: trusted review state regression matrix (11 cases)"
 end
 
 def validate_workflow(raw)
