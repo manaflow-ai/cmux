@@ -528,12 +528,17 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
         self.bundle = bundle
         self.driver = driver
-        self.boundary = BrowserReplBoundary(typedSecrets: { driver.typedSecretRedaction() })
+        let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit, supported: executionTimeLimitSupported)
+        self.watchdog = watchdog
+        // Masking runs on the JS thread inside host calls and result
+        // delivery; it stops when the watchdog would stop the script.
+        self.boundary = BrowserReplBoundary(
+            typedSecrets: { driver.typedSecretRedaction() },
+            isCancelled: { watchdog.shouldStopNativeWork }
+        )
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
         self.eventQueue = DispatchQueue(label: "com.cmux.browser-repl.events.\(id)", qos: .userInitiated)
-        let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit, supported: executionTimeLimitSupported)
-        self.watchdog = watchdog
         self.fetcher = BrowserReplFetcher(driver: driver, ledger: ledger)
         let writeBudget = BrowserReplWriteBudget(ledger: ledger)
         self.writeBudget = writeBudget
@@ -543,9 +548,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             rootDescriptor: cwdDescriptor,
             temporaryDescriptor: privateTemporaryDescriptor,
             writeBudget: writeBudget,
-            // A cell's timeout and close() ask the watchdog to stop the
-            // running script; a long fs write or copy stops with it.
-            isCancelled: { watchdog.isTerminationRequested }
+            // A cell's timeout, close() and the callback limit stop the
+            // running script; a long fs read, write or copy stops with it.
+            isCancelled: { watchdog.shouldStopNativeWork }
         )
         self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), ledger: ledger) { [weak self] id in
             self?.fireTimer(id)
@@ -1713,6 +1718,8 @@ public final class BrowserReplSession: @unchecked Sendable {
                     do {
                         let masked = try mask(data)
                         if masked != data { args["base64"] = masked.base64EncodedString() }
+                    } catch let error as BrowserReplFileSystemError where error.code == "ECANCELED" {
+                        return failure(error.code, error.message)
                     } catch {
                         return failure("EINVAL", "writeFile: \(BrowserReplSecretStore.limitMessage(data.count))")
                     }

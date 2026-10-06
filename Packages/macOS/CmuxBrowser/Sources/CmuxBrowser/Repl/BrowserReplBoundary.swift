@@ -16,6 +16,10 @@ final class BrowserReplBoundary: @unchecked Sendable {
     private let publicSuffixes: BrowserReplPublicSuffixList
     /// Read only by the egress gate (``egress(_:)``).
     let typedSecrets: @Sendable () -> BrowserReplSecretStore?
+    /// Whether masking bytes on the session's JavaScript thread is to stop
+    /// (the cell timed out, a late callback ran past its limit, the session
+    /// closed); read by the egress gate between chunks of a long scan.
+    let isCancelled: @Sendable () -> Bool
     /// The session's working and temporary directories, the only places a
     /// navigation may load a file from.
     private var fileRoots: [String] = []
@@ -26,13 +30,17 @@ final class BrowserReplBoundary: @unchecked Sendable {
     ///   - typedSecrets: The secrets other sessions typed into tabs
     ///     (``BrowserReplDriver/typedSecretRedaction()``), masked wherever
     ///     the session's own are.
+    ///   - isCancelled: Whether a long byte scan is to stop
+    ///     (``BrowserReplWatchdog/shouldStopNativeWork``).
     init(
         publicSuffixes: BrowserReplPublicSuffixList = .system,
-        typedSecrets: @escaping @Sendable () -> BrowserReplSecretStore? = { nil }
+        typedSecrets: @escaping @Sendable () -> BrowserReplSecretStore? = { nil },
+        isCancelled: @escaping @Sendable () -> Bool = { false }
     ) {
         self.publicSuffixes = publicSuffixes
         self.secrets = BrowserReplSecretStore(publicSuffixes: publicSuffixes)
         self.typedSecrets = typedSecrets
+        self.isCancelled = isCancelled
     }
 
     /// Methods whose results are images or documents; their pixels are

@@ -633,8 +633,6 @@ public struct BrowserReplFileSystem: Sendable {
         )
     }
 
-    /// Reads the file to its end; past `maxReadFileBytes` (a file that grew
-    /// after its size was checked) it fails.
     /// Why a copy whose contents the session masks refused a large source.
     private static func filteredCopyTooLarge(_ size: Int) -> BrowserReplFileSystemError {
         BrowserReplFileSystemError(
@@ -643,10 +641,15 @@ public struct BrowserReplFileSystem: Sendable {
         )
     }
 
+    /// Reads the file to its end; past `maxReadFileBytes` (a file that grew
+    /// after its size was checked) it fails. It runs on the session's
+    /// JavaScript thread, so it stops with `ECANCELED` between chunks when
+    /// the call is cancelled (the cell timed out, the session closed).
     private func readAll(_ file: BrowserReplDescriptor, display: String) throws -> Data {
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 1 << 16)
         while true {
+            if !data.isEmpty, isCancelled() { throw Self.cancelledError(syscall: "read", display: display) }
             let count = read(file.fd, &buffer, buffer.count)
             if count < 0 {
                 if errno == EINTR { continue }
@@ -710,10 +713,12 @@ public struct BrowserReplFileSystem: Sendable {
         }
     }
 
-    private static func cancelledError(syscall: String, display: String) -> BrowserReplFileSystemError {
+    /// Why a call stopped part way; `display` is the path, or empty when
+    /// the caller (the egress gate's scan) does not know it.
+    static func cancelledError(syscall: String, display: String) -> BrowserReplFileSystemError {
         BrowserReplFileSystemError(
             code: "ECANCELED",
-            message: "ECANCELED: operation canceled because its cell timed out or the session ended, \(syscall) '\(display)'"
+            message: "ECANCELED: operation canceled because its cell timed out or the session ended, \(syscall)" + (display.isEmpty ? "" : " '\(display)'")
         )
     }
 

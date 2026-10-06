@@ -153,12 +153,13 @@ final class BrowserReplWatchdog: @unchecked Sendable {
         lock.withLock { terminationRequested = true }
     }
 
-    /// Whether the running script is to be terminated (a timeout asked, or
-    /// the session closed): native work on the thread checks it to stop
-    /// early too.
-    var isTerminationRequested: Bool {
-        lock.withLock { terminationRequested }
-    }
+    /// Whether native work on the thread (a synchronous host call's file
+    /// reads and writes, its secret masking) is to stop: the running script
+    /// is to be terminated, by a request, `close()`, or the callback limit
+    /// of a run outside its cell. JavaScriptCore stops only JavaScript, so
+    /// that work checks this between chunks; when the limit answers, the
+    /// run is reported as terminated by it (``takeLimitTermination()``).
+    var shouldStopNativeWork: Bool { shouldTerminate }
 
     /// Ends a request; never one `close()` made.
     func clearTermination() {
