@@ -32,8 +32,6 @@ public final class MockOnboardingServices: OnboardingServices {
     public var computerUseSource: MockComputerUsePermissionSource?
     /// Picked screen variants, by step.
     public var variantIDs: [OnboardingModel.Step: String] = [:]
-    /// The role step's answer: what `savedProfile` returns and `saveProfile` replaces.
-    public var savedProfile: OnboardingProfile?
     public let defaultApps: any DefaultAppRegistering
     /// What the project scan finds.
     public var agentProjects: [AgentProject] = []
@@ -124,7 +122,6 @@ public final class MockOnboardingServices: OnboardingServices {
     public func variantID(for step: OnboardingModel.Step) -> String? { variantIDs[step] }
     public func setVariantID(_ id: String?, for step: OnboardingModel.Step) { variantIDs[step] = id }
 
-    public func saveProfile(_ profile: OnboardingProfile) { savedProfile = profile }
 
     public func onboardingDidEnd(completed: Bool) { ended = completed }
 
