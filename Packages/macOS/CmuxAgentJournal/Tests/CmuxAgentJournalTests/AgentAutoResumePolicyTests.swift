@@ -222,6 +222,43 @@ struct AgentAutoResumePolicyTests {
         #expect(tracker.totalResumes(surfaceId: surface) == 0)
     }
 
+    @Test func theSameSessionStartingAgainKeepsTheMarkerCount() {
+        // Claude Code re-sends SessionStart after a compact or resume. The
+        // agent has not finished a turn yet, so the marker must stay.
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1)])
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported,
+            surfaceId: surface,
+            isSubagent: false,
+            detail: "overloaded",
+            sessionId: "session-a"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        _ = tracker.resumeSent(surfaceId: surface, token: token)
+        _ = tracker.observe(kind: .sessionStarted, surfaceId: surface, isSubagent: false, detail: nil, sessionId: "session-a")
+        #expect(tracker.totalResumes(surfaceId: surface) == 1)
+    }
+
+    @Test func anErrorNamingTheSessionForTheFirstTimeKeepsTheMarkerCount() {
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1), .seconds(2)])
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        _ = tracker.resumeSent(surfaceId: surface, token: token)
+        guard case .schedule(_, 2, _, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded", sessionId: "session-a"
+        ) else {
+            Issue.record("the streak should continue at attempt 2")
+            return
+        }
+        #expect(tracker.totalResumes(surfaceId: surface) == 1)
+    }
+
     @Test func aLateErrorFromAnOlderSessionCannotReplaceTheCurrentSession() {
         var tracker = AgentAutoResumeTracker(delays: [.seconds(1)])
         _ = tracker.observe(
