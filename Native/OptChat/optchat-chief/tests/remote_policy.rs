@@ -433,8 +433,14 @@ fn a_host_served_spawn_from_an_ask_turn_asks_too() {
             .expect("the subagent's session");
         (format!("s{}", k + 1), inner.specs[k].clone())
     };
-    assert_eq!(spec.policy, "ask", "the floor wins over the subagent policy");
-    assert_eq!(spec.tags.get("optchat.policy").map(String::as_str), Some("ask"));
+    assert_eq!(
+        spec.policy, "ask",
+        "the floor wins over the subagent policy"
+    );
+    assert_eq!(
+        spec.tags.get("optchat.policy").map(String::as_str),
+        Some("ask")
+    );
     let before = sends(&h).len();
     h.brain.step(permission_of(
         &session,
@@ -455,16 +461,16 @@ fn a_host_served_spawn_from_an_ask_turn_asks_too() {
     let asked = sends(&h);
     assert_eq!(asked.len(), before + 1, "{asked:?}");
     let question = asked.last().unwrap();
-    assert!(question.contains("a1") && question.contains("rm -rf ~/.cache"), "{question}");
-    deliver(&mut h, true, "allow");
     assert!(
-        h.agents
-            .inner
-            .lock()
-            .unwrap()
-            .responses
-            .contains(&(session.clone(), "p7".into(), Some("allow".into())))
+        question.contains("a1") && question.contains("rm -rf ~/.cache"),
+        "{question}"
     );
+    deliver(&mut h, true, "allow");
+    assert!(h.agents.inner.lock().unwrap().responses.contains(&(
+        session.clone(),
+        "p7".into(),
+        Some("allow".into())
+    )));
     h.agents.hold(false);
     h.agents.release();
 }

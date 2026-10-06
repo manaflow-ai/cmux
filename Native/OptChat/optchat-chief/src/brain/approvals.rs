@@ -104,13 +104,13 @@ impl Brain {
         });
         subagent
             || self.sessions.values().any(|s| {
-            s.tags.get(crate::approval::POLICY_TAG).map(String::as_str)
-                == Some(crate::approval::ASK)
-                && !matches!(
-                    s.status,
-                    SessionStatus::Closed | SessionStatus::Disconnected
-                )
-        })
+                s.tags.get(crate::approval::POLICY_TAG).map(String::as_str)
+                    == Some(crate::approval::ASK)
+                    && !matches!(
+                        s.status,
+                        SessionStatus::Closed | SessionStatus::Disconnected
+                    )
+            })
     }
 
     /// The policy floor for a child spawned now (`chief agents spawn` asks
