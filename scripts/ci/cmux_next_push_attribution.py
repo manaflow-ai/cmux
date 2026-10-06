@@ -131,8 +131,9 @@ def main(argv: list[str]) -> int:
     report(f"### cmux-next push attribution\n\nFailed: {', '.join(failed)}. Last passed at {good}. "
            f"Pull requests in range: {', '.join(f'#{n}' for n in numbers) or 'none'}.")
     if not should_comment(numbers):
-        report(f"{len(numbers)} pull requests in range: no comments (more than {MAX_COMMENTED_PRS}). "
-               "The job has been red for a while; its owner needs the run, not each author.")
+        if numbers:
+            report(f"{len(numbers)} pull requests in range: no comments (more than {MAX_COMMENTED_PRS}). "
+                   "The job has been red for a while; its owner needs the run, not each author.")
         return 0
     body = comment_body(run_url, args.sha, failed, good, numbers, args.run_id)
     marker = MARKER.format(run_id=args.run_id)

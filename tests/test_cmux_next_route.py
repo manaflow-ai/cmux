@@ -220,6 +220,7 @@ class PushAttribution(unittest.TestCase):
     def test_a_long_red_range_comments_on_nobody(self):
         """The first push on ae20394 would have named 22 PRs for one known crash."""
         self.assertTrue(should_comment(list(range(MAX_COMMENTED_PRS))))
+        self.assertFalse(should_comment(list(range(MAX_COMMENTED_PRS + 1))))
         self.assertFalse(should_comment(list(range(22))))
         self.assertFalse(should_comment([]))
 
