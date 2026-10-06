@@ -22,10 +22,11 @@ import Testing
 
     @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
         #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
-        #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
+        #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces, .app])
         #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.account), .builtIn(.settings)])
         #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
-        #expect(defaults.sections.allSatisfy { $0.content != .app })
+        // The one app section is Recents, which the App draws natively.
+        #expect(defaults.sections.filter { $0.content == .app }.map(\.id) == [SidebarLayoutDocument.recentsSectionID])
         #expect(defaults.firstTopItem(room: nil)?.ref == .app("cmux/home"))
     }
 
@@ -126,7 +127,7 @@ import Testing
     @Test func moveSectionBetweenRegions() throws {
         let doc = try reduce(defaults, .sectionMove(SidebarLayoutDocument.workspacesSectionID, region: .top, index: 1))
         #expect(doc.sections(in: .top, room: nil).map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.workspacesSectionID])
-        #expect(doc.sections(in: .middle, room: nil).isEmpty)
+        #expect(doc.sections(in: .middle, room: nil).map(\.id) == [SidebarLayoutDocument.recentsSectionID])
         let bottomFirst = try reduce(defaults, .sectionMove(SidebarLayoutDocument.topSectionID, region: .bottom, index: 0))
         #expect(bottomFirst.sections(in: .bottom, room: nil).map(\.id)
             == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
