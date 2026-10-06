@@ -363,7 +363,8 @@ final class FlightRecorder: NSObject {
         screenName = c.window?.screen?.localizedName ?? "?"  // cmux: the pane's window is optional
         screenHz = c.window?.screen?.maximumFramesPerSecond ?? 0
         let order = (0..<filled).map { (head - filled + $0 + FlightRecorder.capacity) % FlightRecorder.capacity }
-        let t0 = order.first.map { samples[$0].t } ?? CACurrentMediaTime()
+        // cmux: `self.` (Swift 6.3, Xcode 26.6: the closure captured the `samples` declared below).
+        let t0 = order.first.map { self.samples[$0].t } ?? CACurrentMediaTime()
         // Formatting and writing run off main on copies of the raw arrays (a dump cost 8-9 ms on main).
         let (samples, rows, morphRows, keyNames, unfilledText, screenName, screenHz) =
             (self.samples, self.rows, self.morphRows, self.keyNames, self.unfilledText, self.screenName, self.screenHz)
