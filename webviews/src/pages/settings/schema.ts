@@ -19,7 +19,9 @@ export type SettingKind =
   | "font_family"
   // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
   | "number_list"
-  | "string_map";
+  | "string_map"
+  // Only page-hidden keys use it today (`notifications.mutedWorkspaces`); the page never renders it.
+  | "string_list";
 
 export type NumberUnit = "points" | "seconds" | "minutes" | "count" | "fraction";
 
@@ -44,6 +46,9 @@ export type SchemaRow = {
   kept_on_reset_all: boolean;
   /** The apps that read this key from the shared cmux.json (`cmux-next`, `cmux-browser`). */
   consumers: string[];
+  /** Kept off this page although cmux-next reads it; another surface edits it (the sidebar row
+   * menu mutes a workspace). Still valid through settings.set. */
+  page_hidden: boolean;
   validation: string;
   accepts: unknown[];
   refuses: unknown[];
@@ -55,9 +60,13 @@ type Schema = { rows: SchemaRow[]; sections: SchemaSection[]; schema_hash: strin
 
 const document = exported as unknown as Schema;
 
-/** The page's schema: only keys cmux-next reads. Keys only cmux-browser reads stay valid and
- * documented in the export, but this page shows no control that changes nothing here. */
-export const schema: Schema = { ...document, rows: document.rows.filter((row) => row.consumers.includes("cmux-next")) };
+/** The page's schema: only keys cmux-next reads and that are not page-hidden. Keys only
+ * cmux-browser reads stay valid and documented in the export, but this page shows no control that
+ * changes nothing here; page-hidden keys (raw workspace ids) are edited elsewhere. */
+export const schema: Schema = {
+  ...document,
+  rows: document.rows.filter((row) => row.consumers.includes("cmux-next") && !row.page_hidden),
+};
 
 export const sections: SchemaSection[] = schema.sections;
 

@@ -27,4 +27,6 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case numberList(SettingNumber)
     /// An object whose values are all strings (`sidebar.workspaceIcons`: workspace title to glyph).
     case stringMap
+    /// A list of non-empty strings (`notifications.mutedWorkspaces`: workspace ids).
+    case stringList
 }
