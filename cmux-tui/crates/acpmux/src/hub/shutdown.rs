@@ -36,7 +36,8 @@ impl Hub {
     /// The shutdown has begun (it read its plan): no agent may start from
     /// here on, or it would outlive the daemon with nothing to end it.
     pub(crate) fn shutting_down(&self) -> bool {
-        self.shutdown_plan.lock().unwrap().started
+        // A poisoned plan still says whether the shutdown began.
+        self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
     }
 
     /// Stop every agent at once and save. Each agent's process group gets

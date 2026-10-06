@@ -17,39 +17,37 @@ nonisolated struct ChiefSettleNotice {
 /// Watches the Chief home's `state/` folder (the host renames `settle.json`
 /// into it, or removes it) and reports the notice on every change; nil when
 /// no turn waits. Kernel events on the folder, no polling.
-nonisolated final class ChiefSettleWatch: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "com.cmuxterm.app.next.chief-settle")
-    private let file: URL
+nonisolated final class ChiefSettleWatch {
     private let source: DispatchSourceFileSystemObject?
-    private let report: @Sendable (String?) -> Void
 
     /// `report` runs on the main actor with the current notice, once now and
     /// after every change of the folder.
     init(home: ChiefHome, report: @escaping @MainActor @Sendable (String?) -> Void) {
         let folder = home.settleStatusFile.deletingLastPathComponent()
-        file = home.settleStatusFile
-        self.report = { text in Task { @MainActor in report(text) } }
+        let file = home.settleStatusFile
+        let queue = DispatchQueue(label: "com.cmuxterm.app.next.chief-settle")
+        let send: @Sendable (String?) -> Void = { text in Task { @MainActor in report(text) } }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let fd = open(folder.path, O_EVTONLY)
         if fd >= 0 {
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: queue)
             source.setCancelHandler { close(fd) }
+            source.setEventHandler { Self.read(file, send) }
+            source.resume()
             self.source = source
         } else {
             source = nil
         }
-        source?.setEventHandler { [weak self] in self?.read() }
-        source?.resume()
-        queue.async { [weak self] in self?.read() }
+        queue.async { Self.read(file, send) }
     }
 
     deinit { source?.cancel() }
 
     func cancel() { source?.cancel() }
 
-    private func read() {
+    private static func read(_ file: URL, _ send: @Sendable (String?) -> Void) {
         // concurrency-allow: runs on the watch queue (a small JSON file), never the main actor.
         let data = try? Data(contentsOf: file)
-        report(data.flatMap(ChiefSettleNotice.text(json:)))
+        send(data.flatMap(ChiefSettleNotice.text(json:)))
     }
 }
