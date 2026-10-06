@@ -162,6 +162,11 @@ final class SidebarItemRowView: NSView {
         }
     }
 
+    /// RED stub.
+    var selectionRect: CGRect { pill.frame }
+    /// RED stub.
+    var drawsOwnSelection: Bool { style == .tile || style == .favorite }
+
     /// The pill's fill: pressed, then active, then hovered, then the
     /// tile's resting fill. A tile rests on `hoverFill`, so its hover takes
     /// the next tonal step (`selectionFill`) and still shows a change (R97).
