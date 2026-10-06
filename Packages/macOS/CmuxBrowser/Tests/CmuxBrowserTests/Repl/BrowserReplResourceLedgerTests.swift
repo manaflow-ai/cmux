@@ -196,8 +196,10 @@ struct BrowserReplResourceLedgerTests {
 
         // Held events need callbacks in debt between cells, and secrets
         // file protections a secrets file in the working directory; their
-        // bounds have their own tests (secretSourceFilesAreBoundedPerSession).
-        let unused = BrowserReplResource.allCases.filter { $0 != .heldEvents && $0 != .secretSourceFiles && ledger.peak($0) == 0 }
+        // bounds have their own tests (secretSourceFilesAreBoundedPerSession);
+        // typed domain sets need a typed secret
+        // (typedDomainSetsAreCanonicalAndBounded).
+        let unused = BrowserReplResource.allCases.filter { ![.heldEvents, .secretSourceFiles, .typedDomainSets].contains($0) && ledger.peak($0) == 0 }
         #expect(unused.isEmpty, "no holder reserved \(unused)")
 
         session.close()

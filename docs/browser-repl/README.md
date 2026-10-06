@@ -648,7 +648,7 @@ checks nothing stays reserved after the session ends.
 | Source of the waiting cells (M) | 64 MiB | the cell fails at once |
 | Parsing the running cell (M) | 64 bytes for each byte of its source, reserved before it is parsed and held until it ends (Acorn's tree is about 50 bytes a byte of dense code); within the session's 512 MiB, so a cell holds at most about 8 MiB of source | the cell fails at once |
 | A cell's timeout (`--timeout`, `timeout_ms`) | 10 minutes (default 120 s) | refused before the cell runs |
-| Output a cell keeps in memory (M) | 16 MiB per cell | the rest goes to a spill file |
+| Output a cell keeps in memory (M) | 16 MiB per cell, each line counted with its level and 32 bytes for the line itself; a line's level is `log`, `info`, `warn`, `error` or `debug` (the native print turns any other value into `log`) | the rest goes to a spill file |
 | Output a cell spills | 64 MiB per cell, within the fs budget | the rest is dropped |
 | Browser calls running | 256 | later ones wait in order |
 | Browser calls waiting | 10,000 | the call fails at once |
@@ -684,6 +684,7 @@ checks nothing stays reserved after the session ends.
 | Sessions in one cmux instance | 32 | the next is refused |
 | Sessions driving one tab | 4 at once | the next session's call on the tab fails with `limit` |
 | Secrets per session | 256, each at most 4 KiB with 64 domains | refused, naming the limit |
+| Distinct domain sets of the secrets and sign-in credentials the session typed (kept so the policy never reaches past them; one set however its domains are ordered or repeated) | 1,024 over the session's life | typing a secret, or asking the sign-in sheet, on a new set is refused |
 | Domain policy | 1,024 patterns per list, 1,024 bytes a pattern | `invalid`, naming the limit |
 
 JavaScriptCore has no heap limit a context can set, so the heap row is a
@@ -699,7 +700,15 @@ virtual clipboard, 32 items and 64 MiB of Base64), the values typed
 secrets left in pages (4,096 in the whole app, shared by sessions on
 purpose so each masks the others'), the session registry (32 sessions),
 and the scripts the page agent runs in the page's world (`page.evaluate`,
-bounded only by the 64 MiB result).
+bounded only by the 64 MiB result). The runtime keeps at most 1,000
+download records for `session.downloads()` (past that the oldest finished
+or failed one goes, the oldest running one when none ended) and tracks at
+most 1,000 running downloads a tab (past that the oldest one's
+`failure()` and `path()` read that it is gone); a dropped download's id
+never names another. `session.blockedNavigations()` keeps the newest
+1,000 blocks, each URL and reason cut at 2,048 characters; a block that
+repeats the newest one adds to its `count` (and `lastAt`), and once older
+blocks were dropped the list starts with `{ blocked: "dropped", count }`.
 
 ## Hibernated and crashed tabs
 

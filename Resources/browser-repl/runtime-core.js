@@ -2249,6 +2249,7 @@
       return this._p.suggestedFilename;
     }
     async path() {
+      if (this._dropped) throw new Error(this._dropped);
       // A finished download's path is state: use it when the event came.
       const done = this._outcome;
       const { path } = done && done.path ? done : await this._page._session.call("download.path", { downloadId: this._p.downloadId });
@@ -2267,6 +2268,12 @@
     }
     async cancel() {}
     async delete() {}
+    // The tab had too many downloads running; this one is no longer
+    // tracked, and never stands for another.
+    _drop(limit) {
+      this._dropped = `download ${this._p.downloadId} is gone: its tab had more than ${limit} downloads running, and the oldest are no longer tracked`;
+      this._resolveFinished({ error: this._dropped });
+    }
   }
 
   class ConsoleMessage {
@@ -2395,6 +2402,10 @@
 
   // Unfinished requests a page keeps to pair with their later events.
   const MAX_OPEN_REQUESTS = 1000;
+  // Downloads of a tab still running: a page can start them without end,
+  // so past this the oldest is dropped and reads as gone (a finished one
+  // is dropped when it finishes; its Download keeps its outcome).
+  const MAX_RUNNING_DOWNLOADS = 1000;
   // Ref provenance a Page keeps (Page._noteRefDocs, Page._forgetFrame): the
   // document of at most MAX_REF_DOCS issued refs in all (twice the largest
   // snapshot, so one snapshot never drops its own refs), and the prefixes of
@@ -2868,12 +2879,19 @@
     }
     _onDownload(p) {
       const download = new Download(this, p);
-      (this._downloads || (this._downloads = new Map())).set(p.downloadId, download);
+      const running = this._downloads || (this._downloads = new Map());
+      running.set(p.downloadId, download);
+      if (running.size > MAX_RUNNING_DOWNLOADS) {
+        const [oldestId, oldest] = running.entries().next().value;
+        running.delete(oldestId);
+        oldest._drop(MAX_RUNNING_DOWNLOADS);
+      }
       this.emit("download", download);
     }
     _onDownloadFinished(p) {
       const d = this._downloads && this._downloads.get(p.downloadId);
       if (d) {
+        this._downloads.delete(p.downloadId);
         d._outcome = p;
         d._resolveFinished(p);
       }

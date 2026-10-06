@@ -341,7 +341,12 @@ driver's `auth.request`. It asks only in a tab the session opened
 page's exact host with https (`session.allowedDomains(["https://accounts.example.com"])`
 for a sign-in on `accounts.example.com`; a loopback host also on http). A
 wildcard over the site, such as `*.example.com`, is not enough: a sibling
-host of the same site could receive the values. The session refuses the
+host of the same site could receive the values. On a two-label host the
+policy names it in the exact-host form, `session.allowedDomains(["=https://example.com"])`,
+since `https://example.com` also lets `www.example.com` load; the
+credential's domain takes that form too, so the native matcher, the
+content rules and the frame checks leave out the www host (decided
+2026-10-06). The session refuses the
 call otherwise (the error names the pattern to allow), sends that host to
 the driver as the credential's domains, and from then on refuses a policy
 that reaches past it, as for a typed secret; the driver refuses a frame

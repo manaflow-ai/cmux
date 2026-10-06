@@ -444,7 +444,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
 
 - Domain patterns (the policy's `allowed` and `prohibited`, a secret's
   domains, `tools.register` domains): `example.com`, `*.example.com`,
-  `https://example.com:8443` or `*`. Several wildcards, a wildcard
+  `https://example.com:8443` or `*`. A two-label host (`example.com`)
+  also covers its www host (`www.example.com`); a leading `=`
+  (`=https://example.com`) names the exact host alone, in the native
+  matcher, the content rules and the frame checks (the policy and secret
+  domains; `tools.register` does not take it), and `=` with a wildcard
+  fails with `invalid`. The sign-in sheet's credentials for a two-label
+  host take that form (see site-tools.md, "Secure sign-in"). Several wildcards, a wildcard
   top-level domain (`example.*`), an embedded wildcard and a wildcard over
   a public suffix of the system's Public Suffix List (`*.com`, `*.co.uk`,
   `*.github.io`) fail with `invalid`; a wildcard over a site
