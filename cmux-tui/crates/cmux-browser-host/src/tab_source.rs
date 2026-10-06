@@ -12,7 +12,7 @@
 use crate::driver::{EventSink, Reply, RequestFilter};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::DriverError;
-use crate::provider::{LeaseState, TabAnnounce};
+use crate::provider::LeaseState;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -37,6 +37,36 @@ pub struct TabCall<'a> {
 /// The `tabs.list` answer every source gives (driver-protocol.md, `tabs.list`):
 /// an array of `{ targetId, title, url, active, windowId, state, dataStore,
 /// openerTargetId? }`. Err names the first row or field that breaks it.
+/// One row of `tabs.list` (driver-protocol.md), whatever the source.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TabRow {
+    pub target_id: String,
+    pub title: String,
+    pub url: String,
+    pub active: bool,
+    /// The workspace (app tabs) or the browser window (headless).
+    pub window_id: Value,
+    /// `live`, `hibernated`, `waking` or `crashed`.
+    pub state: String,
+    /// Tabs with equal `dataStore` share cookies and storage.
+    pub data_store: String,
+    pub opener: Option<String>,
+}
+
+impl TabRow {
+    pub fn to_json(&self) -> Value {
+        let mut row = serde_json::json!({
+            "targetId": self.target_id, "title": self.title, "url": self.url,
+            "active": self.active, "windowId": self.window_id, "state": self.state,
+            "dataStore": self.data_store,
+        });
+        if let Some(opener) = &self.opener {
+            row["openerTargetId"] = Value::String(opener.clone());
+        }
+        row
+    }
+}
+
 pub fn check_tabs_list_shape(value: &Value) -> Result<(), String> {
     let rows = value.as_array().ok_or_else(|| format!("tabs.list is not an array: {value}"))?;
     for row in rows {
@@ -64,23 +94,8 @@ pub trait TabSource: Send + Sync {
     /// Adds a session's event receiver; returns its id.
     fn subscribe(&self, sink: EventSink) -> u64;
     fn unsubscribe(&self, id: u64);
-    /// The tabs of one engine.
-    fn tab_list(&self, engine: &str) -> Vec<TabAnnounce>;
-    /// `tabs.list`'s answer. The default lists [`TabSource::tab_list`].
-    fn list_tabs(&self, engine: &str) -> Value {
-        let tabs: Vec<Value> = self
-            .tab_list(engine)
-            .into_iter()
-            .map(|tab| {
-                serde_json::json!({
-                    "targetId": tab.target_id, "engine": tab.engine, "url": tab.url,
-                    "title": tab.title, "workspace": tab.workspace, "profile": tab.profile,
-                    "visible": tab.visible,
-                })
-            })
-            .collect();
-        serde_json::json!({ "tabs": tabs })
-    }
+    /// The tabs of one engine, as `tabs.list` rows.
+    fn tab_rows(&self, engine: &str) -> Vec<TabRow>;
     /// The engine of a tab, `None` when the tab is unknown.
     fn tab_engine(&self, target_id: &str) -> Option<String>;
     /// A refusal for `method` on the tab (browser pages, extension tabs).

@@ -316,12 +316,12 @@ fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
     let webkit = engine(&provider, "webkit");
     let tabs = webkit.call("tabs.list", &json!({})).unwrap();
-    assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1);
-    assert_eq!(tabs["tabs"][0]["targetId"], "W");
+    assert_eq!(tabs.as_array().unwrap().len(), 1);
+    assert_eq!(tabs[0]["targetId"], "W");
     assert_eq!(webkit.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"], "tab.info");
     assert_eq!(app.attaches("W"), 0);
     let cef = engine(&provider, "cef");
-    assert_eq!(cef.call("tabs.list", &json!({})).unwrap()["tabs"][0]["targetId"], "C");
+    assert_eq!(cef.call("tabs.list", &json!({})).unwrap()[0]["targetId"], "C");
 }
 
 #[test]
