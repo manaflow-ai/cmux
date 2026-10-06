@@ -299,7 +299,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "agent",
+      "default" : "page",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -3162,8 +3162,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.appTheme",
@@ -3456,8 +3456,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.windowBackground",
@@ -3545,8 +3545,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.windowBackground",
@@ -7160,8 +7160,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.terminalFont",
@@ -7211,8 +7211,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.terminalFont",
@@ -11169,7 +11169,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "3c73f6df3f3187d5be3a3d546fdfc6bb7d8306fd07bacedc317f5551dc421c6a",
+  "schema_hash" : "ccb43199cf36bb23a38221074d1865a2312fd7eec9c5514270dc650d0ecb149f",
   "sections" : [
     {
       "id" : "general",
