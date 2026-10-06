@@ -37,6 +37,7 @@ extension RemoteTmuxController {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
+        try refuseARouteTheLiveConnectionDoesNotUse(host)
         let initialExistingMirrorWindowID = existingMirrorManager(for: host)
             .flatMap { appDelegate.windowId(for: $0) }
         let initialActiveWindowID = appDelegate.tabManager

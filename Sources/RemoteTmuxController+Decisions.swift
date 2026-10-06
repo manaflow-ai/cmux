@@ -402,4 +402,39 @@ extension RemoteTmuxController {
         guard !connectionExited else { return nil }
         return sessionId.map { "$\($0)" } ?? sessionName
     }
+
+    /// What to tell an attach that names a different route than the live connection to the same
+    /// endpoint uses, or nil when the routes agree.
+    ///
+    /// A broker is how an endpoint is reached, not which endpoint it is, so two attaches that
+    /// differ only by broker share one connection, and one connection has one route. Serving the
+    /// second attach over the first one's route would use a path its caller did not ask for.
+    nonisolated static func routeConflictMessage(
+        destination: String,
+        requested: RemoteTmuxTransportBroker?,
+        live: RemoteTmuxTransportBroker?
+    ) -> String? {
+        nil
+    }
+}
+
+@MainActor
+extension RemoteTmuxController {
+    /// The host a live connection to `host`'s endpoint was opened with, if there is one.
+    func liveHost(sharingEndpointWith host: RemoteTmuxHost) -> RemoteTmuxHost? {
+        if let view = multiplexedViewsByHost[host.connectionHash] { return view.host }
+        return sessionMirrors.values.first { $0.host.connectionHash == host.connectionHash }?.host
+    }
+
+    /// Refuses an attach whose route differs from the live connection's; see
+    /// ``routeConflictMessage(destination:requested:live:)``.
+    func refuseARouteTheLiveConnectionDoesNotUse(_ host: RemoteTmuxHost) throws {
+        guard let live = liveHost(sharingEndpointWith: host),
+              let message = Self.routeConflictMessage(
+                  destination: host.destination,
+                  requested: host.transportBroker,
+                  live: live.transportBroker
+              ) else { return }
+        throw RemoteTmuxError.unreachable(message)
+    }
 }

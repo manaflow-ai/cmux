@@ -127,6 +127,7 @@ extension RemoteTmuxController {
             throw RemoteTmuxError.unreachable(
                 "host already mirrored by the per-session transport; detach it first")
         }
+        try refuseARouteTheLiveConnectionDoesNotUse(host)
 
         let beganAttach = windowRegistry.beginAttach(hostHash: host.connectionHash)
         if !beganAttach {

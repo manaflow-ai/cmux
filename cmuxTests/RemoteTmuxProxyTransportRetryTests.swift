@@ -448,6 +448,44 @@ import Testing
         #expect(plain.connectionHash == brokered.connectionHash)
     }
 
+    /// One connection has one route. An attach that names a different broker than the live
+    /// connection to the same endpoint uses is told so, instead of being served over a route it
+    /// did not ask for.
+    @Test func aDifferentRouteThanTheLiveConnectionsIsNamedAsAConflict() {
+        let corp = RemoteTmuxTransportBroker(executable: "/opt/site/bin/broker", leadingArguments: ["-et"])
+        let other = RemoteTmuxTransportBroker(executable: "/opt/site/bin/broker", leadingArguments: ["-et", "--region", "b"])
+        func conflict(_ requested: RemoteTmuxTransportBroker?, _ live: RemoteTmuxTransportBroker?) -> String? {
+            RemoteTmuxController.routeConflictMessage(destination: "somehost", requested: requested, live: live)
+        }
+        #expect(conflict(nil, nil) == nil)
+        #expect(conflict(corp, corp) == nil)
+        #expect(conflict(nil, corp)?.contains("/opt/site/bin/broker") == true)
+        #expect(conflict(corp, nil)?.contains("somehost") == true)
+        #expect(conflict(other, corp) != nil, "the same executable with other arguments is another route")
+    }
+
+    /// The attach itself refuses, before it touches the live connection or opens a window.
+    @Test @MainActor func anAttachThroughAnotherRouteIsRefusedWhileTheHostIsConnected() async {
+        let corp = RemoteTmuxTransportBroker(executable: "/opt/site/bin/broker", leadingArguments: ["-et"])
+        let destination = "route-\(UUID().uuidString).example.test"
+        let brokered = RemoteTmuxHost(destination: destination, transport: .et, transportPort: 2022, transportBroker: corp)
+        let direct = RemoteTmuxHost(destination: destination, transport: .et, transportPort: 2022)
+        let controller = RemoteTmuxController()
+        let view = RemoteTmuxViewConnection(host: brokered, ownerId: "route-conflict-test")
+        controller.multiplexedViewsByHost[brokered.connectionHash] = view
+        defer { controller.multiplexedViewsByHost[brokered.connectionHash] = nil }
+
+        var refusal: RemoteTmuxError?
+        do {
+            _ = try await controller.attachHostMultiplexed(
+                host: direct, windowTarget: .contextualWindow(nil), activate: false)
+        } catch {
+            refusal = error as? RemoteTmuxError
+        }
+        #expect(refusal?.message.contains("already connected") == true, "got \(String(describing: refusal))")
+        #expect(controller.multiplexedViewsByHost[brokered.connectionHash] === view, "the refusal disturbed the live connection")
+    }
+
     /// Go's flag package wording for a rejected argv. Wrappers that front a transport are commonly
     /// written in Go, and without this a mis-ordered argv reads as a transient problem, so cmux
     /// would retry the identical rejected command forever. Measured against a real broker.
