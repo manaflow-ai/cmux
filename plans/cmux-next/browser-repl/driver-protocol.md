@@ -279,6 +279,16 @@ naming the session that holds the mouse.
 | `tab.screenshot` | `{ targetId, clip?, fullPage?, format: "png"\|"jpeg"\|"webp", quality? }` (the session adds `secretMasks`) | `{ base64, width, height }` |
 | `tab.pdf` | `{ targetId, format?, width?, height?, landscape?, printBackground?, margin? }` | `{ base64 }` |
 
+Captures of one tab run one at a time; a capture waits for the tab's
+other capture within its own timeout. Chromium answers overlapping
+`Page.captureScreenshot` calls of one page with the wrong region (a
+clipped capture changes the page's emulation while it runs). The host's
+secret mask hides the fields that hold a secret before a capture and
+checks them after it. The check uses the secrets the tab has after the
+capture, so a secret that another session types into the tab during the
+capture (it is recorded for the tab before its input is sent) refuses the
+capture.
+
 ## Files, dialogs, popups, downloads
 
 | Method | Params |
