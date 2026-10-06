@@ -87,8 +87,31 @@ final class LocationTrailService {
     /// not move the trail.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
         // Under a top page the workspace's focus is not where the user is.
-        guard services.windows.active === controller, controller.shownTopPage == nil, let location = location(of: state, in: controller) else { return }
+        guard services.windows.active === controller, controller.shownTopPage == nil else { return }
+        // The window selected another workspace whose panes have not reached
+        // the focus coordinator yet: this settle still describes the
+        // workspace it left. Not a place the user went; recording it cut off
+        // the forward entries of a Back or Forward between workspaces.
+        if let shown = controller.state.workspaceID, state.topology.workspace != shown { return }
+        guard let location = location(of: state, in: controller) else { return }
+        if let jump = jumpNotedAt, now().timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
+            jumpNotedAt = nil
+            if trail.recordJump(location, at: now()) { changed() }
+            return
+        }
         if trail.record(location, at: now(), scope: stepScope) { changed() }
+    }
+
+    /// When the user last picked a jump (``noteJump()``).
+    private var jumpNotedAt: Date?
+    /// How long a noted jump waits for the focus it causes to settle.
+    private static let jumpWindow: TimeInterval = 2
+
+    /// The user picked a place to jump to (the New Tab page's location bar):
+    /// the next settled location elsewhere is its own step, even in the same
+    /// workspace, so Back returns to where they jumped from.
+    func noteJump() {
+        jumpNotedAt = now()
     }
 
     /// What a step is (`navigation.history.scope`, BACK-FORWARD-WORKSPACES-ONLY).

@@ -121,7 +121,9 @@ describe("keybindings model", () => {
   test("a default the Ghostty config claims says so and has no Reset (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS)", () => {
     const claimed = binding({ command: "resizePaneLeft", key: "ctrl+shift+h", removed: true, removedBy: "ghostty" });
     expect(sourceLabel(claimed)).toBe("keybindings.page.source.removedByGhostty");
-    expect(sourceLabel(binding({ command: "tab.new", key: "cmd+t", removed: true }))).toBe("keybindings.page.source.removed");
+    expect(sourceLabel(binding({ command: "tab.new", key: "cmd+t", removed: true }))).toBe(
+      "keybindings.page.source.removed",
+    );
     expect(sourceLabel(binding({ command: "tab.new", key: "cmd+t" }))).toBe("keybindings.page.source.default");
     expect(isReadOnly(claimed)).toBe(true);
     expect(resettableCommands([claimed]).size).toBe(0);

@@ -112,6 +112,7 @@ fn serve() -> u16 {
                     "/files" => files_page(),
                     "/clip" => clipboard::clip_page(),
                     "/leak" => clipboard::leak_page(),
+                    "/clicks" => files::clicks_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
@@ -627,12 +628,17 @@ fn a_tab_less_fetch_runs_in_a_hidden_shell() {
         Arc::new(move |event| sink.lock().unwrap().push(event)),
     )
     .expect("attach to Chromium");
-    let before = driver.call("tabs.list", &json!({})).expect("tabs.list");
+    // Tab ids only: the start tab's title can change between the reads.
+    let ids = || -> Vec<Value> {
+        let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");
+        tabs.as_array().into_iter().flatten().map(|tab| tab["targetId"].clone()).collect()
+    };
+    let before = ids();
     let url = format!("http://127.0.0.1:{port}/second");
     let out = driver.call("net.fetch", &json!({"url": url})).expect("net.fetch");
     assert_eq!(out["status"], 200, "{out}");
     assert!(!out["bodyBase64"].as_str().unwrap_or("").is_empty(), "{out}");
-    assert_eq!(driver.call("tabs.list", &json!({})).expect("tabs.list"), before);
+    assert_eq!(ids(), before, "the shell tab is never listed");
     // Events arrive in order: a later tab's navigation is a barrier.
     let later = driver.call("tabs.open", &json!({"url": url})).expect("tabs.open")["targetId"]
         .as_str()

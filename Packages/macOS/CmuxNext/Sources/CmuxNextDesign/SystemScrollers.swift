@@ -18,7 +18,8 @@ public struct SystemScrollers {
     public static var pageValue: String { preferredStyle == .legacy ? "legacy" : "overlay" }
 
     private static var followed: [WeakScrollView] = []
-    private static var observer: Task<Void, Never>?
+    private static var observers: [Observer] = []
+    private static var notifications: Task<Void, Never>?
 
     /// Gives `scrollView` the system's scroller style now and on every change.
     public static func follow(_ scrollView: NSScrollView) {
@@ -26,9 +27,22 @@ public struct SystemScrollers {
         scrollView.scrollerStyle = preferredStyle
         followed.removeAll { $0.value == nil || $0.value === scrollView }
         followed.append(WeakScrollView(scrollView))
-        guard observer == nil else { return }
+        startObserving()
+    }
+
+    /// Calls `onChange` on every later change of the system style while `owner` lives (the owner
+    /// is held weakly). For surfaces that are not a plain NSScrollView: web pages get the style
+    /// through their theme payload, the terminal sizes its own scroller.
+    public static func observe(_ owner: AnyObject, _ onChange: @escaping @MainActor (NSScroller.Style) -> Void) {
+        observers.removeAll { $0.owner == nil }
+        observers.append(Observer(owner: owner, onChange: onChange))
+        startObserving()
+    }
+
+    private static func startObserving() {
+        guard notifications == nil else { return }
         // task-owner: process lifetime (one observer for every scroll view); event-driven.
-        observer = Task { @MainActor in
+        notifications = Task { @MainActor in
             for await _ in NotificationCenter.default.notifications(named: NSScroller.preferredScrollerStyleDidChangeNotification) {
                 systemStyleDidChange()
             }
@@ -40,6 +54,13 @@ public struct SystemScrollers {
         followed.removeAll { $0.value == nil }
         let style = preferredStyle
         for entry in followed { entry.value?.scrollerStyle = style }
+        observers.removeAll { $0.owner == nil }
+        for entry in observers { entry.onChange(style) }
+    }
+
+    private struct Observer {
+        weak var owner: AnyObject?
+        let onChange: @MainActor (NSScroller.Style) -> Void
     }
 
     private struct WeakScrollView {
@@ -47,3 +68,4 @@ public struct SystemScrollers {
         init(_ value: NSScrollView) { self.value = value }
     }
 }
+

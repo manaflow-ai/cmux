@@ -46,3 +46,16 @@ struct LocationTrailStepTests {
         #expect(HistoryStepScope.default == .workspaces)
     }
 }
+
+/// Leo (2026-10-06): after jumping from a New Tab page to a chat, Back
+/// returns to the New Tab page. A jump the user picked is its own step,
+/// even inside one workspace and right after the page opened.
+struct LocationTrailJumpTests {
+    @Test func aJumpIsAStepInsideAWorkspaceAndBackReturnsToWhereItStarted() {
+        var trail = LocationTrailStepTests.trail([LocationTrailStepTests.tab("newtab", workspace: "A")], scope: .workspaces)
+        // Sooner than the coalesce interval, in the same workspace.
+        trail.recordJump(LocationTrailStepTests.tab("chat", workspace: "A"), at: LocationTrailStepTests.t0.addingTimeInterval(0.2))
+        #expect(trail.entries.map(\.location.key.tab) == ["newtab", "chat"])
+        #expect(trail.back(scope: .window)?.location.key.tab == "newtab")
+    }
+}

@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The Home page's left column: the merged inbox in sections
 /// (`HomeConversationList`), with a "+" menu for New Message, New Chief and
@@ -21,6 +22,8 @@ public final class HomeConversationListView: NSView {
 
     let titleLabel = NSTextField(labelWithString: HomeConversationStrings.listTitle)
     let addButton = NSButton()
+    /// The add button's image (tests).
+    var addButtonImage: NSImage? { addButton.image }
     let emptyLabel = NSTextField(wrappingLabelWithString: HomeConversationStrings.empty)
     let table = HomeConversationTableView()
     let scroll = NSScrollView()
@@ -33,7 +36,7 @@ public final class HomeConversationListView: NSView {
         addSubview(titleLabel)
         addButton.bezelStyle = .accessoryBarAction
         addButton.isBordered = false
-        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: HomeConversationStrings.newMenu)
+        addButton.image = NSImage.icon(.actionAdd, size: Metrics.iconSize)
         addButton.target = self
         addButton.action = #selector(showAddMenu(_:))
         addButton.setAccessibilityLabel(HomeConversationStrings.newMenu)
@@ -70,7 +73,9 @@ public final class HomeConversationListView: NSView {
         scroll.documentView = table
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
+        // A legacy scroller ("Always") narrows the clip: the column follows on the next layout.
+        SystemScrollers.follow(scroll)
+        SystemScrollers.observe(self) { [weak self] _ in self?.needsLayout = true }
         addSubview(scroll)
     }
 
