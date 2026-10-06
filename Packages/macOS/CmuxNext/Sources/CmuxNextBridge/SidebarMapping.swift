@@ -13,20 +13,23 @@ public struct SidebarMapping {
     public static let homeKind = "home"
     /// `statusLine` maps a workspace id to the status hooks reported
     /// (`set_status`), the row's live second line. The cwd stays passive
-    /// detail (tooltip, accessibility).
+    /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
+    /// still on the New Tab page, which the tab list draws as new tabs.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
                                 statusLine: (String) -> String? = { _ in nil },
-                                selectedTab: (PaneModel) -> String? = { _ in nil }) -> [SidebarRowSection] {
+                                selectedTab: (PaneModel) -> String? = { _ in nil },
+                                newTabPages: Set<String> = []) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
             // top section shows; it is not also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
-                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, selectedTab: selectedTab) }
+                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, selectedTab: selectedTab,
+                           newTabPages: newTabPages) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -44,9 +47,9 @@ public struct SidebarMapping {
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
     /// `selectedTab` is the window's tab selection in a pane (a `TabModel.id`), nil for the
-    /// daemon's default tab.
+    /// daemon's default tab. `newTabPages` are the ids of tabs still on the New Tab page.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
-                    selectedTab: (PaneModel) -> String? = { _ in nil }) -> SidebarWorkspace {
+                    selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = []) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
@@ -67,7 +70,7 @@ public struct SidebarMapping {
             agentBrand: agentBrand(tabs),
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
-                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: tab.agentSession == nil ? Self.tabKind(tab.kind) : .agentChat, isUnread: tab.hasUnread)
+                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread)
             }
         )
     }
@@ -95,6 +98,12 @@ public struct SidebarMapping {
             guard let agent = tab.agent, agent.state == .working || agent.state == .blocked else { return nil }
             return AgentBrandCatalog.brand(for: agent.agent)?.rawValue
         }.first
+    }
+
+    /// A tab's kind in the tab list: a New Tab page, an agent chat, else its record's kind.
+    private static func listedKind(_ tab: TabModel, newTabPages: Set<String>) -> SidebarTabKind {
+        if newTabPages.contains(tab.id) { return .newTab }
+        return tab.agentSession == nil ? tabKind(tab.kind) : .agentChat
     }
 
     private static func tabKind(_ kind: TabKind) -> SidebarTabKind {

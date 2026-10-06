@@ -193,7 +193,7 @@ extension SidebarBridge {
         model.ungroupedFirst = !usesMixedOrder
         model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
                                        profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document),
-                                       selection: state.selection)
+                                       selection: state.selection, newTabPages: services.agentTabs.pageTabs.ids)
         model.profiles = Self.profiles(services.machines.local.store)
     }
 
