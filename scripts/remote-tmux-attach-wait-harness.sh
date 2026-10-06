@@ -38,6 +38,7 @@ STATE="${CMUX_WAIT_STATE_DIR:-$HOME/Library/Caches/cmux/remote-tmux-attach-wait}
 FAKE_SSH="$STATE/ssh"
 MODE_FILE="$STATE/mode"
 CALLS="$STATE/calls"
+HANG_PID="$STATE/hang.pid"
 
 write_fake_ssh() {
   mkdir -p "$STATE"
@@ -46,6 +47,12 @@ write_fake_ssh() {
 # Stand-in ssh for scripts/remote-tmux-attach-wait-harness.sh. Reads its instruction on
 # every call, so the harness changes behavior without relaunching the app.
 mode="\$(cat "$MODE_FILE" 2>/dev/null)"
+# Only the connection itself is slowed or broken. A control operation on a shared master
+# (ssh -O ...) is cleanup, and making that hang would leave a process behind that the
+# attach under test never started.
+for arg in "\$@"; do
+  [ "\$arg" = "-O" ] && mode="control"
+done
 echo "\$(date '+%H:%M:%S') pid=\$\$ mode=\${mode:-pass}" >> "$CALLS"
 case "\$mode" in
   refuse:*)
@@ -53,6 +60,7 @@ case "\$mode" in
     echo 'ssh: connect to host injected.test port 22: Connection refused' >&2
     exit 255 ;;
   hang)
+    echo \$\$ > "$HANG_PID"
     exec sleep 100000 ;;
   slow:*)
     sleep "\${mode#slow:}"
@@ -62,6 +70,7 @@ case "\$mode" in
 esac
 EOF
   chmod 755 "$FAKE_SSH"
+  touch "$CALLS"
 }
 
 if [ "${1:-}" = "--print-ssh" ]; then
@@ -102,6 +111,7 @@ fi
 # other two for the wrong reason.
 attach() {
   local mode="$1" before start
+  rm -f "$HANG_PID"
   printf '%s' "$mode" > "$MODE_FILE"
   before="$(wc -l < "$CALLS" 2>/dev/null || echo 0)"
   start="$(date +%s)"
@@ -149,9 +159,13 @@ scenario_hang() {
   else
     fail "it took ${ELAPSED}s; expected about 300"
   fi
-  # The stand-in became `sleep 100000`; a stopped attach must not leave it behind.
-  if pgrep -f 'sleep 100000' >/dev/null 2>&1; then
-    fail "the transport is still running after the attach gave up on it"
+  # The stand-in recorded its pid and became a sleep; a stopped attach must not leave it behind.
+  local hung
+  hung="$(cat "$HANG_PID" 2>/dev/null)"
+  if [ -z "$hung" ]; then
+    fail "the stand-in never recorded the hung transport's pid"
+  elif kill -0 "$hung" 2>/dev/null; then
+    fail "the transport (pid $hung) is still running after the attach gave up on it"
   else
     pass "the transport was stopped"
   fi
