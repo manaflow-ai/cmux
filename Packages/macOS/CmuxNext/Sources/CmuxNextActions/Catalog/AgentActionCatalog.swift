@@ -154,7 +154,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 id: "agent.openSessionWorkspace",
                 title: String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module),
                 keywords: ["agent", "session", "acpmux", "subagent", "workspace"], category: .agents,
-                symbol: "bubble.left.and.text.bubble.right", surfaces: [],
+                symbol: "bubble.left.and.text.bubble.right", surfaces: [.keyboard],
                 arguments: [
                     ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
                                    kind: .string),
