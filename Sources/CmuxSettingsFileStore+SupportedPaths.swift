@@ -34,6 +34,7 @@ extension CmuxSettingsFileStore {
         "app.globalFontMagnification",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
+        "app.warnBeforeClosingAgentSession",
         "app.warnBeforeClosingTabXButton",
         "app.warnBeforeClosingWorkspace",
         "app.warnBeforeClosingWindow",

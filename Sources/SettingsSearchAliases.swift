@@ -102,6 +102,7 @@ enum SettingsSearchAliasIndex {
         "app:telemetry": localized("settings.search.alias.setting.app.telemetry", defaultValue: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
         "app:warn-before-quit": localized("settings.search.alias.setting.app.warn-before-quit", defaultValue: "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app"),
         "app:warn-before-closing-tab": localized("settings.search.alias.setting.app.warn-before-closing-tab", defaultValue: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
+        "app:warn-before-closing-agent-session": localized("settings.search.alias.setting.app.warn-before-closing-agent-session", defaultValue: "app.warnBeforeClosingAgentSession close active agent session working turn confirmation"),
         "app:warn-before-closing-tab-x-button": localized(
             "settings.search.alias.setting.app.warn-before-closing-tab-x-button",
             defaultValue: "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface"

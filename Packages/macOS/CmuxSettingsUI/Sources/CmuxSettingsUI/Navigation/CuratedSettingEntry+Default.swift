@@ -120,6 +120,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "telemetry", title: String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), synonyms: "Send anonymous telemetry app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(userFacing: catalog.app.warnBeforeClosingTab),
+            .init(userFacing: catalog.app.warnBeforeClosingAgentSession),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
             .init(userFacing: catalog.app.warnBeforeClosingWorkspace),
             .init(userFacing: catalog.app.warnBeforeClosingWindow),
