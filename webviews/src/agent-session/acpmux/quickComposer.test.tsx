@@ -89,7 +89,12 @@ const snapshot = (sessionId: string | undefined, rows: AcpmuxSnapshot["rows"] = 
 let root: ReturnType<typeof createRoot>;
 let calls: [string, Record<string, unknown>][];
 /// Mounts the page against a host whose `ready` reply carries `surface`, then shows `first`.
-const mount = async (surface: string | undefined, first: AcpmuxSnapshot, newSession = false) => {
+const mount = async (
+  surface: string | undefined,
+  first: AcpmuxSnapshot,
+  newSession = false,
+  ready: Record<string, unknown> = {},
+) => {
   const record =
     (method: string) =>
     async (params: Record<string, unknown>): Promise<unknown> => {
@@ -97,7 +102,13 @@ const mount = async (surface: string | undefined, first: AcpmuxSnapshot, newSess
       return null;
     };
   host.cmuxAcpmuxActions = {
-    ready: async () => ({ protocolVersion: 1, transport: "test", newSession, ...(surface ? { surface } : {}) }),
+    ready: async () => ({
+      protocolVersion: 1,
+      transport: "test",
+      newSession,
+      ...(surface ? { surface } : {}),
+      ...ready,
+    }),
     "chat.send": record("chat.send"),
     "quick.dismiss": record("quick.dismiss"),
     "quick.openInWindow": record("quick.openInWindow"),
@@ -412,4 +423,70 @@ test("the first prompt starts the chat in the inline project's folder", async ()
     ["chat.new", { cwd: "/src/app" }],
     ["chat.send", { text: "hello", attachments: [] }],
   ]);
+});
+
+/// A started local chat in /src/app, with another known folder (/src/other) on this Mac.
+const startedChat = (working = false): AcpmuxSnapshot => {
+  const chat = snapshot("s1", [{ id: "u1", kind: "user", text: "hi", at: 1, version: 1 }]);
+  chat.summary = { sessionId: "s1", turnCount: 1, cwd: "/src/app", hostKind: "local" };
+  chat.sessions = [
+    { sessionId: "s1", cwd: "/src/app", displayTitle: "App", updatedAt: 2 },
+    { sessionId: "s0", cwd: "/src/other", displayTitle: "Other", updatedAt: 1 },
+  ];
+  chat.isWorking = working;
+  return chat;
+};
+const pickFolder = async (label: string) => {
+  await act(async () => (container().querySelector('button[aria-label="Folder"]') as HTMLButtonElement).click());
+  const item = [...dom.window.document.querySelectorAll<HTMLElement>(".ui-combobox-item")].find((node) =>
+    node.textContent?.includes(label),
+  );
+  expect(item).toBeDefined();
+  await act(async () => item!.click());
+};
+
+test("the location row names this Mac; in a started chat the machine is a plain label", async () => {
+  await mount(undefined, startedChat(), false, { machineName: "Studio" });
+  const row = container().querySelector(".acpmux-composer-context")!;
+  expect(row.textContent).toContain("Studio");
+  expect(row.textContent).not.toContain("This Mac");
+  expect(row.querySelector('button[aria-label="Computer"]')).toBeNull();
+  // The folder stays a control.
+  expect(row.querySelector('button[aria-label="Folder"]')).not.toBeNull();
+});
+
+test("picking another folder moves a started chat in place: a transcript line, a cd chip, and ! runs there", async () => {
+  await mount(undefined, startedChat(), false, { machineName: "Studio" });
+  shellHost("/src/other\n");
+  await pickFolder("other");
+  // No new chat, no terminal: the chat stays and says where it went.
+  expect(methods()).not.toContain("chat.new");
+  expect(methods()).not.toContain("tab.open");
+  expect(container().querySelector(".acpmux-move-line")?.textContent).toBe("Moved to Studio · other");
+  expect(container().querySelector('button[aria-label="Folder"]')?.textContent).toContain("other");
+  const chips = () =>
+    [...container().querySelectorAll(".acpmux-attachment-file")].map((chip) => chip.textContent ?? "");
+  expect(chips().filter((chip) => chip.includes("cd "))).toEqual([expect.stringContaining("cd other")]);
+  await act(async () => prompt().handle.insertTyped("!"));
+  await typeShell("pwd");
+  await shellKey("Enter");
+  await settled();
+  expect(calls).toContainEqual(["shell.run", { command: "pwd", cwd: "/src/other" }]);
+  // A second move replaces the chip; the next prompt tells the agent where to work.
+  await pickFolder("app");
+  expect(chips().filter((chip) => chip.includes("cd "))).toEqual([expect.stringContaining("cd app")]);
+  await type("go on");
+  await key("Enter");
+  await settled();
+  const send = calls.find(([method]) => method === "chat.send")!;
+  const attachments = send[1].attachments as { name: string; text?: string }[];
+  expect(attachments.filter((attachment) => attachment.name.startsWith("cd "))).toHaveLength(1);
+  expect(attachments.find((attachment) => attachment.name === "cd app")?.text).toContain("/src/app");
+});
+
+test("while a turn runs the folder holds still", async () => {
+  await mount(undefined, startedChat(true), false, { machineName: "Studio" });
+  const row = container().querySelector(".acpmux-composer-context")!;
+  expect(row.querySelector('button[aria-label="Folder"]')).toBeNull();
+  expect(row.textContent).toContain("app");
 });
