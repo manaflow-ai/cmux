@@ -10,19 +10,28 @@ enum SidebarHiddenSections {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     /// The rows a section header's menu leaves out: Hide on an app section
-    /// only, Hide Section on Recents only (other sections are removed instead).
+    /// only, Hide Section on Recents only (other sections are removed
+    /// instead). Recents shows Hide Section alone, not its app's Hide too.
     static func headerMenuRemovals(_ id: LayoutSectionID, isApp: Bool) -> Set<ActionID> {
+        let isRecents = id == SidebarLayoutDocument.recentsSectionID
         var removed: Set<ActionID> = []
-        if !isApp { removed.insert("sidebar.item.hideApp") }
-        if id != SidebarLayoutDocument.recentsSectionID { removed.insert("sidebar.section.hide") }
+        if !isApp || isRecents { removed.insert("sidebar.item.hideApp") }
+        if !isRecents { removed.insert("sidebar.section.hide") }
         return removed
+    }
+
+    /// Hide Section on `target` hides Recents: the Recents header, or the
+    /// palette with no target. Read by id, so it works while the daemon
+    /// has no sidebar layout (the sidebar draws the defaults then).
+    static func hidesRecents(_ target: ActionTargetRef?) -> Bool {
+        guard let target else { return true }
+        return target.id == SidebarLayoutDocument.recentsSectionID.rawValue
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let settings = { context.services.settings?.snapshot.sidebarSections ?? .defaults }
         registry.bind("sidebar.section.hide", unavailable: { settings().showRecents ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
-            let section = try SidebarSectionResolve.section(invocation.target, in: context.services.sidebarLayout.document)
-            guard section.id == SidebarLayoutDocument.recentsSectionID else { throw ActionFailure(message: SidebarSectionStrings.notHideable) }
+            guard hidesRecents(invocation.target) else { throw ActionFailure(message: SidebarSectionStrings.notHideable) }
             try write([(SidebarSectionsSetting.showRecentsPath, false)], invocation, context)
         }
         registry.bind("sidebar.projects.hide", unavailable: { settings().showProjects ? nil : SidebarSectionStrings.alreadyHidden }) { invocation in
