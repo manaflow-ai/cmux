@@ -55,6 +55,13 @@ extension CmuxSettingsFileStore {
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "newWorkspaceOnHost", "enabled"],
+            setting: beta.remoteTmuxNewWorkspaceOnHost,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
     }
 
     private func parseIntegrationsSection(

@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import CmuxSettings
+import Observation
 import OSLog
 
 /// Coordinates cmux's mirroring of remote tmux servers.
@@ -31,7 +33,12 @@ final class RemoteTmuxController {
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
 
-    init() {}
+    /// The outside steps of a routed New Workspace.
+    var newSessionEnvironment: RemoteTmuxNewSessionEnvironment
+
+    init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
+        self.newSessionEnvironment = newSessionEnvironment
+    }
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
     /// that run outside the SwiftUI update cycle. Resolves the same catalog key
@@ -257,7 +264,17 @@ final class RemoteTmuxController {
 
     /// Active session→workspace mirrors keyed `connectionHash\u{1}session`
     /// (see ``connectionKey(host:sessionName:)``).
-    var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:]
+    var sessionMirrors: [String: RemoteTmuxSessionMirror] = [:] {
+        didSet {
+            if Set(oldValue.keys) != Set(sessionMirrors.keys) { mirrorSet.noteChanged() }
+        }
+    }
+
+    /// Changes whenever a session starts or stops being mirrored. The controller is
+    /// not observable, so a SwiftUI view whose output depends on ``sessionMirrors``
+    /// reads this to be re-evaluated: a mirror detached while its workspace stays
+    /// open and selected changes what New Workspace does without changing selection.
+    let mirrorSet = RemoteTmuxMirrorSetRevision()
 
     /// In-flight attach guards and kill-on-close markers for remote tmux mirrors.
     let windowRegistry = RemoteTmuxWindowRegistry()
@@ -304,13 +321,16 @@ final class RemoteTmuxController {
     /// `sessionId` seeds discovery's stable id for de-dup before the stream reports it.
     /// `customTitle` is a local-only display title: unlike an interactive rename
     /// of a mirrored workspace it must not `rename-session` on the remote host.
+    /// `select` selects the new workspace on creation (a user-initiated New
+    /// Workspace); bulk attach keeps the default so discovery never steals focus.
     @discardableResult
     func mirrorSession(
         host: RemoteTmuxHost,
         sessionName: String,
         sessionId: Int? = nil,
         into tabManager: TabManager,
-        customTitle: String? = nil
+        customTitle: String? = nil,
+        select: Bool = false
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
@@ -376,10 +396,51 @@ final class RemoteTmuxController {
                 propagateToRemoteTmux: false
             )
         }
+        if select {
+            tabManager.selectWorkspace(workspace)
+        }
         return true
     }
 
     // MARK: - Create / destroy propagation (P5)
+
+    /// The request a New Workspace in `manager` turns into when its active workspace is a
+    /// live mirror and routing is on, or nil to create a local workspace. See
+    /// ``newSessionHost(activeTabId:entries:)`` for the truth table.
+    func newSessionRequest(in manager: TabManager) -> NewSessionRequest? {
+        guard newSessionEnvironment.routesToMirrorHost(),
+              let activeTabId = manager.selectedTab?.id,
+              let host = Self.newSessionHost(
+                  activeTabId: activeTabId,
+                  entries: sessionMirrors.values.map { (host: $0.host, workspaceId: $0.mirroredWorkspaceId) }
+              ) else { return nil }
+        return NewSessionRequest(host: host, activeTabId: activeTabId)
+    }
+
+    /// Whether a New Workspace request in `manager` would spawn a REMOTE tmux
+    /// session rather than a local workspace. Non-mutating twin of
+    /// ``handleNewWorkspaceRequested(in:)`` — the "New Local Workspace" menu
+    /// item's visibility reads it, so the item appears exactly when plain New
+    /// Workspace would go remote.
+    func wouldNewWorkspaceSpawnRemote(in manager: TabManager) -> Bool {
+        newSessionRequest(in: manager) != nil
+    }
+
+    /// New Workspace requested in `manager`: when its ACTIVE workspace is a live
+    /// session mirror, create a new detached tmux session on that mirror's host and
+    /// mirror it into the same manager, returning `true` (the caller suppresses
+    /// local creation). `false` — active workspace isn't a mirror — means the
+    /// caller creates a plain local workspace.
+    ///
+    /// The host comes from the active workspace's own mirror (see
+    /// ``newSessionHost(activeTabId:entries:)``), never from window-level state:
+    /// a window routinely holds mirrors from several hosts plus local workspaces,
+    /// and each must route by what the user is actually sitting on.
+    func handleNewWorkspaceRequested(in manager: TabManager) -> Bool {
+        guard let request = newSessionRequest(in: manager) else { return false }
+        Task { await self.createAndMirrorSession(request, in: manager) }
+        return true
+    }
 
     /// A mirrored workspace was renamed → `rename-session` on the remote so the
     /// tmux session name tracks the cmux workspace title.
@@ -864,4 +925,14 @@ final class RemoteTmuxController {
     static func connectionKey(host: RemoteTmuxHost, sessionName: String) -> String {
         "\(host.connectionHash)\u{1}\(sessionName)"
     }
+}
+
+
+/// A counter that changes when the set of mirrored sessions changes; see
+/// ``RemoteTmuxController/mirrorSet``.
+@MainActor
+@Observable
+final class RemoteTmuxMirrorSetRevision {
+    private(set) var value = 0
+    func noteChanged() { value &+= 1 }
 }

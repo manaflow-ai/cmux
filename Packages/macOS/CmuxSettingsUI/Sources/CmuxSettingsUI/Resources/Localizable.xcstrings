@@ -4217,6 +4217,183 @@
         }
       }
     },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل جديدة على المضيف البعيد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Arbeitsbereich auf dem entfernten Host"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo en el host remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail sur l’hôte distant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストで新規ワークスペース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트에 새 작업 공간"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在远程主机上新建工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在遠端主機上新增工作區"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace always opens a local workspace, even with a remote tmux workspace selected."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح «مساحة عمل جديدة» مساحة عمل محلية دائمًا، حتى عند تحديد مساحة عمل tmux بعيدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Neuer Arbeitsbereich“ öffnet immer einen lokalen Arbeitsbereich, auch wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo siempre abre un espacio de trabajo local, incluso con un espacio de trabajo de tmux remoto seleccionado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail ouvre toujours un espace de travail local, même lorsqu’un espace de travail tmux distant est sélectionné."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux ワークスペースを選択していても、「新規ワークスペース」は常にローカルのワークスペースを開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 작업 공간이 선택되어 있어도 새 작업 공간은 항상 로컬 작업 공간을 엽니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使选中了远程 tmux 工作区，“新建工作区”也始终打开本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使選取了遠端 tmux 工作區，「新增工作區」也一律開啟本機工作區。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host. New Local Workspace opens a local one."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند تحديد مساحة عمل tmux بعيدة، يبدأ «مساحة عمل جديدة» جلسة tmux على مضيف تلك المساحة. ويفتح «مساحة عمل محلية جديدة» مساحة محلية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dessen Host. „Neuer lokaler Arbeitsbereich“ öffnet einen lokalen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con un espacio de trabajo de tmux remoto seleccionado, Nuevo espacio de trabajo inicia una sesión de tmux en el host de ese espacio. Nuevo espacio de trabajo local abre uno local."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsqu’un espace de travail tmux distant est sélectionné, Nouvel espace de travail démarre une session tmux sur l’hôte de cet espace. Nouvel espace de travail local en ouvre un local."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux ワークスペースを選択しているとき、「新規ワークスペース」はそのワークスペースのホストで tmux セッションを開始します。「新規ローカルワークスペース」はローカルのワークスペースを開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 작업 공간이 선택되어 있으면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다. 새 로컬 작업 공간은 로컬 작업 공간을 엽니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选中远程 tmux 工作区时，“新建工作区”会在该工作区的主机上启动 tmux 会话。“新建本地工作区”则打开本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取遠端 tmux 工作區時，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。「新增本機工作區」則開啟本機工作區。"
+          }
+        }
+      }
+    },
     "settings.taxonomy.general": {
       "localizations": {
         "ar": {
@@ -13453,6 +13630,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "テーマの前景色を使う"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-new-workspace-on-host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable مساحة عمل جديدة المضيف البعيد جلسة محلية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Neuer Arbeitsbereich entfernter Host Sitzung lokal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Nuevo espacio de trabajo host remoto sesión local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Nouvel espace de travail hôte distant session local"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新規ワークスペース リモートホスト セッション ローカル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 새 작업 공간 원격 호스트 세션 로컬"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新建工作区 远程主机 会话 本地"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新增工作區 遠端主機 工作階段 本機"
           }
         }
       }

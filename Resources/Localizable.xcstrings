@@ -184344,6 +184344,631 @@
         }
       }
     },
+    "dialog.remoteTmux.newSessionAttachFailed.left.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إنشاء الجلسة ”%@“، لكن تعذّر على cmux الاتصال بها. ما زالت تعمل على المضيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesija „%@“ je kreirana, ali se cmux nije mogao povezati s njom. Još uvijek radi na hostu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionen “%@” blev oprettet, men cmux kunne ikke tilslutte sig den. Den kører stadig på værten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Sitzung „%@“ wurde erstellt, aber cmux konnte sich nicht mit ihr verbinden. Sie läuft weiterhin auf dem Host."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The session “%@” was created, but cmux couldn't attach to it. It is still running on the host."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión “%@” se creó, pero cmux no pudo conectarse a ella. Sigue ejecutándose en el host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session « %@ » a été créée, mais cmux n’a pas pu s’y attacher. Elle est toujours en cours d’exécution sur l’hôte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sessione “%@” è stata creata, ma cmux non è riuscito a collegarsi. È ancora in esecuzione sull’host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション「%@」は作成されましたが、cmux が接続できませんでした。ホスト上でまだ実行中です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session “%@” ត្រូវបានបង្កើត ប៉ុន្តែ cmux មិនអាចភ្ជាប់ទៅវាបានទេ។ វានៅតែដំណើរការនៅលើម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 “%@”이(가) 생성되었지만 cmux가 연결할 수 없습니다. 호스트에서 계속 실행 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økten «%@» ble opprettet, men cmux kunne ikke koble seg til den. Den kjører fortsatt på verten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja „%@” została utworzona, ale cmux nie mógł się do niej podłączyć. Nadal działa na hoście."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sessão “%@” foi criada, mas o cmux não conseguiu se conectar a ela. Ela continua em execução no host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс «%@» был создан, но cmux не смог к нему подключиться. Он по-прежнему работает на хосте."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างเซสชัน “%@” แล้ว แต่ cmux เชื่อมต่อไม่ได้ เซสชันยังทำงานอยู่บนโฮสต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” oturumu oluşturuldu, ancak cmux ona bağlanamadı. Ana bilgisayarda çalışmaya devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс «%@» було створено, але cmux не зміг до нього під’єднатися. Він досі працює на хості."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话“%@”已创建，但 cmux 无法连接到它。它仍在主机上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段「%@」已建立，但 cmux 無法連接。它仍在主機上執行。"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionAttachFailed.removed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إنشاء الجلسة، لكن تعذّر على cmux الاتصال بها، فتمت إزالتها من المضيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesija je kreirana, ali se cmux nije mogao povezati s njom, pa je uklonjena s hosta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionen blev oprettet, men cmux kunne ikke tilslutte sig den, så den blev fjernet fra værten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Sitzung wurde erstellt, aber cmux konnte sich nicht mit ihr verbinden. Sie wurde daher vom Host entfernt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The session was created, but cmux couldn't attach to it, so it was removed from the host."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión se creó, pero cmux no pudo conectarse a ella, así que se eliminó del host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session a été créée, mais cmux n’a pas pu s’y attacher. Elle a donc été supprimée de l’hôte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sessione è stata creata, ma cmux non è riuscito a collegarsi, quindi è stata rimossa dall’host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションは作成されましたが、cmux が接続できなかったため、ホストから削除されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "session ត្រូវបានបង្កើត ប៉ុន្តែ cmux មិនអាចភ្ជាប់ទៅវាបានទេ ដូច្នេះវាត្រូវបានលុបចេញពីម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션이 생성되었지만 cmux가 연결할 수 없어 호스트에서 제거했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økten ble opprettet, men cmux kunne ikke koble seg til den, så den ble fjernet fra verten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja została utworzona, ale cmux nie mógł się do niej podłączyć, więc usunięto ją z hosta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sessão foi criada, mas o cmux não conseguiu se conectar a ela, então ela foi removida do host."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс был создан, но cmux не смог к нему подключиться, поэтому сеанс удалён с хоста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างเซสชันแล้ว แต่ cmux เชื่อมต่อไม่ได้ จึงลบเซสชันออกจากโฮสต์แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum oluşturuldu, ancak cmux ona bağlanamadı; bu nedenle ana bilgisayardan kaldırıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс було створено, але cmux не зміг до нього під’єднатися, тому сеанс видалено з хоста."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已创建，但 cmux 无法连接到它，因此已将其从主机上移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段已建立，但 cmux 無法連接，因此已從主機上移除。"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionAttachFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح جلسة tmux الجديدة على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće otvoriti novu tmux sesiju na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke åbne den nye tmux-session på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue tmux-Sitzung auf %@ konnte nicht geöffnet werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Open the New tmux Session on %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir la nueva sesión de tmux en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir la nouvelle session tmux sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aprire la nuova sessione tmux su %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の新しい tmux セッションを開けませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបើក tmux session ថ្មីនៅលើ %@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 새 tmux 세션을 열 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke åpne den nye tmux-økten på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można otworzyć nowej sesji tmux na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível abrir a nova sessão do tmux em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось открыть новый сеанс tmux на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเปิดเซสชัน tmux ใหม่บน %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerindeki yeni tmux oturumu açılamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося відкрити новий сеанс tmux на %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开 %@ 上的新 tmux 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟 %@ 上的新 tmux 工作階段"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل tmux new-session على المضيف البعيد. لم يتم إنشاء مساحة عمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session nije uspio na udaljenom hostu. Radni prostor nije kreiran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session mislykkedes på fjernværten. Der blev ikke oprettet noget arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session ist auf dem entfernten Host fehlgeschlagen. Es wurde kein Arbeitsbereich erstellt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session failed on the remote host. No workspace was created."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session falló en el host remoto. No se creó ningún espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session a échoué sur l’hôte distant. Aucun espace de travail n’a été créé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session non è riuscito sull’host remoto. Non è stata creata alcuna area di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストで tmux new-session が失敗しました。ワークスペースは作成されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session បានបរាជ័យនៅលើម៉ាស៊ីនពីចម្ងាយ។ មិនមានកន្លែងធ្វើការត្រូវបានបង្កើតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트에서 tmux new-session이 실패했습니다. 작업 공간이 생성되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session mislyktes på den eksterne verten. Det ble ikke opprettet noe arbeidsområde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenie tmux new-session nie powiodło się na hoście zdalnym. Nie utworzono przestrzeni roboczej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session falhou no host remoto. Nenhuma área de trabalho foi criada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда tmux new-session завершилась с ошибкой на удалённом хосте. Рабочее пространство не создано."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux new-session ล้มเหลวบนโฮสต์ระยะไกล ไม่ได้สร้างเวิร์กสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzak ana bilgisayarda tmux new-session başarısız oldu. Çalışma alanı oluşturulmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда tmux new-session завершилася з помилкою на віддаленому хості. Робочу область не створено."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机上的 tmux new-session 失败。未创建工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主機上的 tmux new-session 失敗。未建立工作區。"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء جلسة tmux على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće kreirati tmux sesiju na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke oprette en tmux-session på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux-Sitzung auf %@ konnte nicht erstellt werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Create a tmux Session on %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear una sesión de tmux en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de créer une session tmux sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile creare una sessione tmux su %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で tmux セッションを作成できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើត tmux session នៅលើ %@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 tmux 세션을 만들 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke opprette en tmux-økt på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można utworzyć sesji tmux na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar uma sessão do tmux em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось создать сеанс tmux на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถสร้างเซสชัน tmux บน %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerinde tmux oturumu oluşturulamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося створити сеанс tmux на %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在 %@ 上创建 tmux 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在 %@ 上建立 tmux 工作階段"
+          }
+        }
+      }
+    },
     "dialog.renameTab.message": {
       "extractionState": "manual",
       "localizations": {
@@ -520687,6 +521312,131 @@
         }
       }
     },
+    "menu.file.newLocalWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل محلية جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi lokalni radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt lokalt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer lokaler Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Local Workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova area di lavoro locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ローカルワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការមូលដ្ឋានថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 로컬 작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt lokalt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa lokalna przestrzeń robocza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova Área de Trabalho Local"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое локальное рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซในเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Yerel Çalışma Alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова локальна робоча область"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建本地工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增本機工作區"
+          }
+        }
+      }
+    },
     "menu.file.newCloudMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -520933,6 +521683,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Новий хмарний робочий простір"
+          }
+        }
+      }
+    },
+    "shortcut.newLocalWorkspace.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل محلية جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi lokalni radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt lokalt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer lokaler Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Local Workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova area di lavoro locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ローカルワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការមូលដ្ឋានថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 로컬 작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt lokalt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa lokalna przestrzeń robocza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova Área de Trabalho Local"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое локальное рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซในเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Yerel Çalışma Alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова локальна робоча область"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建本地工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增本機工作區"
           }
         }
       }
@@ -566089,65 +566964,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent هادئ تحديد تمييز لون حافة"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.workspaceColors.brighten-dark-mode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 明るく ダークモード ワークスペース 色 塗りつぶし"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 调亮 深色模式 工作区 颜色 填充"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 調亮 深色模式 工作區 顏色 填滿"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 밝게 다크 모드 작업 공간 색상 채우기"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color aufhellen dunkler Modus Arbeitsbereich Farben Füllung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color aclarar modo oscuro espacio de trabajo colores relleno"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color éclaircir mode sombre espace de travail couleurs remplissage"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color تفتيح الوضع الداكن مساحة العمل الألوان تعبئة"
           }
         }
       }
@@ -627255,124 +628071,6 @@
         }
       }
     },
-    "settings.workspaceColors.brightenInDarkMode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Brighten Colors in Dark Mode"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تفتيح الألوان في الوضع الداكن"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Farben im dunklen Modus aufhellen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aclarar los colores en modo oscuro"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Éclaircir les couleurs en mode sombre"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダークモードで色を明るくする"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다크 모드에서 색상 밝게 하기"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在深色模式下调亮颜色"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在深色模式下調亮顏色"
-          }
-        }
-      }
-    },
-    "settings.workspaceColors.brightenInDarkMode.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. Turn off to show colors exactly as chosen. Applies to Solid Fill; the Left Rail indicator always uses a lightened rail."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يفتّح ألوان مساحات العمل في الوضع الداكن لتبقى مقروءة على شريط جانبي داكن. أوقفه لعرض الألوان كما اخترتها تمامًا. ينطبق على «تعبئة بلون خالص»؛ يستخدم «العمود الأيسر» دائمًا عمودًا مُفتَّحًا."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hellt Arbeitsbereichsfarben im dunklen Modus auf, damit sie auf einer dunklen Seitenleiste lesbar bleiben. Deaktivieren, um Farben genau wie gewählt anzuzeigen. Gilt für „Vollfarbige Füllung“; „Linke Leiste“ verwendet immer eine aufgehellte Leiste."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aclara los colores de los espacios de trabajo en modo oscuro para que sigan siendo legibles sobre una barra lateral oscura. Desactívalo para mostrar los colores exactamente como los elegiste. Se aplica a «Relleno sólido»; «Riel izquierdo» siempre usa un riel aclarado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Éclaircit les couleurs des espaces de travail en mode sombre pour qu'elles restent lisibles sur une barre latérale sombre. Désactivez pour afficher les couleurs exactement comme choisies. S'applique à « Remplissage plein » ; « Rail gauche » utilise toujours un rail éclairci."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダークモードでワークスペースの色を明るくし、暗いサイドバー上でも読みやすく保ちます。オフにすると選んだ色をそのまま表示します。「塗りつぶし」に適用されます。「左レール」は常に明るくしたレールを使います。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다크 모드에서 작업 공간 색상을 밝게 하여 어두운 사이드바에서도 잘 보이게 합니다. 끄면 선택한 색상을 그대로 표시합니다. '단색 채우기'에 적용되며, '왼쪽 레일'은 항상 밝게 한 레일을 사용합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在深色模式下调亮工作区颜色，使其在深色侧边栏上保持清晰可读。关闭后将完全按照所选颜色显示。仅适用于“实心填充”；“左侧竖条”始终使用调亮的竖条。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在深色模式下調亮工作區顏色，使其在深色側邊欄上保持清晰可讀。關閉後會完全依照所選顏色顯示。僅適用於「實心填滿」；「左側導軌」一律使用調亮的導軌。"
-          }
-        }
-      }
-    },
     "cli.agentMessage.invalidLimit": {
       "extractionState": "manual",
       "localizations": {
@@ -640828,6 +641526,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@이(가) 아직 작업 중입니다. 현재 탭이 닫힙니다."
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.workspaceColors.brighten-dark-mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 明るく ダークモード ワークスペース 色 塗りつぶし"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 调亮 深色模式 工作区 颜色 填充"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 調亮 深色模式 工作區 顏色 填滿"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color 밝게 다크 모드 작업 공간 색상 채우기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color aufhellen dunkler Modus Arbeitsbereich Farben Füllung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color aclarar modo oscuro espacio de trabajo colores relleno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color éclaircir mode sombre espace de travail couleurs remplissage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color تفتيح الوضع الداكن مساحة العمل الألوان تعبئة"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.brightenInDarkMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brighten Colors in Dark Mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفتيح الألوان في الوضع الداكن"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farben im dunklen Modus aufhellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aclarar los colores en modo oscuro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Éclaircir les couleurs en mode sombre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークモードで色を明るくする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다크 모드에서 색상 밝게 하기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在深色模式下调亮颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在深色模式下調亮顏色"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.brightenInDarkMode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. Turn off to show colors exactly as chosen. Applies to Solid Fill; the Left Rail indicator always uses a lightened rail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتّح ألوان مساحات العمل في الوضع الداكن لتبقى مقروءة على شريط جانبي داكن. أوقفه لعرض الألوان كما اخترتها تمامًا. ينطبق على «تعبئة بلون خالص»؛ يستخدم «العمود الأيسر» دائمًا عمودًا مُفتَّحًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hellt Arbeitsbereichsfarben im dunklen Modus auf, damit sie auf einer dunklen Seitenleiste lesbar bleiben. Deaktivieren, um Farben genau wie gewählt anzuzeigen. Gilt für „Vollfarbige Füllung“; „Linke Leiste“ verwendet immer eine aufgehellte Leiste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aclara los colores de los espacios de trabajo en modo oscuro para que sigan siendo legibles sobre una barra lateral oscura. Desactívalo para mostrar los colores exactamente como los elegiste. Se aplica a «Relleno sólido»; «Riel izquierdo» siempre usa un riel aclarado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Éclaircit les couleurs des espaces de travail en mode sombre pour qu'elles restent lisibles sur une barre latérale sombre. Désactivez pour afficher les couleurs exactement comme choisies. S'applique à « Remplissage plein » ; « Rail gauche » utilise toujours un rail éclairci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダークモードでワークスペースの色を明るくし、暗いサイドバー上でも読みやすく保ちます。オフにすると選んだ色をそのまま表示します。「塗りつぶし」に適用されます。「左レール」は常に明るくしたレールを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다크 모드에서 작업 공간 색상을 밝게 하여 어두운 사이드바에서도 잘 보이게 합니다. 끄면 선택한 색상을 그대로 표시합니다. '단색 채우기'에 적용되며, '왼쪽 레일'은 항상 밝게 한 레일을 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在深色模式下调亮工作区颜色，使其在深色侧边栏上保持清晰可读。关闭后将完全按照所选颜色显示。仅适用于“实心填充”；“左侧竖条”始终使用调亮的竖条。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在深色模式下調亮工作區顏色，使其在深色側邊欄上保持清晰可讀。關閉後會完全依照所選顏色顯示。僅適用於「實心填滿」；「左側導軌」一律使用調亮的導軌。"
           }
         }
       }
