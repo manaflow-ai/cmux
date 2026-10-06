@@ -26,7 +26,7 @@ test("linkedin.post: draft, then the confirmed draft posts through the share com
   const d = await s.value('sites.linkedin.post("Hiring compiler engineers.")');
   assert.equal(env.state.linkedinPosts.length, 0);
   assert.deepEqual(await s.value(`sites.linkedin.post(${JSON.stringify(d.id)}, { confirm: true })`), { status: "posted" });
-  assert.deepEqual(env.state.linkedinPosts, [{ text: "Hiring compiler engineers." }]);
+  assert.deepEqual(env.state.linkedinPosts, [{ text: "Hiring compiler engineers.", settings: "Ada LovelacePost to Anyone" }]);
 });
 
 test("x.user, timeline, search and tweet read profile and post cards with counts", async () => {

@@ -46,7 +46,9 @@ rules neither reference enforces together:
    channel id and name, the Gmail thread and its message ids and the To,
    Cc and Bcc Gmail's Reply (all) addresses, the Google file id with its
    title and sharing, a Slides object id with its title and position, the
-   Notion page, the WebMCP tool's descriptor); and every other field the
+   Notion page, the WebMCP tool's descriptor, the name a LinkedIn post
+   goes out as, the member's and never a company page's, and its
+   audience); and every other field the
    preview shows (**content**). The confirmation prepares the write (opens
    the composer, fills it) and then, right before the click or request
    that writes, reads every one of those fields back from the site and
@@ -138,7 +140,7 @@ shortcuts for the agent to drive by hand.
 | YouTube | `youtube.search/getMetadata/listTranscriptLanguages/getTranscript/getComments` | `content.exportYouTubeTranscript()` (turns captions on in the player, reads the caption URL it requests) | `sites.youtube.search`, `.metadata`, `.captions`, `.transcript(v, { lang, timestamps, format })` (direct caption URL, else reference B's player method in a muted background tab), `.comments(v, { limit, continuation })`; also `page.exportContent({ transcript: true })` |
 | Slack | `slack.listWorkspaces`, `slack.getClient()` returns a full `@slack/web-api` client holding the token (every method, posts with no gate) | none | `sites.slack.workspaces`, `.channels`, `.history(team, "#name")`, `.replies`, `.search`, `.user`, `.call()` (read-only methods only), `.post()` draft; the token stays in the app.slack.com page |
 | Notion | `notion.getClient()` (extracts `token_v2`; full client with deletes and moves) | none | `sites.notion.accounts`, `.search`, `.read(url)` (Markdown), `.append(page, markdown)` draft; same-origin calls, the httpOnly cookie never leaves the page |
-| LinkedIn | `linkedin.getMe/getProfile/searchPeople/searchCompanies/getCompany/getJob/getUserPosts/getInbox/getConversation/sendMessage/sendInvitation/accept/ignore/withdraw` (no gate) | none | `sites.linkedin.me`, `.profile`, `.search(q, { type })`, `.feed`, `.post(text)` draft. Messages and invitations: decision 7 |
+| LinkedIn | `linkedin.getMe/getProfile/searchPeople/searchCompanies/getCompany/getJob/getUserPosts/getInbox/getConversation/sendMessage/sendInvitation/accept/ignore/withdraw` (no gate) | none | `sites.linkedin.me`, `.profile`, `.search(q, { type })`, `.feed`, `.post(text)` or `.post({ text, audience })` draft. Messages and invitations: decision 7 |
 | X (Twitter) | `twitter.getMe/getUser/getTweet/getTweetThread/getTimeline/search/getUserTweets/getBookmarks/tweet/reply/like/retweet/follow/DMs/block/mute` (no gate) | none | `sites.x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet(id)` (post and replies), `.post(text \| { text, replyTo })` draft. Likes, follows, DMs: decision 7 |
 | GitHub | guide | none | `sites.github.issue`, `.pull(ref, { diff })`, `.diff`, `.issues(repo, { query, pulls })`, `.file(repo, path, { ref })`; private repositories through the session |
 | Linear | guide | none | `sites.linear.viewer`, `.issue`, `.search`, `.assigned`, `.query(text, variables, { operationName })` (read-only GraphQL) |
@@ -192,7 +194,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues` and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
-| `linkedin.post(text)` | draft naming the member id and public identifier; confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), Post | write [9] |
+| `linkedin.post(text)`, `linkedin.post({ text, audience })` | draft naming the member id and public identifier (account), and the member's name the composer posts as and the audience, `"anyone"` (default, shown as `Anyone`) or `"connections"` (`Connections only`) (target); confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), the composer's header (`<name> Post to <audience>`, which keeps LinkedIn's last choice of identity and audience) checked, so a post as a company page or to another audience fails with `target_mismatch` and a header it cannot read with `target_unverified`, then Post (the button itself, never the header) | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
 | `x.post(text \| { text, replyTo })` | draft naming the account X authenticates (its account settings endpoint, with X's public web bearer token and the `ct0` CSRF value); confirmed: Web Intent `/intent/post`, the whole text checked, the account asked again from that page, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |

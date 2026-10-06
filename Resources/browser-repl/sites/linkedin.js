@@ -66,6 +66,40 @@
     return out;
   }
 
+  // The share composer's header, read in the agent's world right before
+  // Post: who the post goes out as (the member, or a company page they
+  // admin) and its audience, from the control that shows "<name> Post to
+  // <audience>". Its text is read node by node, at most 400 characters; a
+  // header that is missing, ambiguous or longer gives nothing, so the
+  // commit fails closed (target_unverified).
+  function composerSettings() {
+    const dialog = document.querySelector('div[role="dialog"]');
+    if (!dialog) return {};
+    const textOf = (el) => {
+      let out = "";
+      const walker = document.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        out += n.data;
+        if (out.length > 400) return null;
+      }
+      return out.replace(/\s+/g, " ").trim();
+    };
+    let found = null;
+    let seen = 0;
+    const walker = document.createTreeWalker(dialog, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let el = walker.nextNode(); el && ++seen <= 5000; el = walker.nextNode()) {
+      if (el.localName !== "button" || !el.classList.contains("share-unified-settings-entry-button")) continue;
+      if (found) return {};
+      found = el;
+    }
+    if (!found || seen > 5000) return {};
+    const m = /^(.+?)\s*Post to\s+(.+)$/.exec(textOf(found) || "");
+    return m ? { postAs: m[1], audience: m[2] } : {};
+  }
+
+  // The audiences a post can name, as the composer's header shows them.
+  const AUDIENCES = { anyone: "Anyone", connections: "Connections only" };
+  const settingText = (v) => String(v).replace(/\s+/g, " ").trim().toLowerCase();
   const byType = (json, suffix) => ((json && json.included) || []).filter((x) => typeof x.$type === "string" && x.$type.endsWith(suffix));
 
   S.register(
@@ -125,10 +159,16 @@
         feed(options = {}) {
           return cards(`${ORIGIN}/feed/`, "feed", options.limit || 10);
         },
-        // Draft a post (visible to the user's network): post(text). post(draftId, { confirm: true }) publishes it.
+        // Draft a post: post(text) or post({ text, audience }), audience
+        // "anyone" (default) or "connections", as the signed-in member.
+        // post(draftId, { confirm: true }) publishes it.
         post(input, options) {
-          return t.write("linkedin", "post", input, options, async (text) => {
+          return t.write("linkedin", "post", input, options, async (p) => {
+            const spec = typeof p === "string" ? { text: p } : p || {};
+            const text = spec.text;
             if (typeof text !== "string" || !text.trim()) throw new S.SiteError("invalid", "linkedin.post: expected the post text");
+            const audience = AUDIENCES[spec.audience === undefined ? "anyone" : spec.audience];
+            if (!audience) throw new S.SiteError("invalid", `linkedin.post: audience: expected "anyone" or "connections", got ${JSON.stringify(spec.audience)}`);
             // The draft pins the signed-in member (its immutable member id
             // and public identifier); another session can sign in as
             // someone else before the confirmation.
@@ -136,20 +176,28 @@
             const account = who.publicIdentifier;
             const memberId = who.id;
             if (!account || !memberId) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell which LinkedIn member is signed in");
+            // The target: the post goes out as the member (not a company
+            // page they admin), by the name the composer shows, to
+            // `audience`. The composer keeps LinkedIn's last choice of
+            // both, which another session can change.
+            const postAs = [who.firstName, who.lastName].filter(Boolean).join(" ");
+            if (!postAs) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell the signed-in member's name, which the share composer shows as who it posts as");
             return {
               category: "[9] representational communication (public post)",
-              summary: `Publish a LinkedIn post as ${account} (${text.length} characters)`,
+              summary: `Publish a LinkedIn post as ${account} to ${audience} (${text.length} characters)`,
               account: { account, memberId },
+              target: { postAs, audience },
               content: { text },
-              canon: { text: t.normText },
+              canon: { text: t.normText, postAs: settingText, audience: settingText },
               commit: (c) =>
                 t.withTab(`${ORIGIN}/feed/?shareActive=true&text=${encodeURIComponent(text)}`, async (page) => {
                   t.assertSignedIn("linkedin.post", page, SIGN_IN);
                   const box = page.locator('div[role="dialog"] div[role="textbox"]').first();
                   await box.waitFor({ timeout: 30000 });
                   // The member this composer page posts as, read in that
-                  // page (its own session cookie), and the whole text it
-                  // holds, right before Post: the profile can switch
+                  // page (its own session cookie), its header's identity
+                  // and audience, and the whole text it holds, right
+                  // before Post: the profile can switch
                   // accounts while the composer loads. The member is read
                   // once more as the last read before the click; a switch
                   // between that read and the click is the remaining window
@@ -160,13 +208,14 @@
                     return { ...(now && now.publicIdentifier ? { account: now.publicIdentifier } : {}), ...(now && now.id ? { memberId: now.id } : {}) };
                   };
                   return c.write(
-                    async () => ({ ...(await memberNow()), text: await t.composerText(box) }),
+                    async () => ({ ...(await memberNow()), ...(await t.readBack(page, composerSettings)), text: await t.composerText(box) }),
                     async (press) => {
                       await press();
                       await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
                       return { status: "posted" };
                     },
-                    { submit: page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first(), account: memberNow },
+                    // The Post button itself, never the header's "Post to …" control.
+                    { submit: page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:text-is("Post")').first(), account: memberNow },
                   );
                 }),
             };
