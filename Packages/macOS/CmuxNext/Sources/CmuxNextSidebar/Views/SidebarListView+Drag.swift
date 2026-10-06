@@ -80,7 +80,6 @@ extension SidebarListView {
         autoscroll.stop()
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
-        var created: GroupID?
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
@@ -90,7 +89,7 @@ extension SidebarListView {
             model.send(.reorderGroup(group, index: position.index))
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
             // The target first, then the dragged rows (the Arc/Dia order).
-            created = SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin)
+            drag.renameOnLand = SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin)
         case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }
@@ -98,7 +97,6 @@ extension SidebarListView {
         suppressed = drag.hiddenKeys
         reload(animated: true)
         land(drag)
-        if let created, groups[created] != nil { inlineRename.begin(.group(created)) }
     }
     func cancelDrag() {
         guard let drag else { return }
@@ -118,6 +116,7 @@ extension SidebarListView {
             for key in drag.hiddenKeys { self.rowViews[key]?.alphaValue = 1 }
             self.decorations.setPill(self.activePillFrame(in: self.displayed), animated: false)
             self.updateHover()
+            if let group = drag.renameOnLand, self.groups[group] != nil { self.inlineRename.begin(.group(group)) }
         }
     }
 }
