@@ -146,6 +146,8 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Whether attached photos and videos send their location.
+        "home.attachments.keepLocation": .privacy,
         "app.quitBehavior": .destructive,
         // Off, a close ends running programs and agents without asking.
         "app.warnBeforeClosingTab": .destructive,

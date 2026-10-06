@@ -24,6 +24,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home attach",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
+            // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).
+            ActionDescriptor(
+                id: "home.saveFlightRecording", title: t("action.home.saveFlightRecording", "Save Last 10 Seconds"),
+                keywords: ["home", "flight recorder", "blink", "debug", "record", "dump", "messages"],
+                category: .window, symbol: "record.circle", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
         ]
     }
 
