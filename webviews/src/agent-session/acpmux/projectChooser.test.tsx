@@ -163,7 +163,7 @@ test("the fresh-chat folder menu shows recent project names with paths and Brows
   const rows = () =>
     [...doc.querySelectorAll('.acpmux-project-menu [role="option"]')].map((row) => [
       row.querySelector(".acpmux-menu-label")?.textContent,
-      row.querySelector(".acpmux-menu-description")?.textContent,
+      row.querySelector(".acpmux-menu-description")?.getAttribute("data-path"),
     ]);
   expect(rows()).toEqual([
     ["cmux", "/Users/me/code/cmux"],

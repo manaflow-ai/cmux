@@ -166,6 +166,7 @@ export function ProjectChooser({
                 tabIndex={-1}
                 aria-selected={index === selected}
                 aria-checked={project.cwd === current}
+                aria-label={`${project.label}, ${project.cwd}`}
                 className={`acpmux-menu-item${index === selected ? " acpmux-menu-active" : ""}`}
                 title={project.cwd}
                 onPointerMove={() => setActive(project.cwd)}
@@ -177,7 +178,7 @@ export function ProjectChooser({
                 {icon}
                 <span className="acpmux-menu-text">
                   <span className="acpmux-menu-label">{project.label}</span>
-                  <span className="acpmux-menu-description">{project.cwd}</span>
+                  <span className="acpmux-menu-description" data-path={project.cwd} />
                 </span>
               </div>
             ))}
