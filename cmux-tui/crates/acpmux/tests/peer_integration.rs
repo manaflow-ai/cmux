@@ -338,7 +338,7 @@ async fn a_web_prompt_for_an_unresolved_key_is_refused_and_one_for_a_peer_sessio
 /// user (its unix socket) is not gated.
 #[tokio::test]
 async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() {
-    let root = std::env::temp_dir().join(format!("api-trust-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("api-tg-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("work")).unwrap();
     std::fs::create_dir_all(root.join("home")).unwrap();
