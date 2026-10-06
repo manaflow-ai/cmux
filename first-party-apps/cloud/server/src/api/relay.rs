@@ -9,8 +9,8 @@
 //! - server -> host: `{"type":"result","id","ok","result"|"error"}`
 //! - server -> host: `{"type":"event","event":"cloud.machine.watch","data"}`
 //!   with `data` = `{"type":"upsert","revision","machine"}` or
-//!   `{"type":"removed","revision","id"}`; `{"type":"event","event":"cloud.link.changed",...}`;
-//!   `{"type":"event","event":"cloud.port.changed","machine","kind":"forward"|"browser",
+//!   `{"type":"removed","revision","id"}`; `{"type":"event","event":"cloud.link.changed","data"}`;
+//!   `{"type":"event","event":"cloud.port.changed","data"}` with `data` = `{"machine","kind",
 //!   "port"?,"host","localPort","generation","state":"down","reason"}` when a link change
 //!   closed a forward or a browser route. Link and port lines go out as soon as the
 //!   loop is free (with no op after the change); while an op runs (a relay call, or a

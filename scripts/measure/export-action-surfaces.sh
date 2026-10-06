@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates plans/cmux-next/action-surfaces.json and actions.md, then the
+# Regenerates plans/cmux-next/action-surfaces.json, actions.md and links.json, then the
 # docs copy web/data/cmux-shortcuts.generated.json, on a fleet step (never on
 # a laptop), and prints them base64 between BEGIN/END markers:
 #   cmux-ci run --class exclusive --script scripts/measure/export-action-surfaces.sh --ref <sha> [--arg=--catalog-only]
@@ -23,8 +23,8 @@ elif [[ -z "$BUN" ]]; then
   exit 1
 fi
 export CMUX_UPDATE_ACTION_SURFACES=1
-swift test --package-path Packages/macOS/CmuxNext --filter ActionSurfaceParityTests
-files=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md)
+swift test --package-path Packages/macOS/CmuxNext --filter 'ActionSurfaceParityTests|LinkExportTests'
+files=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 if [[ -n "$BUN" ]]; then
   "$BUN" web/scripts/export-docs-shortcuts.ts
   files+=(web/data/cmux-shortcuts.generated.json)
