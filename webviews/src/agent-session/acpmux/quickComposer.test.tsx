@@ -325,9 +325,7 @@ test("Enter runs the command here: its block shows in the transcript and the nex
   expect(block!.querySelector(".acpmux-shell-block-command")!.textContent).toBe("git status");
   expect(block!.textContent).toContain("On branch main");
   // "Open in terminal" is the block's action, never automatic.
-  await act(async () =>
-    block!.querySelector<HTMLButtonElement>(".acpmux-shell-block-open")!.click(),
-  );
+  await act(async () => block!.querySelector<HTMLButtonElement>(".acpmux-shell-block-open")!.click());
   expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false }]);
   await type("why?");
   await key("Enter");

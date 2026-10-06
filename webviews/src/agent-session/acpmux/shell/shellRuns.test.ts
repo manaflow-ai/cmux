@@ -165,7 +165,16 @@ describe("shell context for the agent", () => {
 
   test("a long output keeps its end, which is where errors are", () => {
     const output = "x".repeat(40_000) + "\nthe error\n";
-    const run: ShellRun = { id: "r", command: "build", startedAt: 1, status: "done", exitCode: 0, output, truncated: false, version: 1 };
+    const run: ShellRun = {
+      id: "r",
+      command: "build",
+      startedAt: 1,
+      status: "done",
+      exitCode: 0,
+      output,
+      truncated: false,
+      version: 1,
+    };
     const [filled] = shellContextAttachments([shellAttachment(run)], () => run);
     expect(filled!.text!.length).toBeLessThan(20_000);
     expect(filled!.text).toContain("the error");

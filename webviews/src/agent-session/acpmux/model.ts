@@ -3,6 +3,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
+import type { ShellRun } from "./shell/shellRuns";
 
 export type AcpmuxRow = {
   id: string;
@@ -37,6 +38,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
+  shell?: ShellRun;
 };
 
 export type AcpmuxActivity = {

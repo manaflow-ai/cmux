@@ -1,13 +1,6 @@
 import { expect, test } from "bun:test";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
-import {
-  MAX_AGENT_ROWS,
-  orderedAgents,
-  recentChatCards,
-  screenRows,
-  shellEntry,
-  type ScreenRow,
-} from "./screenModel";
+import { MAX_AGENT_ROWS, orderedAgents, recentChatCards, screenRows, shellEntry, type ScreenRow } from "./screenModel";
 
 const agents = [
   { id: "claude", name: "Claude Code" },
