@@ -239,12 +239,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// judges it, in the workspace that holds it now, so the gate refuses
     /// every later script and input step once the tab moved out of the
     /// session's workspace (``BrowserReplFrameGate/checkTab(in:)``). A web
-    /// view no attached tab shows counts as a user's tab, and no workspace
-    /// is judged for it.
+    /// view no attached tab shows (the last session left a tab the user
+    /// moved to another workspace) counts as a user's tab in the workspace
+    /// that holds it now, and one no workspace holds is refused: the
+    /// session's workspace is always judged.
     @MainActor
     private func frameGateScope(_ webView: WKWebView) -> BrowserReplFrameGate.Scope {
         guard let panel = BrowserReplTabAttachments.shared.attachment(showing: webView)?.panel else {
-            return BrowserReplFrameGate.Scope(sessionID: sessionID, fileRoots: currentFileRoots, tab: BrowserReplTabFacts(mainFrameURL: webView.url))
+            let holder = Self.browserPanelEntries().first { $0.panel.webView === webView }
+            return BrowserReplFrameGate.Scope(
+                sessionID: sessionID,
+                fileRoots: currentFileRoots,
+                tab: BrowserReplTabFacts(id: holder?.panel.id, mainFrameURL: webView.url, workspaceID: holder?.workspace.id),
+                workspaceID: workspaceID
+            )
         }
         return BrowserReplFrameGate.Scope(
             sessionID: sessionID,
@@ -620,10 +628,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// The tab capability the method needs (``BrowserReplMethodSpec/target``),
-    /// judged by the authority on the tab `targetId` names.
+    /// judged by the authority on the tab `targetId` names. A tab the
+    /// session may no longer reach (the user moved it to another workspace
+    /// while the call ran) fails the call, never passes as a missing tab.
     @MainActor
     private func checkTab(_ spec: BrowserReplMethodSpec, params: [String: Any]) throws {
-        guard let capability = spec.capability, let panel = targetPanel(params) else { return }
+        guard let capability = spec.capability,
+              let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+              let panel = try reachablePanel(id) else { return }
         try authority.verdict(BrowserReplAccess(in: tabFacts(panel), capability: capability)).check()
     }
 

@@ -379,8 +379,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   created stays its own wherever it moves). A call already in flight when
   the tab moves stops too: the frame gate asks the tab capability, with
   the tab's workspace as it is then, before every script it runs and every
-  input it guards, the driver before each native mouse, drag, key and text
-  step, and again before it hands back a result, so the moved tab is
+  input it guards and again when that script returns, the driver before
+  each native mouse, drag, key and text step (also when the move left no
+  session attached to the tab), and again before it hands back a result
+  (a tab it can no longer reach fails the call), so the moved tab is
   neither read nor sent input and the call fails with `denied`. A
   navigation the session started there (`tab.navigate`, `tab.history`,
   `tab.reload`) that has not committed when the session leaves the tab

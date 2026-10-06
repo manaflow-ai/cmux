@@ -474,7 +474,11 @@ public final class BrowserReplFrameGate {
     ) async throws -> Any? {
         try checkTab(in: webView)
         guard isActive(in: webView) else {
-            return try await webView.browserReplCallAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld, userGesture: userGesture)
+            let value = try await webView.browserReplCallAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld, userGesture: userGesture)
+            // The tab may have moved out of the session's workspace while
+            // the script ran: its result is not handed on.
+            try checkTab(in: webView)
+            return value
         }
         let key = key(frame, webView)
         // An opaque document's origin and place do not tell it from the
@@ -525,6 +529,9 @@ public final class BrowserReplFrameGate {
                 // A blocked frame of the site that loaded while the script
                 // ran: its result is not handed on.
                 if reaches { try await checkReach(from: expected, frame: frame, in: webView) }
+                // Nor from a tab that moved out of the session's workspace
+                // (or whose call was cancelled) while the script ran.
+                try checkTab(in: webView)
                 known[key] = expected
                 return value
             }
