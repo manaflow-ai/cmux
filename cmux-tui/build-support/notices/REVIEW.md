@@ -23,8 +23,8 @@ every row is a choice that the tool cannot make from crate metadata. No license 
 | --- | --- | --- | --- | --- |
 | deltae 0.3.2 | `docs/doc/LICENSE-APACHE.txt` | https://crates.io/api/v1/crates/deltae/0.3.2/download | `a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2` | Copies of the crate's own top-level license texts inside its documentation. |
 | deltae 0.3.2 | `docs/doc/LICENSE-MIT.txt` | https://crates.io/api/v1/crates/deltae/0.3.2/download | `23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3` | Copies of the crate's own top-level license texts inside its documentation. |
-| libsqlite3-sys 0.30.1 | `sqlcipher/LICENSE` | https://crates.io/api/v1/crates/libsqlite3-sys/0.30.1/download | `ea4fcb309f14a22065e1ea45362d494d320012249ed865fe9c7c0946db754131` | SQLCipher is compiled only with the bundled-sqlcipher feature; cmux-tui enables `bundled` (plain SQLite, public domain). |
-| libsqlite3-sys 0.37.0 | `sqlcipher/LICENSE` | https://crates.io/api/v1/crates/libsqlite3-sys/0.37.0/download | `ea4fcb309f14a22065e1ea45362d494d320012249ed865fe9c7c0946db754131` | SQLCipher is compiled only with the bundled-sqlcipher feature; cmux-tui enables `bundled` (plain SQLite, public domain). |
+| libsqlite3-sys 0.30.1 | `sqlcipher/LICENSE` | https://crates.io/api/v1/crates/libsqlite3-sys/0.30.1/download | `ea4fcb309f14a22065e1ea45362d494d320012249ed865fe9c7c0946db754131` | SQLCipher is compiled only with the bundled-sqlcipher feature; cmux-tui and optchat-host enable only `bundled` (plain SQLite, public domain). |
+| libsqlite3-sys 0.37.0 | `sqlcipher/LICENSE` | https://crates.io/api/v1/crates/libsqlite3-sys/0.37.0/download | `ea4fcb309f14a22065e1ea45362d494d320012249ed865fe9c7c0946db754131` | SQLCipher is compiled only with the bundled-sqlcipher feature; cmux-tui and optchat-host enable only `bundled` (plain SQLite, public domain). |
 | rquickjs-sys 0.14.0 | `vendor/wasi-libc/NOTICE.md` | https://crates.io/api/v1/crates/rquickjs-sys/0.14.0/download | `0a0e814a210338c57b9d65eb516546045c0ca8caa308bf29aa3736236b08346b` | wasi-libc is used only for wasm targets; the macOS binaries do not link it. |
 
 ## Elections (`elections`)
