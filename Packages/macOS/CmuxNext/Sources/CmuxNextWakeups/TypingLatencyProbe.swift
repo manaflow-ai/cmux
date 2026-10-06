@@ -79,7 +79,7 @@ public final class TypingLatencyProbe: Sendable {
     }
 
     /// Opens a sample for a key-down whose `NSEvent.timestamp` is `eventTimestamp`.
-    public func keyDown(eventTimestamp: TimeInterval) {
+    public func keyDown(eventTimestamp: Double) {
         guard output != nil else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let event = eventTimestamp > 0 ? UInt64(eventTimestamp * 1_000_000_000) : now
