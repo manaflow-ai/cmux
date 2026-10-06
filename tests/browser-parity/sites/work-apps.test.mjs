@@ -211,3 +211,30 @@ test("signed out: each API reports not_signed_in", async () => {
     await out.close();
   }
 });
+
+// r21 sites#2: the confirmed Notion write runs in the agent's isolated
+// world. The interceptor stands in for a Notion page whose own scripts
+// patched fetch, XMLHttpRequest and JSON in the page's world: every
+// page-world evaluation that carries saveTransactions is "seen" by the
+// page (which could also rewrite or exfiltrate it). The confirmed append
+// must not reach the page's world at all, and the write lands with the
+// drafted content.
+test("notion.append: the confirmed saveTransactions never runs in the page's world, so page-patched request primitives cannot see or change it", async () => {
+  const PAGE = "https://www.notion.so/acme/Team-Handbook-1a2b3c4d00004000800000000000abcd";
+  const seen = [];
+  try {
+    await s.run(`var nW = await sites.notion.append(${JSON.stringify(PAGE)}, "Only the agent world sends this.")`);
+    s.intercept(async (method, params) => {
+      if (method === "frame.evaluate" && params.world === "page" && JSON.stringify(params).includes("saveTransactions")) seen.push(method);
+      return undefined;
+    });
+    const ops = env.state.notionOps.length;
+    await s.value("sites.notion.append(nW.id, { confirm: true })");
+    assert.equal(seen.length, 0, "the page's world saw the confirmed write");
+    assert.ok(env.state.notionOps.length > ops, "the confirmed write did not reach Notion");
+    assert.ok(JSON.stringify(env.state.notionOps.slice(ops)).includes("Only the agent world sends this."), "the write lost the drafted content");
+  } finally {
+    s.intercept(null);
+  }
+});
+
