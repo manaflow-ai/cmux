@@ -26,7 +26,7 @@
      override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
          super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
          onMarkedTextChange()
-@@ -40,6 +52,7 @@
+@@ -140,6 +152,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -34,7 +34,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -121,7 +134,8 @@
+@@ -222,7 +235,8 @@
      var onSendPulse: ((CFTimeInterval) -> Void)?
  
      static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
@@ -44,7 +44,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
-@@ -134,8 +148,8 @@
+@@ -235,8 +249,8 @@
          default: return .limited
          }
      }()
@@ -55,7 +55,7 @@
      }
      private var dx: CGFloat { bounds.width - Fixture.windowWidth }
      private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
-@@ -334,11 +348,11 @@
+@@ -436,11 +450,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -69,7 +69,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -398,7 +412,7 @@
+@@ -500,7 +514,7 @@
          placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -78,7 +78,7 @@
          let old = fieldHeight
          fieldHeight = h
          place(height: h)
-@@ -476,7 +490,7 @@
+@@ -578,7 +592,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

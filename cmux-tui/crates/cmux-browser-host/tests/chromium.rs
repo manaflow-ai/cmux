@@ -110,6 +110,8 @@ fn serve() -> u16 {
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
                     "/files" => files_page(),
+                    "/clip" => clipboard::clip_page(),
+                    "/leak" => clipboard::leak_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
@@ -1102,3 +1104,7 @@ mod sessions;
 #[path = "chromium/files.rs"]
 mod files;
 use files::files_page;
+
+// The tab clipboard on the shared headless browser (item 19).
+#[path = "chromium/clipboard.rs"]
+mod clipboard;

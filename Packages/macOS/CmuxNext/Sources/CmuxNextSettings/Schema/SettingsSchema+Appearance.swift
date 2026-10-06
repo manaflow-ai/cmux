@@ -4,6 +4,7 @@ public import CoreGraphics
 
 nonisolated enum AppearanceSettingsSchema {
     static var descriptors: [SettingDescriptor] {
+        let uiScale = UIScaleSetting()
         let look = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         let panes = SettingsText.keyed("settings.group.panes", "Panes")
         let ring = SettingsText.keyed("settings.group.focusRing", "Focus Ring")
@@ -103,6 +104,13 @@ nonisolated enum AppearanceSettingsSchema {
                     SettingChoice("comfortable", SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
                 ]),
                 default: "compact", keywords: ["size", "spacing"]
+            ),
+            SettingDescriptor(
+                uiScale.configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
+                kind: .number(SettingNumber(uiScale.range, step: uiScale.step, unit: .fraction, placeholder: uiScale.fallback)),
+                default: .number(uiScale.fallback),
+                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
             ),
             SettingDescriptor(
                 InterfaceSizeSetting().configPath, section: .appearance, group: look,

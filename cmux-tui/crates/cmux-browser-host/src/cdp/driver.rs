@@ -54,9 +54,11 @@ pub(super) struct Inner {
     /// Browser contexts this driver created (proxy stores); every other tab
     /// is in the default context, which `Storage.*` names by omission.
     pub(super) proxy_contexts: Mutex<std::collections::HashSet<String>>,
-    /// A browser the driver owns (headless) intercepts every file chooser
-    /// (`choosers.rs`); an app's CEF tab keeps the app's Open panel.
-    pub(super) intercept_choosers: bool,
+    /// A browser the driver owns (headless, or headful on Xvfb) has no
+    /// person's UI: it intercepts every file chooser (`choosers.rs`) and
+    /// runs Copy, Cut and Paste on the tab's clipboard (`clipboard.rs`). An
+    /// app's CEF tab keeps the app's Open panel and clipboard.
+    pub(super) owns_browser: bool,
 }
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
@@ -114,7 +116,7 @@ impl Inner {
         agent_source: Arc<str>,
         events: EventSink,
         hidden_viewport: Option<(i64, i64)>,
-        intercept_choosers: bool,
+        owns_browser: bool,
     ) -> Result<Arc<Inner>, DriverError> {
         let event_tx = super::dispatch::start(events)?;
         let request_filter = Arc::new(Mutex::new(None));
@@ -134,7 +136,7 @@ impl Inner {
             shells: Mutex::default(),
             default_ua: std::sync::OnceLock::new(),
             proxy_contexts: Mutex::default(),
-            intercept_choosers,
+            owns_browser,
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -156,6 +158,7 @@ impl Inner {
 
 impl CdpDriver {
     fn set_up_browser(inner: &Arc<Inner>, conn: &Arc<CdpConnection>) -> Result<(), DriverError> {
+        super::clipboard::deny_clipboard_permissions(conn, None)?;
         conn.call(None, "Target.setDiscoverTargets", json!({"discover": true}), INTERNAL_TIMEOUT)?;
         conn.call(
             None,
@@ -243,6 +246,7 @@ impl CdpDriver {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(context.clone());
+        super::clipboard::deny_clipboard_permissions(&self.inner.conn, Some(&context))?;
         Ok(context)
     }
 
@@ -316,7 +320,12 @@ impl Driver for CdpDriver {
             "frame.ownerBox" => inner.owner_box(params),
             "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
-            "input.key" => inner.with_chooser_events(method, params, || inner.key(params)),
+            "input.key" => match super::clipboard::shortcut(method, params) {
+                Some(kind) if inner.owns_browser => inner.clipboard_key(kind, params),
+                _ => inner.with_chooser_events(method, params, || inner.key(params)),
+            },
+            "clipboard.read" if inner.owns_browser => inner.clipboard_read(params),
+            "clipboard.write" if inner.owns_browser => inner.clipboard_write(params),
             "input.setFiles" => inner.set_files(params),
             "filechooser.respond" => inner.chooser_respond(params),
             "input.insertText" => inner.insert_text(params),
@@ -437,6 +446,9 @@ impl Inner {
                     INTERNAL_TIMEOUT,
                 );
             }
+            FollowUp::DismissDialog { dialog_id } => {
+                let _ = self.dialog_respond(&json!({"dialogId": dialog_id, "accept": false}));
+            }
             FollowUp::ChooserOpened { target_id, chooser_id } => {
                 self.send_chooser_opened(&target_id, &chooser_id);
             }
@@ -501,12 +513,12 @@ impl Inner {
             ]
             .into_iter()
             .chain(agent.into_iter().flatten())
+            .chain(self.guard_steps(!shell))
             // Request and response events (page.on("request"), ...).
             .chain([("Network.enable", json!({}))])
             // A popup's opener's session.configure options, before its first request.
             .chain(self.inherited_override_steps(target_id))
             .chain(self.hidden_viewport_step().filter(|_| !shell))
-            .chain(super::choosers::intercept_step(self.intercept_choosers && !shell))
             // Out-of-process iframes attach as child sessions of this page.
             .chain([("Target.setAutoAttach", auto_attach)])
             .chain(self.fetch_enable_step())
@@ -514,6 +526,7 @@ impl Inner {
             .collect(),
             SETUP_TIMEOUT,
         );
+        self.intercept_choosers_on(session_id, self.owns_browser && !shell);
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];
             let mut state = self.lock();
@@ -555,12 +568,13 @@ impl Inner {
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()
-            .chain(super::choosers::intercept_step(self.intercept_choosers))
+            .chain(self.guard_steps(true))
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),
             SETUP_TIMEOUT,
         );
+        self.intercept_choosers_on(session_id, self.owns_browser);
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 
@@ -858,6 +872,9 @@ impl Inner {
             ));
         }
         let args = params.get("params").cloned().unwrap_or_else(|| json!({}));
+        if let Some(refused) = super::clipboard::raw_refusal(method, &args) {
+            return Err(refused);
+        }
         self.send_until(&session, method, args, Instant::now() + timeout_of(params))
     }
 }

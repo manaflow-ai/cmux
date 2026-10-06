@@ -29,7 +29,7 @@ pub fn files_page() -> String {
         .to_owned()
 }
 
-fn chrome() -> String {
+pub(crate) fn chrome() -> String {
     std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
         .ok()
         .filter(|value| !value.is_empty())
@@ -37,7 +37,7 @@ fn chrome() -> String {
 }
 
 /// Runs `code` in `session` of the host on `socket` (cmux-browser-host eval).
-fn eval_in(
+pub(crate) fn eval_in(
     socket: &std::path::Path,
     dir: &std::path::Path,
     chrome: &str,

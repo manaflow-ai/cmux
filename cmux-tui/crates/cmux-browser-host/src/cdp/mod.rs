@@ -7,6 +7,7 @@
 mod browser_pages;
 mod capture;
 mod choosers;
+pub mod clipboard;
 mod closed_roots;
 mod connection;
 mod cookies;

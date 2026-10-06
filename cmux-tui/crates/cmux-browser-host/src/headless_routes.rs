@@ -236,7 +236,9 @@ impl Routes {
         let Some(owner) = owner else {
             return Route::Unrouted(kind);
         };
+        // A dialog dismissed during a clipboard command needs no answer.
         if kind == "dialog"
+            && payload.get("dismissedDuring").is_none()
             && let Some(id) = payload.get("dialogId").and_then(Value::as_str)
         {
             self.dialogs.insert(id.to_owned(), (owner, target.to_owned()));

@@ -38,6 +38,14 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.uiScale" : {
+      "default" : 1,
+      "description" : "app.uiScale",
+      "maximum" : 1.5,
+      "minimum" : 0.85,
+      "title" : "Interface Scale",
+      "type" : "number"
+    },
     "app.warnBeforeClosingAgentSession" : {
       "default" : true,
       "description" : "Ask before closing a terminal tab whose agent is still working.",

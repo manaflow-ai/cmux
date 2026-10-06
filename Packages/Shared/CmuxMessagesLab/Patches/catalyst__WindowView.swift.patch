@@ -95,7 +95,7 @@
              return (top > 0 ? countHead(headIDs) : 0, head, dropTail, tail)
          default:
              return nil
-@@ -1055,7 +1062,7 @@
+@@ -1090,7 +1097,7 @@
              return
          }
          let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }
