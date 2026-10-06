@@ -167,10 +167,12 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         let descriptor = openat(folder, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode)
         guard descriptor >= 0 else { return .cannotUndo }
         let written = bytes.withUnsafeBytes { raw -> Bool in
+            // An empty text has no buffer and nothing to write.
+            guard let base = raw.baseAddress else { return true }
             var offset = 0
             while offset < raw.count {
                 // concurrency-allow: only AgentPaneTurnUndo.run (@concurrent) calls this, never the main actor.
-                let count = write(descriptor, raw.baseAddress! + offset, raw.count - offset)
+                let count = write(descriptor, base + offset, raw.count - offset)
                 if count <= 0 { return false }
                 offset += count
             }
