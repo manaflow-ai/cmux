@@ -233,7 +233,7 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {
-        lastInterception = (candidate.id, window)
+        lastInterception = (candidate.id, window, true)
         switch candidate.source {
         case .registry(let argument):
             RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
@@ -274,8 +274,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// The toasts Cmd-Z may undo (`runsUndoToast`); tests replace it.
     var undoToasts: CmuxToastCenter = .shared
 
-    /// The last intercepted action and window (for `debug.key`).
-    private(set) var lastInterception: (action: ActionID, window: String)?
+    /// The last intercepted action, its window, and whether it ran (false:
+    /// refused, such as Cmd-W on a top page) (for `debug.key`).
+    private(set) var lastInterception: (action: ActionID, window: String, ran: Bool)?
 
     // MARK: Chords
 
@@ -330,7 +331,7 @@ final class KeyRouter: BrowserKeyRouting {
         case .armed, .dismissed:
             return true
         case .run(let id, let argument, let arguments):
-            lastInterception = (id, controller.state.id)
+            lastInterception = (id, controller.state.id, true)
             RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
             return true
         case .mismatch:
