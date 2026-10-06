@@ -14,8 +14,10 @@ extension SidebarView {
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
             region.liftHost = self
-            region.onActivateWithModifiers = { [weak self] id, flags in
-                self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
+            region.onActivateWithModifiers = { [weak self, weak region] id, flags in
+                guard let self else { return }
+                if let menu = itemMenuProvider?(id), let view = region?.itemView(id) { return presentItemMenu(menu, view) }
+                model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
             // A drop gives the layout the order the band showed (R77).

@@ -171,6 +171,15 @@ public final class SidebarView: NSView {
         }
     }
 
+    /// A menu a pinned item opens on click instead of running its action
+    /// (the footer avatar's account menu); nil activates the item.
+    public var itemMenuProvider: ((LayoutItemID) -> NSMenu?)?
+    /// Shows an item's click menu above the item (tests capture it).
+    var presentItemMenu: (NSMenu, NSView) -> Void = { menu, view in
+        // Above the item: the footer sits at the window's bottom edge.
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -menu.size.height - Metrics.space1), in: view)
+    }
+
     /// Starts inline rename of a workspace (the "rename workspace" action's
     /// sidebar entrypoint). Commit emits `.rename`.
     public func beginRename(workspace id: WorkspaceID) {
