@@ -976,8 +976,23 @@ native (`BrowserReplBoundary` in the session, and the driver):
   `input.key`, `input.insertText`) and its page-world `frame.evaluate` give
   that tab a user gesture, with which the page's own scripts (and the
   agent's page-world script) can write the system clipboard, as with a
-  person's click (accepted). The agent's clipboard shortcuts and
-  `page.clipboard` are refused there (`unsupported`).
+  person's click (accepted). They never read it: with that gesture WebKit
+  lets a script paste (`execCommand("paste")`) or read `navigator.clipboard`,
+  asking the person with its Paste menu, or not at all when the clipboard
+  holds data the same site copied (measured on macOS 27.0). So while an
+  agent's input or page-world script runs in any tab, and for
+  `BrowserReplTabOwnership.agentGestureLingering` (11 s) after the last one
+  ends (a fetch callback the script set up keeps its gesture up to 10 s),
+  the driver turns WebKit's `DOMPasteAccessRequestsEnabled` off for that web
+  view (`BrowserReplPageClipboard.holdScriptPasteOff`): the page's script
+  paste and clipboard reads fail (`NotAllowedError`, `false`) and no Paste
+  menu opens. Then it is on again, unless it was off before (a tab a
+  session created). Meanwhile a person's Command-V and Edit menu Paste
+  still work (they are not script paste); a page's own Paste button that
+  reads the clipboard by script is refused. A WebKit that cannot turn it
+  off refuses such input and page-world scripts (`unsupported`). The
+  agent's clipboard shortcuts and `page.clipboard` are refused there
+  (`unsupported`).
 - Cookies: the domain policy applies by host, since a cookie belongs to a
   host and not an origin (a pattern's scheme and port do not narrow it).
   `cookies.clear` on a tab that shows a blocked page (its scope is that

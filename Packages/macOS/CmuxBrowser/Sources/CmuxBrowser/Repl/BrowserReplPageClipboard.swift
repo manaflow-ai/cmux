@@ -94,7 +94,7 @@ public struct BrowserReplPageClipboard {
     /// At most this many base64 characters in one write (about 48 MB of data).
     static let maximumBase64Characters = 64 << 20
     private static let asyncClipboardFeature = "AsyncClipboardAPIEnabled"
-    private static let domPasteRequestsFeature = "DOMPasteAccessRequestsEnabled"
+    static let domPasteRequestsFeature = "DOMPasteAccessRequestsEnabled"
     nonisolated(unsafe) private static var installedKey: UInt8 = 0
 
     /// Whether the guard is installed on `webView`'s user content
@@ -217,7 +217,7 @@ public struct BrowserReplPageClipboard {
         return !unsafeBitCast(preferences.method(for: getter), to: Get.self)(preferences, getter, feature)
     }
 
-    private static func feature(named key: String) -> AnyObject? {
+    static func feature(named key: String) -> AnyObject? {
         let selector = NSSelectorFromString("_features")
         guard let method = class_getClassMethod(WKPreferences.self, selector) else { return nil }
         typealias List = @convention(c) (AnyClass, Selector) -> NSArray
@@ -296,22 +296,139 @@ public struct BrowserReplPageClipboard {
     }
 }
 
-/// A hold on script paste being off in a user's tab while an agent's input
-/// or page script runs there (``BrowserReplPageClipboard/holdScriptPasteOff(in:sleeper:lingering:)``).
+/// A hold on script paste being off in a web view while an agent's input or
+/// page script runs there (``BrowserReplPageClipboard/holdScriptPasteOff(in:sleeper:lingering:)``).
 @MainActor
 public final class BrowserReplScriptPasteHold {
-    /// Ends the hold.
-    public func release() {}
+    private var refusal: BrowserReplScriptPasteRefusal?
+
+    fileprivate init(_ refusal: BrowserReplScriptPasteRefusal) {
+        self.refusal = refusal
+    }
+
+    /// Ends the hold, once. Script paste comes back when no hold on the web
+    /// view's preferences is left and the lingering has passed since.
+    public func release() {
+        refusal?.release()
+        refusal = nil
+    }
+}
+
+/// The holds on one `WKPreferences` (web views a page opened can share its
+/// opener's), and what script paste was before the first of them.
+@MainActor
+private final class BrowserReplScriptPasteRefusal {
+    nonisolated(unsafe) static var key: UInt8 = 0
+
+    private weak var preferences: WKPreferences?
+    private var holds = 0
+    /// Whether script paste was on before the holds: a tab a session
+    /// created has it off for its life (the page clipboard guard).
+    private var wasEnabled = false
+    private var restore: Task<Void, Never>?
+
+    init(preferences: WKPreferences) {
+        self.preferences = preferences
+    }
+
+    static func on(_ preferences: WKPreferences) -> BrowserReplScriptPasteRefusal {
+        if let existing = objc_getAssociatedObject(preferences, &key) as? BrowserReplScriptPasteRefusal { return existing }
+        let refusal = BrowserReplScriptPasteRefusal(preferences: preferences)
+        objc_setAssociatedObject(preferences, &key, refusal, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return refusal
+    }
+
+    /// Adds a hold; `false` when script paste could not be turned off.
+    func hold(sleeper: any BrowserReplSleeping, lingering: Duration) -> Bool {
+        guard let preferences else { return false }
+        if holds == 0, restore == nil {
+            wasEnabled = BrowserReplPageClipboard.isFeatureEnabled(in: preferences, featureKey: BrowserReplPageClipboard.domPasteRequestsFeature)
+        }
+        restore?.cancel()
+        restore = nil
+        guard BrowserReplPageClipboard.disableAsyncClipboardAPI(in: preferences, featureKey: BrowserReplPageClipboard.domPasteRequestsFeature) else {
+            if holds == 0 { finish() }
+            return false
+        }
+        holds += 1
+        self.sleeper = sleeper
+        self.lingering = lingering
+        return true
+    }
+
+    private var sleeper: (any BrowserReplSleeping)?
+    private var lingering: Duration = .zero
+
+    func release() {
+        guard holds > 0 else { return }
+        holds -= 1
+        guard holds == 0, let sleeper else { return }
+        let lingering = self.lingering
+        // The page may use the gesture of the input or script that ended for
+        // up to WebKit's forwarding bound (BrowserReplTabOwnership.agentGestureLingering).
+        restore = Task { @MainActor [weak self] in
+            do {
+                try await sleeper.sleep(for: lingering)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled, self.holds == 0 else { return }
+            self.finish()
+        }
+    }
+
+    /// Puts script paste back as it was before the holds.
+    private func finish() {
+        restore = nil
+        sleeper = nil
+        if wasEnabled, let preferences {
+            BrowserReplPageClipboard.setFeature(in: preferences, featureKey: BrowserReplPageClipboard.domPasteRequestsFeature, enabled: true)
+        }
+        wasEnabled = false
+    }
 }
 
 extension BrowserReplPageClipboard {
-    /// Turns script paste off in `webView` for an agent's input or page
-    /// script there.
+    /// Turns script paste (`execCommand("paste")`, `navigator.clipboard`
+    /// reads) off in `webView` while an agent's input or page script runs
+    /// there. A tab no session created has no page clipboard guard, and the
+    /// agent's input or page-world script gives its page a user gesture,
+    /// with which WebKit lets a script read the system clipboard: it asks
+    /// the person with its Paste menu, and grants it without asking when
+    /// the clipboard holds data the same site copied. Agent code never
+    /// reads the system clipboard, so WebKit's DOM paste requests are off
+    /// from the hold until `lingering` after the last hold on the web
+    /// view's preferences is released (the page can still use the gesture
+    /// that long: a fetch callback keeps it for up to 10 s). A person's
+    /// Command-V and Edit menu Paste are not script paste and keep working;
+    /// a page's own Paste button that reads the clipboard by script is
+    /// refused meanwhile. Where script paste was already off (a tab a
+    /// session created), it stays off.
+    /// - Returns: `nil` when this WebKit cannot turn script paste off; the
+    ///   caller then refuses the input or script.
     public static func holdScriptPasteOff(
         in webView: WKWebView,
         sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock()),
         lingering: Duration = BrowserReplTabOwnership.agentGestureLingering
     ) -> BrowserReplScriptPasteHold? {
-        BrowserReplScriptPasteHold()
+        let refusal = BrowserReplScriptPasteRefusal.on(webView.configuration.preferences)
+        guard refusal.hold(sleeper: sleeper, lingering: lingering) else { return nil }
+        return BrowserReplScriptPasteHold(refusal)
+    }
+
+    static func isFeatureEnabled(in preferences: WKPreferences, featureKey: String) -> Bool {
+        guard let feature = feature(named: featureKey) else { return false }
+        let getter = NSSelectorFromString("_isEnabledForFeature:")
+        guard preferences.responds(to: getter) else { return false }
+        typealias Get = @convention(c) (AnyObject, Selector, AnyObject) -> Bool
+        return unsafeBitCast(preferences.method(for: getter), to: Get.self)(preferences, getter, feature)
+    }
+
+    static func setFeature(in preferences: WKPreferences, featureKey: String, enabled: Bool) {
+        guard let feature = feature(named: featureKey) else { return }
+        let setter = NSSelectorFromString("_setEnabled:forFeature:")
+        guard preferences.responds(to: setter) else { return }
+        typealias Set = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void
+        unsafeBitCast(preferences.method(for: setter), to: Set.self)(preferences, setter, enabled, feature)
     }
 }

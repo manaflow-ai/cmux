@@ -2013,6 +2013,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     ) async throws -> Any? {
         var arguments: [String: Any] = ["__args": args, "__handles": handles]
         arguments.merge(extraArguments) { _, new in new }
+        // A page-world script runs with a user gesture, with which WebKit
+        // lets a page read the system clipboard in a tab without the page
+        // clipboard guard (a user's tab): script paste is off while it runs
+        // and while the page can still use that gesture
+        // (BrowserReplPageClipboard.holdScriptPasteOff). The session's input
+        // window (BrowserReplTabAttachment.withInput) holds it too; this one
+        // is at the gesture itself.
+        var pasteHold: BrowserReplScriptPasteHold?
+        if world == WKContentWorld.page {
+            guard let hold = BrowserReplPageClipboard.holdScriptPasteOff(in: panel.webView) else {
+                throw Self.error("unsupported", "This WebKit cannot turn script paste off, so a page script could read the system clipboard; frame.evaluate in the page world is refused")
+            }
+            pasteHold = hold
+        }
+        defer { pasteHold?.release() }
         for attempt in 0..<2 {
             let value: Any?
             do {

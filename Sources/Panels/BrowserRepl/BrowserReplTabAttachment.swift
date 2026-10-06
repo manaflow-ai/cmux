@@ -385,10 +385,31 @@ final class BrowserReplTabAttachment {
     /// Runs `body`, a session's input or navigation on this tab: a dialog or
     /// file chooser the page opens meanwhile goes to that session, also in
     /// a user's tab (``BrowserReplTabOwnership/beginInput(sessionID:)``).
-    func withInput<T>(sessionID: String, _ body: () async throws -> T) async rethrows -> T {
+    ///
+    /// Script paste is off in the tab meanwhile, and for as long after as
+    /// the page can still use the gesture the input gave it
+    /// (``BrowserReplPageClipboard/holdScriptPasteOff(in:sleeper:lingering:)``):
+    /// in a user's tab, which has no page clipboard guard, agent code must
+    /// not read the system clipboard with that gesture.
+    func withInput<T>(sessionID: String, _ body: () async throws -> T) async throws -> T {
+        let hold = try holdScriptPasteOff()
+        defer { hold?.release() }
         ownership.beginInput(sessionID: sessionID)
         defer { ownership.endInput(sessionID: sessionID) }
         return try await body()
+    }
+
+    /// Turns script paste off in the tab's web view for a session's input or
+    /// page script; fails with `unsupported` where WebKit cannot.
+    private func holdScriptPasteOff() throws -> BrowserReplScriptPasteHold? {
+        guard let webView = panel?.webView else { return nil }
+        guard let hold = BrowserReplPageClipboard.holdScriptPasteOff(in: webView) else {
+            throw BrowserReplDriverError(
+                code: "unsupported",
+                message: "This WebKit cannot turn script paste off, so the page could read the system clipboard with the gesture of the session's input or page script; the call is refused"
+            )
+        }
+        return hold
     }
 
     /// Runs `wait`, the wait for a navigation `sessionID` started in this
@@ -417,8 +438,12 @@ final class BrowserReplTabAttachment {
         atMost limit: Duration,
         sleeper: any BrowserReplSleeping,
         _ body: () async throws -> T
-    ) async rethrows -> T {
-        try await BrowserReplBoundedWindow(limit: limit, sleeper: sleeper).run(
+    ) async throws -> T {
+        // Script paste stays off for the whole script, not only the window:
+        // the script holds its gesture until it returns.
+        let hold = try holdScriptPasteOff()
+        defer { hold?.release() }
+        return try await BrowserReplBoundedWindow(limit: limit, sleeper: sleeper).run(
             begin: { ownership.beginInput(sessionID: sessionID) },
             end: { [weak self] in self?.ownership.endInput(sessionID: sessionID) },
             body
