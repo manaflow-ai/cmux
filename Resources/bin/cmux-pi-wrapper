@@ -10,6 +10,8 @@ cmux_pi_wrapper_root="${CMUX_PI_WRAPPER_SHIM_ROOT:-}"
 self_path="$0"
 
 resolve_pi() {
+    # PATH entries are literal directories, even when they contain glob characters.
+    set -f
     local entry candidate
     local old_ifs="$IFS"
     IFS=:
