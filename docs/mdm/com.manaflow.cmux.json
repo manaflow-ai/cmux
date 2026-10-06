@@ -1361,6 +1361,12 @@
       "title" : "Section Look",
       "type" : "string"
     },
+    "sidebar.showCounts" : {
+      "default" : false,
+      "description" : "Shows how many tabs each workspace has.",
+      "title" : "Show Tab Counts",
+      "type" : "boolean"
+    },
     "sidebar.showWorkspaceTabs" : {
       "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",

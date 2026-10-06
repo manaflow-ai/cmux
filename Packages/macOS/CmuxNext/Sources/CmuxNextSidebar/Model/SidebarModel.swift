@@ -54,6 +54,10 @@ public final class SidebarModel {
     @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
+    /// The workspaces whose disclosure hid their tabs: window view state.
+    public var collapsedWorkspaces: Set<WorkspaceID> = []
+    /// Workspace rows show their tab count (`sidebar.showCounts`).
+    public var showCounts = false
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -241,6 +245,17 @@ public final class SidebarModel {
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
         send(.reorder(ids, to: position))
         return true
+    }
+
+    /// The `sidebar.*` settings that shape the workspace list.
+    func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
+        showWorkspaceTabs = preferences.showWorkspaceTabs
+        showCounts = preferences.showCounts
+    }
+
+    /// The disclosure on a workspace row: hide its listed tabs, or list them again.
+    public func toggleWorkspaceTabs(_ id: WorkspaceID) {
+        if collapsedWorkspaces.remove(id) == nil { collapsedWorkspaces.insert(id) }
     }
 
     // MARK: Presentation

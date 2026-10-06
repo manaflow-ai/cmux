@@ -29,6 +29,9 @@ enum Strings {
     static var statusUnreachable: String { String(localized: "sidebar.machine.unreachable", defaultValue: "Unreachable", bundle: .module) }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .module) }
+    static var showTabs: String { String(localized: "sidebar.workspace.showTabs", defaultValue: "Show Tabs", bundle: .module) }
+    static var hideTabs: String { String(localized: "sidebar.workspace.hideTabs", defaultValue: "Hide Tabs", bundle: .module) }
+    static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
     static var activityRunning: String { String(localized: "sidebar.a11y.running", defaultValue: "Agent running", bundle: .module) }
     static var activityNeedsInput: String { String(localized: "sidebar.a11y.needsInput", defaultValue: "Needs input", bundle: .module) }
