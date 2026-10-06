@@ -15,8 +15,8 @@ public struct RegistryKeyBindings {
     /// Layers (GHOSTTY-CONFIG keybind order): Ghostty fallbacks (every
     /// routed Ghostty keybind), defaults (the tab-switch entries of
     /// ``KeyBindingDefaults``, then the catalog's default keys), app
-    /// entries, the keybinds the user's Ghostty config changed (terminal
-    /// only), then user entries (cmux.json, then keybindings.json;
+    /// entries, the keybinds the user's Ghostty config changed (app-wide;
+    /// keys it claims lose their default entries), then user entries (cmux.json, then keybindings.json;
     /// ``KeyBindingLayers``). A later entry wins. Inside a layer, entries are ordered by the number
     /// of context facts their action requires, so a more specific default
     /// (Cmd-R Reload in a page) comes after a general one (Cmd-R Rename
@@ -86,6 +86,11 @@ public struct RegistryKeyBindings {
         // A removal takes out default and app entries, never a Ghostty keybind.
         let isRemoved = { (entry: KeyBinding) in !entry.source.isGhostty && removals.contains { $0.removes(entry) } }
         var removed: [KeyBinding] = []
+        // A key the user's Ghostty config claims (terminal action, unbind or
+        // a keybind of its own) has no cmux default entry; cmux.json's stay.
+        let claims = Set(extra.ghosttyClaims)
+        let isClaimed = { (entry: KeyBinding) in entry.source == .default && entry.keys.count == 1 && claims.contains(entry.keys[0]) }
+        var claimed: [KeyBinding] = []
         for source in KeyBinding.Source.allCases {
             if source == .user, !removals.isEmpty {
                 removed = entries.filter(isRemoved)
@@ -98,11 +103,14 @@ public struct RegistryKeyBindings {
             switch source {
             case .ghosttyFallback, .default: break
             case .app: entries += extra.app.filter(enabled)
-            case .ghostty: entries += extra.ghostty.filter { $0.source == .ghostty && enabled($0) }
+            case .ghostty:
+                claimed = entries.filter(isClaimed)
+                entries.removeAll(where: isClaimed)
+                entries += extra.ghostty.filter { $0.source == .ghostty && enabled($0) }
             case .user: entries += extra.user.filter(enabled)
             }
         }
-        return KeyBindingTable(fallbacks + entries, removed: removed)
+        return KeyBindingTable(fallbacks + entries, removed: removed, claimedByGhostty: claimed)
     }
 
     /// A user override equal to the catalog default stays a default entry,

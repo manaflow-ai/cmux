@@ -109,14 +109,18 @@ enum KeybindingReports {
             return .object(object)
         }
         // Defaults a removal took out: listed (never resolved) so the editor can reset them.
+        // Defaults on keys the user's Ghostty config claims: listed with `removedBy: ghostty`
+        // (read-only; the Ghostty config, not cmux, gives them back).
         let table = RegistryKeyBindings(registry).table
-        let removed = table.removed.enumerated().filter { _, entry in
-            (command == nil || registry.canonicalID(for: ActionID(rawValue: command ?? "")) == entry.command)
-                && (source == nil || entry.source.name == source)
-        }.map { offset, entry -> JSONValue in
-            guard case .object(var object) = json(entry, registry: registry) else { return .null }
+        let hidden = table.removed.map { ($0, false) } + table.claimedByGhostty.map { ($0, true) }
+        let removed = hidden.enumerated().filter { _, item in
+            (command == nil || registry.canonicalID(for: ActionID(rawValue: command ?? "")) == item.0.command)
+                && (source == nil || item.0.source.name == source)
+        }.map { offset, item -> JSONValue in
+            guard case .object(var object) = json(item.0, registry: registry) else { return .null }
             object["id"] = JSONValue(entries.count + offset)
             object["removed"] = true
+            if item.1 { object["removedBy"] = "ghostty" }
             object["conflicts"] = []
             return .object(object)
         }
