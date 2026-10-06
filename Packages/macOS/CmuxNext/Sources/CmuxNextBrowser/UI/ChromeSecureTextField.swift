@@ -38,9 +38,9 @@ final class ChromeSecureTextField: NSSecureTextField {
     private func applyColors() {
         performWithTheme {
             textColor = Palette.textPrimary
-            placeholderAttributedString = NSAttributedString(string: placeholderText, attributes: [
+            setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
                 .foregroundColor: Palette.textSecondary, .font: font ?? BrowserMetrics.bodyFont,
-            ])
+            ]))
         }
     }
 }
