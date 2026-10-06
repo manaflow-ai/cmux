@@ -22,6 +22,8 @@ export interface CurrentPrincipalShape {
   readonly sso_team?: string
   /** The Stack session's refresh token id (Stack-signed), so install.register can find the SSO team that created it. */
   readonly stack_session?: string
+  /** "vm" for a VM install's token (signed claim `vm`): it may call only the cloud.vm.* ops. */
+  readonly install_kind?: string
 }
 export class CurrentPrincipal extends Context.Service<CurrentPrincipal, CurrentPrincipalShape>()("cmux/CurrentPrincipal") {}
 

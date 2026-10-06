@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url"
 import { cloudEntryPlan } from "../src/cloud-plans.ts"
 import { overlayAddress } from "../src/overlay.ts"
 import { backendOnlyCases } from "./cloud-vectors-backend-only.ts"
+import { vmCases } from "./cloud-vectors-vm.ts"
 
 /** The plan the refusals and the checkout name, from the plan catalog (never a literal). */
 const PLAN_ID = cloudEntryPlan()
@@ -113,7 +114,7 @@ const AGENT_P = { kind: "install", agent: AGENT }
 /** A signed-in person (session). Money and destructive ops need one (decision: never the default install grants). */
 const SESSION_P = { kind: "session" }
 /** Ops that cost money or destroy data: a user principal, or later an install with a fresh origin.confirmation (ORIGIN). */
-const PERSON_OPS = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore", "cloud.snapshot.delete", "cloud.billing.checkout", "cloud.migration.start"])
+const PERSON_OPS = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.start", "cloud.machine.pause", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore", "cloud.snapshot.delete", "cloud.billing.checkout", "cloud.migration.start"])
 const CUT = "the provider call was cut off; retry with the same key"
 
 const cases: Array<Obj> = []
@@ -231,10 +232,13 @@ kase(
 kase("machine.pause", "cloud.machine.pause", { machine: vm(1) }, [opOk("cloud.machine.pause", "key-pause-1", { machine: { ...M1, status: "pausing", revision: "49" } }, "49")], {
   key: "key-pause-1"
 })
+kase("machine.pause.not_running", "cloud.machine.pause", { machine: vm(2) }, [opErr("cloud.machine.pause", "key-pause-2", "cloud.machine.not_running", "only a running machine can be paused", false, { machine: vm(2), state: "paused" })], { key: "key-pause-2" })
+kase("machine.start.not_paused", "cloud.machine.start", { machine: vm(1) }, [opErr("cloud.machine.start", "key-start-2", "cloud.machine.not_paused", "only a paused machine can be started", false, { machine: vm(1), state: "running" })], { key: "key-start-2" })
 const big = { cpu: 4, memory_mb: 8192, disk_mb: 32768 }
 kase("machine.resize", "cloud.machine.resize", { machine: vm(1), size: big }, [opOk("cloud.machine.resize", "key-resize-1", { machine: { ...M1, size: big, revision: "50" } }, "50")], {
   key: "key-resize-1"
 })
+kase("machine.resize.grow_only", "cloud.machine.resize", { machine: vm(1), size: { cpu: 1 } }, [opErr("cloud.machine.resize", "key-resize-2", "cloud.size.grow_only", "a machine can only grow (vCPU, memory and disk)", false, { size: M1.size as Json })], { key: "key-resize-2" })
 kase(
   "machine.resize.size_locked",
   "cloud.machine.resize",
@@ -324,6 +328,13 @@ const mintErr = (code: string, message: string, details?: Obj): Obj => ({
   http: { path: "/v1/ops", status: 200 },
   body: { ok: false, op: "cloud.machine.link_token", error: { code, message, retryable: false, ...(details ? { details } : {}) }, transaction: tx(), idempotency_key: "", replayed: false, stream: "", sequence: 0 }
 })
+kase(
+  "machine.link_token.paused",
+  "cloud.machine.link_token",
+  { host: host(2), services: ["ssh"] },
+  [mintErr("cloud.machine.paused", "the machine is paused; start it first", { machine: vm(2), state: "paused" })],
+  { mutation: true, note: "No dial to a machine that cannot answer and no automatic start: the client shows \"Start machine?\" and calls cloud.machine.start." }
+)
 kase("machine.link_token.not_bound", "cloud.machine.link_token", { host: host(4), services: ["ssh"] }, [mintErr("cloud.machine.not_bound", "the machine is still provisioning")], { mutation: true })
 kase("machine.link_token.not_found", "cloud.machine.link_token", { host: host(9), services: ["ssh"] }, [mintErr("cloud.machine.not_found", "no such machine in this team")], { mutation: true })
 kase(
@@ -449,6 +460,7 @@ event("machine.removed.stale", "cloud.machine.removed", { machine: vm(1), revisi
 event("snapshot.upsert", "cloud.snapshot.upsert", { snapshot: { ...S3, status: "ready", revision: "2" } })
 event("snapshot.removed", "cloud.snapshot.removed", { snapshot: snap(1), revision: "4" })
 event("plan.changed", "cloud.plan.changed", { plan: PLAN })
+vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1, seq })
 
 const doc = {
   $comment:

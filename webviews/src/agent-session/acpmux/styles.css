@@ -74,6 +74,7 @@
 .acpmux-menu-section+.acpmux-menu-section{margin-top:6px;padding-top:6px;box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge)}
 .acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:12px}
 .acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:28px;padding:5px 8px;box-sizing:border-box;border-radius:8px;cursor:default}
+.acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
 .acpmux-menu-item.acpmux-unrestricted{color:var(--acpmux-warning)}
 .acpmux-menu-text{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -152,14 +153,51 @@
 .acpmux-empty-glyph{color:var(--acpmux-composer-placeholder)}
 .acpmux-empty-title{margin:0;max-width:560px;font-size:20px;line-height:28px;font-weight:400;color:var(--agent-text);overflow-wrap:anywhere}
 .acpmux-empty-project{text-decoration:underline;text-decoration-color:var(--acpmux-composer-placeholder);text-underline-offset:4px;text-decoration-thickness:1px}
-/* Context (ComposerContext.tsx): the tray behind the composer, the project and machine at the left and the branch at the right, tucked under the field. */
-.acpmux-composer-context{display:flex;align-items:center;gap:6px;min-width:0;height:42px;margin:0 14px -12px;padding:0 10px 12px;box-sizing:content-box;border-radius:18px 18px 0 0;background:linear-gradient(var(--acpmux-composer-tray) calc(100% - 12px),transparent 0);box-shadow:inset 0 .5px 0 var(--acpmux-composer-edge);color:var(--agent-text);font-size:13px}
-/* Under queued prompts the tray continues the queue's tab: one stack, rounded only at its top. */
-.acpmux-composer-queue:has(+.acpmux-composer-context){margin-bottom:0;padding-bottom:4px}
-.acpmux-composer-queue+.acpmux-composer-context{border-radius:0}
-.acpmux-context-chip{display:flex;align-items:center;gap:6px;min-width:0;height:26px;padding:0 10px 0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);white-space:nowrap}
-.acpmux-context-chip>span{overflow:hidden;text-overflow:ellipsis}
-.acpmux-context-chip .acpmux-icon{color:var(--agent-muted)}
+.acpmux-empty-actions{display:flex;align-items:center;gap:8px;margin-top:4px}
+.acpmux-empty-actions button{height:30px;padding:0 13px;border:0;border-radius:6px;font:inherit;font-size:13px;cursor:pointer}
+.acpmux-empty-new{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-empty-import{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.acpmux-empty-actions button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* Context (ComposerContext.tsx): plain, right-aligned location pickers above the field. */
+.acpmux-composer-context {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  margin: 0 18px -2px;
+  color: var(--agent-muted);
+  font-size: 12px;
+}
+.acpmux-location-picker {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+.acpmux-location-button,
+.acpmux-location-readonly {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  white-space: nowrap;
+}
+.acpmux-location-button { cursor: pointer; }
+.acpmux-location-button:hover,
+.acpmux-location-button:focus-visible { color: var(--agent-text); }
+.acpmux-location-button > span:first-child,
+.acpmux-location-readonly { overflow: hidden; text-overflow: ellipsis; }
+.acpmux-location-button:focus-visible { outline: 1.5px solid var(--agent-muted); outline-offset: 2px; border-radius: 3px; }
+.acpmux-context-divider { color: var(--agent-muted); opacity: .65; }
+.acpmux-location-menu { right: 0; min-width: 180px; max-width: 320px; }
+.acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
 /* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
 .acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-trust-ask-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:13px;background:none;color:var(--agent-text);font:inherit;cursor:pointer}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* Search files: a quick-open palette, centered over the transcript's upper part (main column). */

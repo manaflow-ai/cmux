@@ -20,6 +20,8 @@ export interface BindRequest {
   readonly bind_token: string
   readonly wg_public_key: string
   readonly daemon: { readonly version: string; readonly capabilities: ReadonlyArray<string> }
+  /** The VM's install key (ES256 P-256, made per clone on the VM); the server registers the VM install with it. */
+  readonly install_public_jwk: { readonly kty: "EC"; readonly crv: "P-256"; readonly x: string; readonly y: string }
 }
 
 const str = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max
@@ -45,7 +47,10 @@ export const parseBindRequest = (body: unknown): BindRequest | null => {
   if (!str(b.bind_token, 128)) return null
   if (!isWgKey(b.wg_public_key)) return null
   if (!printable(d.version, 64) || !Array.isArray(d.capabilities) || d.capabilities.length > 32 || !d.capabilities.every((c) => printable(c, 64))) return null
-  return { team: b.team, machine: b.machine, bind_token: b.bind_token, wg_public_key: b.wg_public_key, daemon: { version: d.version, capabilities: d.capabilities as Array<string> } }
+  const j = (b.install_public_jwk ?? {}) as Record<string, unknown>
+  const coord = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9_-]{43}$/.test(v)
+  if (j.kty !== "EC" || j.crv !== "P-256" || !coord(j.x) || !coord(j.y)) return null
+  return { team: b.team, machine: b.machine, bind_token: b.bind_token, wg_public_key: b.wg_public_key, daemon: { version: d.version, capabilities: d.capabilities as Array<string> }, install_public_jwk: { kty: "EC", crv: "P-256", x: j.x, y: j.y } }
 }
 
 export type BindReply = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string }

@@ -7,23 +7,37 @@
 //! into the VM is masked, so agent code cannot read a user secret back from
 //! the page either.
 
-use crate::driver::Driver;
+use crate::driver::{Driver, Reply};
 use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
 use crate::secrets::{TabSecrets, Vault};
 use crate::vm::VmHost;
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod fetch;
 mod guards;
+mod redirects;
 
 /// Per-session grants decided by the session's opener (user or mux).
 #[derive(Debug, Clone, Default)]
 pub struct Grants {
     /// `browser.cdp`: raw CDP on Chromium tabs.
     pub raw_cdp: bool,
+    /// The session's origin is not the machine the browser runs on (a
+    /// relay): loopback and private ranges are refused (FETCH-PRIVATE-RANGES).
+    pub remote: bool,
+    /// The session drives a profile other than the agent's (the person's
+    /// signed-in one): a tab-less fetch is refused, since its shell tab
+    /// would enter that profile's history (a9 shell-tab condition e, until
+    /// cmux.18+ candidate 9).
+    pub signed_in_profile: bool,
 }
+
+/// Entries the host keeps in its log of blocked requests.
+const MAX_LOG: usize = 1000;
 
 pub struct Gate {
     driver: Arc<dyn Driver>,
@@ -31,7 +45,21 @@ pub struct Gate {
     vault: Mutex<Vault>,
     grants: Grants,
     /// Navigations the policy refused (`session.blockedNavigations()`).
-    log: Mutex<Vec<Value>>,
+    log: Arc<Mutex<Vec<Value>>>,
+    /// `net.fetch` calls in flight (at most [`fetch::MAX_FETCHES`]; the
+    /// request filter stays installed while any runs, so every redirect hop
+    /// meets the range rule) and whether the session ended.
+    fetches: Mutex<fetch::FetchSlots>,
+    /// Signalled when a fetch slot frees or the session ends.
+    fetch_slot_free: std::sync::Condvar,
+    /// HOST-FETCH-CORS relaxations (policy op "corsLog"), kept apart from
+    /// the blocked-request log the runtime shows as blockedNavigations().
+    cors_log: Mutex<Vec<Value>>,
+    /// The newest requests the filter refused (URL, reason), so a fetch
+    /// that failed on a redirect hop can say which hop and why. Not the
+    /// agent-visible log: main logs navigations and fetches, not
+    /// subresources.
+    filtered: Arc<Mutex<std::collections::VecDeque<(u64, String, String)>>>,
     /// False while a policy is active that the engine cannot enforce on the
     /// page's own requests (no request filter): every call fails closed.
     filter_enforced: std::sync::atomic::AtomicBool,
@@ -55,7 +83,11 @@ impl Gate {
             policy: Arc::new(Mutex::new(Policy::default())),
             vault: Mutex::new(Vault::default()),
             grants,
-            log: Mutex::new(Vec::new()),
+            log: Arc::default(),
+            fetches: Mutex::default(),
+            fetch_slot_free: std::sync::Condvar::new(),
+            cors_log: Mutex::new(Vec::new()),
+            filtered: Arc::default(),
             filter_enforced: std::sync::atomic::AtomicBool::new(true),
             tab_secrets: Arc::default(),
             inputs: None,
@@ -78,6 +110,7 @@ impl Gate {
 
     /// The session ends: the driver releases its per-session state now.
     pub fn end_session(&self) {
+        self.end_fetches();
         self.driver.end_session();
     }
 
@@ -100,7 +133,12 @@ impl Gate {
     }
 
     /// Masks a driver event for this session; a closed tab's record ends.
+    /// A response from a refused address stops the tab's load (DNS
+    /// rebinding, after the fact).
     pub fn mask_event(&self, name: &str, payload: &Value) -> Value {
+        if name == "response" {
+            self.check_rebinding(payload);
+        }
         let target = payload.get("targetId").and_then(Value::as_str);
         let masked = self.mask_for_target(target, payload);
         if matches!(name, "tab.gone" | "tab.closed")
@@ -131,18 +169,41 @@ impl Gate {
             let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
             policy.base().is_active() || policy.agent().is_active()
         };
-        let filter: Option<crate::driver::RequestFilter> = active.then(|| {
-            let policy = self.policy.clone();
+        let fetching = self.fetches.lock().unwrap_or_else(PoisonError::into_inner).running > 0;
+        let filter: Option<crate::driver::RequestFilter> = (active || fetching).then(|| {
+            let (policy, filtered, log, remote) =
+                (self.policy.clone(), self.filtered.clone(), self.log.clone(), self.grants.remote);
             // The session's policy is the same for every tab it drives.
-            let filter: crate::driver::RequestFilter = Arc::new(move |_target: &str, url: &str| {
+            let filter: crate::driver::RequestFilter = Arc::new(move |request| {
+                let url = request.url;
                 let parsed = url::Url::parse(url).ok()?;
-                policy.lock().unwrap_or_else(PoisonError::into_inner).subresource_refusal(&parsed)
+                let reason = {
+                    let policy = policy.lock().unwrap_or_else(PoisonError::into_inner);
+                    policy
+                        .subresource_refusal(&parsed)
+                        .or_else(|| policy.egress_refusal(&parsed, remote))
+                }?;
+                let mut filtered = filtered.lock().unwrap_or_else(PoisonError::into_inner);
+                if filtered.len() >= 64 {
+                    filtered.pop_front();
+                }
+                let seq = filtered.back().map_or(1, |entry| entry.0 + 1);
+                filtered.push_back((seq, url.to_owned(), reason.clone()));
+                drop(filtered);
+                // The kind changes only the log: main logs blocked
+                // documents (navigations), never subresources.
+                if request.kind == crate::driver::RequestKind::Document {
+                    push_log(
+                        &log,
+                        json!({"url": url, "reason": reason, "at": now_ms(), "blocked": "before"}),
+                    );
+                }
+                Some(reason)
             });
             filter
         });
-        let wanted = filter.is_some();
         let installed = self.driver.set_request_filter(filter);
-        self.filter_enforced.store(!wanted || installed, std::sync::atomic::Ordering::SeqCst);
+        self.filter_enforced.store(!active || installed, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Owner-side secrets (`browser.secrets.load`): values never enter the VM.
@@ -202,20 +263,26 @@ impl Gate {
             }
             _ => ("", None),
         };
-        if let Some(url) = url {
-            let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(reason) = policy.navigation_refusal(url) {
-                let at = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-                self.log.lock().unwrap_or_else(PoisonError::into_inner).push(json!({
-                    "url": url, "reason": reason, "at": at, "blocked": "before"
-                }));
-                return Err(Self::refuse(format!("{title}: {url} is blocked: {reason}")));
-            }
+        if let Some(url) = url
+            && let Some(reason) = self.url_refusal(url)
+        {
+            push_log(
+                &self.log,
+                json!({"url": url, "reason": reason, "at": now_ms(), "blocked": "before"}),
+            );
+            return Err(Self::refuse(format!("{title}: {url} is blocked: {reason}")));
         }
         Ok(())
+    }
+
+    /// The domain policy and the range rule for a URL the agent opens or
+    /// fetches (navigations and fetch never disagree).
+    fn url_refusal(&self, url: &str) -> Option<String> {
+        let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+        policy.navigation_refusal(url).or_else(|| {
+            let parsed = url::Url::parse(url).ok()?;
+            policy.egress_refusal(&parsed, self.grants.remote)
+        })
     }
 
     /// Replaces a `{__secret: name}` handle in `params[field]` with its text.
@@ -295,6 +362,17 @@ impl Gate {
 
 impl VmHost for Gate {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
+        self.driver_call_reply(method, params)?.into_value()
+    }
+
+    /// Every VM call: the gate's checks, the engine, then masking. A
+    /// script's value stays JSON text and is masked as text (a9 raw_value).
+    fn driver_call_reply(&self, method: &str, params: Value) -> Result<Reply, DriverError> {
+        // Fetch cancels come from the VM's cell timeouts and the session's
+        // end through the gate, never from agent code.
+        if matches!(method, "net.fetch.cancel" | "net.fetch.done") {
+            return Err(DriverError::unsupported_method(method));
+        }
         if !self.filter_enforced.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(DriverError::new(
                 ErrorCode::Forbidden,
@@ -327,11 +405,14 @@ impl VmHost for Gate {
         let target = params.get("targetId").and_then(Value::as_str).map(str::to_owned);
         let target = target.as_deref();
         let result = match method {
-            "tab.screenshot" | "tab.pdf" => self.capture(method, &params),
-            _ => self
-                .driver
-                .call_announced(method, &params, &mut announce)
-                .map(|value| self.filter_cookies(method, value)),
+            "tab.screenshot" | "tab.pdf" => self.capture(method, &params).map(Reply::Value),
+            "net.fetch" => self.fetch(&params).map(Reply::Value),
+            _ => self.driver.call_reply_announced(method, &params, &mut announce).map(|reply| {
+                match reply {
+                    Reply::Value(value) => Reply::Value(self.filter_cookies(method, value)),
+                    json => json,
+                }
+            }),
         };
         if method == "tabs.close"
             && result.is_ok()
@@ -340,7 +421,16 @@ impl VmHost for Gate {
             self.tab_secrets.forget(target);
         }
         match result {
-            Ok(value) => Ok(self.mask_for_target(target, &value)),
+            Ok(Reply::Value(value)) => Ok(Reply::Value(self.mask_for_target(target, &value))),
+            Ok(Reply::Json(raw)) => {
+                let mut masker = self.masker();
+                if let Some(tab) = target.and_then(|target| self.tab_secrets.masker(target)) {
+                    masker.merge(&tab);
+                }
+                RawValue::from_string(masker.mask_json_text(raw.get()))
+                    .map(Reply::Json)
+                    .map_err(|e| DriverError::invalid(format!("{method}: {e}")))
+            }
             Err(mut error) => {
                 error.message = self.mask_text_for_target(target, &error.message);
                 error.error_name =
@@ -354,6 +444,10 @@ impl VmHost for Gate {
     /// Main's native ABI (port plan D1): `secrets(op, args)` and
     /// `policy(op, args)`, reached as `native("secrets" | "policy",
     /// {op, args})`. Values never appear in an answer.
+    fn cancel_fetches(&self, cell: u64) {
+        self.cancel_cell_fetches(cell);
+    }
+
     fn native(&self, name: &str, call: Value) -> Result<Value, String> {
         let op = call["op"].as_str().unwrap_or("");
         let args = &call["args"];
@@ -470,6 +564,9 @@ impl Gate {
             "site" => Ok(json!(crate::policy::site_of(args["host"].as_str().unwrap_or("")))),
             // The host's own log of blocked navigations (cmux-next: the host
             // blocks before the request, so the runtime does not see these).
+            "corsLog" => Ok(Value::Array(
+                self.cors_log.lock().unwrap_or_else(PoisonError::into_inner).clone(),
+            )),
             "log" => {
                 Ok(Value::Array(self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()))
             }
@@ -506,6 +603,19 @@ impl Gate {
             other => Err(format!("policy: unknown operation {other:?}")),
         }
     }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// Appends to the host's log of blocked requests, keeping the newest.
+fn push_log(log: &Mutex<Vec<Value>>, entry: Value) {
+    let mut log = log.lock().unwrap_or_else(PoisonError::into_inner);
+    if log.len() >= MAX_LOG {
+        log.remove(0);
+    }
+    log.push(entry);
 }
 
 fn strings(value: &Value) -> Vec<String> {

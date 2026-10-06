@@ -1,150 +1,272 @@
-import React from "react";
-import { projectName } from "./EmptyState";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Combobox } from "../../ui/Combobox";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
+import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
-import { groupByProject } from "./sessionList";
+import { projectLabel } from "./sessionList";
+import { translate as t } from "./i18n";
 
-/// Context-row copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const CONTEXT_LABELS = {
-  project: "Project",
-  branch: "Branch",
-  worktree: "Worktree",
-  noWorktree: "Works in the project folder, not a git worktree",
-  on: "On",
-  off: "Off",
-};
+  computer: "composer.computer",
+  folder: "composer.folder",
+  local: "composer.thisMac",
+  chooseComputer: "composer.chooseComputer",
+  chooseFolder: "composer.chooseFolder",
+  cloud: "composer.cloud",
+} as const;
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
-type AcpmuxSessionEntry = AcpmuxSnapshot["sessions"][number];
+type Session = AcpmuxSnapshot["sessions"][number];
+type Location = { id: string; label: string; detail?: string };
 
-/// Where the session runs, on the tray behind the composer: the project, the
-/// machine and the branch as filled pills, and at the right whether the
-/// session works in its own git worktree.
-/// Each pill shows only when the daemon reports it. With `onProject`, the project
-/// pill chooses among the folders the user has chats in.
+/// The small location row above the composer. New chats can choose a local or Cloud
+/// computer and one of its known folders; once the first turn starts both are labels.
 export function ComposerContext({
   summary,
   sessions = [],
+  peers = [],
+  started = false,
   onProject,
+  projectChoices,
+  onBrowseProject,
 }: {
   summary?: Summary;
-  sessions?: AcpmuxSessionEntry[];
-  onProject?(cwd: string): void;
+  sessions?: Session[];
+  peers?: string[];
+  started?: boolean;
+  onProject?(cwd: string, peer?: string): void;
+  projectChoices?: Project[];
+  onBrowseProject?(): void;
 }) {
-  const project = projectName(summary?.cwd);
-  const host = summary?.host;
-  const branch = summary?.branch;
-  const projects = React.useMemo(() => localProjects(sessions), [sessions]);
-  const choosing = onProject !== undefined && projects.length > 0;
-  if (!project && !host && !branch && !choosing) return null;
-  const worktree = summary?.worktree;
+  const computers = useMemo(() => availableComputers(summary, sessions, peers), [summary, sessions, peers]);
+  const initialComputer = computerId(summary);
+  const [selectedComputer, setSelectedComputer] = useState(initialComputer);
+  useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
+  const folders = useMemo(
+    () => availableFolders(summary, sessions, selectedComputer),
+    [summary, sessions, selectedComputer],
+  );
+  const currentFolder =
+    summary?.cwd && computerId(summary) === selectedComputer
+      ? summary.cwd
+      : projectChoices
+        ? undefined
+        : folders[0]?.id;
+  const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
+  if (!currentComputer && !currentFolder && !projectChoices) return null;
+  const readOnly = started || onProject === undefined;
   return (
-    <div className="acpmux-composer-context">
-      {choosing ? (
+    <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
+      <LocationPicker
+        label={t(CONTEXT_LABELS.computer)}
+        value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+        options={computers}
+        selected={selectedComputer}
+        disabled={readOnly}
+        onPick={(id) => {
+          if (!readOnly && id !== selectedComputer) {
+            setSelectedComputer(id);
+            const folder = availableFolders(summary, sessions, id)[0]?.id;
+            if (folder) onProject?.(folder, id === "local" ? undefined : id);
+          }
+        }}
+      />
+      <span className="acpmux-context-divider" aria-hidden="true">
+        ·
+      </span>
+      {!readOnly && selectedComputer === "local" && projectChoices ? (
         <ProjectChooser
-          projects={projects}
-          // A cloud chat's folder is on its machine, so even at the same path the local project is another place.
-          current={summary?.host && summary.hostKind !== "local" ? undefined : summary?.cwd?.replace(/\/+$/, "")}
-          currentLabel={project}
-          icon={<FolderIcon />}
-          onPick={onProject}
+          projects={projectChoices}
+          current={currentFolder}
+          currentLabel={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+          icon={null}
+          onPick={(cwd) => onProject?.(cwd)}
+          onBrowse={onBrowseProject}
         />
       ) : (
-        project && (
-          <span className="acpmux-context-chip" title={`${CONTEXT_LABELS.project}: ${summary?.cwd}`}>
-            <FolderIcon />
-            <span>{project}</span>
-          </span>
-        )
-      )}
-      {host && (
-        <span className="acpmux-context-chip">
-          {summary?.hostKind === "cloud" ? <CloudIcon /> : <LaptopIcon />}
-          <span>{host}</span>
-        </span>
-      )}
-      {branch && (
-        <span className="acpmux-context-chip" title={`${CONTEXT_LABELS.branch}: ${branch}`}>
-          {worktree ? <WorktreeIcon /> : <BranchIcon />}
-          <span>{branch}</span>
-        </span>
-      )}
-      {branch && (
-        <span
-          className={`acpmux-context-worktree${worktree ? " acpmux-on" : ""}`}
-          title={worktree ? `${CONTEXT_LABELS.worktree}: ${worktree}` : CONTEXT_LABELS.noWorktree}
-        >
-          <span>{CONTEXT_LABELS.worktree}</span>
-          <span
-            className="acpmux-switch"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-            role="img"
-            aria-label={worktree ? CONTEXT_LABELS.on : CONTEXT_LABELS.off}
-          />
-        </span>
+        <LocationPicker
+          label={t(CONTEXT_LABELS.folder)}
+          value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+          options={folders}
+          selected={currentFolder}
+          disabled={readOnly}
+          allowPath
+          onPick={(cwd) => {
+            if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+          }}
+        />
       )}
     </div>
   );
 }
 
-/// Folders the user has chats in on this machine, newest first. A cloud machine's folder
-/// isn't one a new local chat can open in.
-function localProjects(sessions: AcpmuxSessionEntry[]): Project[] {
-  return groupByProject(sessions)
-    .filter((group) => group.cwd && !group.host)
-    .map((group) => ({ cwd: group.cwd!, label: group.label }));
+function computerId(summary?: Summary): string {
+  return summary?.hostKind === "cloud" && (summary.peer || summary.host) ? (summary.peer ?? summary.host)! : "local";
 }
 
-// Tray glyphs (16px box, stroke in currentColor), at the composer's icon weight.
-function Icon({ children }: { children: React.ReactNode }) {
+function availableComputers(summary: Summary | undefined, sessions: Session[], peers: string[]): Location[] {
+  const localLabel = summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local);
+  const computers: Location[] = [{ id: "local", label: localLabel }];
+  const seen = new Set<string>();
+  for (const peer of peers) {
+    if (seen.has(peer)) continue;
+    seen.add(peer);
+    computers.push({ id: peer, label: peer, detail: t(CONTEXT_LABELS.cloud) });
+  }
+  for (const session of sessions) {
+    const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
+    if (!peer || seen.has(peer)) continue;
+    seen.add(peer);
+    computers.push({ id: peer, label: session.host ?? peer, detail: t(CONTEXT_LABELS.cloud) });
+  }
+  const summaryPeer = summary?.hostKind === "cloud" ? (summary.peer ?? summary.host) : undefined;
+  if (summaryPeer && !seen.has(summaryPeer)) {
+    computers.push({
+      id: summaryPeer,
+      label: summary?.host ?? summaryPeer,
+      detail: t(CONTEXT_LABELS.cloud),
+    });
+  }
+  return computers;
+}
+
+function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
+  const seen = new Set<string>();
+  const folders: Location[] = [];
+  const add = (cwd?: string) => {
+    const id = cwd?.replace(/\/+$/, "");
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    folders.push({ id, label: projectLabel(id), detail: id });
+  };
+  if (summary && computerId(summary) === computer) add(summary.cwd);
+  for (const session of sessions) {
+    const sessionComputer = session.peer ?? (session.hostKind === "cloud" ? session.host : "local");
+    if (sessionComputer === computer) add(session.cwd);
+  }
+  return folders;
+}
+
+/// A location menu (shared components, plans/cmux-next/a11y-foundation.md): a menu button over a
+/// radio menu of the options; Base UI owns the roles, focus, arrows, typeahead and Escape. The
+/// folder menu (`allowPath`) is a popover with a field: typing filters the folders, and a typed
+/// absolute or `~/` path is offered too.
+function LocationPicker({
+  label,
+  value,
+  options,
+  selected,
+  disabled,
+  allowPath = false,
+  onPick,
+}: {
+  label: string;
+  value: string;
+  options: Location[];
+  selected?: string;
+  disabled: boolean;
+  allowPath?: boolean;
+  onPick(id: string): void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const trigger = useRef<HTMLButtonElement>(null);
+  const shown = useMemo(() => {
+    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return options.filter((option) =>
+      words.every((word) => (option.label + " " + (option.detail ?? "")).toLowerCase().includes(word)),
+    );
+  }, [options, query]);
+  if (disabled)
+    return (
+      <span className="acpmux-location-picker">
+        <span className="acpmux-location-readonly" aria-label={label + ": " + value} title={label + ": " + value}>
+          {value}
+        </span>
+      </span>
+    );
+  const pick = (id: string) => {
+    onPick(id);
+    setOpen(false);
+    setQuery("");
+  };
+  const button = (
+    <>
+      <span>{value}</span>
+      <span aria-hidden="true">⌄</span>
+    </>
+  );
+  if (!allowPath)
+    return (
+      <span className="acpmux-location-picker">
+        <Menu open={open} onOpenChange={setOpen}>
+          <MenuButton className="acpmux-location-button" label={label}>
+            {button}
+          </MenuButton>
+          <MenuPopup className="acpmux-menu acpmux-location-menu" align="end">
+            <MenuRadioGroup value={selected ?? ""} onValueChange={pick}>
+              {options.map((option) => (
+                <MenuRadioItem key={option.id} value={option.id} className="acpmux-menu-item">
+                  <span className="acpmux-menu-text">
+                    <span className="acpmux-menu-label">{option.label}</span>
+                    {option.detail && <span className="acpmux-menu-description">{option.detail}</span>}
+                  </span>
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuPopup>
+        </Menu>
+      </span>
+    );
+  // The folder field suggests folder paths; a typed path that names none is offered as typed.
+  const typedPath = /^(?:\/|~\/)/.test(query.trim()) ? query.trim() : undefined;
+  const suggestions = shown.map((option) => option.id);
+  if (typedPath && !suggestions.includes(typedPath)) suggestions.push(typedPath);
   return (
-    <svg
-      className="acpmux-icon"
-      width={16}
-      height={16}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {children}
-    </svg>
+    <span className="acpmux-location-picker">
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-location-button"
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {button}
+      </button>
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setQuery("");
+        }}
+        anchor={open ? trigger.current : null}
+        label={label}
+        className="acpmux-menu acpmux-location-menu"
+      >
+        <Combobox
+          suggestions={suggestions}
+          onQuery={setQuery}
+          onSubmit={(path) => (path ? pick(path) : setOpen(false))}
+          onCancel={() => setOpen(false)}
+          label={label}
+          placeholder={value}
+          inputClassName="acpmux-location-search"
+          itemClassName="acpmux-menu-item"
+          renderItem={(path) => {
+            const folder = options.find((option) => option.id === path);
+            return (
+              <span className="acpmux-menu-text">
+                <span className="acpmux-menu-label">{folder?.label ?? path}</span>
+                {folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
+              </span>
+            );
+          }}
+          inline
+        />
+      </Popover>
+    </span>
   );
 }
-const FolderIcon = () => (
-  <Icon>
-    <path d="M2.25 4.75c0-.83.67-1.5 1.5-1.5h2.6l1.4 1.5h4.5c.83 0 1.5.67 1.5 1.5v5.5c0 .83-.67 1.5-1.5 1.5h-8.5c-.83 0-1.5-.67-1.5-1.5Z" />
-    <path d="M2.25 6.75h11.5" />
-  </Icon>
-);
-const LaptopIcon = () => (
-  <Icon>
-    <rect x="3.25" y="3.75" width="9.5" height="6.5" rx="1" />
-    <path d="M1.75 12.25h12.5" />
-  </Icon>
-);
-const CloudIcon = () => (
-  <Icon>
-    <path d="M4.75 12.25a2.75 2.75 0 0 1-.4-5.47 3.75 3.75 0 0 1 7.2-.78 3.13 3.13 0 0 1 .2 6.25Z" />
-  </Icon>
-);
-const BranchIcon = () => (
-  <Icon>
-    <circle cx="5" cy="3.75" r="1.5" />
-    <circle cx="5" cy="12.25" r="1.5" />
-    <circle cx="11" cy="5.75" r="1.5" />
-    <path d="M5 5.25v5.5M11 7.25c0 2.5-6 1.5-6 3.5" />
-  </Icon>
-);
-const WorktreeIcon = () => (
-  <Icon>
-    <circle cx="4.75" cy="3.75" r="1.5" />
-    <circle cx="4.75" cy="12.25" r="1.5" />
-    <circle cx="11.25" cy="12.25" r="1.5" />
-    <path d="M4.75 5.25v5.5M4.75 7.5c0 2 6.5 1.25 6.5 3.25" />
-  </Icon>
-);

@@ -7,7 +7,7 @@ import { teamRead } from "./team-reads.ts"
 import { homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
-import { connectServicesOf, currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
+import { cloudPolicyOf, currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
@@ -126,7 +126,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     }
   }
 
-  async cloudConnectServices(entity: string) { return connectServicesOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS)
+  async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)
   /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */
   async runPolicy(entity: string): Promise<{ version: number; runs_allowed: boolean }> {
     return runSyncPush(this.bind(entity).currentState)

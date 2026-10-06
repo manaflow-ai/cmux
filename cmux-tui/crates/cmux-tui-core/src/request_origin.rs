@@ -26,6 +26,8 @@ use sha2::{Digest, Sha256};
 
 use crate::resource::ResourceError;
 
+mod page_access;
+
 /// Advertised by `identify` once client-hello step 1, the envelope `origin`
 /// field and `origin.confirmation.issue` exist.
 pub(crate) const ORIGIN_CLAIM_CAPABILITY: &str = "origin-claim-v1";
@@ -38,7 +40,7 @@ pub(crate) const USER_ONLY_OPERATIONS: [&str; 3] =
     ["apps.install", "apps.uninstall", "apps.enable"];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
-const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
+pub(crate) const ORIGIN_FORBIDDEN: &str = "origin.forbidden";
 pub(crate) const NEEDS_VERIFIED_APP: &str = "needs a verified cmux app connection";
 
 /// The origin of one request, least to most trusted.
@@ -212,6 +214,13 @@ impl ConnectionOrigin {
                 "a page relay connection cannot issue confirmations",
                 json!({"derived": RequestOrigin::Page.wire_name()}),
             ));
+        }
+        // Default deny for pages (page_access.rs), whatever a page relay
+        // claims: a confirmed-user result still reaches page JS.
+        if (self.role == HelloRole::PageRelay || origin == RequestOrigin::Page)
+            && let Some(refusal) = page_access::refusal(operation, params)
+        {
+            return Err(refusal);
         }
         require_origin(operation, origin)?;
         Ok(origin)

@@ -54,6 +54,11 @@ pub struct TabState {
     /// Chromium can report more than one isolated context with the agent
     /// world's name for one document, and not every one runs the agent script.
     pub agent_ready: HashSet<(String, i64)>,
+    /// Requests in flight, for the Network events after their first.
+    pub requests: HashMap<String, super::network::OpenRequest>,
+    pub request_order: std::collections::VecDeque<String>,
+    /// The newest responses' (URL, remote IP address), for net.fetch.
+    pub responses: std::collections::VecDeque<(String, String)>,
     /// Out-of-process frames: frame id -> its own CDP session.
     pub frame_sessions: HashMap<String, String>,
     /// Loader of the main frame's current document.
@@ -72,6 +77,9 @@ pub struct TabState {
     /// Bumps when the main frame starts a download, so a navigation that
     /// turns into a download fails instead of waiting out its deadline.
     pub download_seq: u64,
+    /// A fetch shell (a9 shell-tab conditions): the host's own tab. Never
+    /// listed, no events, no page agent, no calls from the session.
+    pub hidden: bool,
 }
 
 impl TabState {
@@ -88,6 +96,9 @@ impl TabState {
             main_frame: None,
             contexts: HashMap::new(),
             agent_ready: HashSet::new(),
+            requests: HashMap::new(),
+            request_order: std::collections::VecDeque::new(),
+            responses: std::collections::VecDeque::new(),
             frame_sessions: HashMap::new(),
             loader: None,
             lifecycle: HashSet::new(),
@@ -100,6 +111,7 @@ impl TabState {
             crashed: false,
             open_dialogs: 0,
             download_seq: 0,
+            hidden: false,
         }
     }
 
@@ -149,6 +161,12 @@ pub struct State {
     /// Dialog id -> (tab, session that opened it).
     pub dialogs: HashMap<String, (String, String)>,
     pub next_dialog: u64,
+    /// Marker URLs of fetch shells being created: the page target that
+    /// attaches with one is hidden from its first event.
+    pub shell_markers: HashSet<String>,
+    /// Fetch shells by target id (also when the attach came after the
+    /// create reply).
+    pub shell_targets: HashSet<String>,
 }
 
 impl State {
@@ -159,6 +177,7 @@ impl State {
     }
 
     fn remove_tab(&mut self, target_id: &str, applied: &mut Applied) {
+        self.shell_targets.remove(target_id);
         if let Some(tab) = self.tabs.remove(target_id) {
             self.sessions.remove(&tab.session_id);
             for session in tab.frame_sessions.values() {
@@ -169,8 +188,15 @@ impl State {
             if self.active.as_deref() == Some(target_id) {
                 self.active = None;
             }
-            applied.events.push(event("tab.closed", target_id, Map::new()));
+            if !tab.hidden {
+                applied.events.push(event("tab.closed", target_id, Map::new()));
+            }
         }
+    }
+
+    /// True for a fetch shell's tab.
+    pub fn is_hidden(&self, target_id: &str) -> bool {
+        self.tabs.get(target_id).is_some_and(|tab| tab.hidden)
     }
 
     /// Applies one CDP event.
@@ -230,6 +256,14 @@ impl State {
                 }
             }
         }
+        // A fetch shell's events never reach the session.
+        applied.events.retain(|event| {
+            !event
+                .payload
+                .get("targetId")
+                .and_then(Value::as_str)
+                .is_some_and(|t| self.is_hidden(t))
+        });
         applied
     }
 
@@ -284,13 +318,13 @@ impl State {
         let url = info.get("url").and_then(Value::as_str).unwrap_or("").to_owned();
         let title = info.get("title").and_then(Value::as_str).unwrap_or("").to_owned();
         let opener = info.get("openerId").and_then(Value::as_str).map(str::to_owned);
-        self.tabs.insert(
-            target_id.to_owned(),
-            TabState::new(session_id.to_owned(), url.clone(), title, opener.clone()),
-        );
+        let mut tab = TabState::new(session_id.to_owned(), url.clone(), title, opener.clone());
+        tab.hidden = self.shell_markers.remove(&url) || self.shell_targets.contains(target_id);
+        let hidden = tab.hidden;
+        self.tabs.insert(target_id.to_owned(), tab);
         self.sessions.insert(session_id.to_owned(), target_id.to_owned());
         self.order.push(target_id.to_owned());
-        if let Some(opener) = opener {
+        if let Some(opener) = opener.filter(|_| !hidden) {
             let mut payload = Map::new();
             payload.insert("openerTargetId".into(), json!(opener));
             payload.insert("url".into(), json!(url));
@@ -471,6 +505,11 @@ impl State {
                 if params.get("frameId").and_then(Value::as_str) == tab.main_frame.as_deref() =>
             {
                 tab.download_seq += 1;
+            }
+            network if network.starts_with("Network.") => {
+                if let Some(event) = super::network::event(tab, target_id, network, params) {
+                    applied.events.push(event);
+                }
             }
             "Runtime.consoleAPICalled" => {
                 let text = params

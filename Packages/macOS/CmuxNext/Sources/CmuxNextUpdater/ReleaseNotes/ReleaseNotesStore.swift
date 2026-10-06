@@ -37,6 +37,14 @@ nonisolated public struct ReleaseNotesStore: Sendable {
         return index.builds
     }
 
+    /// The verified announcement cards (`notes/announcements.json`), fresh or cached.
+    @concurrent
+    public func announcements() async -> [Announcement] {
+        struct Feed: Decodable { var items: [Announcement] }
+        guard let data = await verified("announcements.json"), let feed = try? JSONDecoder().decode(Feed.self, from: data) else { return [] }
+        return feed.items
+    }
+
     /// The file and its signature from the network (cached once verified),
     /// else the cached pair, verified again.
     @concurrent
@@ -71,4 +79,11 @@ nonisolated public struct ReleaseNotesIndexEntry: Codable, Equatable, Sendable {
     public var shortVersion: String
     public var date: String
     public var highlights: Int
+
+    public init(build: String, shortVersion: String, date: String, highlights: Int) {
+        self.build = build
+        self.shortVersion = shortVersion
+        self.date = date
+        self.highlights = highlights
+    }
 }

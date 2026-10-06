@@ -128,6 +128,9 @@ export const mintLinkToken = async (
   const row = machineBySelector(args.rows, { host: d.value.host })
   if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
   if (!row.host || !row.wg_public_key) return { ok: false, code: "cloud.machine.not_bound", message: "the machine is still provisioning" }
+  // Coordinator decision: no dial to a machine that cannot answer, and no automatic start (start costs
+  // money and a slot): the client shows "Start machine?" and calls cloud.machine.start.
+  if (row.status === "paused" || row.status === "pausing" || row.status === "starting") return { ok: false, code: "cloud.machine.paused", message: "the machine is paused; start it first", details: { machine: row.id, state: row.status } }
   if (row.status === "deleting" || row.status === "failed") return { ok: false, code: "cloud.machine.not_bound", message: `the machine is ${row.status === "deleting" ? "being deleted" : "failed"}` }
   const allowed = allowedServices(entity, row, p, await policy())
   if (!allowed.ok) return allowed

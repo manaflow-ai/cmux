@@ -4,6 +4,8 @@ import { DriverError } from "./team-vm-driver.ts"
 import type { CloudConfig } from "./domains/cloud-plan.ts"
 import { parseAllowedTeams } from "./domains/cloud-plan.ts"
 export { providerName } from "./domains/cloud-plan.ts"
+import { FakeCloudDriver } from "./cloud-driver-fake.ts"
+import { redactReason } from "./cloud-redact.ts"
 
 /**
  * The provider behind CloudDO (state-placement.md 5.2, 5.3). The Freestyle account is shared with
@@ -20,19 +22,43 @@ export interface VmTag {
 
 /** One raw provider: `find` by name (null = none), `create` under a name, `delete` by provider id (404 = success). */
 export interface RawCloudDriver {
-  find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown> } | null>
+  /** `state`: the VM's provider state when the same answer carries it (Freestyle GET /v5/vms/{x}). */
+  find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown>; readonly state?: string | null } | null>
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
   create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
   delete(id: string): Promise<void>
+  /** Pause (memory kept) or start a VM (Freestyle `POST /v5/vms/{id}/pause` and `/start`). */
+  pause(id: string): Promise<void>
+  start(id: string): Promise<void>
+  /** The VM's provider state (Freestyle VmState: starting, running, pausing, paused, stopped), or null when it is gone. */
+  state(id: string): Promise<string | null>
+  /** A snapshot by its slug (Freestyle `GET /v5/snapshots/{slug}`), or null. */
+  findSnapshot(slug: string): Promise<{ readonly id: string; readonly sourceVmId: string | null } | null>
+  /** Snapshot a running or paused VM under `slug` (Freestyle `POST /v5/vms/{id}/snapshot`). */
+  createSnapshot(vmId: string, slug: string): Promise<{ readonly id: string }>
+  /** Delete a snapshot (Freestyle `DELETE /v5/snapshots/{id}`; 404 is success). */
+  deleteSnapshot(id: string): Promise<void>
+  /** Grow a VM (Freestyle `POST /v5/vms/{id}/resize`: grow only; memory in MiB, storage in MiB). */
+  resize(id: string, size: VmResources): Promise<void>
+  /** The VM's resources (Freestyle `resources {cpu, memory, storage}`), or null when it is gone. */
+  resources(id: string): Promise<VmResources | null>
   /** Writes one small file into the VM (atomic, verified by sha256; Freestyle `PUT /v5/vms/{id}/fs/write`). */
   writeFile(id: string, path: string, content: string, mode: number): Promise<void>
   /** One page (100) of VMs whose metadata has `filter` (`key:value`). Used only to report, never to delete. */
   list(filter: string, offset: number): Promise<{ readonly vms: ReadonlyArray<ListedVm>; readonly total: number }>
 }
 
+export interface VmResources {
+  readonly cpu: number
+  readonly memory: number
+  readonly storage: number
+}
+
 export interface CreateOptions {
   /** The machine's idle policy in seconds; 0 = never pause. */
   readonly idleSeconds: number
+  /** Boot from this snapshot slug (a restore: one of ours, guarded) instead of the deployment's image. */
+  readonly snapshot?: string
 }
 
 export interface ListedVm {
@@ -72,6 +98,8 @@ export const ENV_IMAGE_PREFIX: Readonly<Record<string, string>> = { development:
 const LANE_PREFIX = /^cmuxnp-(dev|stg|prod|test)-cld-$/
 /** The exact tail after the prefix: providerName of a machine id (vm_ + 20) with `_` as `-`. */
 const NAME_TAIL = /^vm-[a-z0-9]{20}$/
+/** Snapshot slugs: `<prefix>snap-<20>` (FREESTYLE-NAMES, the cld lane). */
+const SNAP_TAIL = /^snap-[a-z0-9]{20}$/
 const ours = (tag: Record<string, unknown>, want: VmTag) => tag.cmux_next_team === want.team && tag.cmux_next_machine === want.machine
 
 export class GuardedCloudDriver {
@@ -88,9 +116,16 @@ export class GuardedCloudDriver {
     }
   }
 
+  private guardSnapshot(slug: string): void {
+    if (!slug.startsWith(this.prefix) || !SNAP_TAIL.test(slug.slice(this.prefix.length))) {
+      throw new DriverError("cloud.provider.refused", "refused: the snapshot name does not carry this environment's prefix", true)
+    }
+  }
+
   /** The VM under `name`, created if missing. */
   async ensure(name: string, tag: VmTag, opts: CreateOptions): Promise<{ id: string }> {
     this.guard(name)
+    if (opts.snapshot !== undefined) this.guardSnapshot(opts.snapshot)
     const found = await this.raw.find(name)
     if (found) {
       if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
@@ -144,6 +179,81 @@ export class GuardedCloudDriver {
     return out
   }
 
+  /** Pauses or starts our VM under `name` (metadata checked); a missing VM fails final. */
+  async power(name: string, tag: VmTag, action: "pause" | "start"): Promise<void> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) throw new DriverError("cloud.provider.vm_missing", `${action} VM: no VM under the recorded name`, true)
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    // Settle from the VM's real state (review P2): a VM already there (or on its way) is success, before
+    // the call (a retry after a lost answer) and after a failed one (Freestyle answers 409 when already there).
+    // A pause counts only when paused (a failed "pausing" would free the slot of a running VM); a start may count when starting (the slot is taken either way).
+    const reached = (st: string | null) => (action === "pause" ? st === "paused" : st === "running" || st === "starting")
+    if (reached(await this.raw.state(found.id))) return
+    try {
+      await (action === "pause" ? this.raw.pause(found.id) : this.raw.start(found.id))
+    } catch (e) {
+      if (reached(await this.raw.state(found.id).catch(() => null))) return
+      throw e
+    }
+  }
+
+  /** Grows our VM under `name` to `size`; settles from its real resources before and after the call (a lost answer). */
+  async resize(name: string, tag: VmTag, size: VmResources): Promise<void> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) throw new DriverError("cloud.provider.vm_missing", "resize VM: no VM under the recorded name", true)
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    const reached = (r: VmResources | null) => !!r && r.cpu >= size.cpu && r.memory >= size.memory && r.storage >= size.storage
+    if (reached(await this.raw.resources(found.id))) return
+    try {
+      await this.raw.resize(found.id, size)
+    } catch (e) {
+      if (reached(await this.raw.resources(found.id).catch(() => null))) return
+      throw e
+    }
+  }
+
+  /** The real resources of our VM under `name` (the record follows them: Freestyle has no size at create). */
+  async resourcesOf(name: string, tag: VmTag): Promise<VmResources | null> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found || !ours(found.tag, tag)) return null
+    return this.raw.resources(found.id)
+  }
+
+  /** The real provider state of our VM under `name`; `gone` when no VM is there (a cheap read for connect_info and link_token). */
+  async stateOf(name: string, tag: VmTag): Promise<{ state: string | null; gone: boolean }> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) return { state: null, gone: true }
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    // One GET: the find answer carries the state (review P2-3); a second read only when it does not.
+    return { state: found.state !== undefined ? found.state : await this.raw.state(found.id), gone: false }
+  }
+
+  /** Snapshots our VM under `vmName` as `slug`; a snapshot already under the slug must come from that VM (a retry). */
+  async snapshot(vmName: string, tag: VmTag, slug: string): Promise<{ id: string }> {
+    this.guard(vmName)
+    this.guardSnapshot(slug)
+    const vm = await this.raw.find(vmName)
+    if (!vm) throw new DriverError("cloud.provider.vm_missing", "snapshot: no VM under the recorded name", true)
+    if (!ours(vm.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    const existing = await this.raw.findSnapshot(slug)
+    if (existing) {
+      if (existing.sourceVmId !== vm.id) throw new DriverError("cloud.provider.name_conflict", "the snapshot name belongs to another snapshot", true)
+      return { id: existing.id }
+    }
+    return this.raw.createSnapshot(vm.id, slug)
+  }
+
+  /** Deletes the snapshot under our recorded `slug`; none there is success. */
+  async removeSnapshot(slug: string): Promise<void> {
+    this.guardSnapshot(slug)
+    const found = await this.raw.findSnapshot(slug)
+    if (found) await this.raw.deleteSnapshot(found.id)
+  }
+
   /** Deletes the VM under `name`; no VM there is success. */
   async remove(name: string, tag: VmTag): Promise<void> {
     this.guard(name)
@@ -159,13 +269,14 @@ export const BIND_FILE_PATH = "/var/lib/cmux/bind.json"
 
 const REQUEST_TIMEOUT_MS = 20_000
 const CREATE_TIMEOUT_MS = 120_000
-const LIST_PAGE = 100
+export const LIST_PAGE = 100
 
 /**
  * The create body (Freestyle SDK 0.2.10 CreateVmOptions, web/services/vms/drivers/freestyle.ts):
- * - idleTimeoutSeconds: the machine's idle policy; our 0 (never pause) is Freestyle's -1.
- * - autoDeleteSeconds -1: a user machine is persistent, never deleted for not running (on a plan
- *   that caps it, -1 gets the cap). automaticRestart stays at its default, true.
+ * - Every Freestyle timer is -1 (coordinator, 2026-10-05): idleTimeoutSeconds, autoDeleteSeconds,
+ *   ttlSeconds, maxRunSeconds, maxRunTotalSeconds. Freestyle never pauses, stops or deletes a machine
+ *   by itself, so our record stays true; idle is ours (the 24 h backstop and cloud.idlePause, from the
+ *   VM's own reports, on the money-op path). automaticRestart true.
  * - firewall: a VM gets nothing implicitly; this allows egress to every publicly routable address.
  *   `public: true` selects by address, so it does not cover private or VPC addresses. The machine
  *   joins no VPC at create (no `vpcs`), so no VPC rule is needed now; the VPC attach work (lane 12)
@@ -173,23 +284,32 @@ const LIST_PAGE = 100
  * - size: create takes no resources (the snapshot decides; resize is a separate, grow-only call),
  *   so the plan checks cpu, memory and disk but the size is not sent yet.
  */
-export const createBody = (name: string, snapshot: string, tag: VmTag, opts: CreateOptions) => ({
+export const createBody = (name: string, snapshot: string, tag: VmTag, _opts: CreateOptions) => ({
   slug: name,
   snapshotId: snapshot,
-  idleTimeoutSeconds: opts.idleSeconds === 0 ? -1 : opts.idleSeconds,
+  idleTimeoutSeconds: -1,
   autoDeleteSeconds: -1,
+  ttlSeconds: -1,
+  maxRunSeconds: -1,
+  maxRunTotalSeconds: -1,
+  automaticRestart: true,
   metadata: { cmux_next_team: tag.team, cmux_next_machine: tag.machine },
   firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
 })
 
 /** Freestyle REST (the same v5 calls TeamVmDO's driver measured). Errors carry only the step, status and provider code. */
 export class FreestyleCloudDriver implements RawCloudDriver {
+  private readonly apiKey: string
   constructor(
-    private readonly apiKey: string,
+    apiKey: string,
     private readonly baseUrl: string,
     private readonly snapshot: string,
-    private readonly fetchFn: typeof fetch = fetch
-  ) {}
+    // A wrapper, never the bare global: workerd refuses fetch called as a method of another object (Illegal invocation).
+    private readonly fetchFn: typeof fetch = (input, init) => fetch(input, init)
+  ) {
+    // A pasted key with a trailing newline would make every header invalid (review P2).
+    this.apiKey = apiKey.trim()
+  }
 
   private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ status: number; json: Record<string, unknown> }> {
     try {
@@ -202,14 +322,17 @@ export class FreestyleCloudDriver implements RawCloudDriver {
       return { status: res.status, json: (await res.json().catch(() => ({}))) as Record<string, unknown> }
     } catch (e) {
       // Network failure or timeout: the outcome is unknown; the retry finds the VM by name.
-      return { status: 0, json: { code: e instanceof Error && e.name === "TimeoutError" ? "TIMEOUT" : "UNREACHABLE" } }
+      // The reason (a runtime network message, never a header or key) goes into the error so a failure is diagnosable.
+      const reason = redactReason(e instanceof Error ? `${e.name}: ${e.message}` : "unknown", this.apiKey)
+      return { status: 0, json: { code: e instanceof Error && e.name === "TimeoutError" ? "TIMEOUT" : "UNREACHABLE", reason } }
     }
   }
 
   private fail(status: number, json: Record<string, unknown>, what: string): never {
     const final = status === 400 || status === 401 || status === 403 || status === 422
     const code = typeof json.code === "string" ? json.code.slice(0, 40) : ""
-    throw new DriverError(final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}`, final)
+    const reason = status === 0 && typeof json.reason === "string" ? ` (${json.reason})` : ""
+    throw new DriverError(final ? "cloud.provider.refused" : "cloud.provider.unavailable", `${what}: ${status || "no answer"}${code ? ` ${code}` : ""}${reason}`, final)
   }
 
   private vm(json: Record<string, unknown>) {
@@ -221,11 +344,11 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     const got = await this.call("GET", `/v5/vms/${encodeURIComponent(name)}`)
     if (got.status === 404) return null
     if (got.status !== 200) this.fail(got.status, got.json, "read VM")
-    return this.vm(got.json)
+    return { ...this.vm(got.json), state: typeof got.json.state === "string" ? got.json.state : null }
   }
 
   async create(name: string, tag: VmTag, opts: CreateOptions) {
-    const created = await this.call("POST", "/v5/vms", createBody(name, this.snapshot, tag, opts), CREATE_TIMEOUT_MS)
+    const created = await this.call("POST", "/v5/vms", createBody(name, opts.snapshot ?? this.snapshot, tag, opts), CREATE_TIMEOUT_MS)
     if (created.status >= 200 && created.status < 300) return { id: this.vm(created.json).id, tag: null }
     // A duplicate name (409) or an unknown outcome: the VM under the name, if any, is the answer.
     const found = await this.find(name)
@@ -270,62 +393,63 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     if (r.status === 404 || (r.status >= 200 && r.status < 300)) return
     this.fail(r.status, r.json, "delete VM")
   }
+
+  async pause(id: string) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/pause`)
+    if (r.status >= 200 && r.status < 300) return
+    this.fail(r.status, r.json, "pause VM")
+  }
+
+  async start(id: string) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/start`)
+    if (r.status >= 200 && r.status < 300) return
+    this.fail(r.status, r.json, "start VM")
+  }
+
+  async state(id: string) {
+    const r = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
+    if (r.status === 404) return null
+    if (r.status !== 200) this.fail(r.status, r.json, "read VM state")
+    return typeof r.json.state === "string" ? r.json.state : null
+  }
+
+  async findSnapshot(slug: string) {
+    const r = await this.call("GET", `/v5/snapshots/${encodeURIComponent(slug)}`)
+    if (r.status === 404) return null
+    if (r.status !== 200 || typeof r.json.id !== "string") this.fail(r.status, r.json, "read snapshot")
+    return { id: r.json.id as string, sourceVmId: typeof r.json.sourceVmId === "string" ? r.json.sourceVmId : null }
+  }
+
+  async createSnapshot(vmId: string, slug: string) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(vmId)}/snapshot`, { slug }, CREATE_TIMEOUT_MS)
+    if (r.status >= 200 && r.status < 300 && typeof r.json.snapshotId === "string") return { id: r.json.snapshotId }
+    // A lost answer: the snapshot under the slug, if any, is the answer.
+    const found = await this.findSnapshot(slug)
+    if (found && found.sourceVmId === vmId) return { id: found.id }
+    this.fail(r.status, r.json, "create snapshot")
+  }
+
+  async deleteSnapshot(id: string) {
+    const r = await this.call("DELETE", `/v5/snapshots/${encodeURIComponent(id)}`)
+    if (r.status === 404 || (r.status >= 200 && r.status < 300)) return
+    this.fail(r.status, r.json, "delete snapshot")
+  }
+
+  async resize(id: string, size: VmResources) {
+    const r = await this.call("POST", `/v5/vms/${encodeURIComponent(id)}/resize`, { cpu: size.cpu, memory: size.memory, storage: size.storage })
+    if (r.status >= 200 && r.status < 300) return
+    this.fail(r.status, r.json, "resize VM")
+  }
+
+  async resources(id: string) {
+    const r = await this.call("GET", `/v5/vms/${encodeURIComponent(id)}`)
+    if (r.status === 404) return null
+    if (r.status !== 200) this.fail(r.status, r.json, "read VM resources")
+    const res = (r.json.resources ?? {}) as Record<string, unknown>
+    return typeof res.cpu === "number" && typeof res.memory === "number" && typeof res.storage === "number" ? { cpu: res.cpu, memory: res.memory, storage: res.storage } : null
+  }
 }
 
-/**
- * Test provider (ENVIRONMENT=test, CLOUD_DRIVER=fake): VMs in the object's own SQLite.
- * `fail_next` makes the next calls fail as retryable (a cut-off call).
- */
-export class FakeCloudDriver implements RawCloudDriver {
-  constructor(private readonly sql: SqlStore) {
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0, fail_list INTEGER NOT NULL DEFAULT 0)`)
-    sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
-  }
-
-  private maybeFail() {
-    const n = this.sql.exec<{ fail_next: number }>(`SELECT fail_next FROM cloud_fake_ctl WHERE id = 1`)[0]!.fail_next
-    if (n > 0) {
-      this.sql.exec(`UPDATE cloud_fake_ctl SET fail_next = fail_next - 1 WHERE id = 1`)
-      throw new DriverError("cloud.provider.unavailable", "fake provider: no answer", false)
-    }
-  }
-
-  async find(name: string) {
-    this.maybeFail()
-    const row = this.sql.exec<{ id: string; tag: string }>(`SELECT id, tag FROM cloud_fake_vm WHERE name = ?`, name)[0]
-    return row ? { id: row.id, tag: JSON.parse(row.tag) as Record<string, unknown> } : null
-  }
-
-  async create(name: string, tag: VmTag, opts: CreateOptions) {
-    this.maybeFail()
-    const body = createBody(name, "fake", tag, opts)
-    this.sql.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, ?)`, name, `fs-${name}`, JSON.stringify(body.metadata), body.idleTimeoutSeconds)
-    this.sql.exec(`UPDATE cloud_fake_ctl SET creates = creates + 1 WHERE id = 1`)
-    return { id: `fs-${name}`, tag: null }
-  }
-
-  async writeFile(id: string, path: string, content: string, mode: number) {
-    this.maybeFail()
-    this.sql.exec(`INSERT INTO cloud_fake_file (vm, path, content, mode) VALUES (?, ?, ?, ?) ON CONFLICT (vm, path) DO UPDATE SET content = excluded.content, mode = excluded.mode`, id, path, content, mode)
-  }
-
-  /** Report-only path: never fails on purpose, so a background sweep cannot eat a test's fail_next. */
-  async list(filter: string, offset: number) {
-    if (this.sql.exec<{ fail_list: number }>(`SELECT fail_list FROM cloud_fake_ctl WHERE id = 1`)[0]!.fail_list) throw new DriverError("cloud.provider.unavailable", "fake provider: list failed", false)
-    const [key, value] = [filter.slice(0, filter.indexOf(":")), filter.slice(filter.indexOf(":") + 1)]
-    const all = this.sql.exec<{ name: string; id: string; tag: string }>(`SELECT name, id, tag FROM cloud_fake_vm ORDER BY name`)
-    const vms = all.map((r) => ({ id: r.id, name: r.name, tag: JSON.parse(r.tag) as Record<string, unknown> })).filter((v) => v.tag[key] === value)
-    return { vms: vms.slice(offset, offset + LIST_PAGE), total: vms.length }
-  }
-
-  async delete(id: string) {
-    this.maybeFail()
-    const gone = this.sql.exec<{ name: string }>(`DELETE FROM cloud_fake_vm WHERE id = ? RETURNING name`, id)
-    if (gone.length) this.sql.exec(`UPDATE cloud_fake_ctl SET deletes = deletes + 1 WHERE id = 1`)
-  }
-}
 
 /** The deployment's Cloud config: plan (stub outside production), name prefix (only with a usable provider) and image. */
 export const cloudConfig = (env: Env): CloudConfig => {

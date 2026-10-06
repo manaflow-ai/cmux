@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudInternalOps, cloudOpByName, InstallRegister, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -10,6 +10,9 @@ export const reject = (code: string, message: string, details?: unknown): { ok: 
 })
 
 /** Decodes params with the op's Effect Schema (pure; runs on owner and mirrors alike). */
+/** install.register_server params: install.register's plus the VM install's bound machine. */
+export const InstallRegisterServerParams = Schema.Struct({ ...InstallRegister.params.fields, bound_machine: Schema.optionalKey(MachineId) })
+
 export const decodeParams = <T>(op: CloudOpDef, params: unknown): { ok: true; value: T } | ({ ok: false } & Reject) => {
   const exit = Schema.decodeUnknownExit(op.params as Schema.Codec<T, unknown>)(params ?? {})
   return Exit.isSuccess(exit) ? { ok: true, value: exit.value } : reject("validation.invalid", "invalid params", String(exit.cause))
@@ -276,6 +279,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "install.ios_cloud_link_migrate",
+    {
+      name: "install.ios_cloud_link_migrate",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({}),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: UserDO adds the narrow cloud-link class once to its iPhone grants (read, mutate-own) made before the cloud-link default, on bind, then marks the migration done (CLOUD-LINK-FOLLOWUPS decision 2).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "install.register_server",
     {
       name: "install.register_server",
@@ -284,7 +304,7 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       risk: "mutate-own",
       target: "install",
       principals: ["system"],
-      params: InstallRegister.params,
+      params: InstallRegisterServerParams,
       result: Schema.Unknown,
       errors: [],
       docs: "Internal: the server registers a server install (kind vm or daemon) for a user: pairing and the Cloud bind flow. A client never declares these kinds (CLOUD-LINK-FOLLOWUPS 4).",

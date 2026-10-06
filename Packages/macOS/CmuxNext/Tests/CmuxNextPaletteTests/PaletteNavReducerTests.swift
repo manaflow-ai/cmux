@@ -162,6 +162,74 @@ import Testing
         #expect(effects == [.run(levelID: level.id, rowID: "cmd.b")])
     }
 
+    /// The live bug (query "settings"): the user typed, arrowed to a row of the rows on screen
+    /// (an older query's), and pressed Return. Return must run that highlighted row once the
+    /// current query's rows land, never the new top row.
+    @Test func returnRunsTheRowTheUserMovedToWhileRowsWereStale() {
+        var d = driver()
+        d.send(.open(scope: nil, query: ""), answer: false)
+        let level = d.top
+        d.send(.results(levelID: level.id, generation: level.generation, rows: F.rows(["scope.settings", "toggle", "openSettings"]),
+                        replace: true, isFinal: true))
+        d.send(.setQuery("settings"), answer: false)
+        d.send(.move(1))
+        d.send(.move(1))
+        #expect(d.top.selection == "openSettings", "the highlight is on the row the user chose")
+        #expect(d.send(.activate(nil)).isEmpty, "Return waits for the current query's rows")
+        let effects = d.send(.results(levelID: level.id, generation: d.top.generation,
+                                      rows: F.rows(["scope.settings", "toggle", "openSettings"]), replace: true, isFinal: true))
+        #expect(effects == [.run(levelID: level.id, rowID: "openSettings")])
+        #expect(d.top.selection == "openSettings")
+    }
+
+    /// When the chosen row is not in the current query's rows, Return runs nothing: the highlight
+    /// moves where the user can see it, and the next Return runs what it shows.
+    @Test func returnRunsNothingWhenTheChosenRowLeavesTheResults() {
+        var d = driver()
+        d.send(.open(scope: nil, query: ""), answer: false)
+        let level = d.top
+        d.send(.results(levelID: level.id, generation: level.generation, rows: F.rows(["a", "b", "c"]), replace: true, isFinal: true))
+        d.send(.setQuery("x"), answer: false)
+        d.send(.move(1))
+        #expect(d.send(.activate(nil)).isEmpty)
+        // A first batch without the chosen row: keep waiting while more rows come.
+        #expect(d.send(.results(levelID: level.id, generation: d.top.generation, rows: F.rows(["x1"]), replace: true, isFinal: false)).isEmpty)
+        #expect(d.send(.results(levelID: level.id, generation: d.top.generation, rows: F.rows(["x2"]), replace: false, isFinal: true)).isEmpty)
+        #expect(d.top.selection != nil && d.top.selection != "b")
+        #expect(d.send(.activate(nil)) == [.run(levelID: level.id, rowID: d.top.selection!)])
+    }
+
+    /// A row the user chose stays chosen when its row arrives in a later batch of the same query.
+    @Test func aChosenRowInALaterBatchRuns() {
+        var d = driver()
+        d.send(.open(scope: nil, query: ""), answer: false)
+        let level = d.top
+        d.send(.results(levelID: level.id, generation: level.generation, rows: F.rows(["a", "b"]), replace: true, isFinal: true))
+        d.send(.setQuery("q"), answer: false)
+        d.send(.move(1))
+        d.send(.activate(nil))
+        #expect(d.send(.results(levelID: level.id, generation: d.top.generation, rows: F.rows(["a"]), replace: true, isFinal: false)).isEmpty)
+        let effects = d.send(.results(levelID: level.id, generation: d.top.generation, rows: F.rows(["b"]), replace: false, isFinal: true))
+        #expect(effects == [.run(levelID: level.id, rowID: "b")])
+    }
+
+    /// The live case (query "settings", rows shown for it, Settings… highlighted): a refresh of the
+    /// same query (the App's data changed) made the rows "stale", Return waited, and the refreshed
+    /// rows ran another row at the old index. Rows of the current query text are what the user
+    /// sees: Return runs the highlighted one at once.
+    @Test func returnDuringARefreshOfTheSameQueryRunsTheHighlightedRow() {
+        var d = driver()
+        d.send(.open(scope: nil, query: ""), answer: false)
+        let level = d.top
+        d.send(.setQuery("settings"), answer: false)
+        d.send(.results(levelID: level.id, generation: d.top.generation, rows: F.rows(["openSettings", "toggle"]),
+                        replace: true, isFinal: true))
+        #expect(d.top.selection == "openSettings")
+        d.send(.refresh, answer: false)
+        #expect(!d.top.rowsAreCurrent)
+        #expect(d.send(.activate(nil)) == [.run(levelID: level.id, rowID: "openSettings")])
+    }
+
     @Test func streamingAppendsKeepTheSelection() {
         var d = driver()
         d.send(.open(scope: nil, query: ""), answer: false)

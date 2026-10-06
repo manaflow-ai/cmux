@@ -867,6 +867,8 @@ name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -939,10 +941,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-engine"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+]
+
+[[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1009,6 +1021,14 @@ dependencies = [
  "uuid",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-remote-browser"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1138,6 +1158,7 @@ dependencies = [
  "cmux-wg",
  "crossbeam-channel",
  "crossterm",
+ "futures-util",
  "getrandom 0.3.4",
  "ghostty-vt",
  "glob",
@@ -1156,6 +1177,7 @@ dependencies = [
  "terminput",
  "terminput-crossterm",
  "tokio",
+ "tokio-tungstenite",
  "toml",
  "toml_edit 0.22.27",
  "unicode-segmentation",

@@ -4,9 +4,12 @@ import Foundation
 extension AgentTabStore {
     /// The agent pane page and its acpmux host. Release loads only the
     /// bundled page; the dev server is for Debug and tagged builds
-    /// (webviews/src/agent-session/acpmux/README.md). A dev server page has
-    /// its own origin, which acpmux accepts only when this (Debug) app starts
-    /// it with `--allow-dev-origin` (identity.md section 4).
+    /// (webviews/src/agent-session/acpmux/README.md). The page never opens a
+    /// socket to acpmux: the host does (AgentPaneTransport), always with the
+    /// bundled pane's origin, so even a dev server page reaches LocalApp and
+    /// the app starts the daemon with no dev origin and no `--dev`
+    /// (``paneEnvironment(tag:bundledBinDirectory:environment:)``). Only the
+    /// browser dev slot, with no host, still needs both (dev-slot.sh).
     static func resolvePane(tag: String?, environment: [String: String], showcase: Bool)
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
         #if DEBUG
@@ -21,11 +24,13 @@ extension AgentTabStore {
             return (source, MockAgentPaneHost())
         }
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let devOrigin = source?.devServerOrigin
-        let host = AcpmuxHost {
-            AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment)?
-                .allowingDevOrigin(devOrigin)
-        }
+        let host = AcpmuxHost { paneEnvironment(tag: tag, bundledBinDirectory: bin, environment: environment) }
         return (source, host)
+    }
+
+    /// The daemon the app starts, in every build configuration and for every page source: no
+    /// `--allow-dev-origin` and no `--dev` (the host's socket carries the bundled pane's origin).
+    nonisolated static func paneEnvironment(tag: String?, bundledBinDirectory: URL?, environment: [String: String]) -> AcpmuxEnvironment? {
+        AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bundledBinDirectory, environment: environment)
     }
 }

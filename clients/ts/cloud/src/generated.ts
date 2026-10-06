@@ -121,6 +121,7 @@ export type CloudMachine = {
     readonly message: string
     readonly at: number
   } | null
+  readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
   readonly revision: Revision
 }
 
@@ -620,6 +621,7 @@ export type Install = {
   readonly revoked_at: number | null
   readonly bound_team?: TeamId
   readonly sso_team?: TeamId
+  readonly bound_machine?: string
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -646,7 +648,7 @@ export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
-export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link"
+export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link" | "vm-self"
 
 /** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
 export type PairingCode = string
@@ -682,7 +684,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -905,6 +907,10 @@ export type TeamPolicyValues = {
   }
   readonly "cloud.connectServices"?: {
     readonly value: CloudConnectServices
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.idlePause"?: {
+    readonly value: boolean
     readonly mode: PolicyMode
   }
   readonly "telemetry.level"?: {
@@ -1326,7 +1332,7 @@ export interface CloudOps {
     }
     readonly result: CloudMachine
   }
-  /** Set when an idle machine pauses; 0 = never. */
+  /** Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h. */
   readonly "cloud.machine.idle_policy.set": {
     readonly params: {
       readonly machine: MachineId
@@ -1336,7 +1342,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
   readonly "cloud.machine.link_token": {
     readonly params: {
       readonly host: HostId
@@ -1362,7 +1368,7 @@ export interface CloudOps {
       readonly revision: Revision
     }
   }
-  /** Pause a running machine. After mutation.indeterminate, retry with the same idempotency key. */
+  /** Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.pause": {
     readonly params: {
       readonly machine: MachineId
@@ -1381,7 +1387,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Change a machine's size. A larger size may cost money. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.resize": {
     readonly params: {
       readonly machine: MachineId
@@ -1391,7 +1397,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Start (resume) a paused machine. May answer cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. */
+  /** Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.start": {
     readonly params: {
       readonly machine: MachineId
@@ -1441,7 +1447,7 @@ export interface CloudOps {
       readonly stream: string
     }
   }
-  /** Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.create": {
     readonly params: {
       readonly machine: MachineId
@@ -1451,7 +1457,7 @@ export interface CloudOps {
       readonly snapshot: CloudSnapshot
     }
   }
-  /** Delete a snapshot. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.delete": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -1469,7 +1475,7 @@ export interface CloudOps {
       readonly snapshots: ReadonlyArray<CloudSnapshot>
     }
   }
-  /** Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  /** Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.restore": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -1477,6 +1483,50 @@ export interface CloudOps {
     }
     readonly result: {
       readonly machine: CloudMachine
+    }
+  }
+  /** Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.event.emit": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly kind: "agent.started" | "agent.finished" | "agent.needs_input" | "notification" | "browser.lease.changed" | "cua.session.started" | "cua.session.ended" | "service.port.opened" | "service.port.closed"
+      readonly at: number
+      readonly data: unknown
+    }
+    readonly result: {
+      readonly delivered: boolean
+    }
+  }
+  /** The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.self.get": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.status.report": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly state: "running" | "degraded" | "stopping"
+      readonly daemon: {
+        readonly version: string
+        readonly capabilities: ReadonlyArray<string>
+      }
+      readonly health?: {
+        readonly disk_free_mb?: number
+        readonly load?: number | "Infinity" | "-Infinity" | "NaN"
+      }
+      readonly activity: {
+        readonly last_user_input_at?: number
+        readonly last_agent_action_at?: number
+        readonly active_sessions: number
+      }
+    }
+    readonly result: {
+      readonly applied: boolean
     }
   }
   /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
@@ -2957,6 +3007,9 @@ export const cloudOpMeta = {
   "cloud.snapshot.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

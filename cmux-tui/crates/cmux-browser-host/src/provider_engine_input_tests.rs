@@ -88,7 +88,22 @@ fn a_lease_refused_input_emits_nothing_and_takes_no_seq() {
         .collect();
     assert_eq!(summary, vec![(0, "W", "key"), (1, "Y", "key")], "gap-free over published inputs");
     barrier();
-    assert_eq!(app_inputs(&app), *seen, "the app got exactly these, verbatim");
+    assert_eq!(wire(&app_inputs(&app)), wire(&seen), "the app got exactly these, verbatim");
+}
+
+/// Events as compared across the socket: the app's JSON parser may read a
+/// float such as `t_ms` one ulp off (serde_json without float_roundtrip),
+/// so `t_ms` is compared to the microsecond.
+fn wire(events: &[Value]) -> Vec<Value> {
+    events
+        .iter()
+        .map(|event| {
+            let mut event = event.clone();
+            let t = event["t_ms"].as_f64().expect("t_ms");
+            event["t_ms"] = json!(format!("{t:.6}"));
+            event
+        })
+        .collect()
 }
 
 /// The `input` frames the app got.
@@ -121,7 +136,7 @@ fn one_input_call_gives_the_app_exactly_one_input_frame() {
     assert_eq!(event["target_id"], "W");
     assert_eq!((event["seq"].as_u64(), event["kind"].as_str()), (Some(0), Some("move")));
     assert!(!event.to_string().contains("leak.test"), "{event}");
-    assert_eq!(*seen.lock().unwrap(), inputs, "the session sink gets it once too");
+    assert_eq!(wire(&seen.lock().unwrap()), wire(&inputs), "the session sink gets it once too");
 }
 
 #[test]

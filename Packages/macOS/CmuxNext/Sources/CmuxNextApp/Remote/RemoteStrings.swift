@@ -13,6 +13,13 @@ enum RemoteStrings {
     static func placeholderUnknown(_ machine: String) -> String {
         String(format: String(localized: "remote.terminal.unknown", defaultValue: "%@ is not connected on this Mac", table: "Remote", bundle: .module), machine)
     }
+    // An agent chat tab whose session another Mac's acpmux runs.
+    static func agentTabElsewhere(_ machine: String) -> String {
+        String(format: String(localized: "remote.agentTab.elsewhere", defaultValue: "This chat runs on %@", table: "Remote", bundle: .module), machine)
+    }
+    static var agentTabElsewhereUnknown: String {
+        String(localized: "remote.agentTab.elsewhereUnknown", defaultValue: "This chat runs on another Mac", table: "Remote", bundle: .module)
+    }
     static var placeholderConnect: String {
         String(localized: "remote.terminal.connect", defaultValue: "Connect", table: "Remote", bundle: .module)
     }

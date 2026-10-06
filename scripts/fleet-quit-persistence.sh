@@ -144,7 +144,8 @@ wait_rpc() { # wait_rpc SECONDS METHOD PARAMS GREP_RE OUTFILE
   done
   return 1
 }
-rpc_ok action.run '{"id":"palette.newAgentChat"}' >"$out/agent-new-chat.json"
+# The agent tab is a store tab; a socket run changes this client's selection only with focus.
+rpc_ok action.run '{"id":"palette.newAgentChat","focus":true}' >"$out/agent-new-chat.json"
 if wait_rpc 60 debug.agent_pane '{"action":"pid"}' '"pid"' "$out/agent-tab.json"; then
   check setup-agent-tab-opened 0 "$(tr -d '\n' <"$out/agent-tab.json" | cut -c1-200)"
 else

@@ -99,16 +99,16 @@ public final class DaemonStore: StateResourceQueries {
     /// The overlay moved a workspace or changed its group since the last
     /// sidebar flattening.
     @ObservationIgnored var sidebarNeedsRecompute = false
-    /// Called once per intent when it leaves the log, on the main actor,
-    /// after the visible state is complete again.
+    /// Called once per intent when it leaves the log (main actor), after the visible state is complete again.
     @ObservationIgnored public var onIntentSettled: ((ClientTransactionID, IntentSettlement) -> Void)?
     /// Settlements of the current lift, reported when it ends.
     @ObservationIgnored var intentSettlements: [(ClientTransactionID, IntentSettlement)] = []
-    /// Mirror single-writer violations found by the debug-build check
-    /// (DaemonStore+MirrorCheck.swift), newest last (bounded).
+    /// Mirror single-writer violations found by the debug-build check (DaemonStore+MirrorCheck.swift), newest last (bounded).
     @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
     /// Called on the main actor for each new mirror violation.
     @ObservationIgnored public var onMirrorViolation: ((String) -> Void)?
+    /// A create intent's tab arrived with its transaction echo: (provisional tab id, created tab).
+    @ObservationIgnored public var onTabCreated: ((String, TabModel) -> Void)?
     /// The layout as the last allowed writer left it (debug builds).
     @ObservationIgnored var mirrorFingerprint: Int?
     /// Events at or below this sequence are superseded by the last snapshot.

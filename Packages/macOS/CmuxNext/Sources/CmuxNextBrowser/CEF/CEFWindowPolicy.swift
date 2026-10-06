@@ -11,6 +11,9 @@ nonisolated enum CEFWindowDecision: Equatable, Sendable {
     /// A modified click mapped to the current tab: Chromium opens nothing
     /// and the requesting tab loads `url`.
     case loadInSource(url: String)
+    /// A modified click mapped to a download: Chromium opens nothing and
+    /// the requesting tab downloads `url` (`CEFDownloads`).
+    case downloadInSource(url: String)
     /// An incognito request ("Open Link in Incognito Window", New
     /// Incognito Window): Chromium opens nothing, and cmux opens `url` (or
     /// nothing, when empty) in a cmux incognito window, or in the source
@@ -37,6 +40,7 @@ nonisolated enum CEFWindowPolicy {
         switch placement(for: request, links: links) {
         case .tab(let tab): disposition = tab
         case .opener: return .loadInSource(url: request.url)
+        case .download: return .downloadInSource(url: request.url)
         case .chromium: disposition = .foregroundTab
         }
         let sameProfile = candidates.filter { $0.profilePath == request.profilePath }
@@ -56,7 +60,7 @@ nonisolated enum CEFWindowPolicy {
     /// tab, or a window with a source tab, such as Shift-click) goes
     /// through the link mapping (`CEFLinkClicks`); everything else (Chromium's
     /// own UI, `chrome.windows.create` from an extension background) is a
-    /// selected tab. `.opener` needs the source tab.
+    /// selected tab. `.opener` and `.download` need the source tab.
     static func placement(for request: CEFWindowRequest, links: CEFLinkContext) -> CEFLinkPlacement {
         let placement: CEFLinkPlacement
         switch request.kind {
@@ -64,11 +68,13 @@ nonisolated enum CEFWindowPolicy {
         case .offTheRecord: return .tab(.foregroundTab)
         case .window, .app:
             guard request.sourceBrowser != 0, request.disposition.isLinkClick else { return .tab(.foregroundTab) }
-            placement = links.placement(for: request.disposition, source: request.sourceBrowser)
+            placement = links.placement(for: request.disposition, source: request.sourceBrowser, userGesture: request.userGesture)
         case .tab:
-            placement = links.placement(for: request.disposition, source: request.sourceBrowser)
+            placement = links.placement(for: request.disposition, source: request.sourceBrowser, userGesture: request.userGesture)
         }
-        if placement == .opener, request.sourceBrowser == 0 || request.url.isEmpty { return .tab(.foregroundTab) }
+        if placement == .opener || placement == .download, request.sourceBrowser == 0 || request.url.isEmpty {
+            return .tab(.foregroundTab)
+        }
         return placement
     }
 }

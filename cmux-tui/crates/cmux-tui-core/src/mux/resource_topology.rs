@@ -26,9 +26,10 @@ mod column_update;
 mod layout_projection;
 mod pane_browser;
 mod published_screen;
+mod screen_create;
 mod structural_move;
 mod unpublished_creation;
-pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
+pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;
@@ -4262,20 +4263,22 @@ impl Mux {
                 let slots = self.effect_slots(&path)?;
                 let name = optional_owned_string(fields, "name")?;
                 let cwd = optional_owned_string(fields, "cwd")?;
+                let argv = optional_effect_command(fields)?;
                 match slots.workspace {
                     Some(workspace) => self.effect_add_screen(
                         intent,
                         workspace,
                         name,
                         cwd,
+                        argv,
                         effect_cell_size(fields)?,
                     ),
                     None => self.effect_create_workspace_terminal(
                         intent,
                         None,
                         TerminalEffectOptions {
-                            argv: None,
-                            cwd: None,
+                            argv,
+                            cwd,
                             name: None,
                             created_screen_name: name,
                             size: effect_cell_size(fields)?,
@@ -4444,13 +4447,7 @@ impl Mux {
                 let size = effect_browser_cell_size(self, fields)?;
                 let identity = self.effect_browser_reservation(intent)?;
                 let surface = match slots.pane {
-                    Some(pane) => self.new_browser_tab_reserved(
-                        required_str(fields, "url")?.to_string(),
-                        Some(pane),
-                        size,
-                        identity,
-                        None,
-                    )?,
+                    Some(pane) => self.new_browser_tab_for_effect(fields, pane, size, identity)?,
                     None if slots.workspace.is_some() => self.create_browser_surface_in_workspace(
                         slots.workspace.expect("checked"),
                         required_str(fields, "url")?.to_string(),
@@ -4738,7 +4735,9 @@ impl Mux {
             on_exit,
         )?;
         let terminal_hex = reservation.terminal_id.to_hex();
-        let result = self.create_terminal_in_workspace_with_mutation(
+        // The reservation's env is the creation's own (`env` field), so a
+        // create into a fresh workspace gets it like one into a pane.
+        let result = self.create_terminal_in_workspace_with_mutation_env(
             workspace,
             argv,
             cwd,
@@ -4749,6 +4748,7 @@ impl Mux {
             None,
             &reservation.mutation,
             on_exit,
+            reservation.env.clone(),
         )?;
         let surface =
             result.created_surface.context("created terminal result omitted its local surface")?;
@@ -4844,87 +4844,6 @@ impl Mux {
             anyhow::bail!("pane disappeared while creating tab");
         };
         self.emit_tree_delta(delta, true);
-        self.reap_if_dead(&surface);
-        Ok(created)
-    }
-
-    fn effect_add_screen(
-        self: &Arc<Self>,
-        intent: &Value,
-        workspace: WorkspaceId,
-        name: Option<String>,
-        cwd: Option<String>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<CreatedTerminalEffect> {
-        let workspace_key = self
-            .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
-            .with_context(|| format!("workspace {workspace} disappeared"))?;
-        let reservation = self.effect_terminal_reservation(
-            intent,
-            &workspace_key,
-            None,
-            cwd.as_deref(),
-            None,
-            size,
-            None,
-        )?;
-        let surface =
-            self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
-        let (pane_id, pane) = match self.make_pane(surface.id) {
-            Ok(value) => value,
-            Err(error) => {
-                self.fail_hosted_terminal_attachment(
-                    &surface,
-                    "resource-terminal-screen-attach-failed",
-                    "pane-identity-allocation-failed",
-                )?;
-                return Err(error);
-            }
-        };
-        let screen_id = self.next_id();
-        let public_id = match ScreenPublicId::random() {
-            Ok(value) => value,
-            Err(error) => {
-                self.fail_hosted_terminal_attachment(
-                    &surface,
-                    "resource-terminal-screen-attach-failed",
-                    "screen-identity-allocation-failed",
-                )?;
-                return Err(anyhow::Error::new(error));
-            }
-        };
-        let created = {
-            let mut state = self.state.lock().unwrap();
-            let Some(workspace_index) = state.workspace_index(workspace) else {
-                drop(state);
-                self.fail_hosted_terminal_attachment(
-                    &surface,
-                    "resource-terminal-screen-attach-failed",
-                    "workspace-disappeared-before-attach",
-                )?;
-                anyhow::bail!("workspace disappeared while creating screen");
-            };
-            state.insert_pane(pane);
-            stamp_pane_focus(self, &mut state, pane_id);
-            let workspace = &mut state.workspaces[workspace_index];
-            workspace.screens.push(Screen {
-                id: screen_id,
-                public_id,
-                name,
-                root: Node::Leaf(pane_id),
-                active_pane: pane_id,
-                zoomed_pane: None,
-                zellij_auto_layout: Some(vec![pane_id]),
-                viewport_splits: Default::default(),
-                viewport_base_width: None,
-                layout_columns: Vec::new(),
-                layout_revision: 0,
-                layout_undo: Default::default(),
-            });
-            workspace.active_screen = workspace.screens.len() - 1;
-            let path = self.created_resource_path_in_state(&state, surface.id)?;
-            CreatedTerminalEffect { path }
-        };
         self.reap_if_dead(&surface);
         Ok(created)
     }
@@ -5303,7 +5222,9 @@ fn validate_effect_fields(
         ResourceOperation::WorkspaceLayoutApply => {
             anyhow::ensure!(fields["layout"].is_object(), "layout must be an object");
         }
-        ResourceOperation::PaneCreate | ResourceOperation::TabCreateTerminal => {
+        ResourceOperation::PaneCreate
+        | ResourceOperation::TabCreateTerminal
+        | ResourceOperation::ScreenCreate => {
             let _ = effect_cell_size(fields)?;
             let _ = optional_effect_command(fields)?;
         }

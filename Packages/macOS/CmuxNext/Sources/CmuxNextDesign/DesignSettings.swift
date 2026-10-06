@@ -24,6 +24,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 public final class DesignSettings {
     public static let shared = DesignSettings()
 
+    /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
+    public var showModifierHoldHints = true
     public var density: Density = .compact
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
     public var animationSpeed: MotionSpeed = .fast

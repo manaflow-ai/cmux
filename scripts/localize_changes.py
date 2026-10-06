@@ -296,6 +296,15 @@ def macos_locales() -> tuple[str, ...]:
     return tuple(CATALOG.LOCALES)
 
 
+def packet_catalogs(root: Path) -> list[Path]:
+    """Catalogs the packet may write: the macOS ones the validator checks, plus the web pages'
+    (webviews/src), which carry their own locale lists."""
+    paths = set(CATALOG.discover(root))
+    if (root / "webviews/src").is_dir():
+        paths.update((root / "webviews/src").rglob("*.xcstrings"))
+    return sorted(paths)
+
+
 def catalog_index(root: Path) -> tuple[list[Path], dict[str, list[tuple[Path, object]]], dict[Path, str]]:
     """Parse every catalog once; entry offsets refer to the returned texts."""
     paths = CATALOG.discover(root)
@@ -581,8 +590,9 @@ def confirmed_translations(work: dict) -> dict[tuple[str, str, str, str], dict]:
 def apply_completed(root: Path, work: dict, omissions: dict) -> int:
     grouped: dict[tuple[str, str], list[dict]] = {}
     root = root.resolve()
-    allowed = {str(path.relative_to(root)) for path in CATALOG.discover(root)
+    allowed = {str(path.relative_to(root)) for path in packet_catalogs(root)
                if path.resolve().is_relative_to(root) and path.resolve() == path}
+    catalog_locales: dict[str, tuple[str, ...]] = {}
     identities: set[tuple[str, str, str, str]] = set()
     catalog_rows: dict[str, set[tuple[str, str]]] = {}
     for row in work.get("entries", []):
@@ -592,7 +602,12 @@ def apply_completed(root: Path, work: dict, omissions: dict) -> int:
         if not all(isinstance(part, str) and part for part in identity):
             raise ValueError("completed packet row requires catalog, key, source, and locale strings")
         catalog_path, key, source, locale = identity
-        if catalog_path not in allowed or locale not in CATALOG.LOCALES:
+        if catalog_path not in allowed:
+            raise ValueError(f"{catalog_path}: unknown catalog")
+        if catalog_path not in catalog_locales:
+            catalog_locales[catalog_path] = CATALOG.catalog_locales(
+                CATALOG.catalog_entries((root / catalog_path).read_text(encoding="utf-8")))
+        if locale not in catalog_locales[catalog_path]:
             raise ValueError(f"{catalog_path}: unknown catalog or locale {locale!r}")
         if identity in identities:
             raise ValueError(f"{key}: duplicate packet identity")
@@ -631,14 +646,18 @@ def extract_changed(root: Path, changed_keys: list[tuple[Path, str]], omissions:
     preserved = translation_index(prior)
     rows: list[dict] = []
     parsed: dict[Path, dict[str, list]] = {}
+    locales: dict[Path, tuple[str, ...]] = {}
     for path, key in sorted(changed_keys, key=lambda item: (str(item[0]), item[1])):
         if path not in parsed:
             parsed[path] = {}
-            for entry in CATALOG.catalog_entries(path.read_text(encoding="utf-8")):
+            entries = CATALOG.catalog_entries(path.read_text(encoding="utf-8"))
+            for entry in entries:
                 parsed[path].setdefault(entry.key, []).append(entry)
+            # Every locale the catalog carries, not only the macOS ones.
+            locales[path] = CATALOG.catalog_locales(entries)
         for entry in parsed[path].get(key, []):
             english = CATALOG.source(entry.value)
-            for locale in macos_locales():
+            for locale in locales[path]:
                 errors = CATALOG.check_entry(entry, locale, omissions, counts)
                 if not errors:
                     continue

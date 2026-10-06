@@ -325,3 +325,100 @@ fn default_theme_applies_without_a_user_theme() {
     user.default_theme = env.default_theme;
     assert_eq!(load(&user, Appearance::Dark).theme.as_deref(), Some("Monokai Fixture"));
 }
+
+fn with_override(home: &str, spec: &str) -> Env {
+    env_for(home).with_theme_override(spec).expect("valid override")
+}
+
+#[test]
+fn theme_override_replaces_the_files_theme() {
+    let loaded = load(&with_override("theme-home", "Latte Fixture"), Appearance::Dark);
+    assert_eq!(loaded.theme.as_deref(), Some("Latte Fixture"));
+    assert_eq!(loaded.theme_file, Some(fixtures().join("res/themes/Latte Fixture")));
+    assert_tokens(&ThemeTokens::derive(&loaded.input), SWIFT_LATTE);
+    // The files' own theme is no longer in effect, so it is not watched;
+    // the files themselves still are.
+    let watch = loaded.watch_paths();
+    assert!(watch.contains(&fixtures().join("res/themes/Latte Fixture")));
+    assert!(!watch.contains(&fixtures().join("res/themes/Monokai Fixture")));
+    assert!(watch.contains(&fixtures().join("theme-home/.config/ghostty/config")));
+    assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
+}
+
+#[test]
+fn theme_override_keeps_the_files_explicit_colors() {
+    let loaded = load(&with_override("explicit-home", "Latte Fixture"), Appearance::Dark);
+    // background and palette 4 are set in the user's file: they win.
+    assert_eq!(hex(loaded.input.background), "#101010");
+    assert_eq!(hex(loaded.input.palette[4]), "#123456");
+    // Everything else comes from the override, not the file's Monokai.
+    assert_eq!(hex(loaded.input.foreground), "#4C4F69");
+    assert_eq!(hex(loaded.input.palette[1]), "#D20F39");
+}
+
+#[test]
+fn theme_override_wins_over_the_default_theme_and_follows_appearance() {
+    let mut env = env_for("default-home");
+    env.default_theme = env.default_theme_spec(true);
+    let env = env.with_theme_override(" light:Latte Fixture, dark:Monokai Fixture\t").unwrap();
+    assert_eq!(env.theme_override.as_deref(), Some("light:Latte Fixture, dark:Monokai Fixture"));
+    assert_tokens(&ThemeTokens::derive(&load(&env, Appearance::Dark).input), SWIFT_MONOKAI);
+    assert_tokens(&ThemeTokens::derive(&load(&env, Appearance::Light).input), SWIFT_LATTE);
+}
+
+#[test]
+fn theme_override_by_absolute_path() {
+    let path = fixtures().join("res/themes/Monokai Fixture");
+    let loaded = load(&with_override("pair-home", path.to_str().unwrap()), Appearance::Light);
+    assert_eq!(loaded.theme_file, Some(path));
+    assert_tokens(&ThemeTokens::derive(&loaded.input), SWIFT_MONOKAI);
+}
+
+#[test]
+fn missing_override_theme_is_reported_like_a_missing_config_theme() {
+    let loaded = load(&with_override("explicit-home", "No Such Theme"), Appearance::Dark);
+    assert_eq!(loaded.theme.as_deref(), Some("No Such Theme"));
+    assert_eq!(loaded.theme_file, None);
+    assert!(loaded.diagnostics.iter().any(|d| d.contains("not found")));
+    assert!(loaded.watch_paths().contains(&fixtures().join("res/themes/No Such Theme")));
+    // Ghostty's defaults under the user's explicit colors, as libghostty
+    // gives for a theme it cannot find.
+    assert_eq!(hex(loaded.input.background), "#101010");
+    assert_eq!(loaded.input.foreground, ThemeInput::GHOSTTY_DEFAULT.foreground);
+}
+
+#[test]
+fn theme_override_values_match_cmux_next() {
+    assert_eq!(theme_override_value("  Nord\t"), Some("Nord"));
+    assert_eq!(theme_override_value("light:A,dark:B"), Some("light:A,dark:B"));
+    assert_eq!(theme_override_value("/abs/My Theme"), Some("/abs/My Theme"));
+    assert_eq!(theme_override_value("\u{a0}Nord\u{3000}"), Some("Nord"));
+    let longest = "x".repeat(THEME_OVERRIDE_MAX_CHARS);
+    assert_eq!(theme_override_value(&longest), Some(longest.as_str()));
+    for bad in [
+        "",
+        " \t ",
+        "Nord\nbackground = #ff0000",
+        "Nord\r",
+        "a=b",
+        "Nord # comment",
+        "\"Nord\"",
+        "No\u{200b}rd",
+        "Nord\u{feff}",
+        "\u{7f}",
+    ] {
+        assert_eq!(theme_override_value(bad), None, "{bad:?}");
+    }
+    assert_eq!(theme_override_value(&"x".repeat(THEME_OVERRIDE_MAX_CHARS + 1)), None);
+    assert!(env_for("theme-home").with_theme_override("a=b").is_none());
+}
+
+#[test]
+fn unsafe_override_set_directly_is_ignored() {
+    let mut env = env_for("theme-home");
+    env.theme_override = Some("Latte Fixture\nbackground = #ff0000".into());
+    let loaded = load(&env, Appearance::Dark);
+    assert_eq!(loaded.theme.as_deref(), Some("Monokai Fixture"));
+    assert_tokens(&ThemeTokens::derive(&loaded.input), SWIFT_MONOKAI);
+    assert!(loaded.diagnostics.iter().any(|d| d.contains("theme override")));
+}

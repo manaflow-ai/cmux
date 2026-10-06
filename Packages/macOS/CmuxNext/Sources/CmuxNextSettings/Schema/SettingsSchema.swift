@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        let next = general + UpdateSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
             + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
             + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + NotificationSettingsSchema.descriptors
             + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
@@ -17,10 +17,13 @@ public nonisolated enum SettingsSchema {
             + BrowserAppSettingsSchema.descriptors
     }
 
-    /// cmux-next keys cmux-browser reads too (its theme picker, window material, focus color and
-    /// minimum column width). The `appearance.metrics.*` rows say so themselves.
+    /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
+    /// `appearance.metrics.*` rows say so themselves.
     static let sharedWithBrowser: Set<String> = [
-        "appearance.theme", "appearance.backgroundBlur", "focusRing.color", "layout.minimumPaneWidth",
+        "appearance.theme", "appearance.backgroundBlur", "ui.animationSpeed",
+        "focusRing.enabled", "focusRing.width", "focusRing.color",
+        "layout.defaultColumnWidth", "layout.minimumPaneWidth", "app.quitBehavior",
+        "appearance.surfaces.tabBar.color", "appearance.surfaces.browserChrome.color", "appearance.surfaces.sidebar.color",
     ]
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
@@ -44,7 +47,7 @@ public nonisolated enum SettingsSchema {
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
         case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
-        case .appearance: ["appearance.customize", "space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
+        case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
@@ -171,7 +174,10 @@ public nonisolated enum SettingsSchema {
 
     // MARK: Appearance
 
-    static var appearance: [SettingDescriptor] { AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors }
+    static var appearance: [SettingDescriptor] {
+        AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
+            + DiffViewerSettingsSchema.descriptors
+    }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {
         SettingNumber(Double(range.lowerBound)...Double(range.upperBound), step: step, unit: .points, placeholder: placeholder)

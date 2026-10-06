@@ -12,8 +12,7 @@ extension WebKitTab: WKNavigationDelegate {
         decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
         if navigationAction.shouldPerformDownload {
-            decisionHandler(.download, preferences)
-            return
+            return admitDownload(navigationAction.request.url) { decisionHandler($0 ? .download : .cancel, preferences) }
         }
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow, preferences)
@@ -29,8 +28,7 @@ extension WebKitTab: WKNavigationDelegate {
                 emit(.openURL(url, disposition))
                 return
             case .download:
-                decisionHandler(.download, preferences)
-                return
+                return admitDownload(navigationAction.request.url) { decisionHandler($0 ? .download : .cancel, preferences) }
             }
         }
 
@@ -44,7 +42,9 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
         applySiteSettings(to: preferences, for: navigationAction)
-        decisionHandler(.allow, preferences)
+        guard navigationAction.targetFrame?.isMainFrame ?? true, let engine else { return decisionHandler(.allow, preferences) }
+        navigationSourceSite = pageSite
+        engine.admitMainFrameLoad(url, in: self) { decisionHandler($0 ? .allow : .cancel, preferences) }
     }
 
     public func webView(
@@ -57,18 +57,19 @@ extension WebKitTab: WKNavigationDelegate {
             .lowercased()
             .hasPrefix("attachment") ?? false
         if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
-            decisionHandler(.download)
+            // The page that started the navigation counts the download.
+            admitDownload(navigationResponse.response.url, site: navigationSourceSite) { decisionHandler($0 ? .download : .cancel) }
         } else {
             decisionHandler(.allow)
         }
     }
 
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
-        register(download, source: navigationAction.request.url)
+        downloads.register(download, source: navigationAction.request.url)
     }
 
     public func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
-        register(download, source: navigationResponse.response.url)
+        downloads.register(download, source: navigationResponse.response.url)
     }
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -137,8 +138,8 @@ extension WebKitTab: WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         // Without a host there is nowhere to show the page: block the popup.
-        // The link menu's pick, else the modified click's mapping.
-        let click = takeContextMenuDisposition().map(LinkClick.open) ?? LinkClick(navigationAction, in: self)
+        // The modified click's mapping (the link menu's rows open by URL).
+        let click = LinkClick(navigationAction, in: self)
         guard hasDelegate, !click.runsInOpener(navigationAction.request, tab: self),
               let child = makeChildTab(configuration: configuration) else { return nil }
         if case .open(let explicit) = click {
@@ -248,6 +249,10 @@ extension WebKitTab: WKUIDelegate {
 
 extension WebKitTab: WKScriptMessageHandler {
     public func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == WebKitContextHit.handlerName {
+            contextHit = BrowserContextMenuTarget.webKitHit(message.body).map { (target: $0, at: ContinuousClock.now) }
+            return
+        }
         guard message.name == PaneFullscreenScript.messageHandlerName,
               message.frameInfo.isMainFrame,
               let on = message.body as? Bool else { return }

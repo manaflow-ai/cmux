@@ -2,7 +2,7 @@ import { cloudOpByName } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { describe, expect, it } from "vitest"
 import vectors from "../../../catalog/cloud-vectors.json"
-import { bindFile, cloudStub, DAEMON, post, signedInWithInstall, SIZE, WG_KEY } from "./cloud-bind-support.ts"
+import { bindFile, cloudStub, DAEMON, ensureUser, post, signedInWithInstall, SIZE, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 /**
  * The bind, connect_info and link_token cases of backend/catalog/cloud-vectors.json answer with the
@@ -39,7 +39,7 @@ describe("bind, connect_info and link_token vector shapes through the Worker", {
     const created = await post("/v1/ops", a.session, { op: "cloud.machine.create", params: { size: SIZE }, idempotency_key: crypto.randomUUID(), origin: "user" })
     const machine = created.body.value.machine.id as string
     const { json } = await bindFile(cloudStub(a.team), machine)
-    const body = { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON }
+    const body = { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk }
     like("machine.bind.invalid", await post("/v1/cloud/bind", undefined, { team: a.team, machine }))
     const bound = await post("/v1/cloud/bind", undefined, body)
     like("machine.bind", bound)
@@ -54,5 +54,9 @@ describe("bind, connect_info and link_token vector shapes through the Worker", {
     like("machine.link_token.key_refused", await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host, services: ["daemon"] }, idempotency_key: "k", origin: "cli" }))
     like("machine.link_token.session_forbidden", await post("/v1/ops", a.session, { op: "cloud.machine.link_token", params: { host, services: ["ssh"] }, origin: "cli" }))
     like("machine.link_token.not_found", await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host: "host_h0000000000000000009", services: ["ssh"] }, origin: "cli" }))
+    expect((await post("/v1/ops", a.session, { op: "cloud.machine.pause", params: { machine }, idempotency_key: crypto.randomUUID(), origin: "user" })).body.ok).toBe(true)
+    const paused = await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host, services: ["ssh"] }, origin: "cli" })
+    like("machine.link_token.paused", paused)
+    expect(paused.body.error.details).toEqual({ machine, state: "paused" })
   })
 })

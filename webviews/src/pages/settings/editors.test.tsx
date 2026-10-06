@@ -113,6 +113,20 @@ describe("editors", () => {
     ]);
   });
 
+  test("an unset slider sits at the value the host derives (the theme's opacity), live", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const row = rowElement(page.container, "appearance.backgroundOpacity");
+    const slider = () => row.querySelector<HTMLInputElement>('input[type="range"]')!.value;
+    await run(() =>
+      page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.85 } }),
+    );
+    expect(slider()).toBe("0.85");
+    await run(() =>
+      page!.provider.setHost({ ...page!.provider.host, derived: { "appearance.backgroundOpacity": 0.6 } }),
+    );
+    expect(slider()).toBe("0.6");
+  });
+
   test("a number field commits on Return, clamped to the range", async () => {
     page = await renderPage({ path: "/settings/terminal" });
     const field = rowElement(page.container, "terminal.fontSize").querySelector<HTMLInputElement>("input.number")!;
@@ -158,6 +172,23 @@ describe("editors", () => {
     const error = rowElement(page.container, "browser.hibernation").querySelector(".row-error")!;
     expect(error.textContent).toBe("This value is not accepted.");
     expect(error.getAttribute("title")).toContain("browser.hibernation");
+  });
+
+  test("a custom search address without %s or {searchTerms} is refused and a stored one shows why", async () => {
+    const key = "browser.customSearchEngine.search";
+    page = await renderPage({ path: "/settings/browser" });
+    const field = rowElement(page.container, key).querySelector<HTMLInputElement>("input.text")!;
+    await changeValue(field, "https://search.example/");
+    await fire(field, "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+    expect(rowElement(page.container, key).querySelector("[role=alert]")?.textContent).toContain("{searchTerms}");
+    await changeValue(field, "https://search.example/?q=%s");
+    await fire(field, "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key, value: "https://search.example/?q=%s" }]);
+    page.unmount();
+    // A hand-edited cmux.json with a broken address: the row says so at once.
+    page = await renderPage({ path: "/settings/browser", mock: { values: { [key]: "https://search.example/" } } });
+    expect(rowElement(page.container, key).querySelector("[role=alert]")?.textContent).toContain("{searchTerms}");
   });
 
   test("a team-managed row names the team; a write the daemon refuses as managed is localized", async () => {

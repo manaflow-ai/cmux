@@ -47,6 +47,15 @@ fn serve() -> u16 {
                         break;
                     }
                 }
+                // One hop to the other loopback origin (host fetch redirects).
+                if path == "/redirect" {
+                    let mut stream = stream;
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 302 Found\r\nLocation: http://localhost:{port}/second\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    );
+                    return;
+                }
                 let body = match path.as_str() {
                     "/" => format!(
                         "<!doctype html><title>Host test</title>\
@@ -420,6 +429,7 @@ fn a_headless_session_lists_no_start_tab() {
             actor: "test".into(),
             on_behalf_of: None,
             origin: "cli".into(),
+            locality: Default::default(),
         },
         label: "start-tab".into(),
         profile: cmux_browser_host::host::AGENT_PROFILE.into(),
@@ -509,4 +519,78 @@ fn navigations_answer_the_document_status() {
         json!({"targetId": target, "url": "data:text/html,x", "waitUntil": "load"}),
     );
     assert!(data.get("status").is_none(), "a data: URL has no HTTP status: {data}");
+}
+
+/// a9 shell-tab conditions on a real Chromium: a tab-less fetch runs in a
+/// hidden shell tab (its marker URL is seen at attach, so it is never
+/// listed and emits no event) and returns the server's response.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_tab_less_fetch_runs_in_a_hidden_shell() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let events = Arc::new(Mutex::new(Vec::<DriverEvent>::new()));
+    let sink = events.clone();
+    let driver = CdpDriver::attach_browser(
+        chromium.connection().clone(),
+        AGENT,
+        Arc::new(move |event| sink.lock().unwrap().push(event)),
+    )
+    .expect("attach to Chromium");
+    let before = driver.call("tabs.list", &json!({})).expect("tabs.list");
+    let url = format!("http://127.0.0.1:{port}/second");
+    let out = driver.call("net.fetch", &json!({"url": url})).expect("net.fetch");
+    assert_eq!(out["status"], 200, "{out}");
+    assert!(!out["bodyBase64"].as_str().unwrap_or("").is_empty(), "{out}");
+    assert_eq!(driver.call("tabs.list", &json!({})).expect("tabs.list"), before);
+    // Events arrive in order: a later tab's navigation is a barrier.
+    let later = driver.call("tabs.open", &json!({"url": url})).expect("tabs.open")["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !events.lock().unwrap().iter().any(|e| e.payload["targetId"] == later.as_str()) {
+        assert!(Instant::now() < deadline, "the later tab's events never arrived");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let events = events.lock().unwrap();
+    let leaked: Vec<&DriverEvent> = events
+        .iter()
+        .filter(|e| {
+            let text = e.payload.to_string();
+            text.contains("cmux-fetch-shell") || text.contains("cmux-shell-")
+        })
+        .collect();
+    assert!(leaked.is_empty(), "the shell emitted events: {leaked:?}");
+}
+
+/// SHELL-REDIRECT-LNA option 1 on a real Chromium: a tab-less fetch whose
+/// server redirects 127.0.0.1 -> localhost (another origin, a local
+/// address) is followed by the host, each hop in a shell at its own origin,
+/// so Local Network Access never blocks it; a Local caller gets the final
+/// response.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_tab_less_fetch_follows_a_redirect_to_another_local_origin() {
+    use cmux_browser_host::gate::{Gate, Grants};
+    use cmux_browser_host::vm::VmHost;
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(chromium.connection().clone(), AGENT, Arc::new(|_| {}))
+        .expect("attach to Chromium");
+    let gate = Gate::new(Arc::new(driver), Grants::default());
+    let out = gate
+        .driver_call("net.fetch", json!({"url": format!("http://127.0.0.1:{port}/redirect")}))
+        .expect("the redirect is followed");
+    assert_eq!(out["status"], 200, "{out}");
+    assert_eq!(out["url"], format!("http://localhost:{port}/second"));
+    assert_eq!(out["redirected"], true);
 }

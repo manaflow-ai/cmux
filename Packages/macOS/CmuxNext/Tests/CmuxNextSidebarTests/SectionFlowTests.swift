@@ -89,7 +89,7 @@ import Testing
         let bad = SectionPatch(layout: .grid, columns: .set(40))
         let result = SidebarLayoutReducer.reduce(.defaults, .sectionUpdate(SidebarLayoutDocument.topSectionID, bad))
         #expect(result == .failure(.invalidArrangement))
-        let good = SectionPatch(layout: .grid)
+        let good = SectionPatch(layout: .grid, columns: .clear)
         let doc = try SidebarLayoutReducer.reduce(.defaults, .sectionUpdate(SidebarLayoutDocument.topSectionID, good)).get()
         #expect(doc.section(SidebarLayoutDocument.topSectionID)?.arrangement == .grid)
         let json = #"{"layout":"inline"}"#

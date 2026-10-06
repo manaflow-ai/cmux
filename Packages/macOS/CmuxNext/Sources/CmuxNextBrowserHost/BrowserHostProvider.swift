@@ -214,7 +214,7 @@ public final class BrowserHostProvider {
         }
         // The host proves itself before the secret leaves the app: a
         // same-uid process that took the socket path first gets nothing.
-        guard credentials.hostPID > 0, let peer = link.peerPID, peer == credentials.hostPID else {
+        guard let peer = link.peerPID, credentials.acceptsPeer(peer) else {
             logger.error("browser host provider: the socket's peer is not the browser host; hello not sent")
             link.close(reason: "the socket's peer is not the browser host")
             scheduleRetry(gen)
