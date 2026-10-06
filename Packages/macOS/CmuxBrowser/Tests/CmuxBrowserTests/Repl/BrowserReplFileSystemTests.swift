@@ -996,3 +996,44 @@ private final class BrowserReplMovedCount: @unchecked Sendable {
 
     func set(_ value: Int) { lock.withLock { count = value } }
 }
+
+/// Owner decision 2026-10-06: an extended attribute past the 1 MiB
+/// `copyFile` copies does not fail the copy; the copy leaves it out and
+/// says so in the cell's output.
+@Suite("Browser REPL copyFile and large extended attributes")
+struct BrowserReplCopyLargeAttributeTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    @Test("copyFile leaves out an extended attribute past 1 MiB, copies the file and warns")
+    func copySkipsLargeAttributeWithWarning() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let source = scratch.root + "/source.bin"
+        try Data("ten bytes!".utf8).write(to: URL(fileURLWithPath: source))
+        let small = Data("tag".utf8)
+        let large = Data(count: BrowserReplFileSystem.maxExtendedAttributeBytes + 1)
+        for (name, value) in [("com.cmux.test.small", small), ("com.cmux.test.large", large)] {
+            let set = value.withUnsafeBytes { setxattr(source, name, $0.baseAddress, value.count, 0, 0) }
+            #expect(set == 0, "setxattr \(name): \(errno)")
+        }
+        let session = BrowserReplSession(
+            id: "xattr-\(UUID().uuidString)",
+            cwd: scratch.root,
+            bundle: try browserReplRepositoryBundle(),
+            driver: RecordingReplDriver()
+        )
+        defer { session.close() }
+
+        let result = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "fs.copyFileSync('source.bin', 'copy.bin'); console.log('copied')", timeout: .seconds(20))
+        }
+
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        let lines = result?.lines ?? []
+        #expect(lines.last?.text == "copied", "\(lines.map(\.text))")
+        #expect(lines.contains { $0.level == "warn" && $0.text.contains("com.cmux.test.large") && $0.text.contains("1 MiB") }, "\(lines.map { "\($0.level): \($0.text)" })")
+        #expect(FileManager.default.contents(atPath: scratch.root + "/copy.bin") == Data("ten bytes!".utf8))
+        #expect(getxattr(scratch.root + "/copy.bin", "com.cmux.test.small", nil, 0, 0, 0) == small.count)
+        #expect(getxattr(scratch.root + "/copy.bin", "com.cmux.test.large", nil, 0, 0, 0) == -1)
+    }
+}
