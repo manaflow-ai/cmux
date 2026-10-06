@@ -244,6 +244,9 @@ public struct BrowserReplResourceLimits: Sendable, Equatable {
             .scriptHeapBytes: 384 << 20,
             .fileBytesWritten: 2 << 30,
             .fileEntryChanges: 100_000,
+            // Decided 2026-10-06 (r18 e5): 512 of the app's 4,096
+            // (BrowserReplSecretSources), so one session cannot fill it.
+            .secretSourceFiles: 512,
             // Decided 2026-10-04 (C9): the per-holder limits above add up
             // to more, so this bounds them together.
             .sessionMemoryBytes: 512 << 20,

@@ -582,10 +582,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   checks and starts under, so no navigation passes its check in between.
   The protection lasts while the file exists under any name (not only
   while the session lasts: a value it typed stays masked in text, but a
-  capture masks it only on the secret's domains). cmux protects at most
-  4,096 such files at once for all sessions; past that, once files that
-  are gone are dropped, `secrets.load` fails with `invalid` and reads
-  nothing. A file
+  capture masks it only on the secret's domains). One session protects
+  at most 512 distinct files over its life (loading one it already
+  protects takes nothing); past that its `secrets.load` fails with
+  `limit`, naming the quota, and reads nothing. Neither the session's end
+  nor a reset frees its files, so a new session after a reset has a new
+  quota but the app-wide set keeps them: cmux protects at most 4,096 such
+  files at once for all sessions, and past that, once files that are gone
+  are dropped, `secrets.load` fails closed with `invalid` and reads
+  nothing until protected files are removed. A file
   chooser answer reads its files through `fs`, masked. It must be
   UTF-8 and may not spell a digit with a JSON escape (`\u0030` to
   `\u0039`), else `secrets.load` fails with `invalid`: file reads mask a

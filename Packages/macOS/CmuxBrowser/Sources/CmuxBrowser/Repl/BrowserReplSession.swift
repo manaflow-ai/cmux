@@ -124,6 +124,11 @@ public final class BrowserReplSession: @unchecked Sendable {
     private let privateStorageRoots: [String]
     /// What the session's fs, and its output spill files, may still write.
     private let writeBudget: BrowserReplWriteBudget
+    /// The files this session's `secrets.load` protected
+    /// (``BrowserReplSecretSources``), each counted once against its
+    /// ``BrowserReplResource/secretSourceFiles`` quota. Used only on the
+    /// session's thread, inside the file navigation lock.
+    private var protectedSecretSources: Set<BrowserReplFileIdentity> = []
 
     // JS-thread state.
     private var context: JSContext?
@@ -1849,7 +1854,17 @@ public final class BrowserReplSession: @unchecked Sendable {
                 // as pixels no mask covers. Protected in the same hold of
                 // the file navigation lock as the open, before its values
                 // are known to be readable.
-                let opened: (BrowserReplFileIdentity) throws -> Void = { try BrowserReplSecretSources.shared.protect($0) }
+                // A file new to the session takes one of its quota first
+                // (a lifetime count, so a refusal of the app-wide set still
+                // takes it), and is never protected past the quota.
+                let opened: (BrowserReplFileIdentity) throws -> Void = { identity in
+                    guard !self.protectedSecretSources.contains(identity) else { return }
+                    if let refusal = self.ledger.reserve(1, of: .secretSourceFiles) {
+                        throw BrowserReplFileSystemError(code: "limit", message: refusal.message)
+                    }
+                    try BrowserReplSecretSources.shared.protect(identity)
+                    self.protectedSecretSources.insert(identity)
+                }
                 switch self.fileSystem.perform("readFile", arguments: ["path": path], copyContents: nil, opened: opened) {
                 case .failure(let error):
                     return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))))
