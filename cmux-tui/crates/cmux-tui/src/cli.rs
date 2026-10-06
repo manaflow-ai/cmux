@@ -7,6 +7,8 @@
 #[cfg(unix)]
 mod app;
 #[cfg(unix)]
+mod app_focus;
+#[cfg(unix)]
 mod apps_run;
 mod code_mode;
 #[cfg(unix)]
