@@ -93,6 +93,7 @@ import Testing
 @Suite struct HomeDirectoryTests {
     final class Calls {
         var bodies: [(String, [String: Any])] = []
+        var creates = 0
         var replies: [String: [String: Any]] = [:]
         var call: HomeDirectory.Call {
             { [self] path, body in
@@ -134,6 +135,29 @@ import Testing
         #expect((archive.1["params"] as? [String: Any])?["expected_rev"] as? Int == 1)
         #expect(directory.archivedChiefs == ["agent_r"])
         #expect(directory.chiefs.isEmpty)
+    }
+
+    /// Staging (hmdm1): UserDO refused chief.create with "call user.ensure
+    /// first". The retry after user.ensure needs a new key: the owner keeps
+    /// a refused key's answer and would replay the refusal.
+    @Test func newChiefEnsuresTheUserThenRetriesWithANewKey() async throws {
+        let calls = Calls()
+        let directory = HomeDirectory(call: { path, body in
+            calls.bodies.append((path, body))
+            switch body["op"] as? String {
+            case "chief.create":
+                calls.creates += 1
+                if calls.creates == 1 { return ["_tag": "BadRequest", "code": "validation.invalid", "message": "call user.ensure first"] }
+                return ["value": ["id": "agent_r", "display_name": "R", "rev": 1, "main_conversation": "conv_r"]]
+            default: return ["value": ["id": "user_x"]]
+            }
+        }, me: { nil })
+        let record = try await directory.createChief(named: "R")
+        #expect(record.id == "agent_r")
+        let ops = calls.bodies.map { $0.1["op"] as? String ?? "" }
+        #expect(ops == ["chief.create", "user.ensure", "chief.create"])
+        let keys = calls.bodies.filter { $0.1["op"] as? String == "chief.create" }.compactMap { $0.1["idempotency_key"] as? String }
+        #expect(Set(keys).count == 2, "the retry uses a new key")
     }
 
     @Test func aWorkerRefusalThrowsItsCode() async {

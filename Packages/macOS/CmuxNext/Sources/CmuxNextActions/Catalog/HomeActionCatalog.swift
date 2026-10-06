@@ -7,6 +7,17 @@
 
 nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
+        // Owner round trips a caller that waits (`action.run` with `wait`) gets the
+        // 40 s result deadline for: a group with invites takes several requests.
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief"]
+        return all.map { descriptor in
+            var descriptor = descriptor
+            descriptor.waitsForResult = waits.contains(descriptor.id)
+            return descriptor
+        }
+    }
+
+    private static var all: [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "home.show",
