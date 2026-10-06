@@ -932,6 +932,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_lane_identity.py
 
+      - name: Validate public iOS VPN signing
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 ios/tests/test_cloud_vpn_distribution.py
+
       - name: Validate the cmux.app upload marker follows the receipt
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_upload_marker.py
