@@ -10,7 +10,10 @@ public final class MiddleClickCaptureView: NSView {
     /// Invoked when a middle (button 2) mouse-down lands on this view.
     public var onMiddleClick: (() -> Void)?
 
-    private var mouseDownMonitor: Any?
+    // `deinit` is nonisolated and must remove the local event monitor; the token is set and
+    // cleared only on the main thread (this is a main-thread AppKit view), so reading it from
+    // the nonisolated deinit is safe.
+    private nonisolated(unsafe) var mouseDownMonitor: Any?
 
     deinit {
         if let mouseDownMonitor {
