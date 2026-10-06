@@ -3661,6 +3661,99 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
+    /// #17483: Ghostty's macOS `IOSurfaceLayer` stays on the view after
+    /// `ghostty_surface_free`, and its `-display` calls the renderer through
+    /// the layer's `display_cb`/`display_ctx` ivars. Unless teardown clears
+    /// them, a Core Animation commit after the free draws through the freed
+    /// renderer (`CA::Layer::display_if_needed` into GhosttyKit, then
+    /// `object_getClass` on scribbled memory).
+    func testTeardownDetachesGhosttyLayerDisplayCallbackBeforeNativeFree() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        defer { surface.releaseHostedSurfaceForTesting() }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.surface != nil },
+            "Expected runtime surface before tearing it down"
+        )
+        let ghosttyLayer = try XCTUnwrap(surfaceView.layer, "Ghostty should host its layer on the surface view")
+        XCTAssertNotNil(
+            class_getInstanceVariable(object_getClass(ghosttyLayer), "display_cb"),
+            "Expected Ghostty's IOSurfaceLayer on the surface view, got \(type(of: ghosttyLayer))"
+        )
+        // The renderer thread binds the display callback on loop entry.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { ghosttyLayerDisplayCallback(ghosttyLayer) != nil },
+            "Expected the live renderer to bind the layer's display callback"
+        )
+
+        surface.killShellProcessesForTesting()
+        surface.beginPortalCloseLifecycle(reason: "test.close")
+        surface.teardownSurface()
+        XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
+
+        // The native free runs on the teardown coordinator; the callback must
+        // be cut on the main thread before that free is scheduled.
+        let detached = waitUntil(timeout: 5.0) { ghosttyLayerDisplayCallback(ghosttyLayer) == nil }
+        XCTAssertTrue(
+            detached,
+            "Teardown left the Ghostty layer's display callback pointing at the renderer it frees"
+        )
+        // Only drive the display path once it is detached: on the broken
+        // ordering this would draw through freed memory and take the host down.
+        guard detached else { return }
+
+        hostedView.removeFromSuperview()
+        ghosttyLayer.setNeedsDisplay()
+        ghosttyLayer.displayIfNeeded()
+        ghosttyLayer.display()
+        CATransaction.flush()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(surface.surface, "Displaying the closed surface's layer must not recreate a runtime surface")
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    /// Reads the raw `display_cb` slot of Ghostty's `IOSurfaceLayer`. The
+    /// slot holds a function pointer, so it must not be read as an object.
+    private func ghosttyLayerDisplayCallback(_ layer: CALayer) -> UnsafeMutableRawPointer? {
+        guard let layerClass = object_getClass(layer),
+              let ivar = class_getInstanceVariable(layerClass, "display_cb") else { return nil }
+        return Unmanaged.passUnretained(layer).toOpaque().load(
+            fromByteOffset: ivar_getOffset(ivar),
+            as: UnsafeMutableRawPointer?.self
+        )
+    }
+
     func testUnavailableTerminalConsumesEscapeInsteadOfFallingThroughToAppKit() throws {
 #if DEBUG
         let window = makeWindow()
