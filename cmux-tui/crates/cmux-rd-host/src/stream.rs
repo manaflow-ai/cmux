@@ -6,7 +6,6 @@
 
 use crate::capture::{Capturer, Rect as CapRect};
 use crate::clock::now_ns;
-use crate::convert::{bgrx_rect_to_i420, I420};
 use crate::encoder::{self, EncCfg, H264Encoder};
 use crate::fdwait::wait_readable;
 use crate::inject::Injector;
@@ -14,6 +13,7 @@ use crate::wire::{
     write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
 };
 use crate::Res;
+use cmux_encode::{bgrx_rect_to_i420, I420};
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::policy::Principal;
@@ -34,6 +34,9 @@ pub struct SessionCfg {
     pub profile: String,
     /// `openh264` (default) or `x264` (feature).
     pub codec: String,
+    /// Cisco's OpenH264 library for `--codec openh264` (pinned SHA-256; downloaded from
+    /// Cisco on this machine, never shipped with cmux).
+    pub openh264_lib: Option<String>,
     /// `screen` (default) or `camera` (openh264 usage).
     pub content: String,
     pub threads: u16,
@@ -108,6 +111,7 @@ impl MediaSession {
             screen_content: cfg.content != "camera",
             preset: &cfg.preset,
             profile: &cfg.profile,
+            openh264_lib: cfg.openh264_lib.as_deref(),
         })?;
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
         let engine = MediaEngine::new(
