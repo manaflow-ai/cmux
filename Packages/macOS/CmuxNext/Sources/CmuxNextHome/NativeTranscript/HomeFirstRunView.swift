@@ -40,12 +40,13 @@ final class HomeFirstRunView: NSView {
 
     private func suggest() { onSuggestion(suggestion.title) }
 
-    /// Colours from the theme (caller runs inside `performWithTheme`).
-    func applyColors(primary: NSColor, secondary: NSColor) { // theme-scoped
+    /// Colours from the theme (caller runs inside `performWithTheme`): text
+    /// tiers, and the suggestion's raised fill, hover fill and hairline.
+    func applyColors(primary: NSColor, secondary: NSColor, fill: NSColor, hover: NSColor, border: NSColor) { // theme-scoped
         title.textColor = primary
         body.textColor = secondary
         memory.textColor = secondary
-        suggestion.label.textColor = primary
+        suggestion.applyColors(text: primary, fill: fill, hover: hover, border: border)
     }
 
     override func layout() {
@@ -58,11 +59,12 @@ final class HomeFirstRunView: NSView {
     }
 }
 
-/// The suggested prompt: text on glass, like the header's name pill. A
-/// glass-bezel NSButton draws gray when the window is not key and reads as
-/// disabled. Clicks and VoiceOver's press run `onClick`.
+/// The suggested prompt: text on a raised small-radius rect with a
+/// hairline, in the theme's colours (never a capsule), taking the hover fill
+/// under the pointer. A bezel NSButton draws gray when the window is not key
+/// and reads as disabled. Clicks and VoiceOver's press run `onClick`.
 final class HomeSuggestionChip: NSView {
-    let glass = NSGlassEffectView()
+    let surface = NSView()
     let label: NSTextField
     var onClick: () -> Void = {}
     var title: String { label.stringValue }
@@ -72,8 +74,11 @@ final class HomeSuggestionChip: NSView {
         super.init(frame: .zero)
         label.font = .systemFont(ofSize: 13)
         label.alignment = .center
-        glass.cornerRadius = 14
-        addSubview(glass)
+        surface.wantsLayer = true
+        surface.layer?.cornerRadius = Self.cornerRadius
+        surface.layer?.cornerCurve = .continuous
+        surface.layer?.borderWidth = 1
+        addSubview(surface)
         addSubview(label)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -82,6 +87,34 @@ final class HomeSuggestionChip: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    static let cornerRadius: CGFloat = 8
+    private var fill = NSColor.clear
+    private var hoverFill = NSColor.clear
+    private var isHovered = false { didSet { if isHovered != oldValue { paint() } } }
+
+    /// Colours from the theme (caller runs inside `performWithTheme`).
+    func applyColors(text: NSColor, fill: NSColor, hover: NSColor, border: NSColor) { // theme-scoped
+        label.textColor = text
+        self.fill = fill
+        // The hover token is translucent: composite it over the raised fill.
+        hoverFill = fill.blended(withFraction: hover.alphaComponent, of: hover.withAlphaComponent(1)) ?? fill
+        surface.layer?.borderColor = border.cgColor
+        paint()
+    }
+
+    private func paint() {
+        surface.layer?.backgroundColor = (isHovered ? hoverFill : fill).cgColor
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseExited(with event: NSEvent) { isHovered = false }
+
     override var intrinsicContentSize: NSSize {
         let text = label.intrinsicContentSize
         return NSSize(width: ceil(text.width) + 28, height: 28)
@@ -89,7 +122,7 @@ final class HomeSuggestionChip: NSView {
 
     override func layout() {
         super.layout()
-        glass.frame = bounds
+        surface.frame = bounds
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = CGRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h)
     }

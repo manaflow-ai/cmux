@@ -244,7 +244,8 @@ public final class HomeNativeTranscriptView: NSView {
             header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary,
                                page: seeThrough ? Palette.pageBackground : home, seeThrough: seeThrough,
                                accent: Palette.highlight)
-            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
+            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary,
+                                 fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator)
             field.applyColors(fill: Palette.elevatedBackground, border: Palette.separator,
                               text: Palette.textPrimary, secondary: Palette.textTertiary)
         }
