@@ -345,6 +345,27 @@ fn a_gap_skip_across_the_wrap_keeps_the_serially_first_event() {
 }
 
 #[test]
+fn a_must_deliver_service_event_repeats_until_acknowledged() {
+    let mut s = InputSender::new();
+    s.push(InputEvent::Service { must_deliver: true, bytes: vec![1, 2] });
+    for _ in 0..10 {
+        assert_eq!(s.packet().expect("still queued").first_seq, 1);
+    }
+    s.ack(1);
+    assert!(s.packet().is_none());
+}
+
+#[test]
+fn a_plain_service_event_stops_after_three_sends() {
+    let mut s = InputSender::new();
+    s.push(InputEvent::Service { must_deliver: false, bytes: vec![1] });
+    for _ in 0..MAX_SENDS {
+        assert!(s.packet().is_some());
+    }
+    assert!(s.packet().is_none());
+}
+
+#[test]
 fn a_keyframe_burst_alone_is_not_overuse() {
     let mut cc = CongestionController::new(CcConfig::default(), PathKind::DirectLan);
     let (mut seq, mut now) = (0u16, 0u64);

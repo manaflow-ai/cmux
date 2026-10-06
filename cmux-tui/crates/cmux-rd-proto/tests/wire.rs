@@ -84,6 +84,8 @@ fn event() -> impl Strategy<Value = InputEvent> {
         (any::<i32>(), any::<i32>(), any::<bool>())
             .prop_map(|(dx, dy, precise)| InputEvent::Scroll { dx, dy, precise }),
         "[a-zA-Z0-9 é]{0,300}".prop_map(InputEvent::Text),
+        (any::<bool>(), proptest::collection::vec(any::<u8>(), 0..64))
+            .prop_map(|(must_deliver, bytes)| InputEvent::Service { must_deliver, bytes }),
     ]
 }
 
@@ -242,4 +244,23 @@ fn stream_framing_matches_the_golden_vector() {
     d.extend(GOLDEN);
     assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec())));
     assert_eq!(d.next_frame().expect("frame"), Some((STREAM_DATAGRAM, vec![7, 7, 7])));
+}
+
+#[test]
+fn service_events_have_tag_0x80_and_refuse_unknown_flag_bits() {
+    let packet = InputPacket {
+        first_seq: 5,
+        events: vec![InputEvent::Service { must_deliver: true, bytes: vec![9, 8] }],
+    };
+    let bytes = packet.encode();
+    // u32 first_seq, u8 n, then tag, flags, u16 len, payload.
+    assert_eq!(bytes, vec![5, 0, 0, 0, 1, 0x80, 0x01, 2, 0, 9, 8]);
+    assert_eq!(InputPacket::decode(&bytes).expect("decode"), packet);
+    let mut unknown = bytes;
+    unknown[6] = 0x03;
+    assert!(InputPacket::decode(&unknown).is_err());
+    let mut too_long = vec![5, 0, 0, 0, 1, 0x80, 0x00];
+    too_long.extend_from_slice(&(cmux_rd_proto::MAX_SERVICE_BYTES as u16 + 1).to_le_bytes());
+    too_long.extend(std::iter::repeat_n(0u8, cmux_rd_proto::MAX_SERVICE_BYTES + 1));
+    assert!(InputPacket::decode(&too_long).is_err());
 }
