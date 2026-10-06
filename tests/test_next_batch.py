@@ -185,6 +185,79 @@ class ServeDebounce(unittest.TestCase):
         self.assertTrue(debouncer.observe(((1, "b"),), self.at(1120)))
 
 
+class CloseWatch(unittest.TestCase):
+    """serve's poll also notices a batch author's PR closed, unmerged, by
+    someone else; it only reports, never reopens."""
+
+    def watch(self, closes: dict[int, dict]) -> tuple[nb.CloseWatch, list[str], list[int]]:
+        sent, looked = [], []
+
+        def lookup(number):
+            looked.append(number)
+            return closes[number]
+
+        return nb.CloseWatch(lookup, sent.append, frozenset({"teamleaderleo"})), sent, looked
+
+    def at(self, seconds: int) -> dt.datetime:
+        return NOW + dt.timedelta(seconds=seconds)
+
+    def closed(self, actor="azooz2003-bit", merged=False, state="CLOSED", when="2026-10-06T20:30:00Z") -> dict:
+        return {"state": state, "merged": merged, "author": "teamleaderleo", "actor": actor, "closed_at": when}
+
+    def test_a_close_by_someone_else_is_reported_with_actor_and_time(self):
+        watch, sent, _ = self.watch({2: self.closed()})
+        watch.observe([pr(1), pr(2)], self.at(0))
+        self.assertEqual(sent, [])
+        watch.observe([pr(1)], self.at(60))
+        self.assertEqual(len(sent), 1)
+        for part in ("#2", "azooz2003-bit", "2026-10-06T20:30:00Z"):
+            self.assertIn(part, sent[0])
+
+    def test_merges_own_closes_retargets_and_other_authors_are_quiet(self):
+        watch, sent, looked = self.watch({
+            1: self.closed(merged=True, state="MERGED"),
+            2: self.closed(actor="teamleaderleo"),
+            3: self.closed(state="OPEN"),
+        })
+        watch.observe([pr(1), pr(2), pr(3), pr(4, author="lawrencecchen")], self.at(0))
+        watch.observe([], self.at(60))
+        self.assertEqual(sent, [])
+        self.assertEqual(sorted(looked), [1, 2, 3])  # never looks up another author's PR
+
+    def test_three_closes_in_ten_minutes_post_one_alert(self):
+        watch, sent, _ = self.watch({n: self.closed() for n in range(1, 7)})
+        watch.observe([pr(n) for n in range(1, 7)], self.at(0))
+        watch.observe([pr(n) for n in range(2, 7)], self.at(60))     # #1
+        watch.observe([pr(n) for n in range(3, 7)], self.at(120))    # #2
+        watch.observe([pr(n) for n in range(4, 7)], self.at(180))    # #3: alert
+        watch.observe([pr(n) for n in range(5, 7)], self.at(240))    # #4: folded into the burst
+        self.assertEqual(len(sent), 3)
+        self.assertIn("ALERT", sent[2])
+        for number in ("#1", "#2", "#3"):
+            self.assertIn(number, sent[2])
+        watch.observe([pr(n) for n in range(5, 7)], self.at(240 + 600))  # burst over: one summary
+        self.assertEqual(len(sent), 4)
+        self.assertIn("#4", sent[3])
+        self.assertNotIn("ALERT", sent[3])
+
+    def test_a_failed_lookup_retries_on_the_next_poll(self):
+        calls = []
+
+        def lookup(number):
+            calls.append(number)
+            if len(calls) == 1:
+                raise RuntimeError("HTTP 502")
+            return self.closed()
+
+        sent = []
+        watch = nb.CloseWatch(lookup, sent.append, frozenset({"teamleaderleo"}))
+        watch.observe([pr(1)], self.at(0))
+        watch.observe([], self.at(60))
+        self.assertEqual(sent, [])
+        watch.observe([], self.at(120))
+        self.assertEqual(len(sent), 1)
+
+
 class JsonMerge(unittest.TestCase):
     def test_different_keys_merge(self):
         base = {"commands": {"a": 1}}
