@@ -291,29 +291,46 @@ def seed_realistic(tag, scratch, timeout):
         def workspaces():
             return {w["id"]: w for w in daemon.call("list-workspaces", cmd_key="cmd")["data"]["workspaces"]}
 
+        focus_tab = None
         for index in range(REALISTIC_WORKSPACES):
             before = workspaces()
             created = daemon.call("new-workspace", {"name": f"project-{index + 1:02d}"}, cmd_key="cmd")
             if not created.get("ok"):
                 raise SystemExit(f"tag {tag}: new-workspace failed: {created.get('error')}")
             workspace = next(w for key, w in workspaces().items() if key not in before)
-            pane = workspace["screens"][0]["panes"][0]["id"]
+            pane = workspace["screens"][0]["panes"][0]
             for _ in range(2):
-                daemon.call("new-tab", {"pane": pane}, cmd_key="cmd")
-            daemon.call("split", {"pane": pane, "dir": "right"}, cmd_key="cmd")
+                daemon.call("new-tab", {"pane": pane["id"]}, cmd_key="cmd")
+            daemon.call("split", {"pane": pane["id"], "dir": "right"}, cmd_key="cmd")
+            first_tab = (pane.get("tabs") or [{}])[0]
+            focus_tab = focus_tab if index else first_tab.get("surface", first_tab.get("id"))
         daemon.close()
+        # The agent chat goes beside a terminal of the first seeded workspace.
         app = app_client(tag)
-        for action in ("splitRight", "palette.newAgentChat"):
-            reply = app.call("action.run", {"action": action})
+        steps = [("palette.goToTab", {"kind": "tab", "id": focus_tab}), ("splitRight", None), ("palette.newAgentChat", None)]
+        agent = True
+        for action, target in steps:
+            reply = app.call("action.run", {"action": action, **({"target": target} if target else {})})
             if not reply.get("ok"):
-                raise SystemExit(f"tag {tag}: {action} failed: {reply.get('error')}")
+                print(f"  {tag}: seeding without an agent chat ({action}: {reply.get('error')})", file=sys.stderr)
+                agent = False
+                break
         app.close()
-        if not prime.wait_for(AGENT_MARK, timeout):
-            raise SystemExit(f"tag {tag}: the seeded agent chat never loaded")
+        if agent and not prime.wait_for(AGENT_MARK, timeout):
+            print(f"  {tag}: the seeded agent chat never loaded", file=sys.stderr)
+            agent = False
     finally:
         prime.quit()
     with open(seeded_marker(tag), "w") as out:
-        out.write(f"{REALISTIC_WORKSPACES}\n")
+        out.write("agent\n" if agent else "terminals\n")
+
+
+def seeded_agent(tag):
+    try:
+        with open(seeded_marker(tag)) as marker:
+            return marker.read().strip() == "agent"
+    except OSError:
+        return False
 
 
 def seeded_marker(tag):
@@ -334,6 +351,8 @@ def one_run(tag, mode, timeout, profile=None):
         reset_state(tag)
     elif profile == "realistic" and not os.path.exists(seeded_marker(tag)):
         seed_realistic(tag, scratch, timeout)
+    if profile == "realistic" and not seeded_agent(tag):
+        final = [FINAL_MARK]
     if mode == "cold":
         # Builds of one tag (a before and an after copy) share its daemon.
         for other in RUN_TAGS or [tag]:
