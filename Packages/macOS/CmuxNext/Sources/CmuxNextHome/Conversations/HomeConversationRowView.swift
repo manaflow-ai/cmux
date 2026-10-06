@@ -191,7 +191,7 @@ final class HomeConversationTableRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         performWithTheme {
             (isEmphasized ? Palette.selectionFill : Palette.secondarySelectionFill).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: Metrics.space2, dy: 1), xRadius: Metrics.itemCornerRadius,
+            NSBezierPath(roundedRect: bounds.insetBy(dx: Metrics.space2, dy: Metrics.space2), xRadius: Metrics.itemCornerRadius,
                          yRadius: Metrics.itemCornerRadius).fill()
         }
     }

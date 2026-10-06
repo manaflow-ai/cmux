@@ -62,6 +62,7 @@ import Testing
             return row.kind == .chief
         })
         let cell = try #require(list.tableView(list.table, viewFor: nil, row: index) as? HomeConversationCellView)
+        cell.frame = NSRect(x: 0, y: 0, width: 320, height: HomeConversationCellView.height)
         cell.layoutSubtreeIfNeeded()
 
         let icon = try #require(cell.avatarGlyph.image)
