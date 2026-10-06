@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextIcons
 import CmuxNextPages
 import Foundation
 
@@ -46,6 +47,7 @@ final class PasswordsPageService: InternalPageProvider {
     var page: InternalPageID { .passwords }
     var title: String { PasswordStrings.pageTitle }
     var symbol: String { "key" }
+    var icon: IconName? { .securityLock }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = PasswordsPageProvider(
