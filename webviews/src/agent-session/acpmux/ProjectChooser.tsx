@@ -1,5 +1,7 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { ChevronIcon } from "./ComposerPickers";
 import { useT } from "./i18n";
+import { useUiAnchor } from "../../ui/anchor";
 
 export type Project = { cwd: string; label: string };
 
@@ -29,8 +31,10 @@ export function ProjectChooser({
   const [active, setActive] = useState<string | undefined>(undefined);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
 
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -122,9 +126,10 @@ export function ProjectChooser({
       >
         {icon}
         <span>{currentLabel ?? t("project.choose")}</span>
+        <ChevronIcon />
       </button>
       {open && (
-        <div className="acpmux-menu acpmux-menu-start acpmux-project-menu">
+        <div ref={menu} className="acpmux-menu acpmux-menu-start acpmux-project-menu" style={menuStyle}>
           <div className="acpmux-project-search">
             <SearchIcon />
             <input
@@ -164,6 +169,7 @@ export function ProjectChooser({
                 tabIndex={-1}
                 aria-selected={index === selected}
                 aria-checked={project.cwd === current}
+                aria-label={`${project.label}, ${project.cwd}`}
                 className={`acpmux-menu-item${index === selected ? " acpmux-menu-active" : ""}`}
                 title={project.cwd}
                 onPointerMove={() => setActive(project.cwd)}
@@ -173,7 +179,10 @@ export function ProjectChooser({
                 }}
               >
                 {icon}
-                <span className="acpmux-menu-label">{project.label}</span>
+                <span className="acpmux-menu-text">
+                  <span className="acpmux-menu-label">{project.label}</span>
+                  <span className="acpmux-menu-description" data-path={project.cwd} />
+                </span>
               </div>
             ))}
             {shown.length === 0 &&

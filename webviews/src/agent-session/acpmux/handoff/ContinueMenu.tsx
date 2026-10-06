@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from "react";
+import { useUiAnchor } from "../../../ui/anchor";
 export function ContinueMenu({
   label,
   targets,
@@ -16,6 +17,7 @@ export function ContinueMenu({
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
+  const menuStyle = useUiAnchor(button, menu, open && !disabled, { side: "below", align: "start" });
   useLayoutEffect(() => {
     if (open && !disabled) menu.current?.querySelector<HTMLElement>("button")?.focus();
   }, [open, disabled]);
@@ -49,6 +51,7 @@ export function ContinueMenu({
       {open && !disabled && (
         <div
           ref={menu}
+          style={menuStyle}
           role="menu"
           tabIndex={-1}
           aria-label={label}

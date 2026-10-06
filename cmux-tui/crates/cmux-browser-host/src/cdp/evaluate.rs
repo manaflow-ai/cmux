@@ -7,6 +7,16 @@ use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
+/// Most frames `frame.focused` descends through.
+const MAX_FOCUS_HOPS: usize = 16;
+
+/// In one frame's host world: the focused document's URL, or the focused
+/// frame owner whose document this world cannot reach (an out-of-process
+/// frame), or null. Same-process frames are walked here.
+const FOCUSED_IN_FRAME: &str = "function () { let doc = document; for (let i = 0; i < 16; i++) { \
+    const el = doc.activeElement; if (!el || (el.tagName !== 'IFRAME' && el.tagName !== 'FRAME')) return doc.location.href; \
+    let inner = null; try { inner = el.contentDocument; } catch (e) { inner = null; } if (!inner) return el; doc = inner; } return null; }";
+
 /// How long to wait for a world's context to be reported before creating it.
 const CONTEXT_GRACE: Duration = Duration::from_millis(500);
 
@@ -439,6 +449,61 @@ impl Inner {
             Some(child) => json!({"frameId": child}),
             None => Value::Null,
         })
+    }
+
+    /// The frame that holds keyboard focus, as `{frameId, url}` (Null when
+    /// focus is in no document). Walks `activeElement` in the host world of
+    /// each frame; a frame owner whose document the world cannot reach (an
+    /// out-of-process frame) is resolved to its frame through
+    /// `DOM.describeNode`, and the walk goes on in that frame's host world.
+    /// Page and agent script cannot change what this reports.
+    pub(super) fn focused_frame(&self, params: &Value) -> Result<Value, DriverError> {
+        let session = self.session(params)?;
+        let deadline = Instant::now() + timeout_of(params);
+        let mut frame_id = self.frame_or_main(&session, params)?;
+        for _ in 0..MAX_FOCUS_HOPS {
+            let context = self.context(&session, &frame_id, World::Host, deadline)?;
+            let group = handle_group();
+            let reply = self.send_on(
+                &context.session,
+                "Runtime.callFunctionOn",
+                json!({
+                    "functionDeclaration": FOCUSED_IN_FRAME,
+                    "executionContextId": context.id,
+                    "objectGroup": group,
+                    "returnByValue": false,
+                }),
+                deadline,
+            );
+            let next = reply.and_then(|reply| {
+                if let Some(details) = reply.get("exceptionDetails") {
+                    return Err(evaluation_error(details));
+                }
+                let result = &reply["result"];
+                if let Some(url) = result["value"].as_str() {
+                    return Ok(Err(json!({"frameId": frame_id, "url": url})));
+                }
+                let Some(object) = result["objectId"].as_str() else {
+                    return Ok(Err(Value::Null));
+                };
+                let node = self.send_on(
+                    &context.session,
+                    "DOM.describeNode",
+                    json!({"objectId": object}),
+                    deadline,
+                )?;
+                Ok(match node["node"]["frameId"].as_str() {
+                    Some(child) => Ok(child.to_owned()),
+                    None => Err(Value::Null),
+                })
+            });
+            self.release_handles(&context.session, &group);
+            match next? {
+                Ok(child) => frame_id = child,
+                Err(done) => return Ok(done),
+            }
+        }
+        Ok(Value::Null)
     }
 
     pub(super) fn content_frame(&self, params: &Value) -> Result<Value, DriverError> {

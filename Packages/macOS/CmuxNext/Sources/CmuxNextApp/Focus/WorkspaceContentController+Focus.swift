@@ -65,7 +65,8 @@ extension WorkspaceContentController {
 extension FocusTopology.Kind {
     static func of(_ tab: TabModel) -> FocusTopology.Kind {
         // An agent chat tab is a conversation tab on an acpmux session; its content is the agent page.
-        tab.agentSession != nil ? .agent : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
+        // A page tab is a conversation tab with a page source; its content is the internal page.
+        tab.agentSession != nil ? .agent : tab.page != nil ? .page : of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
     }
 
     static func of(_ kind: TabKind, isFrontendOwned: Bool) -> FocusTopology.Kind {
