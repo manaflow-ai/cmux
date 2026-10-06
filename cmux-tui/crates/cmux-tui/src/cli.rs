@@ -30,7 +30,7 @@ mod shorthand;
 mod surface;
 mod topology_help;
 mod wire;
-pub(super) use surface::Surface;
+pub(super) use surface::{BIN, Surface};
 
 use std::borrow::Cow;
 use std::io::{self, Write};
