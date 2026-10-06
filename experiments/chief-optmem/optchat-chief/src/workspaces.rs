@@ -144,15 +144,47 @@ pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result
 impl Workspaces for AppWorkspaces {
     fn open(&self, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
         let key = new_key();
-        control_call(
+        match control_call(
             &self.control,
             &open_request(session, name, &key, cwd),
             Duration::from_secs(60),
-        )?;
-        Ok(key)
+        ) {
+            Ok(_) => Ok(key),
+            // The app answers a waiting run after about 2 s (checked live
+            // 2026-10-05) while its work goes on: the workspace still comes,
+            // under the key chosen here.
+            Err(e) if still_running(&e) => Ok(key),
+            Err(e) => Err(e),
+        }
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
+        // The workspace can still be in creation (the open answers before
+        // the app's work ends): a few tries, one second apart.
+        let mut last = String::new();
+        for attempt in 0..RENAME_TRIES {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            match self.rename_once(key, name) {
+                Ok(()) => return Ok(()),
+                Err(e) => last = e,
+            }
+        }
+        Err(last)
+    }
+}
+
+/// Tries of a rename while the workspace may still be in creation.
+const RENAME_TRIES: u32 = 10;
+
+/// The app's answer to a waiting run whose work goes on past its budget.
+pub fn still_running(error: &str) -> bool {
+    error.contains("did not finish within")
+}
+
+impl AppWorkspaces {
+    fn rename_once(&self, key: &str, name: &str) -> Result<(), String> {
         use cmux::raw::{Client, ClientConfig, Optional, RenameWorkspaceRequest};
         let mut client = Client::connect(ClientConfig::from_socket_path(&self.daemon))
             .map_err(|e| format!("the session daemon: {e}"))?;
@@ -189,6 +221,34 @@ mod tests {
         assert_eq!(key.len(), 36);
         assert_eq!(&key[14..15], "4");
         assert_ne!(key, new_key());
+    }
+
+    #[test]
+    fn a_run_past_the_apps_wait_budget_still_opens_the_workspace() {
+        use std::os::unix::net::UnixListener;
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("control.sock");
+        let listener = UnixListener::bind(&control).unwrap();
+        let server = std::thread::spawn(move || {
+            for answer in [
+                r#"{"ok":false,"error":{"message":"action.run did not finish within 1999 ms"}}"#,
+                r#"{"ok":false,"error":{"message":"unavailable: no such action"}}"#,
+            ] {
+                let (mut conn, _) = listener.accept().unwrap();
+                let mut line = String::new();
+                BufReader::new(conn.try_clone().unwrap())
+                    .read_line(&mut line)
+                    .unwrap();
+                writeln!(conn, "{answer}").unwrap();
+            }
+        });
+        let w = AppWorkspaces {
+            control,
+            daemon: dir.path().join("daemon.sock"),
+        };
+        assert_eq!(w.open("s", "n", Path::new("/w")).map(|k| k.len()), Ok(36));
+        assert!(w.open("s", "n", Path::new("/w")).is_err());
+        server.join().unwrap();
     }
 
     #[test]
