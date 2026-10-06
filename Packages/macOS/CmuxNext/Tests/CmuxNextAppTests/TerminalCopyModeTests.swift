@@ -106,6 +106,8 @@ struct TerminalCopyModeTests {
         let (services, _, view) = try Self.terminal()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: true)
+        // ARC owns this fixture; close must not release it again during animation teardown.
+        window.isReleasedWhenClosed = false
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
         #expect(window.makeFirstResponder(view))

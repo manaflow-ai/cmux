@@ -36,8 +36,9 @@ final class HomeGlassHeaderView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         backdrop.wantsLayer = true
-        fade.startPoint = CGPoint(x: 0.5, y: 0)
-        fade.endPoint = CGPoint(x: 0.5, y: 1)
+        // `backdrop` is not flipped: its layer's y = 1 is the top edge.
+        fade.startPoint = CGPoint(x: 0.5, y: 1)
+        fade.endPoint = CGPoint(x: 0.5, y: 0)
         fade.actions = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull()]
         backdrop.layer?.addSublayer(fade)
         addSubview(backdrop)

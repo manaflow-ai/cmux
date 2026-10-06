@@ -31,8 +31,12 @@ extension SidebarBridge {
         .customize: "appearance.customize",
     ]
 
+    /// Runs item `id` as a click does: a top-section item that stands for a
+    /// page opens that page in this window (TOP-SECTION-ITEMS-ARE-PAGES).
     func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
         guard let item = model.layout.item(id) else { return }
+        if let region = model.layout.region(of: id), let route = TopPageRoute(item.ref, in: region),
+           TopPages.show(route, services: services, in: state) != nil { return }
         activate(item.ref, opensWorkspace: opensWorkspace)
     }
 
@@ -77,26 +81,24 @@ extension SidebarBridge {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
         let apps = services.apps.registry
-        let home = services.home, store = services.machines.local.store
+        let store = services.machines.local.store
         let window = state
         let updater = services.updater
         sectionsObservation = Task { [weak self] in
             // The app registry is observed too: hiding or installing an app
             // changes its item at once.
-            // So are the shown workspace (Home's selected tile) and the
-            // unread count (Notifications' dot), and an available update
-            // (the badge on Settings).
-            for await (layout, homeShown, unread, update) in Observations({ () -> (SidebarLayoutDocument, Bool, Int, Bool) in
+            // So are the shown top page (its item is active), the unread
+            // count (Notifications' dot), and an available update (the
+            // badge on Settings).
+            for await (layout, shownPage, unread, update) in Observations({ () -> (SidebarLayoutDocument, TopPageRoute?, Int, String?) in
                 _ = apps.apps
-                let shown = window?.workspaceID
-                return (service.document, shown != nil && shown == home.homeWorkspace?.id, NotificationCenterService.unreadCount(store),
-                        updater.showsSettingsBadge)
+                return (service.document, window?.page, NotificationCenterService.unreadCount(store), updater.settingsBadgeTitle)
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
-                                          homeShown: homeShown, unread: unread,
-                                          app: { Self.appInfo($0, registry: apps) }, updateAvailable: update)
+                                          shownPage: shownPage, unread: unread,
+                                          app: { Self.appInfo($0, registry: apps) }, updateBadge: update)
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -105,30 +107,30 @@ extension SidebarBridge {
     }
 
     /// Presentation of every built-in item in `layout`; `registered` says
-    /// whether an action exists. Home is active while `homeShown`, and
+    /// whether an action exists. The item of the shown top page is active, and
     /// Notifications carries `unread`. Settings carries the update badge
-    /// while `updateAvailable` (the window rail's update circle is gone, R52).
+    /// while `updateBadge` is set, labelled with it (the window rail's update
+    /// circle is gone, R52; the update card is gone, Lawrence 2026-10-05).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
-                         homeShown: Bool = false, unread: Int = 0,
+                         shownPage: TopPageRoute? = nil, unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
-                         updateAvailable: Bool = false) -> [LayoutItemID: SidebarItemInfo] {
+                         updateBadge: String? = nil) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
                 if item.ref.kind == LayoutItemRef.appKind {
                     var info = app(item.ref.value)
-                    // Home is active while the window shows the home workspace.
-                    if item.ref == SidebarLayoutDocument.homeRef { info.isActive = homeShown }
+                    info.isActive = shownPage != nil && TopPageRoute.route(for: item.ref) == shownPage
                     infos[item.id] = info
                     continue
                 }
                 guard let builtIn = item.ref.builtIn else { continue }
                 var info = builtIn.defaultInfo
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
+                info.isActive = shownPage != nil && TopPageRoute.route(for: item.ref) == shownPage
                 switch builtIn {
-                case .home: info.isActive = homeShown
                 case .notifications: info.badge = unread > 0 ? unread : nil
-                case .settings: info.accessory = updateAvailable ? .update : nil
+                case .settings: info.accessory = updateBadge.map { .update(title: $0) }
                 default: break
                 }
                 infos[item.id] = info
