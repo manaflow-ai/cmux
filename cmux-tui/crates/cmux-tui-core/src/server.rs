@@ -172,6 +172,7 @@ pub use socket_path::{
     default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
     validate_session_name,
 };
+pub(crate) mod activity;
 mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
@@ -965,6 +966,7 @@ fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> T
 enum Command {
     Identify,
     BrowserHostProvider,
+    SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
         terminal_ids: Vec<String>,
@@ -12649,6 +12651,12 @@ fn handle_command_with_cancellation(
         return remote;
     }
     match cmd {
+        Command::SubscribeActivity => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("subscribe-activity requires a trusted local connection");
+            }
+            mux.activity.subscribe(mux, client, writer)
+        }
         cmd @ (Command::UrlOpenSubscribe { .. }
         | Command::UrlOpenClaim { .. }
         | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),

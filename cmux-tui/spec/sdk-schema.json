@@ -7785,6 +7785,65 @@
     }
    },
    "additional_properties": true
+  },
+  "ActivitySnapshot": {
+   "kind": "object",
+   "fields": {
+    "attached_clients": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "live_agents": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_user_input_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "last_agent_action_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "attached_clients counts attached connections whose set-client-info kind is tui, web, mac or frontend (a person's client); automation connections never count.",
+    "live_agents counts agents whose state is working or blocked.",
+    "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
+    "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+    "Times and counts only: no content and no surface ids."
+   ]
+  },
+  "ActivitySubscribeResult": {
+   "kind": "object",
+   "fields": {
+    "activity": {
+     "type": {
+      "kind": "ref",
+      "name": "ActivitySnapshot"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -20019,6 +20078,32 @@
     "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
     "The secret is never journaled, logged or put in an event."
    ]
+  },
+  "subscribe-activity": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "vm-activity-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ActivitySubscribeResult"
+   },
+   "stream": {
+    "kind": "subscribe",
+    "event_names": [
+     "activity-changed"
+    ],
+    "ordering": "Registration response with the current snapshot, then activity-changed after each change, at most one per second (leading edge plus one trailing event); no replay. Closing the connection ends the subscription.",
+    "terminal_event": null
+   },
+   "constraints": [
+    "Trusted local (Unix socket) connections only. The Cloud VM agent uses it to report activity for the idle pause (plans/cmux-next/cloud-automation.md 27).",
+    "At most 16 subscribers."
+   ]
   }
  },
  "events": {
@@ -23736,6 +23821,36 @@
       },
       "presence": "optional",
       "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "activity-changed": {
+   "since": 12,
+   "capability": "vm-activity-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "activity-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "activity": {
+      "type": {
+       "kind": "ref",
+       "name": "ActivitySnapshot"
+      },
+      "presence": "required",
+      "nullable": false
      }
     },
     "additional_properties": false
