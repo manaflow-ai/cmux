@@ -498,6 +498,31 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   queued new turn, not a delivery between tool calls; only the Chief
   conversation is read. With the native engine, children's reports are
   delivered between the Chief's tool calls like human messages.
+- **Free nodes and JOBS (section 4.1).** The spec's pump returns as soon as
+  JOBS calls run, before it looks at any node. Ours still builds free nodes
+  (a short message verbatim, two children that fit together) when JOBS
+  model calls run: JOBS caps compactor calls, and a free node makes none.
+  The tree and the view are the same; only free nodes are not delayed.
+- **Compactor reply (section 4.3).** The spec only trims the reply. On the
+  acpmux route a lead-in line before the summary ("Here is the line:", a
+  line that ends with a colon and has no other `: `) is dropped too
+  (`strip_preamble`): Claude Code and the model sometimes write one, and it
+  would become part of a permanent line.
+- **System prompt (section 7.2).** Between VIEW_DOC and the user's own
+  AGENTS.md there is a short cmux section (how to drive cmux, the subagent
+  commands, the memory tools by name or path). It names no user and holds
+  nothing per turn. The spec has the user's instructions file there; the
+  section is what any cmux user would otherwise have to write into it.
+- **Tool results inside an acpmux turn (section 7, CAP).** Every logged
+  `echo` is capped at CAP. Inside an acpmux turn the harness resends its
+  own tool result to the model, at its own size limits (Claude Code cuts
+  long outputs itself), which the host cannot change; the native engine caps
+  before it resends, as the spec says.
+- **Who is logged (section 2: "every message").** Only human messages that
+  wake the Chief are logged (`cmux_chief::rules::wakes`): in a group
+  conversation a message without a mention is not, and a message from a
+  paired device is not (fail closed until the remote-origin gate exists).
+  Non-text parts are not logged on this branch.
 - **What the user sees (section 7, "show it").** Home gets each turn's last
   reply only; earlier replies and tool steps are in the memory (and in
   `browse`), not posted.

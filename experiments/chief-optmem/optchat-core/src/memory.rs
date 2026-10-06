@@ -175,6 +175,9 @@ impl Memory {
                             out.push(Work::Free { node: id, text });
                             continue 'again;
                         }
+                        // Deviation (README): the spec checks JOBS before any
+                        // node; JOBS caps model calls, and a free node is none,
+                        // so free nodes above are built even with JOBS running.
                         if self.busy.len() >= JOBS {
                             return out;
                         }
