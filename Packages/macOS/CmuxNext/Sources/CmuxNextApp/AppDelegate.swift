@@ -208,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings?.managedPreferencesMayHaveChanged()
             }
         }
-        services.tabBarButtons.start(settings: settings)
+        services.configActions.start(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
@@ -294,7 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for session in services?.machines.cloud ?? [] { session.disconnect() }
         services?.ssh.stop()
         control.stop()
-        services?.tabBarButtons.stop()
+        services?.configActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
