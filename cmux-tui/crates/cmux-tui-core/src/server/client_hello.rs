@@ -247,7 +247,7 @@ fn prove(
 fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
     #[cfg(unix)]
     {
-        super::apps::user_origin_allowed(mux, client)
+        apps::user_origin_allowed(mux, client)
     }
     #[cfg(not(unix))]
     {

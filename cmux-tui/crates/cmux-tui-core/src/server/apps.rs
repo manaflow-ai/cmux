@@ -450,13 +450,13 @@ mod tests {
     fn user_origin_allowed_matches_the_apps_door() {
         let mux = Mux::new_for_test("apps-user-origin-allowed", SurfaceOptions::default());
         let (cli, _cli_out) = connection(&mux, Some("app"), false);
-        assert!(!super::user_origin_allowed(&mux, cli));
+        assert!(!user_origin_allowed(&mux, cli));
         let (app, _app_out) = connection(&mux, Some("app"), false);
         verify(&mux, app);
-        assert!(super::user_origin_allowed(&mux, app));
+        assert!(user_origin_allowed(&mux, app));
         let (agent_app, _agent_app_out) = connection(&mux, Some("app"), true);
         verify(&mux, agent_app);
-        assert!(!super::user_origin_allowed(&mux, agent_app));
+        assert!(!user_origin_allowed(&mux, agent_app));
     }
 
     /// P8 3b-2: kind `app` is a self-declared label. Provider registration
