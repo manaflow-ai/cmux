@@ -661,6 +661,38 @@ test("cookie and storage-state scope follow the Public Suffix List", async () =>
   }, { setupContext });
 });
 
+test("cookies.get for a URL sends a Secure cookie over http only to a loopback host, as the app's driver", async () => {
+  // HTTPCookie.browserReplMatches: https, or a loopback host (localhost and
+  // its subdomains, [::1], 127.0.0.0/8 as an address); never a name that
+  // only starts with 127. Host-only cookies go to their exact host.
+  const browser = await createDevBrowser();
+  try {
+    const driver = browser.driver();
+    const cookie = (name, domain, extra = {}) => ({ name, value: "1", domain, path: "/", ...extra });
+    await driver.call("cookies.set", {
+      cookies: [
+        cookie("v4", "127.0.0.1", { secure: true }),
+        cookie("v4other", "127.0.0.2", { secure: true }),
+        cookie("local", "localhost", { secure: true }),
+        cookie("lookalike", "127.0.0.1.example.test", { secure: true }),
+        cookie("remote", "example.test", { secure: true }),
+        cookie("plain", "example.test"),
+        cookie("sub", "app.example.test"),
+      ],
+    });
+    const names = async (url) => (await driver.call("cookies.get", { urls: [url] })).map((c) => c.name).sort();
+    assert.deepEqual(await names("http://127.0.0.1:8080/a"), ["v4"]);
+    assert.deepEqual(await names("http://127.0.0.2/"), ["v4other"]);
+    assert.deepEqual(await names("http://localhost:3000/"), ["local"]);
+    assert.deepEqual(await names("http://127.0.0.1.example.test/"), []);
+    assert.deepEqual(await names("http://example.test/"), ["plain"]);
+    assert.deepEqual(await names("https://example.test/"), ["plain", "remote"]);
+    await driver.detach();
+  } finally {
+    await browser.close();
+  }
+});
+
 test("a host-only cookie is in reach only when the policy allows its exact host", async () => {
   // BrowserReplDomainPolicy.cookieBlockReason: example.com's host-only
   // cookie never goes to app.example.com, so a session allowed only
