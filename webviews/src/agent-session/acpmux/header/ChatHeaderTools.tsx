@@ -7,6 +7,7 @@ import { Counts } from "../changes/Counts";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
+import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
@@ -138,6 +139,9 @@ function ChatMenu({
     showRef.current(expand);
     onExpanded?.();
   }, [expand, onExpanded]);
+  // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
+  const label = t("chatMenu.open");
+  useEffect(() => registerPicker(label, () => showRef.current()), [label]);
   const onOpenChange = (next: boolean) => {
     if (next) return show();
     opening.current++;
@@ -147,7 +151,7 @@ function ChatMenu({
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={t("chatMenu.open")}>
+      <MenuButton className="acpmux-header-tool" label={label}>
         <Icon name="action.more" size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">

@@ -154,3 +154,15 @@ test("the palette's Continue in opens the menu on the harness list", async () =>
   expect(ran).toEqual(["continue:codex"]);
   await unmount();
 });
+
+test("automation opens the chat menu by its label", async () => {
+  const { openPicker } = await import("../pickerOpeners");
+  const ran: string[] = [];
+  const { unmount } = await render({}, ran);
+  await act(async () => {
+    expect(openPicker("Chat actions")).toBe(true);
+  });
+  expect(visibleRows().map((row) => row.textContent)).toEqual(["Rename⌘R", "Continue in", "Close"]);
+  await unmount();
+  expect(openPicker("Chat actions")).toBe(false);
+});
