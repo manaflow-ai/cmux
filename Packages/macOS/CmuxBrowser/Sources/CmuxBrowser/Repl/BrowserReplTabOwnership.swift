@@ -45,6 +45,10 @@ public enum BrowserReplDownloadRoute: Sendable, Equatable {
     case session(BrowserReplNetworkRecipient)
     /// Cancelled: the creating session's tab may not load it.
     case refused(BrowserReplDownloadRefusal)
+    /// Cancelled with no event: the session whose input started it left
+    /// the tab before the download was routed, so nobody gets the file
+    /// (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``).
+    case cancelled
 }
 
 /// A session a network event goes to, and whether it gets the request's
@@ -595,12 +599,18 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// a tab that session created, it is refused (cancelled; that tab never
     /// loads what its policy blocks), and in a user's tab it keeps the
     /// user's download location, as one no session's input started does.
+    ///
+    /// A download whose starting session (`startedBy`) left the tab before
+    /// it was routed is ``BrowserReplDownloadRoute/cancelled``: that
+    /// session's teardown could not cancel a download it was never told
+    /// of, and what its input started never goes on to the user's location.
     public func downloadRoute(
         startedBy: String?,
         source: BrowserReplDownloadSource,
         policy: (String) -> BrowserReplDomainPolicy?,
         fileRoots: (String) -> [String]?
     ) -> BrowserReplDownloadRoute {
+        if let startedBy, !attachedSessionIDs.contains(startedBy) { return .cancelled }
         guard let delivery = downloadDelivery(startedBy: startedBy) else { return .user }
         if let reason = source.refusal(policy: policy(delivery.sessionID), fileRoots: fileRoots(delivery.sessionID) ?? []) {
             return isSessionOwned && delivery.sessionID == creatorSessionID ? .refused(reason) : .user

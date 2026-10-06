@@ -1711,10 +1711,12 @@ final class BrowserReplTabAttachment {
     ///     with the response's URL last.
     ///   - url: The response's URL.
     /// - Returns: `false` when the download must be cancelled: the tab's
-    ///   creating session may not read where it came from.
+    ///   creating session may not read where it came from, or the session
+    ///   whose input started it left the tab
+    ///   (``BrowserReplDownloadRoute/cancelled``).
     @discardableResult
     func downloadDidStart(id: String, startedBy starter: String?, source: BrowserReplDownloadSource, url: URL?, suggestedFilename: String) -> Bool {
-        guard isAttached else { return true }
+        guard isAttached else { return Self.keepsDownloadWithoutSessions(startedBy: starter) }
         let route = ownership.downloadRoute(
             startedBy: starter,
             source: source,
@@ -1724,6 +1726,8 @@ final class BrowserReplTabAttachment {
         switch route {
         case .user:
             return true
+        case .cancelled:
+            return false
         case .refused(let refusal):
             // Every attached session hears of it; only the tab's creator
             // gets the URLs as written (the reason names the refused hop),
@@ -1738,7 +1742,9 @@ final class BrowserReplTabAttachment {
             }
             return false
         case .session(let delivery):
-            guard sinks[delivery.sessionID] != nil else { return true }
+            // A session without a sink is leaving: its teardown would not
+            // see this download, so nobody gets it.
+            guard sinks[delivery.sessionID] != nil else { return false }
             let owner = delivery.sessionID
             sessionDownloads.add(id, to: delivery, source: source)
             // Only the tab's creator gets the URL's credential values.
@@ -1774,15 +1780,25 @@ final class BrowserReplTabAttachment {
     /// so the request never reaches a place the tab's creating session's
     /// policy or directories refuse.
     func allowsDownloadRedirect(startedBy starter: String?, source: BrowserReplDownloadSource) -> Bool {
-        guard isAttached else { return true }
+        guard isAttached else { return Self.keepsDownloadWithoutSessions(startedBy: starter) }
         let route = ownership.downloadRoute(
             startedBy: starter,
             source: source,
             policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
             fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
         )
-        if case .refused = route { return false }
-        return true
+        switch route {
+        case .refused, .cancelled: return false
+        case .user, .session: return true
+        }
+    }
+
+    /// Whether a download goes on in a tab no session drives (no attached
+    /// session, or no attachment at all): only one no session's input
+    /// started. One a session's input started outlived that session, whose
+    /// teardown never saw it, so it is cancelled, never saved for the user.
+    nonisolated static func keepsDownloadWithoutSessions(startedBy starter: String?) -> Bool {
+        starter == nil
     }
 
     /// Reports download `id`'s end to the session it went to. A finished

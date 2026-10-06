@@ -94,7 +94,13 @@ is cancelled and `navigation.blocked` reports why; in a user's tab it keeps
 the user's download location. In a tab the session created, a redirect of
 the download to an address that would refuse it is cancelled before the
 request goes there, also one WebKit reports before it picked the
-download's destination.
+download's destination. The driver routes a download, and the session
+records it, in the same main-thread turn as WebKit's destination is
+picked, so a session that leaves the tab either cancels a download it
+recorded or is gone before the route is made. A download a session's
+input started whose session left the tab before then (also every
+session, or a tab no session drives any more) is cancelled with no event,
+never saved to the user's download location.
 
 A dialog or file chooser the page opens while it handles a session's
 `input.*` call, the first second of its page-world `frame.evaluate` (the

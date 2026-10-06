@@ -8672,25 +8672,36 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
         let downloadID = UUID().uuidString
         try? FileManager.default.removeItem(at: destURL)
-        storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
         // The session whose input started the navigation this download came
         // from, bound to the download when WebKit made it, and every place
         // the request went, the response's URL last.
         let starter = BrowserReplTabAttachment.downloadStarter(of: download)
         var source = BrowserReplTabAttachment.downloadSource(of: download)
         if let url = response.url { source.went(to: url.absoluteString) }
+        // The download's state, its REPL route and the session's record of
+        // it are made in one main-thread turn, before WebKit gets the
+        // destination: a session's teardown (on the main thread) runs either
+        // before, and the route sees it gone, or after, and cancels the
+        // download it recorded. Never a download in between that the
+        // teardown misses and the finish then saves for the user.
         notifyOnMain { [weak self] in
-            self?.onDownloadStarted?(safeFilename, downloadID)
-            // A tab a REPL session created never keeps a download from a
-            // place the session's domain policy or directories refuse.
-            if self?.replAttachment?()?.downloadDidStart(id: downloadID, startedBy: starter, source: source, url: response.url, suggestedFilename: safeFilename) == false {
-                download.cancel(nil)
+            guard let self else {
+                completionHandler(nil)
+                return
             }
+            self.storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
+            self.onDownloadStarted?(safeFilename, downloadID)
+            // A tab a REPL session created never keeps a download from a
+            // place the session's domain policy or directories refuse, and
+            // one a session's input started never outlives that session.
+            let keeps = self.replAttachment?()?.downloadDidStart(id: downloadID, startedBy: starter, source: source, url: response.url, suggestedFilename: safeFilename)
+                ?? BrowserReplTabAttachment.keepsDownloadWithoutSessions(startedBy: starter)
+            #if DEBUG
+            cmuxDebugLog("download.decideDestination file=<redacted> keeps=\(keeps)")
+            #endif
+            // No destination cancels the download; its failure removes the state.
+            completionHandler(keeps ? destURL : nil)
         }
-        #if DEBUG
-        cmuxDebugLog("download.decideDestination file=<redacted>")
-        #endif
-        completionHandler(destURL)
     }
 
     func download(
@@ -8710,7 +8721,8 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
             let starter = BrowserReplTabAttachment.downloadStarter(of: download)
             let source = BrowserReplTabAttachment.downloadSource(of: download)
             notifyOnMain { [weak self] in
-                let allowed = self?.replAttachment?()?.allowsDownloadRedirect(startedBy: starter, source: source) ?? true
+                let allowed = self?.replAttachment?()?.allowsDownloadRedirect(startedBy: starter, source: source)
+                    ?? BrowserReplTabAttachment.keepsDownloadWithoutSessions(startedBy: starter)
                 decisionHandler(allowed ? .allow : .cancel)
             }
             return
