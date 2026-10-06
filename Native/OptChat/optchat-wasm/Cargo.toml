@@ -3,7 +3,7 @@ name = "optchat-wasm"
 version = "0.1.0"
 edition = "2021"
 description = "optchat-core for the hosted placement: WebAssembly for the MemoryDO"
-license = "MIT"
+license = "GPL-3.0-or-later"
 publish = false
 
 [workspace]

@@ -1132,6 +1132,24 @@ jobs:
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
+      # The Home Chief's brain host (Native/OptChat/optchat-chief) ships in the
+      # cmux-next nightly only: this step hands it to the Release build's
+      # "Bundle optchat-chief" phase, which copies it to Resources/bin, and
+      # build-sign-notarize-nightly signs it with the app's Developer ID and
+      # hardened runtime (sign-cmux-bundle-helpers.sh signs every Mach-O
+      # there). Main's nightly, RC and stable never set the variable, so they
+      # bundle nothing, and the app starts the bundled Chief only on DEV and
+      # NIGHTLY bundle ids (HomeBrainHost.bundledChiefAllowed).
+      - name: Build the OptChat Chief (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
+          chief_bin="$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief"
+          CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$archs" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
+          echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
+          echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
+
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
       # cross-platform R2 artifact matrix. Main and release keep the immutable
@@ -1757,6 +1775,18 @@ jobs:
               [ "$archs" = "$NIGHTLY_VARIANT" ]
             fi
           done
+          # The cmux-next nightly carries the OptChat Chief with the app's slices.
+          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
+            chief="$APP/Contents/Resources/bin/optchat-chief"
+            [ -x "$chief" ] || { echo "nightly-next is missing bin/optchat-chief" >&2; exit 1; }
+            archs="$(lipo -archs "$chief")"
+            echo "$chief: $archs"
+            if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+              [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+            else
+              [ "$archs" = "$NIGHTLY_VARIANT" ]
+            fi
+          fi
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
           for alias in cmux-tui acpmux; do
             [ "$(readlink "$APP/Contents/Resources/bin/$alias")" = cmux ] || {

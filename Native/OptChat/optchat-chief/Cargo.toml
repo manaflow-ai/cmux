@@ -3,7 +3,7 @@ name = "optchat-chief"
 version = "0.1.0"
 edition = "2024"
 description = "An OptChat Chief for cmux-next Home: the brain-host contract of mux/host, with OptChat memory and one fresh acpmux session per turn"
-license = "MIT"
+license = "GPL-3.0-or-later"
 publish = false
 
 # Its own workspace and lockfile (like Native/DiffSidecar): the Chief ships in the app bundle.

@@ -30,6 +30,7 @@
 #   rust-cmux-browser-host  bin/cmux-browser-host            cmux-tui/Cargo.lock
 #   rust-cmux-cloud         bin/cmux-cloud                   first-party-apps/cloud/server
 #   rust-cmux-diff-sidecar  bin/cmux-diff-sidecar            Native/DiffSidecar/Cargo.lock (this tree)
+#   rust-optchat-chief      bin/optchat-chief (nightly-next) Native/OptChat/optchat-chief/Cargo.lock (this tree)
 #   rust-iroh-ffi           Iroh.framework                   manaflow-ai/iroh-ffi at the Package.resolved revision
 #
 # In pin mode first-party crates point at the permanent tag
@@ -124,6 +125,7 @@ if [[ "$WRITE_TREES" == 1 ]]; then
   cargo_tree rust-cmux-browser-host "$tui_src/cmux-tui" cmux-browser-host
   cargo_tree rust-cmux-cloud "$tui_src/first-party-apps/cloud/server" cmux-cloud
   cargo_tree rust-cmux-diff-sidecar "$ROOT/Native/DiffSidecar" cmux-diff-sidecar
+  cargo_tree rust-optchat-chief "$ROOT/Native/OptChat/optchat-chief" optchat-chief
   cargo_tree rust-iroh-ffi "$iroh_src" iroh-ffi
 fi
 
@@ -131,6 +133,7 @@ python3 "$NOTICES/fetch_crates.py" --cache "$CACHE" \
   --lock "$tui_src/cmux-tui/Cargo.lock" \
   --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock" \
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" \
+  --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" \
   --lock "$iroh_src/Cargo.lock"
 
 work="$(mktemp -d)"
@@ -169,6 +172,10 @@ section rust-cmux-diff-sidecar "Rust crates: diff viewer sidecar (bin/cmux-diff-
   --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock-label "Native/DiffSidecar/Cargo.lock" \
   --root cmux-diff-sidecar --workspace "$ROOT/Native/DiffSidecar" --repo-root "$ROOT" \
   --first-party 'Native/DiffSidecar'
+section rust-optchat-chief "Rust crates: Home Chief brain host (bin/optchat-chief, cmux-next nightly)" \
+  --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock-label "Native/OptChat/optchat-chief/Cargo.lock" \
+  --root optchat-chief --workspace "$ROOT/Native/OptChat/optchat-chief" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
+  --first-party 'Native/OptChat/*' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
 section rust-iroh-ffi "Rust crates: Iroh.framework (manaflow-ai/iroh-ffi)" \
   --lock "$iroh_src/Cargo.lock" --lock-label "manaflow-ai/iroh-ffi Cargo.lock at ${iroh_rev:0:11}" \
   --root iroh-ffi --workspace "$iroh_src" \
@@ -181,11 +188,12 @@ compose=(python3 "$ROOT/scripts/cmux-next/notices/compose_notices.py"
   --section "$work/rust-cmux-cli.md" --section "$work/rust-cmux-app-host.md"
   --section "$work/rust-cmux-browser-host.md"
   --section "$work/rust-cmux-cloud.md" --section "$work/rust-cmux-diff-sidecar.md"
+  --section "$work/rust-optchat-chief.md"
   --section "$work/rust-iroh-ffi.md"
   --out "$ROOT/THIRD_PARTY_LICENSES.md")
 review=(python3 "$NOTICES/review_list.py" --cache "$CACHE"
   --lock "$tui_src/cmux-tui/Cargo.lock" --lock "$tui_src/first-party-apps/cloud/server/Cargo.lock"
-  --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$iroh_src/Cargo.lock")
+  --lock "$ROOT/Native/DiffSidecar/Cargo.lock" --lock "$ROOT/Native/OptChat/optchat-chief/Cargo.lock" --lock "$iroh_src/Cargo.lock")
 if [[ "$TUI_SOURCE" == tree ]]; then
   "${compose[@]}"
   echo "wrote THIRD_PARTY_LICENSES.md for this tree (${ref:0:11}; $(wc -c < "$ROOT/THIRD_PARTY_LICENSES.md" | tr -d ' ') bytes)"

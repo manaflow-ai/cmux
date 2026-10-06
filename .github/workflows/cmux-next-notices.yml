@@ -15,6 +15,7 @@ on:
       - "cmux-tui/build-support/notices/**"
       - "first-party-apps/cloud/server/Cargo.lock"
       - "Native/DiffSidecar/Cargo.lock"
+      - "Native/OptChat/optchat-chief/Cargo.lock"
       - "Packages/macOS/CmuxNext/Package.resolved"
       - "scripts/cmux-next/cmux-tui.pin"
       - "scripts/cmux-next/generate-third-party-notices.sh"
@@ -69,7 +70,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/cmux-notices
-          key: cmux-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock', 'first-party-apps/cloud/server/Cargo.lock', 'Native/DiffSidecar/Cargo.lock', 'Packages/macOS/CmuxNext/Package.resolved', 'scripts/cmux-next/cmux-tui.pin') }}
+          key: cmux-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock', 'first-party-apps/cloud/server/Cargo.lock', 'Native/DiffSidecar/Cargo.lock', 'Native/OptChat/optchat-chief/Cargo.lock', 'Packages/macOS/CmuxNext/Package.resolved', 'scripts/cmux-next/cmux-tui.pin') }}
           restore-keys: cmux-notices-v1-
 
       - name: Notices tool tests

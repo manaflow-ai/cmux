@@ -3,7 +3,7 @@ name = "optchat-host"
 version = "0.1.0"
 edition = "2021"
 description = "OptChat I/O for the MacBook and Mac mini placements: file store, single-writer lock, compactor runner"
-license = "MIT"
+license = "GPL-3.0-or-later"
 publish = false
 
 # Its own workspace and lockfile (like Native/DiffSidecar): the Chief ships in the app bundle.
