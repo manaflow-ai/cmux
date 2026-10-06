@@ -41,7 +41,7 @@ import Synchronization
             // An AppKit view can replace the default pacer from a synchronous callback. Keep
             // the old actor-isolated pacer alive until its release runs on the main actor.
             Task { @MainActor in
-                _ = previous
+                withExtendedLifetime(previous) {}
             }
         }
     }
