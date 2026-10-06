@@ -18,20 +18,25 @@ import Testing
                                       "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
     }
 
-    @Test func aCredentialsFileStrippedFromTheProcessStillWins() throws {
+    @Test(arguments: [false, true])
+    func aCredentialsFileStrippedFromTheProcessStillWins(machineOwnerDeclared: Bool) throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-creds-\(UUID().uuidString).env")
         try "CMUX_DOGFOOD_STACK_EMAIL=lawrence@x\nCMUX_DOGFOOD_STACK_PASSWORD=lp\n".write(to: file, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         defer { try? FileManager.default.removeItem(at: file) }
-        let machine = ["/h/.secrets/cmuxterm-dev.env": "CMUX_DOGFOOD_STACK_EMAIL=machine@x\nCMUX_DOGFOOD_STACK_PASSWORD=mp\n"]
+        var machine = ["/h/.secrets/cmuxterm-dev.env": "CMUX_DOGFOOD_STACK_EMAIL=machine@x\nCMUX_DOGFOOD_STACK_PASSWORD=mp\n"]
+        if machineOwnerDeclared { machine["/h/.config/cmux/dev-account"] = "machine@x\n" }
         let read: (String) -> String? = { machine[$0] ?? (try? String(contentsOfFile: $0, encoding: .utf8)) }
         // The process environment after LaunchIdentity.stripInheritedEnvironment: the key is gone.
         let stripped = ["HOME": "/h"]
         let launch = CloudAuth.launchAuthKeys(from: ["CMUX_AUTH_CREDENTIALS_FILE": file.path, "HOME": "/h"])
         let environment = CloudAuth.authEnvironment(process: stripped, launch: launch)
         #expect(DogfoodCredentials.resolve(environment: environment, home: "/h", read: read) == DogfoodCredentials(email: "lawrence@x", password: "lp"))
-        // Without the captured launch keys the machine's account would sign in (the bug).
-        #expect(DogfoodCredentials.resolve(environment: stripped, home: "/h", read: read) == DogfoodCredentials(email: "machine@x", password: "mp"))
+        // Without the captured keys only a declared machine owner can sign in.
+        // The explicit launch file must win over that account and also work without one.
+        let fallback = DogfoodCredentials.decide(environment: stripped, home: "/h", read: read)
+        #expect(fallback.credentials == (machineOwnerDeclared ? DogfoodCredentials(email: "machine@x", password: "mp") : nil))
+        #expect(fallback.refusal == (machineOwnerDeclared ? nil : .noDeclaredAccount))
     }
 
     @Test func aValueTheProcessStillHasIsNotOverridden() {

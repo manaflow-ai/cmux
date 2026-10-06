@@ -4,6 +4,7 @@ import { act, createElement, useRef, useState } from "react";
 import { resolveUiOverlayPosition, useUiAnchor, UI_ANCHOR_GAP, type UiAnchorSide } from "../src/ui/anchor";
 
 const menuCases: Array<{ name: string; side: UiAnchorSide }> = [
+  { name: "composer-plus", side: "above" },
   { name: "composer-computer", side: "below" },
   { name: "composer-folder", side: "above" },
   { name: "model", side: "above" },
@@ -26,7 +27,7 @@ const menuGeometry = new Map(
         right: 160 + index * 24,
         bottom: entry.side === "above" ? 392 : 132,
       },
-      overlay: { width: 180, height: 100 },
+      overlay: entry.name === "composer-plus" ? { width: 220, height: 160 } : { width: 180, height: 100 },
     },
   ]),
 );
@@ -199,6 +200,11 @@ describe("anchored overlay placement", () => {
           : geometry.anchor.top - UI_ANCHOR_GAP - geometry.overlay.height;
       expect(Math.abs(Number.parseFloat(overlay.style.left) - expectedLeft)).toBeLessThanOrEqual(2);
       expect(Math.abs(Number.parseFloat(overlay.style.top) - expectedTop)).toBeLessThanOrEqual(2);
+      if (entry.name === "composer-plus") {
+        const trigger = dom.window.document.querySelector<HTMLButtonElement>(`[data-menu-trigger="${entry.name}"]`)!;
+        expect(overlay.getBoundingClientRect().width).toBeGreaterThan(trigger.getBoundingClientRect().width);
+        expect(overlay.getBoundingClientRect().height).toBeLessThanOrEqual(360);
+      }
     }
   });
 });
