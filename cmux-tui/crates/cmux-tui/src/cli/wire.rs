@@ -425,7 +425,11 @@ fn run_response(
                 let result = response.result.expect("validated result");
                 key_report.succeeded();
                 if !plan.stream {
-                    let code = print_success(&result, global.output);
+                    let shown = match global.output {
+                        OutputMode::Human => human_view(plan, &result),
+                        _ => std::borrow::Cow::Borrowed(&result),
+                    };
+                    let code = print_success(&shown, global.output);
                     return if code == 0 { success_exit_code(plan, &result) } else { code };
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -555,6 +559,13 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
     ) && result.get("matched") == Some(&Value::Bool(false));
     i32::from(unmatched_wait)
+}
+
+/// What the human table shows for a result. `workspace list --order
+/// personal` adds an ORDER column (the row's place in the returned order),
+/// because INDEX stays the session order.
+fn human_view<'a>(_plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
+    std::borrow::Cow::Borrowed(result)
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -874,7 +885,7 @@ fn human_key_rank(key: &str) -> usize {
         "title" => 2,
         "kind" => 3,
         "state" => 4,
-        "lifecycle" => 5,
+        "lifecycle" | "order" => 5,
         "index" => 6,
         "focused" => 7,
         "running" => 8,
