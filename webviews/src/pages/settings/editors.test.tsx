@@ -174,6 +174,23 @@ describe("editors", () => {
     expect(error.getAttribute("title")).toContain("browser.hibernation");
   });
 
+  test("a custom search address without %s or {searchTerms} is refused and a stored one shows why", async () => {
+    const key = "browser.customSearchEngine.search";
+    page = await renderPage({ path: "/settings/browser" });
+    const field = rowElement(page.container, key).querySelector<HTMLInputElement>("input.text")!;
+    await changeValue(field, "https://search.example/");
+    await fire(field, "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+    expect(rowElement(page.container, key).querySelector("[role=alert]")?.textContent).toContain("{searchTerms}");
+    await changeValue(field, "https://search.example/?q=%s");
+    await fire(field, "keydown", { key: "Enter" });
+    expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key, value: "https://search.example/?q=%s" }]);
+    page.unmount();
+    // A hand-edited cmux.json with a broken address: the row says so at once.
+    page = await renderPage({ path: "/settings/browser", mock: { values: { [key]: "https://search.example/" } } });
+    expect(rowElement(page.container, key).querySelector("[role=alert]")?.textContent).toContain("{searchTerms}");
+  });
+
   test("a team-managed row names the team; a write the daemon refuses as managed is localized", async () => {
     page = await renderPage({
       path: "/settings/general",

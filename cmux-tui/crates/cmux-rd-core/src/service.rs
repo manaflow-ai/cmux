@@ -5,10 +5,8 @@
 //! A peer uses an optional rd feature only when both sides list it: the
 //! viewer offers `caps` in hello, the host answers the intersection in welcome.
 
-/// The remote desktop service (the default when a hello names none).
-pub const SERVICE_DESKTOP: &str = "desktop";
-/// The remote browser tab service (`cmux.rb/1`).
-pub const SERVICE_REMOTE_BROWSER: &str = "rb/1";
+/// The service names live in cmux-rd-proto (the wire); re-exported here.
+pub use cmux_rd_proto::{SERVICE_DESKTOP, SERVICE_REMOTE_BROWSER};
 
 /// Most caps in one hello.
 pub const MAX_CAPS: usize = 32;
