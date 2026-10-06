@@ -921,10 +921,14 @@ TEST_KEY = ("test:TerminalNotificationDirectInteractionTests.swift:"
 CRASH_KEY = f"crash:Bad pointer dereference in {TEST_KEY}"
 
 
-def days_ago(days: int) -> str:
-    from datetime import datetime, timedelta, timezone
+# The seen-record tests run at this fixed time (KnownElsewhereTests patches cf.now_utc).
+NOW = "2026-10-06T12:00:00Z"
 
-    return (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+
+def days_ago(days: float) -> str:
+    from datetime import datetime, timedelta
+
+    return (datetime.fromisoformat(NOW.replace("Z", "+00:00")) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class MainStateTests(unittest.TestCase):
@@ -976,6 +980,13 @@ class KnownElsewhereTests(unittest.TestCase):
     SAME_REPO_RUN = {**ActTests.RUN, "head_repository": {"full_name": "manaflow-ai/cmux"}}
     FORK_RUN = {**ActTests.RUN, "head_repository": {"full_name": "someone/cmux"}}
 
+    def setUp(self) -> None:
+        from unittest import mock
+
+        patcher = mock.patch.object(cf, "now_utc", return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @staticmethod
     def seen(record: dict, login: str = cf.BOT) -> dict:
         return {"number": cf.SEEN_ISSUE, "body": "Full-suite CI on `main` failed at older\n\n" + cf.seen_marker(record),
@@ -1012,6 +1023,18 @@ class KnownElsewhereTests(unittest.TestCase):
         self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"), body.splitlines()[2])
         self.assertNotIn("Seen on other PRs", body)
         self.assertEqual(writes, [])  # first sightings are kept, so nothing changed
+
+    def test_the_pr_that_started_it_outlives_the_ones_that_hit_it_later(self) -> None:
+        later = {str(101 + i): days_ago(2 - i * 0.1) for i in range(cf.MAX_SEEN_PRS + 2)}
+        record = {TEST_KEY: {"7": days_ago(3), **later}, CRASH_KEY: {"7": days_ago(3), **later}}
+        self.assertIn("7", cf.prune_seen(record, NOW)[TEST_KEY])
+        body, _ = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"), body.splitlines()[2])
+
+    def test_a_pr_that_failed_earlier_the_same_day_counts(self) -> None:
+        record = {TEST_KEY: {"15409": days_ago(1 / 24)}, CRASH_KEY: {"16048": days_ago(1 / 24)}}
+        body, _ = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        self.assertTrue(body.splitlines()[2].startswith("**Seen on other PRs too (likely flaky):** "))
 
     def test_a_broken_record_still_comments(self) -> None:
         from unittest import mock
@@ -1072,14 +1095,14 @@ class KnownElsewhereTests(unittest.TestCase):
     def test_the_record_stays_under_githubs_body_limit(self) -> None:
         record = {f"test:Suite{i}.swift:" + "x" * 180: {str(1000 + i): days_ago(0)} for i in range(2000)}
         marker = cf.seen_marker(cf.prune_seen(record, days_ago(0)))
-        self.assertLess(len(marker), cf.MAX_SEEN_CHARS + 100)
+        self.assertLessEqual(len(marker), cf.MAX_SEEN_CHARS)
         self.assertEqual(marker.count("-->"), 1)
 
     def test_the_cap_counts_escaped_angle_brackets(self) -> None:
         # Swift Testing names like "a -> b": each `>` grows to six characters in the marker.
         record = {f"test:Suite{i}.swift:" + ">" * 80: {str(1000 + j): days_ago(0) for j in range(5)} for i in range(400)}
         marker = cf.seen_marker(cf.prune_seen(record, days_ago(0)))
-        self.assertLess(len(marker), cf.MAX_SEEN_CHARS + 100)
+        self.assertLessEqual(len(marker), cf.MAX_SEEN_CHARS)
 
 
 class WorkflowTests(unittest.TestCase):

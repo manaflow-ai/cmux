@@ -682,15 +682,16 @@ def seen_marker(record: Mapping[str, Mapping[str, str]]) -> str:
     return SEEN_PREFIX + data.replace(">", "\\u003e") + " -->"
 
 
-def prune_seen(record: Mapping[str, Mapping[str, str]], today: str) -> dict[str, dict[str, str]]:
-    """Sightings of the last SEEN_DAYS days, the newest MAX_SEEN_PRS per failure, the most recently seen
-    failures first while the marker fits MAX_SEEN_CHARS."""
+def prune_seen(record: Mapping[str, Mapping[str, str]], now: str) -> dict[str, dict[str, str]]:
+    """Sightings of the last SEEN_DAYS days, the first MAX_SEEN_PRS per failure (the PR that started
+    it must outlive the ones that hit it later), the most recently seen failures first while the
+    marker fits MAX_SEEN_CHARS."""
     from datetime import date, timedelta
 
-    cutoff = (date.fromisoformat(today) - timedelta(days=SEEN_DAYS)).isoformat()
+    cutoff = (date.fromisoformat(now[:10]) - timedelta(days=SEEN_DAYS)).isoformat()
     kept: dict[str, dict[str, str]] = {}
     for key, prs in record.items():
-        recent = sorted(((d, p) for p, d in prs.items() if d >= cutoff), reverse=True)[:MAX_SEEN_PRS]
+        recent = sorted((d, p) for p, d in prs.items() if d >= cutoff)[:MAX_SEEN_PRS]
         if recent:
             kept[key] = {p: d for d, p in recent}
     out: dict[str, dict[str, str]] = {}
@@ -703,22 +704,23 @@ def prune_seen(record: Mapping[str, Mapping[str, str]], today: str) -> dict[str,
     return out
 
 
-def seen_elsewhere(record: Mapping[str, Mapping[str, str]], keys: Iterable[str], pr: int, today: str) -> set[str]:
+def seen_elsewhere(record: Mapping[str, Mapping[str, str]], keys: Iterable[str], pr: int, now: str) -> set[str]:
     """The other pull requests that hit any of these keys in the last SEEN_DAYS days, before this one
     first did. One that hit it later is usually stacked on this PR or a copy of its change, so it
     would hide this PR's own regression."""
-    pruned = prune_seen({k: record[k] for k in keys if k in record}, today)
+    pruned = prune_seen({k: record[k] for k in keys if k in record}, now)
     return {p for prs in pruned.values() for p, d in prs.items()
-            if p != str(pr) and d < prs.get(str(pr), today)}
+            if p != str(pr) and d < prs.get(str(pr), now)}
 
 
-def today_utc() -> str:
+def now_utc() -> str:
+    """A sighting's time: to the second, so two PRs that fail on the same day keep their order."""
     from datetime import datetime, timezone
 
-    return datetime.now(timezone.utc).date().isoformat()
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def mark_seen_elsewhere(gh: GitHub, pr: int, report: dict, today: str) -> tuple[dict, str] | None:
+def mark_seen_elsewhere(gh: GitHub, pr: int, report: dict, now: str) -> tuple[dict, str] | None:
     """Turn each "new in this PR" failure another PR also hit into FLAKY. Returns the record and the
     issue body it came from, or None when nothing was read."""
     pending = [(job, item) for job in report["jobs"] if job["verdict"] != MACHINE
@@ -735,7 +737,7 @@ def mark_seen_elsewhere(gh: GitHub, pr: int, report: dict, today: str) -> tuple[
     body = str(issue.get("body") or "")  # type: ignore[union-attr]
     record = parse_seen(body)
     for job, item in pending:
-        others = seen_elsewhere(record, seen_keys(item, job.get("failures") or []), pr, today)
+        others = seen_elsewhere(record, seen_keys(item, job.get("failures") or []), pr, now)
         if others:
             item["owner"] = FLAKY
             item["owner_why"] = f"failed on {len(others)} other PR{'s' if len(others) > 1 else ''} " \
@@ -743,7 +745,7 @@ def mark_seen_elsewhere(gh: GitHub, pr: int, report: dict, today: str) -> tuple[
     return record, body
 
 
-def record_seen(record: Mapping[str, Mapping[str, str]], report: Mapping, pr: int, today: str) -> dict | None:
+def record_seen(record: Mapping[str, Mapping[str, str]], report: Mapping, pr: int, now: str) -> dict | None:
     """The record with this run's not-yours, not-on-main failures added, or None when unchanged."""
     updated = {k: dict(v) for k, v in record.items()}
     for job in report["jobs"]:
@@ -752,8 +754,8 @@ def record_seen(record: Mapping[str, Mapping[str, str]], report: Mapping, pr: in
         for item in job.get("failures") or []:
             if item.get("owner") in (NEW, FLAKY):
                 for key in seen_keys(item, job.get("failures") or []):
-                    updated.setdefault(key, {}).setdefault(str(pr), today)  # the first sighting
-    updated = prune_seen(updated, today)
+                    updated.setdefault(key, {}).setdefault(str(pr), now)  # the first sighting
+    updated = prune_seen(updated, now)
     return None if updated == record else updated
 
 
@@ -1049,9 +1051,9 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: cancelled with no failed job"}
     report["merged"] = merged
     files = own_failures(gh, pr, report, None)
-    today = today_utc()
+    now = now_utc()
     try:
-        seen = mark_seen_elsewhere(gh, pr, report, today)
+        seen = mark_seen_elsewhere(gh, pr, report, now)
     except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
         print(f"::warning::issue {SEEN_ISSUE} (failures seen on other PRs) unreadable: {error}", file=sys.stderr)
         seen = None
@@ -1059,7 +1061,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     if seen is not None and same_repo:
         try:
             record, issue_body = seen
-            updated = record_seen(record, report, pr, today)
+            updated = record_seen(record, report, pr, now)
             if updated is not None:
                 writer.call("PATCH", f"repos/{gh.repo}/issues/{SEEN_ISSUE}", {"body": seen_body(issue_body, updated)})
         except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
