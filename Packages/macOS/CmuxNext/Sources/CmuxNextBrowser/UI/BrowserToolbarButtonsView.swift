@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// The trailing toolbar buttons (`BrowserToolbarButton`): design mode,
 /// profile, theme, DevTools and More. Engine-neutral: the states come from
@@ -86,7 +87,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, let anchor = self.anchor(for: button) else { return }
-                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.isFlipped ? anchor.bounds.maxY + 4 : -4), in: anchor)
+                menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), in: anchor)
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())
