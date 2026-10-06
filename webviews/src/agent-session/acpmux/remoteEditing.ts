@@ -1,17 +1,28 @@
 import type { AcpmuxSnapshot } from "./model";
 import type { StringKey } from "./i18n";
 
-/// Harness families acpmux lets a remote (Web) connection drive only in a mode that does not
-/// edit: Codex in `read-only`, opencode in `plan`. Neither harness has a mode that asks before
-/// every edit and every command, so none is open to a remote connection for editing
-/// (plans/cmux-next/acp-remote-guard.md, "Modes", and acpmux `web_modes.rs` `ASKING_MODES`).
-/// Keep this list in step with that table.
-export const REMOTE_NO_EDIT_FAMILIES: readonly string[] = ["codex", "opencode"];
+/// Harness families acpmux never lets a remote (Web) connection drive: neither Codex nor
+/// opencode has a mode that asks before every edit and every command (D10,
+/// plans/cmux-next/acp-remote-guard.md; acpmux `web_modes.rs` `REFUSED_FAMILIES`). Keep this
+/// list in step with that one.
+export const REMOTE_REFUSED_FAMILIES: readonly string[] = ["codex", "opencode"];
 
-/// The composer's note for a remote connection showing a chat it may not edit through, or
-/// nothing. The family is the session's own, else its profile name, as acpmux decides it.
-export function remoteEditingNote(snapshot: Pick<AcpmuxSnapshot, "remote" | "summary">): StringKey | undefined {
-  if (!snapshot.remote || !snapshot.summary) return undefined;
-  const family = snapshot.summary.family || snapshot.summary.harness;
-  return family && REMOTE_NO_EDIT_FAMILIES.includes(family) ? "composer.remoteEditing" : undefined;
+/// What the composer offers for the shown chat on this connection.
+export type RemoteComposer = {
+  /// Why sending is off, shown above the prompt.
+  note?: StringKey;
+  /// False: no Send button, and Enter sends nothing.
+  canSend: boolean;
+};
+
+/// A remote connection showing a Codex or opencode chat cannot send: acpmux refuses it. An
+/// acpmux too old to name the connection's origin cannot be trusted to refuse it, so sending to
+/// those chats is off there too. The family is the session's own, else its profile name, as
+/// acpmux decides it. A snapshot without an origin (no client built it) is unchanged.
+export function remoteComposer(snapshot: Pick<AcpmuxSnapshot, "origin" | "summary">): RemoteComposer {
+  const family = snapshot.summary?.family || snapshot.summary?.harness;
+  if (!family || !REMOTE_REFUSED_FAMILIES.includes(family)) return { canSend: true };
+  if (snapshot.origin === "remote") return { note: "composer.remoteUnavailable", canSend: false };
+  if (snapshot.origin === "unknown") return { note: "composer.originUnknown", canSend: false };
+  return { canSend: true };
 }

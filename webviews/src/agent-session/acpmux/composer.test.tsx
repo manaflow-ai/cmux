@@ -553,7 +553,9 @@ describe("acpmux composer remote editing note", () => {
 
   test("an acpmux that names no origin offers no send for Codex or opencode", async () => {
     await render(showing("unknown", "codex"));
-    expect(note()?.textContent).toBe("Update acpmux to send from here: it does not say where this connection comes from");
+    expect(note()?.textContent).toBe(
+      "Update acpmux to send from here: it does not say where this connection comes from",
+    );
     expect(sendButton()).toBeNull();
     await act(async () => typeInto(promptField(), "hello"));
     await enter();

@@ -121,9 +121,10 @@ export type AcpmuxSnapshot = {
     }[];
   };
   connection: string;
-  /// acpmux calls this connection remote (`_meta.acpmux.origin: "remote"`): its Web rules apply,
-  /// such as Codex and opencode without editing (remoteEditing.ts).
-  remote?: boolean;
+  /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
+  /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
+  /// acpmux that names none. Unset in a snapshot no client built (fixtures).
+  origin?: "local" | "remote" | "peer" | "unknown";
   sessionId?: string;
   isWorking: boolean;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.

@@ -41185,134 +41185,266 @@
         }
       }
     },
-    "composer.remoteEditing": {
-      "comment": "Agent pane: a remote (paired or browser) connection showing a Codex or opencode chat, which acpmux runs there only in a mode that does not edit",
+    "composer.originUnknown": {
+      "comment": "Agent pane: an acpmux too old to name the connection's origin, showing a Codex or opencode chat; sending is off",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يتطلب التعديل من هنا وضعًا يطلب الإذن قبل كل تغيير"
+            "value": "حدّث acpmux للإرسال من هنا: فهو لا يذكر مصدر هذا الاتصال"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uređivanje odavde traži način rada koji pita prije svake promjene"
+            "value": "Ažurirajte acpmux da biste slali odavde: ne navodi odakle dolazi ova veza"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Redigering herfra kræver en tilstand, der spørger før hver ændring"
+            "value": "Opdater acpmux for at sende herfra: den oplyser ikke, hvor denne forbindelse kommer fra"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bearbeiten von hier erfordert einen Modus, der vor jeder Änderung fragt"
+            "value": "Aktualisiere acpmux, um von hier zu senden: Es nennt nicht, woher diese Verbindung kommt"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editing from here needs a mode that asks before each change"
+            "value": "Update acpmux to send from here: it does not say where this connection comes from"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Editar desde aquí requiere un modo que pregunte antes de cada cambio"
+            "value": "Actualiza acpmux para enviar desde aquí: no indica de dónde viene esta conexión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modifier depuis ici nécessite un mode qui demande avant chaque changement"
+            "value": "Mettez acpmux à jour pour envoyer depuis ici : il n’indique pas d’où vient cette connexion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Modificare da qui richiede una modalità che chieda prima di ogni modifica"
+            "value": "Aggiorna acpmux per inviare da qui: non indica da dove proviene questa connessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ここから編集するには、変更のたびに確認するモードが必要です"
+            "value": "ここから送信するには acpmux を更新してください：この接続の送信元が示されていません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការកែសម្រួលពីទីនេះត្រូវការរបៀបដែលសួរមុនពេលផ្លាស់ប្ដូរនីមួយៗ"
+            "value": "ធ្វើបច្ចុប្បន្នភាព acpmux ដើម្បីផ្ញើពីទីនេះ៖ វាមិនប្រាប់ថាការតភ្ជាប់នេះមកពីណាទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "여기에서 편집하려면 변경할 때마다 확인하는 모드가 필요합니다"
+            "value": "여기에서 보내려면 acpmux를 업데이트하세요: 이 연결이 어디에서 오는지 알려 주지 않습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Redigering herfra krever en modus som spør før hver endring"
+            "value": "Oppdater acpmux for å sende herfra: den oppgir ikke hvor denne tilkoblingen kommer fra"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Edytowanie stąd wymaga trybu, który pyta przed każdą zmianą"
+            "value": "Zaktualizuj acpmux, aby wysyłać stąd: nie podaje, skąd pochodzi to połączenie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Editar daqui requer um modo que pergunte antes de cada alteração"
+            "value": "Atualize o acpmux para enviar daqui: ele não informa de onde vem esta conexão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для редактирования отсюда нужен режим, который спрашивает перед каждым изменением"
+            "value": "Обновите acpmux, чтобы отправлять отсюда: он не сообщает, откуда это подключение"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การแก้ไขจากที่นี่ต้องใช้โหมดที่ถามก่อนการเปลี่ยนแปลงทุกครั้ง"
+            "value": "อัปเดต acpmux เพื่อส่งจากที่นี่: มันไม่ได้บอกว่าการเชื่อมต่อนี้มาจากที่ใด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Buradan düzenlemek için her değişiklikten önce soran bir mod gerekir"
+            "value": "Buradan göndermek için acpmux’u güncelleyin: bu bağlantının nereden geldiğini belirtmiyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Для редагування звідси потрібен режим, який питає перед кожною зміною"
+            "value": "Оновіть acpmux, щоб надсилати звідси: він не повідомляє, звідки це з’єднання"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chỉnh sửa từ đây cần một chế độ hỏi trước mỗi thay đổi"
+            "value": "Cập nhật acpmux để gửi từ đây: nó không cho biết kết nối này đến từ đâu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从这里编辑需要一种在每次更改前都会询问的模式"
+            "value": "请更新 acpmux 以从这里发送：它没有说明此连接来自何处"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "從這裡編輯需要一種在每次變更前都會詢問的模式"
+            "value": "請更新 acpmux 以從這裡傳送：它沒有說明此連線來自何處"
+          }
+        }
+      }
+    },
+    "composer.remoteUnavailable": {
+      "comment": "Agent pane: a remote (paired or browser) connection showing a Codex or opencode chat, which acpmux never lets it drive; sending is off",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير متاح من هنا: لا يملك هذا الوكيل وضعًا يطلب الإذن قبل كل تغيير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije dostupno odavde: ovaj agent nema način rada koji pita prije svake promjene"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilgængelig herfra: denne agent har ingen tilstand, der spørger før hver ændring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Von hier aus nicht verfügbar: Dieser Agent hat keinen Modus, der vor jeder Änderung fragt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available from here: this agent has no mode that asks before each change"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No disponible desde aquí: este agente no tiene un modo que pregunte antes de cada cambio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indisponible depuis ici : cet agent n’a aucun mode qui demande avant chaque changement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non disponibile da qui: questo agente non ha una modalità che chieda prima di ogni modifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここからは利用できません：このエージェントには、変更のたびに確認するモードがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចប្រើពីទីនេះបានទេ៖ ភ្នាក់ងារនេះគ្មានរបៀបដែលសួរមុនពេលផ្លាស់ប្ដូរនីមួយៗទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서는 사용할 수 없습니다: 이 에이전트에는 변경할 때마다 확인하는 모드가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilgjengelig herfra: denne agenten har ingen modus som spør før hver endring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niedostępne stąd: ten agent nie ma trybu, który pyta przed każdą zmianą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indisponível daqui: este agente não tem um modo que pergunte antes de cada alteração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недоступно отсюда: у этого агента нет режима, который спрашивает перед каждым изменением"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้จากที่นี่ไม่ได้: เอเจนต์นี้ไม่มีโหมดที่ถามก่อนการเปลี่ยนแปลงทุกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buradan kullanılamaz: bu ajanın her değişiklikten önce soran bir modu yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недоступно звідси: цей агент не має режиму, який питає перед кожною зміною"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không dùng được từ đây: tác tử này không có chế độ hỏi trước mỗi thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法从这里使用：此代理没有在每次更改前都会询问的模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法從這裡使用：此代理沒有在每次變更前都會詢問的模式"
           }
         }
       }
