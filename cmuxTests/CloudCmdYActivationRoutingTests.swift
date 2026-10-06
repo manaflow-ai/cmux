@@ -17,8 +17,6 @@ struct CloudCmdYActivationRoutingTests {
     func commandYOpensCloudSettingsBeforeProvisioning() {
         let key = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
         let previousMarker = UserDefaults.standard.object(forKey: key)
-        let flag = CmuxFeatureFlags.cloudMachinesFlag
-        let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
         let previousDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer {
@@ -27,7 +25,6 @@ struct CloudCmdYActivationRoutingTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: key)
             }
-            CmuxFeatureFlags.shared.setOverride(previousOverride, for: flag)
             NSApp.windows.first {
                 $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
             }?.close()
@@ -35,7 +32,6 @@ struct CloudCmdYActivationRoutingTests {
         }
 
         UserDefaults.standard.set(false, forKey: key)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
         AppDelegate.shared = appDelegate
         appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { false })
 

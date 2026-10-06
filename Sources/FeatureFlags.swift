@@ -12,8 +12,8 @@ import os
 ///
 /// Resolution semantics (flags must never break the app):
 /// - A remote value is authoritative when present, so rollout and kill-switch
-///   changes cannot be masked by a stale local override. Cloud alone permits
-///   explicit overrides when the injected Nightly/debug capability allows it.
+///   changes cannot be masked by a stale local override. The legacy Cloud
+///   definition is kept only for tagged debug tooling and is not in `allFlags`.
 /// - Without a remote value, a permitted override applies, then the explicit
 ///   per-flag default.
 /// - Until a payload arrives, the last remote value survives restarts. A flag
@@ -188,8 +188,6 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.agentInboxQuickViewDefault
     )
 
-    // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
-    //      reviewBy: 2026-12-15, defaultWhenUnavailable: false)
     // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
     //      reviewBy: 2026-10-18, defaultWhenUnavailable: false)
     // Controls availability of the opt-in multi-provider conversation sidebar.
@@ -332,7 +330,6 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
-            CmuxFeatureFlags.cloudMachinesFlag,
             CmuxFeatureFlags.agentInboxQuickViewFlag,
             CmuxFeatureFlags.conversationSidebarFlag
         ]
@@ -484,6 +481,11 @@ final class CmuxFeatureFlags {
             if let value = Self.storedOverrideValue(for: definition.key, defaults: defaults) {
                 values[definition.key] = value
             }
+        }
+        // Cloud is retired from remote delivery but tagged debug artifacts
+        // still use its persisted local override as a compatibility control.
+        if let value = Self.storedOverrideValue(for: Self.cloudMachinesFlag.key, defaults: defaults) {
+            localOverridesByKey[Self.cloudMachinesFlag.key] = value
         }
         remoteValuesByKey = pinsFlagsToLocalValues
             ? [:]
@@ -743,6 +745,10 @@ final class CmuxFeatureFlags {
             }
             defaults.removeObject(forKey: Self.overrideDefaultsKey(for: definition.key))
         }
+        if localOverridesByKey.removeValue(forKey: Self.cloudMachinesFlag.key) != nil {
+            clearedAnyOverride = true
+        }
+        defaults.removeObject(forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
         guard clearedAnyOverride else { return }
         recomputeEffectiveValues()
         postChangeIfNeeded(previousResolutions: previousResolutions)

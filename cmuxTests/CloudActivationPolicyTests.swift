@@ -12,7 +12,7 @@ import Testing
 /// The one launch-time decision for Cloud, as behavior: a Mac that never opted
 /// in and never had a machine is inert (no fleet polling, no tunnel start, no
 /// NetworkExtension preferences read); the persisted activation marker plus a machine
-/// admits the tunnel; prior Cloud use never bypasses a disabled remote gate.
+/// admits the tunnel; managed policy remains the only administrative gate.
 @Suite
 struct CloudActivationPolicyTests {
     private func policy(
@@ -159,7 +159,6 @@ struct CloudActivationPolicyTests {
                 machineCache: cache,
                 browserTunnel: browser,
                 terminalTunnel: terminal,
-                remoteEnabled: { true },
                 resolveCloudMachine: { nil }
             )
         }
@@ -286,8 +285,8 @@ struct CloudActivationPolicyTests {
         #expect(cache.hasAnyMachine == nil)
     }
 
-    @Test("Cloud requires the remote gate and activation marker, and never bypasses managed DisableCloud")
-    func cloudMachinesGateRequiresRemoteAndActivation() throws {
+    @Test("Cloud requires activation and never bypasses managed DisableCloud")
+    func cloudMachinesGateRequiresActivation() throws {
         let suiteName = "cmux.cloud.feature.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -298,15 +297,14 @@ struct CloudActivationPolicyTests {
 
         let expectedDefault = false
         #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == expectedDefault)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: false) == false)
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
 
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: false) == false)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: true))
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: managedOff, remoteEnabled: true) == false)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: managedOff))
 
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: true) == false)
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
 
     }
 }
