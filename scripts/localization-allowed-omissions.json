@@ -4938,5 +4938,63 @@
     "identityLocales": {
       "fr": "Question has the same spelling in this locale; the placeholder is invariant."
     }
+  },
+  "herd.title": {
+    "source": "Herd",
+    "identityLocales": {
+      "ar": "Herd is the cmux feature name and stays untranslated.",
+      "de": "Herd is the cmux feature name and stays untranslated.",
+      "es": "Herd is the cmux feature name and stays untranslated.",
+      "fr": "Herd is the cmux feature name and stays untranslated.",
+      "ja": "Herd is the cmux feature name and stays untranslated.",
+      "ko": "Herd is the cmux feature name and stays untranslated.",
+      "zh-Hans": "Herd is the cmux feature name and stays untranslated.",
+      "zh-Hant": "Herd is the cmux feature name and stays untranslated."
+    }
+  },
+  "gitGraph.commit.accessibilityLabel": {
+    "source": "%1$@, %2$@, %3$@",
+    "identityLocales": {
+      "ar": "The value is only three format placeholders; the surrounding words come from the arguments.",
+      "de": "The value is only three format placeholders; the surrounding words come from the arguments.",
+      "es": "The value is only three format placeholders; the surrounding words come from the arguments.",
+      "fr": "The value is only three format placeholders; the surrounding words come from the arguments.",
+      "ja": "The value is only three format placeholders; the surrounding words come from the arguments.",
+      "ko": "The value is only three format placeholders; the surrounding words come from the arguments.",
+      "zh-Hans": "The value is only three format placeholders; the surrounding words come from the arguments.",
+      "zh-Hant": "The value is only three format placeholders; the surrounding words come from the arguments."
+    }
+  },
+  "gitGraph.column.commit": {
+    "source": "Commit",
+    "identityLocales": {
+      "de": "Commit is the standard technical term for a git commit in this language.",
+      "es": "Commit is the standard technical term for a git commit in this language.",
+      "fr": "Commit is the standard technical term for a git commit in this language."
+    }
+  },
+  "gitGraph.column.date": {
+    "source": "Date",
+    "identityLocales": {
+      "fr": "Date is the standard French word for this column header."
+    }
+  },
+  "gitGraph.column.description": {
+    "source": "Description",
+    "identityLocales": {
+      "fr": "Description is the standard French word for this column header."
+    }
+  },
+  "gitGraph.column.graph": {
+    "source": "Graph",
+    "identityLocales": {
+      "de": "Graph is the standard German word for this column header."
+    }
+  },
+  "herd.filter.agents": {
+    "source": "Agents",
+    "identityLocales": {
+      "fr": "Agents is the standard French word for this filter label."
+    }
   }
 }
