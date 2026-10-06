@@ -440,6 +440,17 @@
   // session that switches the shared profile's account while the rest is
   // read back sends nothing (account_mismatch). What remains is the switch
   // between that read and the click reaching the page.
+  //
+  // A write that is typed keys or a paste (the Google editors' Sheets
+  // paste and Delete, Slides notes, Docs append) has no control to pin:
+  // press.input(fn) reads the account again ({ account } is required) and
+  // runs fn, one batch of input, only when it is still the drafted one, so
+  // another session that switches the shared profile's account after the
+  // read-back changes nothing (account_mismatch, or account_unverified when
+  // it cannot be read). Each batch that changes the site goes through it.
+  // { inputs: "guarded" } makes that the commit's contract: an act that
+  // returns having used neither press() nor press.input() fails
+  // (commit_unverified).
   const PRESS_TIMEOUT_MS = 15000;
   async function pinElement(where, locator) {
     if (!locator || typeof locator.elementHandle !== "function") throw new SiteError("invalid", `${where}: the control to press is not a locator (a site tool bug)`);
@@ -526,6 +537,8 @@
             wrote = true;
             const submit = options && options.submit ? await pinElement(where, options.submit) : null;
             const readAccount = options && typeof options.account === "function" ? options.account : null;
+            const guarded = !!(options && options.inputs === "guarded");
+            if (guarded && !readAccount) throw new SiteError("invalid", `${where}: a guarded write needs the commit's { account } reader (a site tool bug)`);
             const check = async () => checkIntent(where, entry, await observe());
             const recheck = async () => {
               await check();
@@ -550,7 +563,16 @@
               if (n !== 1) throw new SiteError("target_unverified", `${where}: expected one control to press after the first, found ${n}; nothing more was pressed`);
               await pressPinned(where, await pinElement(where, locator), recheck);
             };
+            let inputs = 0;
+            press.input = async (fn) => {
+              if (!readAccount) throw new SiteError("invalid", `${where}: press.input() needs the commit's { account } reader (a site tool bug)`);
+              if (typeof fn !== "function") throw new SiteError("invalid", `${where}: press.input() needs the input to run (a site tool bug)`);
+              checkIntent(where, entry, await readAccount(), ["account"]);
+              inputs++;
+              return fn();
+            };
             const result = await act(press);
+            if (guarded && !pressed && !inputs) throw new SiteError("commit_unverified", `${where}: the tool wrote without press() or press.input(), so the account was not read again before its input (a site tool bug); treat the result as unverified`);
             if (submit && !pressed) throw new SiteError("commit_unverified", `${where}: the tool wrote without pressing the control its read-back verified (a site tool bug); treat the result as unverified`);
             return result;
           },

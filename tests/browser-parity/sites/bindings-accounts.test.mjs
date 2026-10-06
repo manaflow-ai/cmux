@@ -312,3 +312,57 @@ test("x.post, linkedin.post and gmail.send: an account switch during the press's
     env.state.googleAccounts = null;
   }
 });
+
+// r19 sites: the keyboard and menu writes of the Google editors (Sheets'
+// paste, typed cells and Delete, Slides' typed notes, Docs' typed append,
+// Drive's File > Move to trash) read the account again right before each
+// input batch or menu press that changes the file. Here another session
+// switches the shared profile's account after the confirmation's first
+// read-back (its one ListAccounts read) and before the first input: no
+// edit lands as the other account.
+test("Google editor keyboard and menu writes: an account switch after the confirmation's read-back edits nothing", async () => {
+  const editorFiles = env.state.editors.files;
+  const SHEET_ID = "1sheetSHARED00000000000000000000x";
+  const SHEET = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=0`;
+  const DECK_ID = "1deckPRIVATE00000000000000000000x";
+  const DECK = `https://docs.google.com/presentation/d/${DECK_ID}/edit`;
+  const sheet = editorFiles.get(SHEET_ID);
+  const doc = editorFiles.get(EDIT_DOC_ID);
+  const deck = editorFiles.get(DECK_ID);
+  const snapshot = () => JSON.stringify({ cells: [...sheet.sheets[0].cells], blocks: doc.blocks, slides: deck.slides, trashed: doc.trashed });
+  const cases = [
+    ["googleSheets.write", `sites.googleSheets.write(${JSON.stringify(SHEET)}, "D1", [["switched"]])`],
+    ["googleSheets.append", `sites.googleSheets.append(${JSON.stringify(SHEET)}, [["Switched", "1"]])`],
+    ["googleSheets.clear", `sites.googleSheets.clear(${JSON.stringify(SHEET)}, "A2:B2")`],
+    ["googleSlides.setNotes", `sites.googleSlides.setNotes(${JSON.stringify(DECK)}, 1, "Switched notes")`],
+    ["googleDocs.append", `sites.googleDocs.append(${JSON.stringify(EDIT_DOC)}, "Switched paragraph.")`],
+    ["googleDrive.trash", `sites.googleDrive.trash(${JSON.stringify(EDIT_DOC)})`],
+    ["googleDocs.replace", `sites.googleDocs.replace(${JSON.stringify(EDIT_DOC)}, "Intro", "Opening")`],
+  ];
+  const restore = (saved) => {
+    sheet.sheets[0].cells = new Map(saved.cells);
+    doc.blocks = saved.blocks;
+    deck.slides = saved.slides;
+    doc.trashed = saved.trashed;
+  };
+  const failures = [];
+  try {
+    for (const [tool, call] of cases) {
+      const d = await s.value(call);
+      assert.equal(d.status, "draft", tool);
+      assert.equal(d.preview.account, "ada@example.com", tool);
+      const before = snapshot();
+      env.state.googleSwitchAfterListAccounts = { after: 1, rows: SWITCHED() };
+      const err = await s.error(`sites.${tool}(${JSON.stringify(d.id)}, { confirm: true })`);
+      if (!/account_mismatch|account it acts as differs/.test(String(err))) failures.push(`${tool}: the confirmation did not fail on the switched account (${err})`);
+      if (snapshot() !== before) failures.push(`${tool} changed the file as the switched account`);
+      restore(JSON.parse(before));
+      env.state.googleAccounts = null;
+      env.state.googleSwitchAfterListAccounts = null;
+    }
+  } finally {
+    env.state.googleAccounts = null;
+    env.state.googleSwitchAfterListAccounts = null;
+  }
+  assert.deepEqual(failures, []);
+});

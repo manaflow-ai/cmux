@@ -68,8 +68,11 @@ export function createState() {
   // xSwitchOnCompose: the account another session signs in as when X's
   // post composer loads, while the page's twid cookie still names the
   // drafted user; xAccountUnknown: X's account endpoint fails;
-  // googlePageAccount: see pageAccountRow.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  // googlePageAccount: see pageAccountRow; googleSwitchAfterListAccounts:
+  // { after, rows }, another session's sign-in that makes `rows` current
+  // once ListAccounts has answered `after` more times (a switch between
+  // a commit's account check and its write).
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +90,8 @@ export const GOOGLE_ACCOUNT_ROWS = [
 function accounts(req, url, body, state) {
   if (url.pathname === "/ListAccounts" && req.method === "POST") {
     if (!signedInGoogle(req)) return { json: ["gaia.l.a.r", []] };
+    const pending = state.googleSwitchAfterListAccounts;
+    if (pending && pending.after-- <= 0) (state.googleAccounts = pending.rows), (state.googleSwitchAfterListAccounts = null);
     return { json: ["gaia.l.a.r", state.googleAccounts || GOOGLE_ACCOUNT_ROWS] };
   }
   if (url.pathname === "/ServiceLogin") return { html: html('<form><input type="email" name="identifier"></form>', "Sign in - Google Accounts") };

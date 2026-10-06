@@ -210,7 +210,11 @@
       // editor acts as (email and Google's account id), the file (id,
       // title, sharing) and the spec's target and content; the commit opens
       // the editor again, reads all of it back (observe() and
-      // spec.observe(page)) and only then runs spec.act(page).
+      // spec.observe(page)) and only then runs spec.act(page, press).
+      // spec.act changes the file only through press(locator) (a menu
+      // item or button) or press.input(fn) (keys or a paste): each reads
+      // the editor's account again right before it, so an account another
+      // session switched to after the read-back edits nothing.
       edit(site, action, name, ref, input, options, spec) {
         if (typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input)) return t.write(site, action, input, options);
         if (options && options.confirm) return t.write(site, action, { draft: true }, options);
@@ -229,7 +233,14 @@
               content: s.content || {},
               sent: s.sent,
               canon: s.canon,
-              commit: (c) => editors.inEditor(name, ref, (p) => c.write(async () => ({ ...(await editors.observe(name, ref, p)), ...(await s.observe(p)) }), (press) => s.act(p, press))),
+              commit: (c) =>
+                editors.inEditor(name, ref, (p) => {
+                  const account = async () => {
+                    const who = await g.observeAccount(t, name, p, ref.uid);
+                    return { account: who.accountEmail, accountId: who.accountId };
+                  };
+                  return c.write(async () => ({ ...(await editors.observe(name, ref, p)), ...(await s.observe(p)) }), (press) => s.act(p, press), { account, inputs: "guarded" });
+                }),
             };
           }),
         );
