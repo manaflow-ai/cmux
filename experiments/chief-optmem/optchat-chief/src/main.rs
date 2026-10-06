@@ -94,7 +94,11 @@ fn main() {
         },
         Some("settings") => {
             let paths = Paths::new(&home(&flags));
-            let set = match (flags.words.get(1).map(String::as_str), flags.words.get(2), flags.words.get(3)) {
+            let set = match (
+                flags.words.get(1).map(String::as_str),
+                flags.words.get(2),
+                flags.words.get(3),
+            ) {
                 (None | Some("show"), None, None) => Ok(None),
                 (Some("set"), Some(key), Some(value)) => Ok(Some((key.as_str(), value.as_str()))),
                 _ => Err(USAGE.to_owned()),
@@ -111,7 +115,8 @@ fn main() {
                             }
                             s.remote_auto_approve =
                                 optchat_chief::chief_settings::parse_bool(value)?;
-                            s.save(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+                            s.save(&file)
+                                .map_err(|e| format!("{}: {e}", file.display()))?;
                         }
                         Ok(format!("{:#}", s.to_json()))
                     }

@@ -83,7 +83,9 @@ pub enum Input {
         reply: Sender<Result<String, String>>,
     },
     /// The per-Chief settings as JSON.
-    Settings { reply: Sender<serde_json::Value> },
+    Settings {
+        reply: Sender<serde_json::Value>,
+    },
 }
 
 impl From<DaemonEvent> for Input {
@@ -478,13 +480,20 @@ impl Brain {
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{REMOTE_AUTO_APPROVE, parse_bool};
         if key != REMOTE_AUTO_APPROVE {
-            return Err(format!("unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE})"));
+            return Err(format!(
+                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE})"
+            ));
         }
         let on = parse_bool(value)?;
-        let remote_queued = self
-            .queue
-            .iter()
-            .any(|q| matches!(q.source, Source::Message { remote: Some(_), .. }));
+        let remote_queued = self.queue.iter().any(|q| {
+            matches!(
+                q.source,
+                Source::Message {
+                    remote: Some(_),
+                    ..
+                }
+            )
+        });
         if on && (self.turn_remote || self.remote_taint || remote_queued) {
             (self.log)("refused: remote.autoApprove on during remote-origin work");
             return Err(

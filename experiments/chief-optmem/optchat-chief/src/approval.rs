@@ -72,7 +72,9 @@ impl Answer {
 /// effect is approved on its own), or reject once. None: no such option.
 pub fn option_for(request: &Value, answer: Answer) -> Option<String> {
     let options = request.get("options").and_then(Value::as_array)?;
-    let kind = |o: &&Value| o.get("kind").and_then(Value::as_str).unwrap_or("");
+    fn kind(o: &Value) -> &str {
+        o.get("kind").and_then(Value::as_str).unwrap_or("")
+    }
     let pick = match answer {
         Answer::Allow => options.iter().find(|o| kind(o) == "allow_once"),
         Answer::Deny => options
@@ -80,7 +82,9 @@ pub fn option_for(request: &Value, answer: Answer) -> Option<String> {
             .find(|o| kind(o) == "reject_once")
             .or_else(|| options.iter().find(|o| kind(o).starts_with("reject"))),
     }?;
-    pick.get("optionId").and_then(Value::as_str).map(str::to_owned)
+    pick.get("optionId")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 /// The Chief chat's question for one request.

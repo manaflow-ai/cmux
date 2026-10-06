@@ -181,12 +181,10 @@ impl Brain {
                     }
                 }
                 _ => {
-                    let remote = match &message.origin {
-                        Some(cmux_conversation::Origin::Remote { install }) => {
-                            Some(install.clone())
-                        }
-                        None => None,
-                    };
+                    let remote = message
+                        .origin
+                        .as_ref()
+                        .map(|cmux_conversation::Origin::Remote { install }| install.clone());
                     self.queue(
                         text,
                         Source::Message {

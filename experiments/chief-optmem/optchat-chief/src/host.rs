@@ -378,7 +378,8 @@ fn start(
         match set {
             Some((key, value)) => {
                 let (reply, answer) = channel();
-                tx.send(Input::Setting { key, value, reply }).map_err(stopping)?;
+                tx.send(Input::Setting { key, value, reply })
+                    .map_err(stopping)?;
                 answer.recv_timeout(Duration::from_secs(30)).map_err(late)?
             }
             None => {

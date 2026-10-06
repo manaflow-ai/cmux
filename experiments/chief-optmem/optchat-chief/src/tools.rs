@@ -85,8 +85,7 @@ impl Call {
 /// `Some((key, value))` sets one, None shows them all. Not a model tool:
 /// the MCP server never offers it, and the host refuses turning
 /// `remote.autoApprove` on during remote-origin work.
-pub type Control =
-    Arc<dyn Fn(Option<(String, String)>) -> Result<String, String> + Send + Sync>;
+pub type Control = Arc<dyn Fn(Option<(String, String)>) -> Result<String, String> + Send + Sync>;
 
 /// Serves the tools on `path` until the process ends. The host holds the
 /// host lock, so a socket file left by an earlier host is stale and replaced.
@@ -127,13 +126,10 @@ fn connection(conn: UnixStream, memory: &dyn Memory, control: Option<&Control>) 
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
                 // Not a model tool: the `browse` command asks the live host.
                 if tool == "settings" {
-                    let ask = req
-                        .get("key")
-                        .and_then(Value::as_str)
-                        .map(|k| {
-                            let v = req.get("value").and_then(Value::as_str).unwrap_or("");
-                            (k.to_owned(), v.to_owned())
-                        });
+                    let ask = req.get("key").and_then(Value::as_str).map(|k| {
+                        let v = req.get("value").and_then(Value::as_str).unwrap_or("");
+                        (k.to_owned(), v.to_owned())
+                    });
                     let answer = match control {
                         Some(control) => match control(ask) {
                             Ok(text) => json!({"text": text}),

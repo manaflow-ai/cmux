@@ -20,7 +20,12 @@ impl Brain {
     }
 
     /// A permission request of the running turn's session.
-    pub(super) fn turn_permission(&mut self, session_id: String, permission_id: String, request: Value) {
+    pub(super) fn turn_permission(
+        &mut self,
+        session_id: String,
+        permission_id: String,
+        request: Value,
+    ) {
         let tool = tool_name(&request);
         if is_memory_tool(&request) {
             // Reading the memory has no local effect.
@@ -66,10 +71,10 @@ impl Brain {
         let Some(pending) = self.approvals.pop_front() else {
             return;
         };
-        let install = match &message.origin {
-            Some(Origin::Remote { install }) => Some(install.clone()),
-            None => None,
-        };
+        let install = message
+            .origin
+            .as_ref()
+            .map(|Origin::Remote { install }| install.clone());
         self.respond(&pending, answer, &message.author, install.as_deref());
     }
 
@@ -80,7 +85,13 @@ impl Brain {
         }
     }
 
-    fn respond(&mut self, pending: &Pending, answer: Answer, approver: &str, install: Option<&str>) {
+    fn respond(
+        &mut self,
+        pending: &Pending,
+        answer: Answer,
+        approver: &str,
+        install: Option<&str>,
+    ) {
         let option = option_for(&pending.request, answer);
         let result = self.agents.respond_permission(
             &pending.session_id,

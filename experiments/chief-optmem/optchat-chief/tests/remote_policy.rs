@@ -129,7 +129,10 @@ fn traces(h: &Harness) -> Vec<Value> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
         let text = std::fs::read_to_string(entry.path()).unwrap();
-        out.extend(text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()));
+        out.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
     }
     out
 }
@@ -162,8 +165,11 @@ fn a_remote_turn_cannot_run_a_shell_without_an_approval() {
     wait_session(&mut h);
     assert_eq!(h.agents.inner.lock().unwrap().specs[0].policy, "ask");
     // The memory tools need no approval.
-    h.brain
-        .step(permission("p0", "mcp__optchat__zoom", json!({"id": 0, "n": 1})));
+    h.brain.step(permission(
+        "p0",
+        "mcp__optchat__zoom",
+        json!({"id": 0, "n": 1}),
+    ));
     // A shell command waits for one, shown in the Chief chat.
     h.brain.step(permission(
         "p1",
@@ -180,8 +186,16 @@ fn a_remote_turn_cannot_run_a_shell_without_an_approval() {
     }
     let asked = sends(&h);
     assert_eq!(asked.len(), 1, "{asked:?}");
-    assert!(asked[0].contains("Bash") && asked[0].contains("rm -rf target"), "{}", asked[0]);
-    assert!(asked[0].contains("allow") && asked[0].contains("deny"), "{}", asked[0]);
+    assert!(
+        asked[0].contains("Bash") && asked[0].contains("rm -rf target"),
+        "{}",
+        asked[0]
+    );
+    assert!(
+        asked[0].contains("allow") && asked[0].contains("deny"),
+        "{}",
+        asked[0]
+    );
     // The phone approves: allow once, never always; recorded with the device.
     deliver(&mut h, true, "allow");
     {
@@ -245,7 +259,10 @@ fn a_remote_message_cannot_turn_on_remote_auto_approve() {
     assert_eq!(saved["remote"]["autoApprove"], true);
     deliver(&mut h, true, "now go");
     h.settle();
-    assert_eq!(h.agents.inner.lock().unwrap().specs[1].policy, "approve-all");
+    assert_eq!(
+        h.agents.inner.lock().unwrap().specs[1].policy,
+        "approve-all"
+    );
     // Turning it off is always allowed; unknown keys are refused.
     h.brain.set_setting("remote.autoApprove", "false").unwrap();
     assert!(h.brain.set_setting("remote.other", "true").is_err());

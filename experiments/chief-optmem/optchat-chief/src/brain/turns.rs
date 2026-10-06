@@ -204,9 +204,15 @@ impl Brain {
         // a remote turn this one supersedes) makes it ask for every local
         // effect, unless the user turned on remote.autoApprove on the Mac.
         self.turn_remote = std::mem::take(&mut self.remote_taint)
-            || items
-                .iter()
-                .any(|i| matches!(i.source, Source::Message { remote: Some(_), .. }));
+            || items.iter().any(|i| {
+                matches!(
+                    i.source,
+                    Source::Message {
+                        remote: Some(_),
+                        ..
+                    }
+                )
+            });
         self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
         self.approvals.clear();
         self.interrupt.set_gate(self.turn_ask);
@@ -308,10 +314,15 @@ impl Brain {
             return Vec::new();
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
-        if items
-            .iter()
-            .any(|i| matches!(i.source, Source::Message { remote: Some(_), .. }))
-        {
+        if items.iter().any(|i| {
+            matches!(
+                i.source,
+                Source::Message {
+                    remote: Some(_),
+                    ..
+                }
+            )
+        }) {
             self.turn_remote = true;
             self.turn_ask = !self.chief.remote_auto_approve;
             self.interrupt.set_gate(self.turn_ask);
