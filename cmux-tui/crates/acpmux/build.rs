@@ -1,8 +1,12 @@
 // Stamp the binary with a build id so peers can tell whether they run the
-// same code: <git short hash>[+dirty.<diff fingerprint>] <UTC date>. The crate lives inside the
+// same code: <git short hash>[+dirty.<diff fingerprint>] <UTC date>, where the date
+// comes from SOURCE_DATE_EPOCH when it is set. The crate lives inside the
 // cmux repository, so git paths are resolved by git and the dirty check is
 // limited to this crate's directory.
 use std::process::Command;
+
+#[path = "src/source_date_epoch.rs"]
+mod source_date_epoch;
 
 fn git(args: &[&str]) -> Option<String> {
     Command::new("git")
@@ -30,12 +34,26 @@ fn main() {
     } else {
         String::new()
     };
-    let date = Command::new("date")
-        .args(["-u", "+%Y-%m-%d"])
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-        .unwrap_or_default();
+    // Reproducible builds pin the date with SOURCE_DATE_EPOCH
+    // (reproducible-builds.org/specs/source-date-epoch). A malformed value
+    // fails the build, as that spec asks, rather than silently embedding the
+    // wall-clock date into a build that was meant to be reproducible.
+    println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
+    let date = match std::env::var("SOURCE_DATE_EPOCH") {
+        Ok(raw) => match source_date_epoch::parse(&raw) {
+            Ok(secs) => source_date_epoch::utc_date(secs),
+            Err(e) => panic!("acpmux build: {e}"),
+        },
+        Err(std::env::VarError::NotUnicode(raw)) => {
+            panic!("acpmux build: SOURCE_DATE_EPOCH={raw:?} is not valid Unicode")
+        }
+        Err(std::env::VarError::NotPresent) => Command::new("date")
+            .args(["-u", "+%Y-%m-%d"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+            .unwrap_or_default(),
+    };
     println!("cargo:rustc-env=ACPMUX_BUILD={hash}{dirty_tag} {date}");
     for path in ["HEAD", "index"] {
         if let Some(p) = git(&["rev-parse", "--path-format=absolute", "--git-path", path]) {
