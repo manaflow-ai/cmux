@@ -75,7 +75,7 @@ export function createState() {
   // slackSwitchOnInfo: the member id another session's sign-in makes the
   // Acme workspace's session act as once conversations.info has answered
   // (slackMemberNow holds it from then on).
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xAccountId: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -761,6 +761,13 @@ function x(req, url, body, state) {
   if (url.pathname === "/i/api/1.1/account/settings.json") {
     if (state.xAccountUnknown || !/^Bearer \S+$/.test(req.headers.authorization || "") || req.headers["x-csrf-token"] !== cookieOf(req, "ct0")) return { status: 403, json: { errors: [{ code: 353 }] } };
     return { json: { screen_name: state.xAccount || "ada", language: "en" } };
+  }
+  // The authenticated account with its immutable id (id_str). xAccountId:
+  // another account that now holds the same screen name.
+  if (url.pathname === "/i/api/1.1/account/verify_credentials.json") {
+    if (state.xAccountUnknown || !/^Bearer \S+$/.test(req.headers.authorization || "") || req.headers["x-csrf-token"] !== cookieOf(req, "ct0")) return { status: 403, json: { errors: [{ code: 353 }] } };
+    const screen = state.xAccount || "ada";
+    return { json: { id: 0, id_str: state.xAccountId || { ada: "1001", mallory: "666" }[screen] || "9999", screen_name: screen } };
   }
   if (url.pathname === "/intent/post" && state.xSwitchOnCompose) (state.xAccount = state.xSwitchOnCompose), (state.xSwitchOnCompose = null);
   if (url.pathname === "/intent/post")

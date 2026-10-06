@@ -165,6 +165,25 @@ test("x.post and linkedin.post: a page that rewrites its own world's results can
   }
 });
 
+// A screen name is reusable: another account can take it once the drafted
+// account gives it up. The draft binds the account's immutable id, and a
+// confirmation where the same screen name belongs to another id posts
+// nothing.
+test("x.post: the draft binds the account id; another account holding the same screen name posts nothing", async () => {
+  try {
+    await s.run('var xiD = await sites.x.post("Bound to my X account id.")');
+    env.state.xAccountId = "2002";
+    const before = env.state.xPosts.length;
+    assert.match((await s.error("sites.x.post(xiD.id, { confirm: true })")) || "posted", /account_mismatch|accountId/);
+    assert.equal(env.state.xPosts.length, before, "the post went out as the account that took the screen name");
+    const p = await s.value("xiD.preview");
+    assert.equal(p.account, "ada");
+    assert.equal(p.accountId, "1001");
+  } finally {
+    env.state.xAccountId = null;
+  }
+});
+
 test("x.post: no draft when X does not say which account it authenticates", async () => {
   env.state.xAccountUnknown = true;
   try {
