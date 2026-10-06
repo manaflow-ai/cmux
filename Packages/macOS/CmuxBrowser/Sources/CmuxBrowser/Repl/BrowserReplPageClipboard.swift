@@ -43,6 +43,50 @@ public struct BrowserReplPageClipboard {
         self.shim = shim
     }
 
+    /// The guard's callbacks for each tab it was installed for
+    /// (``install(on:tab:refusing:onWrite:)``), kept for the tab's life so a
+    /// web view that replaces the tab's gets the guard again
+    /// (``reinstall(on:tab:)``), also after the session that created the tab
+    /// left.
+    private var guardedTabs: [UUID: Callbacks] = [:]
+
+    private struct Callbacks {
+        let refusing: (@MainActor (_ webView: WKWebView, _ frame: WKFrameInfo) -> String?)?
+        let onWrite: @MainActor (_ webView: WKWebView, _ items: [[String: Any]]) -> Bool
+    }
+
+    /// ``install(on:refusing:onWrite:)`` on the web view of tab `tab`, which
+    /// keeps the guard for its life: a later web view of the tab gets it
+    /// through ``reinstall(on:tab:)`` until ``tabClosed(_:)``.
+    @discardableResult
+    public mutating func install(
+        on webView: WKWebView,
+        tab: UUID,
+        refusing: (@MainActor (_ webView: WKWebView, _ frame: WKFrameInfo) -> String?)? = nil,
+        onWrite: @escaping @MainActor (_ webView: WKWebView, _ items: [[String: Any]]) -> Bool
+    ) -> Bool {
+        if guardedTabs[tab] == nil {
+            guardedTabs[tab] = Callbacks(refusing: refusing, onWrite: onWrite)
+        }
+        return install(on: webView, refusing: refusing, onWrite: onWrite)
+    }
+
+    /// Puts the guard on `webView`, which replaced the web view of tab `tab`
+    /// (a restore of a page cmux unloaded, a crash recovery: fresh
+    /// preferences and user content controller), before it loads.
+    /// - Returns: `nil` when the tab never had the guard; else whether it is
+    ///   complete (``install(on:refusing:onWrite:)``), and the caller fails
+    ///   closed when it is not.
+    public func reinstall(on webView: WKWebView, tab: UUID) -> Bool? {
+        guard let callbacks = guardedTabs[tab] else { return nil }
+        return install(on: webView, refusing: callbacks.refusing, onWrite: callbacks.onWrite)
+    }
+
+    /// Forgets tab `tab`, which closed.
+    public mutating func tabClosed(_ tab: UUID) {
+        guardedTabs[tab] = nil
+    }
+
     /// The page-world script message handler `page-clipboard.js` posts to.
     public static let messageHandlerName = "cmuxBrowserReplClipboard"
     /// At most this many items in one write.

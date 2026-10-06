@@ -94,8 +94,26 @@ final class BrowserReplTabAttachments {
         }
     }
 
+    /// `webView` became `panelID`'s web view (``BrowserPanel/bindWebView(_:)``):
+    /// the first, or one that replaced it (a restore of a page cmux unloaded,
+    /// a crash recovery), with fresh preferences and user content controller.
+    /// A tab a session created gets its page clipboard guard again before
+    /// it loads, for the tab's whole life, also after the session left
+    /// (``BrowserReplPageClipboard/reinstall(on:tab:)``); the sessions
+    /// attached to it instrument it.
+    func webViewDidBind(_ webView: WKWebView, panelID: UUID) {
+        if pageClipboard?.reinstall(on: webView, tab: panelID) == false {
+            // As ``BrowserReplTabAttachment``'s guard: no page there keeps
+            // the system clipboard in reach.
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
+        }
+        attachment(for: panelID)?.instrumentCurrentWebView()
+    }
+
     /// Detaches everything from a panel that is closing.
     func panelDidClose(_ panelID: UUID) {
+        pageClipboard?.tabClosed(panelID)
         Self.typedSecrets.tabClosed(panelID.uuidString)
         guard let attachment = attachments.removeValue(forKey: panelID) else { return }
         attachment.emit(.tabClosed, [:])
@@ -696,9 +714,11 @@ final class BrowserReplTabAttachment {
     /// the page's Clipboard API and `execCommand("copy" | "cut")` writes to
     /// the tab's clipboard (``clipboard``). The guard also marks the web view
     /// as one whose `cmux browser press` Meta+C, Meta+X and Meta+V run
-    /// nothing. The guard stays on the web view for its life,
-    /// also after the session leaves: a page loaded while the session drove
-    /// the tab never gets the system clipboard. Writes after that fail.
+    /// nothing. The guard stays for the tab's life, also after the session
+    /// leaves, and a web view that replaces the tab's gets it again before
+    /// it loads (``BrowserReplTabAttachments/webViewDidBind(_:panelID:)``):
+    /// a page in a tab a session created never gets the system clipboard.
+    /// Writes after the session left fail.
     ///
     /// The guard fails closed: `tabs.open` refuses to open a tab when WebKit
     /// cannot turn its Clipboard API off (``BrowserReplPageClipboard/isSupported``),
@@ -709,6 +729,7 @@ final class BrowserReplTabAttachment {
     private func guardPageClipboard(_ webView: WKWebView) {
         let installed = BrowserReplTabAttachments.shared.pageClipboard?.install(
             on: webView,
+            tab: panelID,
             refusing: { webView, frame in
                 // A frame the creating session's policy blocks can still run
                 // here (it loaded before the policy tightened); what it

@@ -505,7 +505,8 @@ rest. Measurements: [performance.md](performance.md).
   origin under a policy, is denied), the user agent and extra headers
   from `session.configure` apply, the page's scripts copy to the tab's
   clipboard instead of the system's (for the tab's whole life, also after
-  the session ends), the domain policy's content rules block
+  the session ends and when cmux replaces the tab's web view to restore an
+  unloaded page or recover from a crash), the domain policy's content rules block
   subresources, pages load local files (frames and subresources) only
   from the session's working and temporary directories, and plain-http
   pages load without cmux's prompt. Another

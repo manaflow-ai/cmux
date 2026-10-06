@@ -3288,7 +3288,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
         mobileBrowserWebViewDidBind()
-        BrowserReplTabAttachments.shared.attachment(for: id)?.instrumentCurrentWebView()
+        BrowserReplTabAttachments.shared.webViewDidBind(webView, panelID: id)
     }
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
         let handler = BrowserSSLTrustBypassMessageHandler(
