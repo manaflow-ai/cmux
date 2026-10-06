@@ -26,6 +26,8 @@ mod presentation;
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
+#[cfg(test)]
+mod resource_tab_deltas_tests;
 mod resource_topology;
 mod rows;
 mod screen_changed;
