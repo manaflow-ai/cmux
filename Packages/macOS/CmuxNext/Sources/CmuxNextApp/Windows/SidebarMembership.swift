@@ -66,4 +66,21 @@ enum SidebarMembership {
         if let last = local.last, let index = global.firstIndex(of: last) { return index + 1 }
         return global.count
     }
+
+    /// One personal placement (`workspace.place`): `key` goes to `index` in
+    /// the personal order counted after `key` itself is removed.
+    struct PersonalPlacement: Hashable {
+        var key: String
+        var index: Int
+    }
+
+    /// The personal placements, in the order to send them, that put
+    /// `moving` (in order) at `localIndex` of `shown`: the window's remaining
+    /// workspaces (without `moving`) in the order its sidebar shows them.
+    /// `rowed` is the personal order of every workspace that has a personal
+    /// position (without `moving`).
+    static func personalPlacements(moving: [String], localIndex: Int, shown: [String], rowed: [String]) -> [PersonalPlacement] {
+        let index = globalIndex(localIndex: localIndex, local: shown, global: rowed)
+        return moving.enumerated().map { PersonalPlacement(key: $1, index: index + $0) }
+    }
 }
