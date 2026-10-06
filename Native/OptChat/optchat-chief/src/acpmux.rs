@@ -281,12 +281,11 @@ impl Acpmux {
                 "env": preset.env,
                 "description": "optchat-chief: an isolated Claude Code configuration",
             });
-            if !preset.args.is_empty() {
-                set["args"] = json!(preset.args);
-            }
-            if let Some(text) = &preset.system_prompt {
-                set["systemPrompt"] = json!(text);
-            }
+            // Always say both: acpmux merges a set into the preset it saved,
+            // and the last host's Claude args or system prompt (an engine
+            // switch on the same daemon) would stay and refuse a codex set.
+            set["args"] = if preset.args.is_empty() { Value::Null } else { json!(preset.args) };
+            set["systemPrompt"] = preset.system_prompt.as_ref().map_or(Value::Null, |text| json!(text));
             let result = loop {
                 let result =
                     client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
@@ -317,10 +316,10 @@ impl Acpmux {
             match result {
                 Ok(_) => {
                     ready.insert(preset.name.clone());
-                    if set.get("args").is_some() {
+                    if set.get("args").is_some_and(|args| !args.is_null()) {
                         with_args.insert(preset.name.clone());
                     }
-                    if set.get("systemPrompt").is_some() {
+                    if set.get("systemPrompt").is_some_and(|text| !text.is_null()) {
                         with_prompt.insert(preset.name.clone());
                     }
                 }
