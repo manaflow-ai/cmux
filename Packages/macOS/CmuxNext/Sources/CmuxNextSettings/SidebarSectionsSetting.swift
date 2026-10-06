@@ -83,6 +83,7 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
             }
         }
+        SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         return result
     }
 

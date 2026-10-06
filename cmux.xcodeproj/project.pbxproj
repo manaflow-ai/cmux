@@ -151,6 +151,7 @@
 				CE7A0000000000000000001C /* Build Diff Sidecar */,
 				CE7A00000000000000000016 /* Bundle cmux-tui */,
 				CE7A00000000000000000020 /* Bundle acpmux */,
+				CE7A00000000000000000032 /* Bundle optchat-chief */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
@@ -332,6 +333,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-acpmux.sh\"\n";
+		};
+		CE7A00000000000000000032 /* Bundle optchat-chief */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle optchat-chief";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-optchat-chief.sh\"\n";
 		};
 		CE7A00000000000000000017 /* Embed CEF */ = {
 			isa = PBXShellScriptBuildPhase;

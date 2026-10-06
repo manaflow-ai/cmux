@@ -17,11 +17,15 @@ enum AgentTabImport {
 
     /// Imports once the local daemon's tree has loaded.
     static func start(_ services: AppServices) {
-        guard let windowState = services.daemon.windowState else { return }
+        // The window state store exists only once the daemon connects, which
+        // is after launch (DaemonService sets it before the store loads), so
+        // it is read when the tree has loaded: read at launch it was nil and
+        // the import never ran.
         let store = services.daemon.store
         // task-owner: one-shot, ends after the first load
         Task {
             for await loaded in Observations({ store.isLoaded }) where loaded {
+                guard let windowState = services.daemon.windowState else { return }
                 await run(services, windowState: windowState)
                 return
             }

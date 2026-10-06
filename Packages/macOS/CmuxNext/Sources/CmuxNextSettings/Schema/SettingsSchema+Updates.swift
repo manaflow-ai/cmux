@@ -32,7 +32,7 @@ nonisolated enum UpdateSettingsSchema {
                 UpdatesSettings.meteredNetworkPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.updates.meteredNetwork", "On Metered Networks"),
                 help: SettingsText.keyed("settings.updates.meteredNetwork.help",
-                                        "While downloads wait, a found update shows as a card and one click downloads it."),
+                                        "While downloads wait, a found update shows on Settings and one click downloads it."),
                 kind: .choice([
                     SettingChoice(UpdatesMeteredSetting.deferLowData.rawValue,
                                   SettingsText.keyed("settings.choice.updatesDeferLowData", "Wait in Low Data Mode")),
@@ -56,12 +56,11 @@ nonisolated enum UpdateSettingsSchema {
                 UpdatesSettings.notifyPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.updates.notify", "When an Update Is Ready"),
                 kind: .choice([
-                    SettingChoice(UpdatesNotifySetting.card.rawValue, SettingsText.keyed("settings.choice.updatesCard", "Show a Card")),
                     SettingChoice(UpdatesNotifySetting.badge.rawValue, SettingsText.keyed("settings.choice.updatesBadge", "Badge Settings Only")),
                     SettingChoice(UpdatesNotifySetting.silent.rawValue, SettingsText.keyed("settings.choice.updatesSilent", "Install Silently on Quit")),
                 ]),
                 default: .string(defaults.notify.rawValue),
-                keywords: ["update", "notify", "card", "badge", "silent"]
+                keywords: ["update", "notify", "badge", "silent"]
             ),
             SettingDescriptor(
                 UpdatesSettings.keepPreviousVersionsPath, section: .general, group: group,
@@ -71,13 +70,6 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .number(SettingNumber(UpdatesSettings.keepPreviousVersionsRange, step: 1, unit: .count)),
                 default: .number(Double(defaults.keepPreviousVersions)),
                 keywords: ["update", "rollback", "previous", "downgrade"]
-            ),
-            SettingDescriptor(
-                UpdatesSettings.quietHoursPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.updates.quietHours", "Quiet Hours"),
-                help: SettingsText.keyed("settings.updates.quietHours.help", "No update card between these times."),
-                kind: .timeRange, default: nil, defaultLabel: SettingsText.keyed("settings.choice.off", "Off"),
-                keywords: ["update", "quiet", "do not disturb"]
             ),
         ]
     }

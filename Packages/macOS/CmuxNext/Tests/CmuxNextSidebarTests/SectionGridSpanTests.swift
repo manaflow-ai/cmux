@@ -5,8 +5,9 @@ import Testing
 
 /// R53 (Lawrence 2026-10-03): a grid section places items on rows with
 /// fractional widths, each item taking `span` of the section's `columns`
-/// (like a CSS grid). First use: the bottom row is Settings at 7/8 of the
-/// width and the account at 1/8.
+/// (like a CSS grid). First use: R53's bottom row, Settings at 7/8 of the
+/// width and the account at 1/8 (a user's grid still lays out this way; the
+/// default footer is now icons only, SIDEBAR-FOOTER-MINIMAL).
 @Suite struct SectionGridSpanTests {
     private let m = SidebarRegionMetrics(rowHeight: 28, headerHeight: 22, inset: 8, sectionGap: 8, padding: 4,
                                          cardPadding: 4, tileMinWidth: 42, tileHeight: 36, tileGap: 8, iconButtonWidth: 30)
@@ -17,8 +18,8 @@ import Testing
         return item
     }
 
-    @Test func theDefaultBottomRowIsSettingsSevenEighthsAndTheAccountOneEighth() throws {
-        let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
+    @Test func theR53BottomRowIsSettingsSevenEighthsAndTheAccountOneEighth() throws {
+        let bottom = SidebarLayoutDocument.gridBottomSection
         #expect(bottom.arrangement.layout == .grid && bottom.arrangement.columns == 8)
         #expect(bottom.items.map(\.span) == [7, 1])
         let layout = SidebarRegionLayout.make(sections: [bottom], width: 260, look: .quiet, collapsed: [], metrics: m,
@@ -27,11 +28,12 @@ import Testing
         let settings = layout.rows[0], account = layout.rows[1]
         #expect(settings.kind == .chip(LayoutItemID("itm_settings"), section: bottom.id))
         #expect(account.kind == .tile(LayoutItemID("itm_account"), section: bottom.id))
-        // Inner width 260 - 2 * 8 = 244, gap g: unit = (244 - 7g) / 8.
+        // Inner width 260 - 2 * 8 = 244, gap g: unit = (244 - 7g) / 8. Beside a labeled item the
+        // icon-only account is a row-height square; Settings gives up the difference.
         let gap = CGFloat(bottom.arrangement.gap ?? 8)
         let unit = (244 - 7 * gap) / 8
-        #expect(abs(settings.frame.width - (7 * unit + 6 * gap)) < 0.01)
-        #expect(abs(account.frame.width - unit) < 0.01)
+        #expect(abs(account.frame.width - m.rowHeight) < 0.01)
+        #expect(abs(settings.frame.width - (7 * unit + 6 * gap - (m.rowHeight - unit))) < 0.01)
         #expect(settings.frame.minX == 8 && abs(account.frame.maxX - 252) < 0.01)
         #expect(settings.frame.minY == account.frame.minY && settings.frame.height == m.rowHeight)
     }

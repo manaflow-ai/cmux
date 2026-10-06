@@ -58,6 +58,16 @@ final class BookmarkPageService {
         return page
     }
 
+    /// A manager page for top page `key` (no tab): `profile` names the
+    /// bookmarks it shows (the window's workspace's browser profile).
+    func makeTopPage(key: String, profile: @escaping @MainActor () -> String) -> BookmarkPageTab {
+        let source = BookmarkManagerSourceAdapter(services: services, tabKey: key)
+        source.profileOverride = profile
+        let page = BookmarkPageTab(id: BrowserTabID(rawValue: key), engine: .webkit, profile: .default, source: source)
+        pages = pages.filter { $0.page != nil } + [WeakPage(page)]
+        return page
+    }
+
     func reload(profiles: Set<String>) {
         for weak in pages {
             guard let page = weak.page, profiles.contains(page.source.profile) else { continue }
@@ -77,7 +87,10 @@ final class BookmarkManagerSourceAdapter: BookmarkManagerSource {
         self.tabKey = tabKey
     }
 
-    var profile: String { services.bookmarks.profile(ofTab: tabKey) }
+    /// A top page's source names its profile; a tab's source uses the tab's.
+    var profileOverride: (@MainActor () -> String)?
+
+    var profile: String { profileOverride?() ?? services.bookmarks.profile(ofTab: tabKey) }
 
     var managerTree: BookmarkTree { services.bookmarks.tree(profile) }
 

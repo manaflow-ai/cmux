@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
+import Observation
 import os
 public import WebKit
 
@@ -36,6 +37,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private(set) var loaded = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
+    private var uiScaleObservation: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
@@ -174,6 +176,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.navigationDelegate = self
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
+        applyUIScale()
+        observeUIScale()
         PageRegistry.add(self)
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
@@ -197,6 +201,25 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    deinit {
+        uiScaleObservation?.cancel()
+    }
+
+    private func observeUIScale() {
+        uiScaleObservation = Task { [weak self] in
+            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+                guard let self else { return }
+                self.applyUIScale()
+            }
+        }
+    }
+
+    /// Keeps first-party pages proportional to native chrome as the live
+    /// interface scale changes.
+    private func applyUIScale() {
+        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+    }
 
     /// The window's title bar double-click action (System Settings > Desktop & Dock: zoom by
     /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
@@ -339,6 +362,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
+        applyUIScale()
         applyTheme(force: true)
         applyLiveDocumentAttributes()
     }

@@ -47,6 +47,7 @@ pub(crate) mod screen_store;
 pub(crate) mod session_journal;
 mod terminal_exit_store;
 mod terminal_keep_store;
+mod terminal_resource_close_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
@@ -439,8 +440,16 @@ pub struct TerminalRegistryCommit {
 /// reconcile only the revision owned by that receipt.
 pub(crate) enum TerminalResourceCloseCommit {
     TerminalReplay(TerminalRegistryCommit),
-    ResourceReplay { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
-    Committed { terminal: TerminalRegistryCommit, resource: ResourcePatchCommit },
+    ResourceReplay {
+        terminal: TerminalRegistryCommit,
+        resource: ResourcePatchCommit,
+    },
+    /// `workspace_revision`: the workspace the close emptied closed too.
+    Committed {
+        terminal: TerminalRegistryCommit,
+        resource: ResourcePatchCommit,
+        workspace_revision: Option<u64>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3136,118 +3145,6 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<TerminalRegistryCommit>> {
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         terminal_replay(&self.connection, mutation, &fingerprint)
-    }
-
-    /// Commit the legacy host close and its public resource tombstone in one
-    /// SQLite transaction. The mux installs the matching runtime projection
-    /// only after this method returns successfully.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn close_terminal_with_resource_patch(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        expected_generation: Option<&str>,
-        expected_terminal_revision: Option<u64>,
-        expected_resource_revision: u64,
-        terminal_id: &str,
-        expected_incarnation: Option<&str>,
-        patch: &ResourcePatch,
-        resource_result: &Value,
-        resource_deltas: &Value,
-    ) -> anyhow::Result<TerminalResourceCloseCommit> {
-        const OPERATION: &str = "terminal.close";
-
-        validate_identifier("resource operation", OPERATION)?;
-        resource_store::validate_resource_patch(patch)?;
-        let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
-        let resource_result_json = canonical_json(resource_result)?;
-        let resource_deltas = &self.prune_stated_topology_deltas(resource_deltas)?;
-        let tx = self.connection.transaction()?;
-        let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
-        let (patch, resource_deltas) =
-            complete_terminal_close_patch(&tx, &terminal_batch, patch, resource_deltas)?;
-        if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
-            tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
-        }
-        if let Some(resource) =
-            resource_store::resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)?
-        {
-            let terminal =
-                read_terminal(&tx, terminal_id)?.context("terminal close state is unavailable")?;
-            anyhow::ensure!(
-                terminal.lifecycle == TerminalLifecycle::Tombstoned,
-                "terminal close state is unavailable"
-            );
-            let revision = transaction_terminal_revision(&tx)?;
-            let result = serde_json::json!({
-                "terminal_id": terminal_id,
-                "incarnation": terminal.incarnation,
-                "closed": true,
-                "already_closed": true,
-            });
-            tx.commit()?;
-            return Ok(TerminalResourceCloseCommit::ResourceReplay {
-                terminal: TerminalRegistryCommit { revision, result, replayed: true },
-                resource,
-            });
-        }
-        let terminal = close_terminal_in_transaction(
-            &tx,
-            &self.generation,
-            mutation,
-            &fingerprint,
-            expected_generation,
-            expected_terminal_revision,
-            terminal_id,
-            expected_incarnation,
-        )?;
-        debug_assert!(!terminal.replayed);
-        let previous_revision = transaction_resource_revision(&tx)?;
-        anyhow::ensure!(
-            previous_revision == expected_resource_revision,
-            "resource revision conflict: expected {expected_resource_revision}, current {previous_revision}"
-        );
-        let revision = previous_revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        let patch = apply_resource_patch(&tx, &patch, sqlite_revision)?;
-        tx.execute(
-            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-            [revision.to_string()],
-        )?;
-        tx.execute(
-            "INSERT INTO resource_mutations(
-                   origin, idempotency_key, operation, fingerprint, result_json,
-                   committed_revision
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                mutation.origin,
-                mutation.id,
-                OPERATION,
-                fingerprint,
-                resource_result_json,
-                sqlite_revision,
-            ],
-        )?;
-        append_resource_journal_record(
-            &tx,
-            revision,
-            previous_revision,
-            &mutation.origin,
-            &mutation.id,
-            OPERATION,
-            Some(&patch),
-            resource_result,
-            &resource_deltas,
-        )?;
-        resource_store::prune_resource_mutations(&tx)?;
-        let resource =
-            ResourcePatchCommit { revision, result: resource_result.clone(), replayed: false };
-        tx.commit()?;
-        self.record_public_fold(previous_revision, revision, &resource_deltas, true);
-        Ok(TerminalResourceCloseCommit::Committed { terminal, resource })
     }
 
     /// Tombstone every hosted tab in one pane/screen as one SQLite unit. All

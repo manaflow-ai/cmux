@@ -69,6 +69,8 @@ enum AppActions {
         RemoteHandlers.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
+        TopPages.installTabTargetReasons(services)
+        TopPages.registerProviders(services)
         context.observeRefusals()
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)

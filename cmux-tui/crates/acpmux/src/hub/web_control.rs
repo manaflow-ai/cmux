@@ -20,21 +20,27 @@
 use super::*;
 use crate::web_modes::WebModeTable;
 
-/// The `webAskingModes` the table was built from, and the table.
-pub(super) type WebModeCache = (std::collections::BTreeMap<String, Vec<String>>, Arc<WebModeTable>);
+/// What the table was built from (`webAskingModes` and the refused
+/// families, which follow the profiles), and the table.
+pub(super) type WebModeCache = (WebModeKey, Arc<WebModeTable>);
+pub(super) type WebModeKey =
+    (std::collections::BTreeMap<String, Vec<String>>, std::collections::BTreeSet<String>);
 
 impl Hub {
     /// The merged asking-mode table the remote guard and Web control use.
     /// config.json stays the source: a config changed without a reload (as
     /// in-process tests do) rebuilds the table quietly, still minus the
-    /// non-asking entries.
+    /// non-asking entries and the refused families. A profile changed to run
+    /// Codex or opencode changes the key, so the next check (a dispatch
+    /// included) refuses its family.
     pub(crate) fn web_modes(&self) -> Arc<WebModeTable> {
         let mut cached = self.web_modes.lock().unwrap_or_else(|e| e.into_inner());
-        if let Ok(c) = self.config.try_read()
-            && c.web_asking_modes != cached.0
-        {
-            *cached =
-                (c.web_asking_modes.clone(), Arc::new(WebModeTable::build(&c.web_asking_modes).0));
+        if let Ok(c) = self.config.try_read() {
+            let key = (c.web_asking_modes.clone(), crate::web_modes::refused_families(&c));
+            if key != cached.0 {
+                let table = WebModeTable::build_refusing(&key.0, &key.1).0;
+                *cached = (key, Arc::new(table));
+            }
         }
         cached.1.clone()
     }
@@ -48,6 +54,7 @@ impl Hub {
         let table = self.web_modes();
         let mut out = json!({
             "families": table.families(),
+            "refusedFamilies": table.refused(),
             "modeFields": crate::web_modes::MODE_FIELDS,
             "freeConfigIds": crate::web_modes::FREE_CONFIG_IDS,
         });
@@ -70,17 +77,14 @@ impl Hub {
 
     /// Build the table from config.json and log it (and every ignored
     /// `webAskingModes` entry) once.
-    pub(super) fn refresh_web_modes(
-        &self,
-        extra: &std::collections::BTreeMap<String, Vec<String>>,
-    ) {
-        let (table, warnings) = WebModeTable::build(extra);
+    pub(super) fn refresh_web_modes(&self, cfg: &Config) {
+        let key = (cfg.web_asking_modes.clone(), crate::web_modes::refused_families(cfg));
+        let (table, warnings) = WebModeTable::build_refusing(&key.0, &key.1);
         for w in &warnings {
             tracing::warn!("{w}");
         }
         tracing::info!("web asking modes: {}", table.summary());
-        *self.web_modes.lock().unwrap_or_else(|e| e.into_inner()) =
-            (extra.clone(), Arc::new(table));
+        *self.web_modes.lock().unwrap_or_else(|e| e.into_inner()) = (key, Arc::new(table));
     }
 
     /// The one setter for a session's mode state (`modes`, the current mode,

@@ -119,6 +119,71 @@
     },
     {
       "accepts" : [
+        "workspaces",
+        "everything"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.navigation.historySteps.workspaces",
+            "text" : "Workspaces"
+          },
+          "value" : "workspaces"
+        },
+        {
+          "title" : {
+            "key" : "settings.navigation.historySteps.everything",
+            "text" : "Everything"
+          },
+          "value" : "everything"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "workspaces",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.navigation.historySteps.help",
+        "text" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "navigation.history.scope",
+      "keywords" : [
+        "history",
+        "back",
+        "forward",
+        "navigation",
+        "workspace",
+        "tab",
+        "pane"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "navigation",
+        "history",
+        "scope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.navigation.historySteps",
+        "text" : "Back and Forward Steps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "minimal",
         "standard"
       ],
@@ -299,7 +364,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "agent",
+      "default" : "page",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -1225,7 +1290,7 @@
       },
       "help" : {
         "key" : "settings.updates.meteredNetwork.help",
-        "text" : "While downloads wait, a found update shows as a card and one click downloads it."
+        "text" : "While downloads wait, a found update shows on Settings and one click downloads it."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.meteredNetwork",
@@ -1299,20 +1364,12 @@
     },
     {
       "accepts" : [
-        "card",
         "badge",
         "silent"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.updatesCard",
-            "text" : "Show a Card"
-          },
-          "value" : "card"
-        },
         {
           "title" : {
             "key" : "settings.choice.updatesBadge",
@@ -1331,7 +1388,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "card",
+      "default" : "badge",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -1343,7 +1400,6 @@
       "keywords" : [
         "update",
         "notify",
-        "card",
         "badge",
         "silent"
       ],
@@ -1414,60 +1470,6 @@
       "title" : {
         "key" : "settings.updates.keepPreviousVersions",
         "text" : "Keep Previous Versions"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        {
-          "end" : "07:30",
-          "start" : "22:00"
-        }
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : null,
-      "default_label" : {
-        "key" : "settings.choice.off",
-        "text" : "Off"
-      },
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.quietHours.help",
-        "text" : "No update card between these times."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.quietHours",
-      "keywords" : [
-        "update",
-        "quiet",
-        "do not disturb"
-      ],
-      "kind" : "time_range",
-      "path" : [
-        "updates",
-        "quietHours"
-      ],
-      "refuses" : [
-        {
-          "end" : "07:00",
-          "start" : "25:00"
-        },
-        {
-          "start" : "22:00"
-        },
-        "22:00-07:00"
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.updates.quietHours",
-        "text" : "Quiet Hours"
       },
       "validation" : "portable"
     },
@@ -3793,6 +3795,59 @@
       "title" : {
         "key" : "settings.appearance.density",
         "text" : "Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.85,
+        1.5,
+        1.175
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "app.uiScale",
+      "keywords" : [
+        "scale",
+        "zoom",
+        "size",
+        "chrome",
+        "web",
+        "bigger",
+        "smaller"
+      ],
+      "kind" : "number",
+      "path" : [
+        "app",
+        "uiScale"
+      ],
+      "range" : {
+        "max" : 1.5,
+        "min" : 0.85,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.15000000000000002,
+        2.5,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.uiScale",
+        "text" : "Interface Scale"
       },
       "validation" : "portable"
     },
@@ -7849,6 +7904,237 @@
     },
     {
       "accepts" : [
+        "allItems",
+        "workspacesOnly"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.sidebar.scope.allItems",
+            "text" : "Every Item"
+          },
+          "value" : "allItems"
+        },
+        {
+          "title" : {
+            "key" : "settings.sidebar.scope.workspacesOnly",
+            "text" : "Workspaces Only"
+          },
+          "value" : "workspacesOnly"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "allItems",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.numbering.help",
+        "text" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.numbering",
+      "keywords" : [
+        "sidebar",
+        "shortcut",
+        "number",
+        "command",
+        "home",
+        "workspace"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "numbering"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.numbering",
+        "text" : "Command-Number Shortcuts"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "last",
+        "ninth"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.sidebar.cmd9.last",
+            "text" : "Last Item"
+          },
+          "value" : "last"
+        },
+        {
+          "title" : {
+            "key" : "settings.sidebar.cmd9.ninth",
+            "text" : "Ninth Item"
+          },
+          "value" : "ninth"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "last",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.cmd9.help",
+        "text" : "Goes to the last item, as in browsers, or to the ninth."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.cmd9",
+      "keywords" : [
+        "sidebar",
+        "shortcut",
+        "nine",
+        "last"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "cmd9"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.cmd9",
+        "text" : "Command-9"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "allItems",
+        "workspacesOnly"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.sidebar.scope.allItems",
+            "text" : "Every Item"
+          },
+          "value" : "allItems"
+        },
+        {
+          "title" : {
+            "key" : "settings.sidebar.scope.workspacesOnly",
+            "text" : "Workspaces Only"
+          },
+          "value" : "workspacesOnly"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "allItems",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.stepping.help",
+        "text" : "What Command-Control-] and Command-Control-[ step through."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.stepping",
+      "keywords" : [
+        "sidebar",
+        "next",
+        "previous",
+        "step",
+        "shortcut"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "stepping"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.stepping",
+        "text" : "Next and Previous Item"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.steppingWraps.help",
+        "text" : "Past the last item, the next item is the first again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.steppingWraps",
+      "keywords" : [
+        "sidebar",
+        "next",
+        "previous",
+        "wrap"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "sidebar",
+        "steppingWraps"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.steppingWraps",
+        "text" : "Wrap Around"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "chromium",
         "webkit"
       ],
@@ -9006,6 +9292,55 @@
       "title" : {
         "key" : "settings.browser.links.middleClick",
         "text" : "Middle-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attachments",
+        "text" : "Attachments"
+      },
+      "help" : {
+        "key" : "settings.home.keepLocation.help",
+        "text" : "When off, location data is removed from photos and videos before they are attached."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.attachments.keepLocation",
+      "keywords" : [
+        "gps",
+        "location",
+        "privacy",
+        "metadata",
+        "exif",
+        "attachments",
+        "photos"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "home",
+        "attachments",
+        "keepLocation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "title" : {
+        "key" : "settings.home.keepLocation",
+        "text" : "Keep Location in Photos and Videos"
       },
       "validation" : "portable"
     },
@@ -11169,7 +11504,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "3c73f6df3f3187d5be3a3d546fdfc6bb7d8306fd07bacedc317f5551dc421c6a",
+  "schema_hash" : "5daad6012082600875b271819a2d01d669571b1203deae2263b14de6237bf47b",
   "sections" : [
     {
       "id" : "general",
@@ -11201,6 +11536,14 @@
       "title" : {
         "key" : "settings.section.browser",
         "text" : "Browser"
+      }
+    },
+    {
+      "id" : "home",
+      "symbol" : "house",
+      "title" : {
+        "key" : "settings.section.home",
+        "text" : "Home"
       }
     },
     {

@@ -70,6 +70,21 @@ impl Inner {
         let modifiers = modifier_bits(params)?;
         let location = params.get("location").and_then(Value::as_i64).unwrap_or(0);
         let vk = virtual_key_code(code, key);
+        {
+            let mut state = self.lock();
+            if let Some(tab) = state.tabs.get_mut(&session.target_id) {
+                let same = |held: &(String, String, i64)| {
+                    if code.is_empty() { held.0 == key } else { held.1 == code }
+                };
+                match kind {
+                    "down" if !tab.held_keys.iter().any(same) => {
+                        tab.held_keys.push((key.to_owned(), code.to_owned(), location));
+                    }
+                    "up" => tab.held_keys.retain(|held| !same(held)),
+                    _ => {}
+                }
+            }
+        }
         let mut event = json!({
             "key": key,
             "code": code,
@@ -105,6 +120,56 @@ impl Inner {
         }
         self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;
         Ok(Value::Null)
+    }
+
+    /// Releases what the sessions left pressed in a tab (driver-protocol.md
+    /// "Sessions and tabs"): a key-up per held key, last pressed first, with
+    /// the modifiers still held, then a button-up per held mouse button at
+    /// the last mouse position. Trusted events, like every input.
+    pub(super) fn release_held_input(&self, target_id: &str) -> Result<(), DriverError> {
+        let (keys, buttons, (x, y)) = {
+            let mut state = self.lock();
+            let Some(tab) = state.tabs.get_mut(target_id) else { return Ok(()) };
+            let held = (std::mem::take(&mut tab.held_keys), tab.buttons, tab.mouse);
+            tab.buttons = 0;
+            held
+        };
+        if keys.is_empty() && buttons == 0 {
+            return Ok(());
+        }
+        let session = self.session(&json!({"targetId": target_id}))?;
+        let deadline = Instant::now() + super::driver::INTERNAL_TIMEOUT;
+        let modifier = |key: &str| match key {
+            "Alt" => 1,
+            "Control" => 2,
+            "Meta" => 4,
+            "Shift" => 8,
+            _ => 0,
+        };
+        for (i, (key, code, location)) in keys.iter().enumerate().rev() {
+            let modifiers: i64 =
+                keys[..i].iter().map(|held| modifier(&held.0)).fold(0, |a, b| a | b);
+            let vk = virtual_key_code(code, key);
+            let event = json!({
+                "type": "keyUp", "key": key, "code": code, "modifiers": modifiers,
+                "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk,
+                "location": location, "isKeypad": *location == 3,
+            });
+            self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;
+        }
+        let mut left = buttons;
+        for (bit, button) in [(1, "left"), (2, "right"), (4, "middle")] {
+            if buttons & bit == 0 {
+                continue;
+            }
+            left &= !bit;
+            let event = json!({
+                "type": "mouseReleased", "x": x, "y": y, "button": button,
+                "buttons": left, "clickCount": 1, "modifiers": 0,
+            });
+            self.send_until(&session, "Input.dispatchMouseEvent", event, deadline)?;
+        }
+        Ok(())
     }
 
     pub(super) fn insert_text(&self, params: &Value) -> Result<Value, DriverError> {
