@@ -184,6 +184,46 @@ test("locators: past the page-read budget, labels are not read by a whole-docume
   }
 });
 
+test("label index: <label>s are read one at a time within the budget, never listed whole (document and shadow root)", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest <label> list the read asks for
+  // (in the app the agent world is the session's own; this only observes
+  // what the index lists). Each tree holds 5,000 labels; the snapshot's
+  // budget is 1,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<input id="a"><div id="host"></div><div id="hidden" style="display:none"></div>';
+          document.getElementById("hidden").innerHTML = '<label for="a">L</label>'.repeat(5000);
+          document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<input id="b"><div style="display:none">' + '<label for="b">S</label>'.repeat(5000) + '</div>';
+          window.__labels = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (String(selector).trim().toLowerCase() === "label") window.__labels = Math.max(window.__labels, list.length);
+              return list;
+            };
+          }
+        });`);
+      const cut = await run(`await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__labels)));`);
+      assert.ok(Number(cut.value) <= 1000, `the label index listed ${cut.value} <label>s at once with a budget of 1,000 nodes`);
+      // Below the budget, labels still name their controls in both trees.
+      const named = await run(`await page.evaluate(() => {
+          document.getElementById("hidden").innerHTML = '<label for="a">Doc label</label>';
+          document.getElementById("host").shadowRoot.innerHTML = '<input id="b"><label for="b">Shadow label</label>';
+        });
+        const s = await snapshot({ maxChars: Infinity });
+        console.log("@@" + JSON.stringify({ doc: s.tree.includes('textbox "Doc label"'), shadow: s.tree.includes('textbox "Shadow label"') }));`);
+      assert.deepEqual(JSON.parse(named.value), { doc: true, shadow: true }, "a label below the budget no longer names its control");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("composer text: a composer past the page-read budget is refused before its text leaves the page", async () => {
   const servers = await startFixtureServers();
   try {
