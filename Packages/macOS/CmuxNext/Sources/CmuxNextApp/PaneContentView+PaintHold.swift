@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDesign
 
 /// Content that draws nothing until its document paints (an agent page is
 /// transparent until then). A pane switching to it keeps what it showed
