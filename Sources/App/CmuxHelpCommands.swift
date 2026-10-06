@@ -93,6 +93,7 @@ extension cmuxApp {
         Menu(String(localized: "menu.help.agentIntegrations", defaultValue: "Agent Integrations")) {
             helpResourceButton(.claudeCodeTeams)
             helpResourceButton(.ohMyOpenCode)
+            helpResourceButton(.ohMyPi)
             helpResourceButton(.ohMyCodex)
             helpResourceButton(.ohMyClaudeCode)
         }

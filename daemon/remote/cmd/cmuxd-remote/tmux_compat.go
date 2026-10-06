@@ -1600,6 +1600,11 @@ func tmuxShellCommandText(positional []string, cwd string) string {
 	}
 	var pieces []string
 	if cwd != "" {
+		// The shell never expands ~ inside single quotes, and a relative path
+		// would resolve against the new pane instead of the tmux caller.
+		if resolved := tmuxNormalizePath(cwd); resolved != "" {
+			cwd = resolved
+		}
 		pieces = append(pieces, "cd -- "+tmuxShellQuote(cwd))
 	}
 	if cmd != "" {
@@ -1811,45 +1816,57 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 
 	focusNewPane := !p.hasFlag("-d")
-	commandText := strings.TrimSpace(strings.Join(p.positional, " "))
-	isOMXHud := tmuxCommandLooksLikeAgentHud(p.positional)
-	startupScriptPath := ""
-	params := map[string]any{
+	// Only the reviewed relay contract travels with the split: the workspace and
+	// surface selectors, the direction, the focus intent, and the optional
+	// compact divider position. Command-bearing parameters (working_directory,
+	// initial_command, tmux_start_command, …) are denied on every relayed method,
+	// so the pane's command is typed into the new shell below.
+	commandText := tmuxShellCommandText(p.positional, p.value("-c"))
+	splitParams := map[string]any{
 		"workspace_id": targetWs,
 		"surface_id":   targetSurface,
 		"direction":    direction,
 		"focus":        focusNewPane,
 	}
-	if cwd := strings.TrimSpace(p.value("-c")); cwd != "" {
-		if resolved := tmuxNormalizePath(cwd); resolved != "" {
-			params["working_directory"] = resolved
-		}
-	}
-	if commandText != "" {
-		params["tmux_start_command"] = commandText
-		if isOMXHud {
-			startupScript, scriptErr := tmuxStartupScript(p.positional, p.value("-c"))
-			if scriptErr != nil {
-				return scriptErr
-			}
-			params["initial_command"] = startupScript
-			startupScriptPath = startupScript
-		}
-	}
 	if targetCells, ok := tmuxSplitSizeCells(p.value("-l")); ok {
 		paneID, paneErr := tmuxPaneIdForSurface(rc, targetWs, targetSurface)
 		if paneErr == nil {
 			if divider, dividerOK := tmuxInitialDividerPosition(rc, targetWs, paneID, direction, targetCells); dividerOK {
-				params["initial_divider_position"] = divider
+				splitParams["initial_divider_position"] = divider
 			}
 		}
 	}
-	created, err := rc.call("surface.split", params)
+	// Options a routed remote tmux split cannot honor, named up front so the app
+	// rejects the request before the remote mutation. `-P` prints a pane id the
+	// routed split cannot return, and the pane's command can only be typed into
+	// a local surface below, never into an asynchronously mirrored pane.
+	unsupportedOptions := []string{}
+	if p.hasFlag("-P") {
+		unsupportedOptions = append(unsupportedOptions, "-P")
+	}
+	if commandText != "" {
+		unsupportedOptions = append(unsupportedOptions, "initial_command")
+	}
+	if len(unsupportedOptions) > 0 {
+		splitParams["remote_tmux_unsupported_options"] = unsupportedOptions
+	}
+	created, err := rc.call("surface.split", splitParams)
 	if err != nil {
-		if startupScriptPath != "" {
-			_ = os.Remove(startupScriptPath)
-		}
 		return err
+	}
+	if accepted, _ := created["accepted"].(bool); accepted {
+		// Routed to a remote tmux mirror: the split was applied to the remote
+		// session and the pane arrives asynchronously. Option-carrying requests —
+		// the pane's command included — are rejected server-side before the
+		// remote mutation, so reaching here means a plain split: succeed quietly
+		// and skip local layout tracking, matching the local CLI.
+		if commandText != "" {
+			// Only reachable through an app that ignored
+			// remote_tmux_unsupported_options; the remote pane already exists,
+			// so warn rather than report a failure automation would retry.
+			fmt.Fprintln(os.Stderr, "cmux: split routed to a remote tmux mirror; the command was not applied")
+		}
+		return nil
 	}
 	surfaceId, _ := created["surface_id"].(string)
 	if surfaceId == "" {
@@ -1857,7 +1874,28 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 	newPaneId, _ := created["pane_id"].(string)
 
-	// Track for main-vertical layout
+	// Command-bearing split parameters are denied through the remote relay. A
+	// plain remote split remains supported; command-carrying splits fail closed.
+	// Type the command before persisting layout state, so a failed delivery
+	// closes the pane without leaving a dead surface id in the store.
+	if commandText != "" {
+		if _, err := rc.call("surface.send_text", map[string]any{
+			"workspace_id": targetWs,
+			"surface_id":   surfaceId,
+			"text":         commandText,
+		}); err != nil {
+			// The command never reached the shell, so the split did not take
+			// effect; close the pane instead of leaving an idle surface.
+			if _, rollbackErr := rc.call("surface.close", map[string]any{
+				"workspace_id": targetWs,
+				"surface_id":   surfaceId,
+			}); rollbackErr != nil {
+				return fmt.Errorf("type the pane command: %w (rollback failed: %v)", err, rollbackErr)
+			}
+			return fmt.Errorf("type the pane command: %w", err)
+		}
+	}
+
 	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
 		store.LastSplitSurface[targetWs] = surfaceId
 		if _, ok := store.MainVerticalLayouts[targetWs]; ok {
@@ -1881,21 +1919,10 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		return fmt.Errorf("persist tmux compatibility layout: %w", err)
 	}
 
-	// Equalize vertical splits
 	rc.call("workspace.equalize_splits", map[string]any{
 		"workspace_id": targetWs,
 		"orientation":  "vertical",
 	})
-
-	if !isOMXHud {
-		if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
-			rc.call("surface.send_text", map[string]any{
-				"workspace_id": targetWs,
-				"surface_id":   surfaceId,
-				"text":         text,
-			})
-		}
-	}
 
 	if p.hasFlag("-P") {
 		ctx, err := tmuxFormatContext(rc, targetWs, newPaneId, surfaceId)

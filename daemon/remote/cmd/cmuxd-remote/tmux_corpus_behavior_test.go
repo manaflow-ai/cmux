@@ -217,7 +217,7 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 	_, _ = conn.Write(append(payload, '\n'))
 }
 
-func TestTmuxSplitWindowCarriesHudMetadata(t *testing.T) {
+func TestTmuxSplitWindowKeepsCommandOutOfRelayParams(t *testing.T) {
 	t.Setenv("CMUX_OMX_CMUX_BIN", "/tmp/omx")
 	t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111")
 	t.Setenv("CMUX_SURFACE_ID", "44444444-4444-4444-8444-444444444444")
@@ -236,32 +236,23 @@ func TestTmuxSplitWindowCarriesHudMetadata(t *testing.T) {
 		t.Fatalf("surface.split requests = %d, want 1", len(requests))
 	}
 	params := requests[0].Params
-	if got := params["working_directory"]; got != "/tmp/teammate" {
-		t.Errorf("working_directory = %q, want /tmp/teammate", got)
-	}
-	if got := params["tmux_start_command"]; got != "omx hud --watch" {
-		t.Errorf("tmux_start_command = %q, want raw command", got)
+	// RemoteRelayCommandPolicy denies command-bearing keys on every method, so
+	// none of them may travel with the split.
+	for _, key := range []string{"working_directory", "tmux_start_command", "initial_command", "startup_environment"} {
+		if _, present := params[key]; present {
+			t.Errorf("surface.split carries command-bearing param %q", key)
+		}
 	}
 	if got := params["initial_divider_position"]; got != 0.75 {
 		t.Errorf("initial_divider_position = %v, want 0.75", got)
 	}
-	startup, ok := params["initial_command"].(string)
-	if !ok || startup == "" {
-		t.Fatalf("initial_command = %v, want startup script path", params["initial_command"])
+	typed := recorder.requestsFor("surface.send_text")
+	if len(typed) != 1 {
+		t.Fatalf("surface.send_text requests = %d, want 1 (the pane command typed into the new shell)", len(typed))
 	}
-	defer os.Remove(startup)
-	data, err := os.ReadFile(startup)
-	if err != nil {
-		t.Fatalf("read startup script: %v", err)
-	}
-	script := string(data)
-	if !strings.Contains(script, "rm -f -- \"$0\"") ||
-		!strings.Contains(script, "cd -- '/tmp/teammate'") ||
-		!strings.Contains(script, "omx hud --watch") {
-		t.Errorf("startup script does not preserve HUD command/cwd:\n%s", script)
-	}
-	if len(recorder.requestsFor("surface.send_text")) != 0 {
-		t.Error("HUD split should launch through initial_command, not type command after split")
+	text, _ := typed[0].Params["text"].(string)
+	if !strings.Contains(text, "omx hud --watch") || !strings.Contains(text, "/tmp/teammate") {
+		t.Errorf("typed pane command does not preserve command/cwd: %q", text)
 	}
 }
 

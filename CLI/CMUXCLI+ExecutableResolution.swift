@@ -194,7 +194,7 @@ extension CMUXCLI {
     /// not consume them as presentation options or generic subcommand help.
     func managedProviderArgumentsPassThrough(command: String) -> Bool {
         switch command {
-        case "claude-teams", "codex-teams", "omo", "omx", "omc":
+        case "claude-teams", "codex-teams", "omo", "omx", "omc", "omp":
             return true
         default:
             return false
@@ -214,7 +214,7 @@ extension CMUXCLI {
                 || CmuxTuiRemoteRouting.vmAgentRequestsHelp(Array(commandArgs.dropFirst()))
         case "claude-teams", "codex-teams":
             return false
-        case "omo", "omx", "omc":
+        case "omo", "omx", "omc", "omp":
             return commandArgs.count == 1 && ["--help", "-h"].contains(commandArgs[0])
         default:
             return true
@@ -231,6 +231,10 @@ extension CMUXCLI {
 
     func omxIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
         AgentLaunchInvocationClassifier().omxLaunchIsNonLaunch(args: commandArgs)
+    }
+
+    func ompIsNonLaunchInvocation(commandArgs: [String]) -> Bool {
+        AgentLaunchInvocationClassifier().ompLaunchIsNonLaunch(args: commandArgs)
     }
 
     /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips
