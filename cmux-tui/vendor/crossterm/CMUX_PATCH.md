@@ -20,6 +20,8 @@ exited: the client pinned one core and, with its input thread unable to return,
 stopped responding to `SIGTERM`.
 
 The cmux patch returns `UnexpectedEof` for a read of zero bytes and propagates
-every other read error, so the caller learns the terminal is gone. Regression
-coverage: `cmux-tui/crates/cmux-tui/tests/dead_tty_input.rs`. Remove this part
-of the patch when the Crossterm version used by cmux reports end of input.
+every other read error, so the caller learns the terminal is gone. It carries
+only the classification, not wording, so the client can localize the reason.
+Regression coverage: `cmux-tui/crates/cmux-tui/tests/dead_tty_input.rs`. Remove
+this part of the patch when the Crossterm version used by cmux reports end of
+input.
