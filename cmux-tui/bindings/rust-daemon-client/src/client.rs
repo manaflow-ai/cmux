@@ -1,7 +1,9 @@
 //! The connection worker: one owned thread that ensures the daemon, connects
 //! with the SDK, identifies, loads a snapshot, follows `session.events`, and
-//! reports each step to a caller callback. See the crate docs for the thread
-//! contract.
+//! reports each step to a caller callback. When the daemon advertises
+//! `bookmarks-v1`, a second thread per connection follows `bookmarks-changed`
+//! on a protocol-12 `subscribe` stream (the resource API has no bookmarks).
+//! See the crate docs for the thread contract.
 
 use crate::launcher::{self, Launcher};
 use crate::mirror::{Applied, Mirror, MirrorChange};
@@ -9,6 +11,7 @@ use cmux::{
     ClientMetadataOptions, Config, ConnectedClientId, EventStreamOptions, Selector,
     StreamCancellation, Update,
 };
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -18,6 +21,11 @@ use std::time::Duration;
 
 /// Session name when `DaemonConfig::session` is not set otherwise.
 pub const DEFAULT_SESSION: &str = "cmux2-gpui";
+/// The capability of the bookmark commands and `bookmarks-changed`.
+pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
+/// How long the bookmark stream waits for one event before it waits again
+/// (a quiet stream is healthy; `stop` closes it at once).
+const BOOKMARK_EVENTS_IDLE: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Debug)]
 pub struct DaemonConfig {
@@ -40,6 +48,9 @@ pub struct DaemonConfig {
     /// Reconnect backoff starts at `min_backoff` and doubles up to this.
     pub max_backoff: Duration,
     pub min_backoff: Duration,
+    /// Report `bookmarks-changed` as [`DaemonEvent::BookmarksChanged`] (one
+    /// more connection while connected to a daemon with `bookmarks-v1`).
+    pub bookmark_events: bool,
 }
 
 impl DaemonConfig {
@@ -55,6 +66,7 @@ impl DaemonConfig {
             ensure_timeout: Duration::from_secs(20),
             min_backoff: Duration::from_millis(250),
             max_backoff: Duration::from_secs(10),
+            bookmark_events: true,
         }
     }
 }
@@ -88,6 +100,14 @@ pub enum DaemonEvent {
         revision: u64,
         changes: Vec<MirrorChange>,
     },
+    /// A browser profile's bookmark tree changed (`bookmarks-changed`):
+    /// read it again with `list-bookmarks`. Reported after `Connected` and
+    /// before the connection's `Disconnected`; the mirror does not keep
+    /// bookmarks.
+    BookmarksChanged {
+        browser_profile_id: String,
+        bookmarks_revision: u64,
+    },
     /// The connection failed or ended; the worker retries after `retry_in`.
     Disconnected {
         error: String,
@@ -117,6 +137,15 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 type Callback = Box<dyn FnMut(&DaemonEvent, &Mirror) + Send + 'static>;
+/// The callback, shared by the worker and its bookmark thread, which call it
+/// one at a time.
+type SharedCallback = Arc<Mutex<Callback>>;
+
+thread_local! {
+    /// Set while this thread runs the callback: `stop` from inside it only
+    /// signals.
+    static IN_CALLBACK: Cell<bool> = const { Cell::new(false) };
+}
 
 impl DaemonClient {
     /// Starts the worker. `on_event` runs on the worker thread, once per
@@ -133,9 +162,11 @@ impl DaemonClient {
         });
         let (stop_tx, stop_rx) = mpsc::channel();
         let worker_shared = shared.clone();
-        let thread = std::thread::Builder::new()
-            .name("cmux-daemon-client".into())
-            .spawn(move || run(config, worker_shared, stop_rx, Box::new(on_event)))?;
+        let thread =
+            std::thread::Builder::new().name("cmux-daemon-client".into()).spawn(move || {
+                let on_event: SharedCallback = Arc::new(Mutex::new(Box::new(on_event)));
+                run(config, worker_shared, stop_rx, on_event);
+            })?;
         let thread_id = thread.thread().id();
         Ok(Self { shared, stop_tx: Some(stop_tx), thread: Some(thread), thread_id })
     }
@@ -167,6 +198,7 @@ impl DaemonClient {
             let _ = cancel.cancel();
         }
         if std::thread::current().id() != self.thread_id
+            && !IN_CALLBACK.with(Cell::get)
             && let Some(thread) = self.thread.take()
         {
             let _ = thread.join();
@@ -184,11 +216,11 @@ fn run(
     config: DaemonConfig,
     shared: Arc<Shared>,
     stop_rx: mpsc::Receiver<()>,
-    mut on_event: Callback,
+    on_event: SharedCallback,
 ) {
     let mut backoff = config.min_backoff;
     while !shared.stopping.load(Ordering::SeqCst) {
-        let result = session(&config, &shared, &mut on_event, &mut backoff);
+        let result = session(&config, &shared, &on_event, &mut backoff);
         *lock(&shared.connection) = None;
         lock(&shared.cancel).take();
         if shared.stopping.load(Ordering::SeqCst) {
@@ -199,7 +231,7 @@ fn run(
             Err(e) => e,
         };
         log::warn!("cmux daemon: {error}; retrying in {backoff:?}");
-        emit(&shared, &mut on_event, &DaemonEvent::Disconnected { error, retry_in: backoff });
+        emit(&shared, &on_event, &DaemonEvent::Disconnected { error, retry_in: backoff });
         // Interruptible wait: `stop` drops the sender, which wakes this.
         match stop_rx.recv_timeout(backoff) {
             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -207,19 +239,22 @@ fn run(
         }
         backoff = (backoff * 2).min(config.max_backoff);
     }
-    emit(&shared, &mut on_event, &DaemonEvent::Stopped);
+    emit(&shared, &on_event, &DaemonEvent::Stopped);
 }
 
-fn emit(shared: &Shared, on_event: &mut Callback, event: &DaemonEvent) {
+fn emit(shared: &Shared, on_event: &SharedCallback, event: &DaemonEvent) {
     let mirror = lock(&shared.mirror);
-    on_event(event, &mirror);
+    let mut callback = lock(on_event);
+    IN_CALLBACK.with(|flag| flag.set(true));
+    callback(event, &mirror);
+    IN_CALLBACK.with(|flag| flag.set(false));
 }
 
 /// One connection's life. Returns when the stream ends or fails.
 fn session(
     config: &DaemonConfig,
-    shared: &Shared,
-    on_event: &mut Callback,
+    shared: &Arc<Shared>,
+    on_event: &SharedCallback,
     backoff: &mut Duration,
 ) -> Result<(), String> {
     let mut info = ConnectionInfo::default();
@@ -273,8 +308,8 @@ fn identify(
 
 fn follow(
     config: &DaemonConfig,
-    shared: &Shared,
-    on_event: &mut Callback,
+    shared: &Arc<Shared>,
+    on_event: &SharedCallback,
     backoff: &mut Duration,
     client: &cmux::Client,
     mut info: ConnectionInfo,
@@ -306,8 +341,23 @@ fn follow(
     lock(&shared.mirror).reset(snapshot);
     *lock(&shared.connection) = Some(info.clone());
     *backoff = config.min_backoff;
+    let bookmarks = config.bookmark_events
+        && info.capabilities.iter().any(|capability| capability == BOOKMARKS_CAPABILITY);
+    let socket = info.socket.clone();
     emit(shared, on_event, &DaemonEvent::Connected(info));
     emit(shared, on_event, &DaemonEvent::Reset);
+    // Ends (closed and joined) when this function returns, so no
+    // BookmarksChanged follows the connection's Disconnected.
+    let _bookmarks = if bookmarks {
+        let follower =
+            BookmarkEvents::start(&socket, config, shared, on_event, events.cancellation());
+        Some(follower.map_err(|e| {
+            let _ = events.cancel();
+            format!("bookmark events: {e}")
+        })?)
+    } else {
+        None
+    };
 
     // Event-driven: `recv` blocks until the daemon sends, the stream is
     // canceled by `stop`, or the socket closes.
@@ -332,6 +382,73 @@ fn follow(
                 let _ = events.cancel();
                 return Err(format!("resync: {e}"));
             }
+        }
+    }
+}
+
+/// The `bookmarks-changed` follower of one connection: a protocol-12
+/// `subscribe` stream read on its own thread. Dropping it closes the stream
+/// and joins the thread.
+struct BookmarkEvents {
+    closer: cmux::raw::StreamCloser,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl BookmarkEvents {
+    fn start(
+        socket: &std::path::Path,
+        config: &DaemonConfig,
+        shared: &Arc<Shared>,
+        on_event: &SharedCallback,
+        session_events: StreamCancellation,
+    ) -> Result<Self, String> {
+        let raw =
+            cmux::raw::ClientConfig::from_socket_path(socket).with_timeout(config.request_timeout);
+        let mut client = cmux::raw::Client::connect(raw).map_err(|e| format!("connect: {e}"))?;
+        let mut stream = client
+            .subscribe(cmux::raw::SubscribeRequest {
+                surface: cmux::raw::Optional::Missing,
+                tree_events: cmux::raw::Optional::Missing,
+            })
+            .map_err(|e| format!("subscribe: {e}"))?;
+        let closer = stream.closer();
+        let (shared, on_event) = (shared.clone(), on_event.clone());
+        let thread = std::thread::Builder::new()
+            .name("cmux-daemon-client-bookmarks".into())
+            .spawn(move || {
+                let error = loop {
+                    match stream.recv_timeout(BOOKMARK_EVENTS_IDLE) {
+                        Ok(cmux::raw::Event::BookmarksChanged(changed)) => {
+                            let event = DaemonEvent::BookmarksChanged {
+                                browser_profile_id: changed.browser_profile_id,
+                                bookmarks_revision: changed.bookmarks_revision,
+                            };
+                            emit(&shared, &on_event, &event);
+                        }
+                        Ok(cmux::raw::Event::Overflow(_)) => break "overflow".to_string(),
+                        Ok(_) | Err(cmux::raw::Error::Timeout(_)) => {}
+                        Err(cmux::raw::Error::Closed) => return,
+                        Err(e) => break e.to_string(),
+                    }
+                };
+                // A lost bookmark stream would hide changes: end the
+                // connection so the worker reconnects both streams.
+                log::warn!("cmux daemon: bookmark events ended: {error}");
+                let _ = session_events.cancel();
+                drop(client);
+            })
+            .map_err(|e| format!("thread: {e}"))?;
+        Ok(Self { closer, thread: Some(thread) })
+    }
+}
+
+impl Drop for BookmarkEvents {
+    fn drop(&mut self) {
+        self.closer.close();
+        if let Some(thread) = self.thread.take()
+            && thread.thread().id() != std::thread::current().id()
+        {
+            let _ = thread.join();
         }
     }
 }
