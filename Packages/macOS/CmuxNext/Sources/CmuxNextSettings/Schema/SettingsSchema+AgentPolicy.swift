@@ -37,7 +37,7 @@ extension SettingsSchema {
         "window.titlebarButtons",
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder",
-        "navigation.historyScope",
+        "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",

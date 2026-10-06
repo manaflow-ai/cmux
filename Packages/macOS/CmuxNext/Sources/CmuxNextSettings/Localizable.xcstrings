@@ -59609,6 +59609,530 @@
           }
         }
       }
+    },
+    "settings.navigation.historySteps": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خطوات الرجوع والتقدم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koraci nazad i naprijed"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trin for tilbage og frem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schritte für Zurück und Vorwärts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back and Forward Steps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasos de Atrás y Adelante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Étapes Précédent et Suivant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passi Indietro e Avanti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "戻る・進むの単位"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជំហានថយក្រោយ និងទៅមុខ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "뒤로 및 앞으로 단계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trinn for tilbake og frem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kroki Wstecz i Dalej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etapas de Voltar e Avançar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаги «Назад» и «Вперёд»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขั้นของย้อนกลับและไปข้างหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geri ve İleri adımları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кроки «Назад» і «Вперед»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bước Quay lại và Tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "后退和前进的步长"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "上一步和下一步的單位"
+          }
+        }
+      }
+    },
+    "settings.navigation.historySteps.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساحات العمل: ينتقل الرجوع والتقدم بين مساحات العمل والصفحات العلوية، ويعود إلى آخر علامة تبويب كانت مُركّزة في كل منها. الكل: ينتقلان أيضًا بين علامات التبويب والأجزاء داخل مساحة العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostori: Nazad i Naprijed se kreću između radnih prostora i gornjih stranica i vraćaju se na karticu koja je posljednja bila u fokusu. Sve: prolaze i kroz kartice i okna unutar radnog prostora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdsområder: Tilbage og Frem skifter mellem arbejdsområder og topsider og vender tilbage til den fane, der sidst havde fokus. Alt: de går også gennem faner og ruder i et arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereiche: Zurück und Vorwärts wechseln zwischen Arbeitsbereichen und oberen Seiten und kehren zum zuletzt fokussierten Tab zurück. Alles: Sie durchlaufen auch Tabs und Bereiche innerhalb eines Arbeitsbereichs."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espacios de trabajo: Atrás y Adelante se mueven entre espacios de trabajo y páginas superiores, y vuelven a la pestaña que cada uno tenía enfocada. Todo: también recorren las pestañas y paneles dentro de un espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaces de travail : Précédent et Suivant passent d’un espace de travail ou d’une page du haut à l’autre et reviennent au dernier onglet actif de chacun. Tout : ils parcourent aussi les onglets et panneaux d’un espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spazi di lavoro: Indietro e Avanti si spostano tra spazi di lavoro e pagine in alto e tornano all’ultima scheda attiva di ciascuno. Tutto: scorrono anche schede e riquadri dentro uno spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペース: 戻る・進むはワークスペースとトップページの間を移動し、それぞれで最後にフォーカスしていたタブに戻ります。すべて: ワークスペース内のタブやペインも順に移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការ៖ ថយក្រោយ និងទៅមុខ ផ្លាស់ទីរវាងកន្លែងធ្វើការ និងទំព័រខាងលើ ហើយត្រឡប់ទៅផ្ទាំងដែលបានផ្តោតចុងក្រោយ។ ទាំងអស់៖ ក៏ឆ្លងកាត់ផ្ទាំង និងផ្ទាំងរងក្នុងកន្លែងធ្វើការផងដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간: 뒤로와 앞으로는 작업 공간과 상단 페이지 사이를 이동하며, 각각 마지막으로 포커스된 탭으로 돌아갑니다. 전체: 작업 공간 안의 탭과 패널도 순서대로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidsområder: Tilbake og Frem flytter mellom arbeidsområder og toppsider og går tilbake til fanen som sist hadde fokus. Alt: de går også gjennom faner og ruter i et arbeidsområde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary robocze: Wstecz i Dalej przechodzą między obszarami roboczymi i stronami u góry oraz wracają do karty, która była ostatnio aktywna. Wszystko: przechodzą też przez karty i panele w obszarze roboczym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços de trabalho: Voltar e Avançar alternam entre espaços de trabalho e páginas do topo e retornam à aba que cada um tinha em foco. Tudo: também percorrem abas e painéis dentro de um espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочие пространства: «Назад» и «Вперёд» переключают рабочие пространства и верхние страницы и возвращают к последней активной вкладке. Всё: также переходят по вкладкам и панелям внутри рабочего пространства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงาน: ย้อนกลับและไปข้างหน้าจะสลับระหว่างพื้นที่ทำงานและหน้าด้านบน และกลับไปยังแท็บที่โฟกัสล่าสุดของแต่ละอัน ทั้งหมด: จะเลื่อนผ่านแท็บและบานหน้าต่างภายในพื้นที่ทำงานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanları: Geri ve İleri, çalışma alanları ile üst sayfalar arasında geçer ve her birinde en son odaklanan sekmeye döner. Her şey: bir çalışma alanındaki sekmeler ve bölmeler arasında da gezer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочі простори: «Назад» і «Вперед» перемикають робочі простори й верхні сторінки та повертають до останньої активної вкладки. Усе: також переходять вкладками й панелями всередині робочого простору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc: Quay lại và Tiếp chuyển giữa các không gian làm việc và trang trên cùng, rồi trở về thẻ được chọn cuối cùng của mỗi mục. Mọi thứ: cũng đi qua các thẻ và ngăn trong một không gian làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区：后退和前进在工作区和顶部页面之间切换，并回到各自上次聚焦的标签页。全部：还会在工作区内的标签页和窗格之间切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區：上一步和下一步在工作區和頂部頁面之間切換，並回到各自上次聚焦的分頁。全部：也會在工作區內的分頁和窗格之間切換。"
+          }
+        }
+      }
+    },
+    "settings.navigation.historySteps.workspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Radni prostori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereiche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spazi di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рабочие пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Робочі простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區"
+          }
+        }
+      }
+    },
+    "settings.navigation.historySteps.everything": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sve"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alles"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tout"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tutto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべて"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wszystko"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tudo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her şey"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Усе"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mọi thứ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

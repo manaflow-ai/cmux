@@ -29,6 +29,11 @@ extension LocationTrail {
     /// Returns true when the trail changed.
     @discardableResult
     public mutating func record(_ location: HistoryLocation, at time: Date, scope: HistoryStepScope) -> Bool {
-        record(location, at: time) // RED stub
+        if scope == .workspaces, pending == nil, let current, current.location.isSameSidebarItem(as: location) {
+            guard current.location != location else { return false }
+            replaceCurrent(location)
+            return true
+        }
+        return record(location, at: time)
     }
 }
