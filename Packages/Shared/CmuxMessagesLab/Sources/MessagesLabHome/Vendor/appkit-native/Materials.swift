@@ -36,7 +36,8 @@ final class FieldChrome: NSView {
         field.style = .regular
         // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
         // and a light under the pointer brighten 14 ms after the click and fade in 0.1 s).
-        if #available(macOS 27.0, *) { field.effectIsInteractive = true }
+        // cmux: by key (the macOS 27 SDK property is missing from Xcode 26.6's SDK).
+        if #available(macOS 27.0, *), field.responds(to: NSSelectorFromString("setEffectIsInteractive:")) { field.setValue(true, forKey: "effectIsInteractive") }
         group.addSubview(field)
         for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
                                          (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {

@@ -22,7 +22,7 @@
          }
          return nil
      }
-@@ -629,7 +637,8 @@
+@@ -634,7 +642,8 @@
          // Two or more questions in one turn: one answer each (the earlier ones
          // end up threaded, because a newer question follows them).
          if questions.count >= 2 {
