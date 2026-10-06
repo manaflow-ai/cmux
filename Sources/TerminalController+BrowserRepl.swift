@@ -174,6 +174,9 @@ extension TerminalController {
         case .failure(.explicitWorkspaceNotFound(let id)):
             let prefix = String(localized: "cli.browser.repl.error.workspaceNotFound", defaultValue: "Workspace not found")
             return .failure(.err(code: "not_found", message: "\(prefix): \(id.uuidString)", data: nil))
+        case .failure(.explicitWorkspaceInvalid(let handle)):
+            let prefix = String(localized: "cli.browser.repl.error.workspaceInvalid", defaultValue: "Not a workspace in this cmux instance")
+            return .failure(.err(code: "not_found", message: "\(prefix): \(handle.debugDescription)", data: nil))
         case .failure(.noFocusedWorkspace):
             return .failure(.err(
                 code: "not_found",
@@ -312,7 +315,11 @@ extension TerminalController {
     private nonisolated func v2BrowserReplWorkspaceID(
         params: [String: Any]
     ) async -> Result<UUID, BrowserReplWorkspaceBinding.Failure> {
-        let explicit = v2UUID(params, "workspace_id")
+        // Present is explicit, whatever it holds: one that is not a
+        // workspace id fails instead of falling back.
+        let explicit: String? = params["workspace_id"].flatMap { value in
+            value is NSNull ? nil : (value as? String) ?? String(describing: value)
+        }
         let caller = v2UUID(params, "caller_workspace_id")
         return await Task { @MainActor [weak self] () -> Result<UUID, BrowserReplWorkspaceBinding.Failure> in
             BrowserReplWorkspaceBinding(
@@ -323,7 +330,7 @@ extension TerminalController {
                           manager.tabs.contains(where: { $0.id == selected }) else { return nil }
                     return selected
                 }
-            ).resolve(explicit: explicit, caller: caller)
+            ).resolve(explicitHandle: explicit, caller: caller)
         }.value
     }
 }

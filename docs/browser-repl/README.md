@@ -448,7 +448,9 @@ rest. Measurements: [performance.md](performance.md).
   lists or resets every workspace's. The interactive REPL and `mcp` keep
   the workspace their first call bound, so a change of focus outside cmux
   does not switch sessions; separate calls from outside cmux follow the
-  focused workspace (pass `--workspace` to pin one).
+  focused workspace (pass `--workspace` to pin one). A `--workspace` that
+  names no workspace of this cmux instance (unknown, blank, or a ref that
+  does not resolve) is refused; it never falls back to another workspace.
 - A session name is 1 to 64 characters of letters, digits, `.`, `_` and
   `-`. One cmux instance keeps at most 32 sessions open (named, one-shot and
   `mcp` ones together; each holds a JavaScript thread, timers and

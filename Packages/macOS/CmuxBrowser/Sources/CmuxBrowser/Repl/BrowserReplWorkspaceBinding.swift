@@ -11,6 +11,9 @@ public struct BrowserReplWorkspaceBinding {
     public enum Failure: Error, Equatable {
         /// The explicitly requested workspace does not exist in this instance.
         case explicitWorkspaceNotFound(UUID)
+        /// The caller named a workspace with something that is not a
+        /// workspace id (a ref a relay passed on unresolved, a blank value).
+        case explicitWorkspaceInvalid(String)
         /// No window has a selected workspace.
         case noFocusedWorkspace
     }
@@ -24,6 +27,19 @@ public struct BrowserReplWorkspaceBinding {
     public init(exists: @escaping (UUID) -> Bool, focused: @escaping () -> UUID?) {
         self.exists = exists
         self.focused = focused
+    }
+
+    /// - Parameters:
+    ///   - explicitHandle: The workspace the caller named, as sent, or
+    ///     `nil` when it named none. One that is not a workspace id fails:
+    ///     an explicit choice never falls back.
+    ///   - caller: The caller's own workspace from its environment, or `nil`.
+    public func resolve(explicitHandle: String?, caller: UUID?) -> Result<UUID, Failure> {
+        guard let explicitHandle else { return resolve(explicit: nil, caller: caller) }
+        guard let explicit = UUID(uuidString: explicitHandle.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return .failure(.explicitWorkspaceInvalid(explicitHandle))
+        }
+        return resolve(explicit: explicit, caller: caller)
     }
 
     /// - Parameters:
