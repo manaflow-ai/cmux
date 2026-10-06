@@ -273,7 +273,6 @@ nonisolated extension ActionSurfaceCatalog {
             "focusRing.singlePane.toggle",
             "appearance.paneBorderWidth.toggle",
             "appearance.paneBorderColor.reset",
-            "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset",
             "appearance.titlebar.minimal",
             "appearance.titlebar.standard",
             "browser.hibernation.off",
