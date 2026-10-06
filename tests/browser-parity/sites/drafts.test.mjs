@@ -186,6 +186,13 @@ test("linkedin.post: the draft names who it posts as and its audience; a compose
     await s.value("sites.linkedin.post(lcD.id, { confirm: true })");
     assert.deepEqual(env.state.linkedinPosts.at(-1), { text: "Connections only.", settings: "Ada LovelacePost to Connections only" });
     assert.match(await s.error('sites.linkedin.post({ text: "x", audience: "everyone" })'), /invalid|audience/);
+    // A public post is an explicit choice: a draft without an audience fails and names both.
+    for (const call of ['sites.linkedin.post("No audience.")', 'sites.linkedin.post({ text: "No audience." })']) {
+      const err = await s.error(call);
+      assert.match(err, /audience/, `${call} drafted without an audience`);
+      assert.match(err, /"anyone"/);
+      assert.match(err, /"connections"/);
+    }
   } finally {
     env.state.linkedinComposer = null;
   }
