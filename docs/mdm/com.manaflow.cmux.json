@@ -40,7 +40,7 @@
     },
     "app.uiScale" : {
       "default" : 1,
-      "description" : "",
+      "description" : "app.uiScale",
       "maximum" : 1.5,
       "minimum" : 0.85,
       "title" : "Interface Scale",
