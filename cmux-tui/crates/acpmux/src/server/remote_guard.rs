@@ -59,9 +59,13 @@ pub(super) fn control_of(origin: super::Origin, params: &Value) -> crate::hub::C
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one
 /// this daemon holds to the Web's rules says so, and the peer applies them.
+/// One from the app's pane says `via: app`, so the peer's folder-trust gate
+/// (`trust_gate.rs`) holds it as it holds its own pane's.
 pub(super) fn mark_forwarded(origin: super::Origin, params: &Value, forwarded: &mut Value) {
     if control_of(origin, params) == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
+    } else if origin == super::Origin::LocalApp {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "app"}));
     }
 }
 

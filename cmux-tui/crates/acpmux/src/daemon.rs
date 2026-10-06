@@ -166,7 +166,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let hub = Hub::new(config, store);
     // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
-    hub.set_trust_gate(crate::trust::Paths::current());
+    // Without a home directory no file can answer, so every folder waits (fails closed).
+    hub.set_trust_gate(Some(crate::trust::Paths::current().unwrap_or_else(|| {
+        let none = std::path::PathBuf::from("/nonexistent/acpmux-no-home");
+        crate::trust::Paths {
+            claude_json: none.join(".claude.json"),
+            codex_config: none.join("config.toml"),
+            record: none.join("trust.json"),
+        }
+    })));
     // Agents outlive this daemon unless the user opts out for this release.
     // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
     // (default 300; 0 keeps every harness running).
