@@ -511,6 +511,25 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(standardControls == SidebarFooterControl.allCases)
     }
 
+    @Test(arguments: [
+        (false, false, false),
+        (true, false, true),
+        (true, true, false),
+        (false, true, false),
+    ])
+    func proUpgradeVisibilityRequiresFlagAndFreePlan(
+        featureFlagEnabled: Bool,
+        isProActive: Bool,
+        expected: Bool
+    ) {
+        #expect(
+            SidebarFooterPresentationPolicy.isUpgradeVisible(
+                featureFlagEnabled: featureFlagEnabled,
+                isProActive: isProActive
+            ) == expected
+        )
+    }
+
     @Test
     func sidebarAccountPictureAndIconPresentationsStayDistinct() {
         let picture = SidebarAccountButtonPresentation.resolve(
