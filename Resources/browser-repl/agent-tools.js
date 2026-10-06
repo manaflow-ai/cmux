@@ -391,6 +391,25 @@
     const B = A.budget({ maxNodes: opts.maxNodes, maxSize: opts.maxSize });
     const maxFrames = opts.maxFrames >= 0 ? opts.maxFrames : 100;
     let framesCut = false;
+    // The walk recurses per element (blocks, inline runs, display:contents
+    // boxes), and script can nest elements deeper than the stack: past
+    // MAX_NEST levels, as the snapshot walk, a subtree is left out and
+    // `nestCut` says so.
+    const MAX_NEST = 1000;
+    let nest = 0;
+    let nestCut = false;
+    const deeper = (read, empty) => {
+      if (nest >= MAX_NEST) {
+        nestCut = true;
+        return empty;
+      }
+      nest++;
+      try {
+        return read();
+      } finally {
+        nest--;
+      }
+    };
     const frames = [];
     // Page text and attribute values, charged to the budget.
     const text = (v) => (B.truncated || !v ? "" : B.fit(String(v)));
@@ -439,7 +458,7 @@
     const kids = (el) => {
       const out = [];
       for (const c of ownKids(el)) {
-        if (c.nodeType === 1 && !SKIP.has(tag(c)) && style(c).display === "contents") append(out, kids(c));
+        if (c.nodeType === 1 && !SKIP.has(tag(c)) && style(c).display === "contents") append(out, deeper(() => kids(c), []));
         else out.push(c);
       }
       return out;
@@ -494,6 +513,9 @@
     function inline(node, ctx) {
       if (node.nodeType === 3) return ctx.hidden ? "" : collapse(text(node.data));
       if (node.nodeType !== 1 || skipped(node, ctx)) return "";
+      return deeper(() => inlineElement(node, ctx), "");
+    }
+    function inlineElement(node, ctx) {
       ctx = sub(node, ctx);
       const t = tag(node);
       if (t === "BR") return "\n";
@@ -594,6 +616,9 @@
       return caption ? [caption, lines.join("\n")] : [lines.join("\n")];
     }
     function block(el, ctx) {
+      return deeper(() => blockElement(el, ctx), []);
+    }
+    function blockElement(el, ctx) {
       const t = tag(el);
       const h = /^H([1-6])$/.exec(t);
       if (h) {
@@ -650,7 +675,7 @@
       else main = true;
     }
     const out = rootEl ? blocks(rootEl, { hidden: false, main }) : [];
-    return { blocks: out, frames, mark, report: B.report(), framesCut };
+    return { blocks: out, frames, mark, report: B.report(), framesCut, nestCut };
   }
 
   // Structured data by selectors (Playwright syntax: CSS, text=, role=, ...;
@@ -1547,6 +1572,7 @@
     budget.frames -= r.frames.length;
     if (report.truncated) noteCut(budget, { truncated: report.truncated, maxNodes: READ_NODES, maxSize: budget.size });
     if (r.framesCut) noteCut(budget, { truncated: "frames", frames: MARKDOWN_FRAMES });
+    if (r.nestCut) budget.nestCut = true;
     const text = r.blocks.join("\n\n");
     // Page text keeps no NUL, so only the agent's placeholders have one.
     const pageText = (s) => s.replace(/\u0000/g, "\uFFFD");
@@ -1595,6 +1621,9 @@
     let full = (await frameMarkdown(this, this._mainFrame, opts, 0, budget)) + "\n";
     // A page past the page-read budget ends with a note where it stopped.
     if (budget.cut) full += `\n<!-- ${core.readCutNote("Markdown", budget.cut)}; the rest of the page is not shown -->\n`;
+    // Parts nested deeper than the walk reads (markdownOfFrame MAX_NEST)
+    // are left out where they are; the rest of the page is read.
+    if (budget.nestCut) full += "\n<!-- not read: parts of the page nested deeper than 1000 elements -->\n";
     const start = options.start || 0;
     const max = options.maxChars === undefined ? Infinity : options.maxChars;
     if (!Number.isInteger(start) || start < 0) throw new Error(`page.markdown: start: expected a non-negative integer, got ${JSON.stringify(options.start)}`);

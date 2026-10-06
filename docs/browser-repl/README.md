@@ -345,7 +345,10 @@ rest. Measurements: [performance.md](performance.md).
   `<!-- the page is too large to read whole: Markdown stopped after
   2,000,000 characters; … -->` (or `nodes`, `8 s`, and `100 frames`:
   it reads at most 100 iframes, one after another, each with what the
-  ones before it left). `extract` and `dropdownOptions` return what they
+  ones before it left). Like the snapshot walk, Markdown reads at most
+  1,000 elements deep in a frame; a deeper part is left out in its place
+  and the Markdown ends with `<!-- not read: parts of the page nested
+  deeper than 1000 elements -->`. `extract` and `dropdownOptions` return what they
   read and print `# page.extract: the page is too large to read whole: it
   stopped after …`; `extract` keeps element handles only for the
   matches it returns. `tabs.content` reads 2,000,000 characters per call
