@@ -229,6 +229,21 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("DELETE", "/api/vm/firewall?ruleId=\(queryComponent(ruleID))", timeout: .seconds(60), as: Ignored.self)
     }
 
+    // MARK: Domains and publications
+
+    /// Lists custom domains owned by the signed-in account. Provider
+    /// credentials and certificate material are never returned by this route.
+    public func listDomains() async throws -> [CloudDomain] {
+        struct List: Decodable { var domains: [CloudDomain] }
+        return try await send("GET", "/api/vm/domains", as: List.self).domains
+    }
+
+    /// Lists redacted VM publications owned by the signed-in account.
+    public func listPublications() async throws -> [CloudPublication] {
+        struct List: Decodable { var publications: [CloudPublication] }
+        return try await send("GET", "/api/vm/publications", as: List.self).publications
+    }
+
     private func query(_ value: String) -> String {
         // Keep guest path separators readable, but never let a path inject a
         // second query item or fragment into the request URL.
