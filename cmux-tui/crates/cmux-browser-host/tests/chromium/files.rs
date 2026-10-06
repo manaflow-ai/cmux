@@ -20,7 +20,7 @@ pub fn files_page() -> String {
      <input id=many type=file multiple style=\"position:fixed;left:0;top:160px\">\
      <input id=hidden type=file style=\"display:none\">\
      <p id=files style=\"position:fixed;left:0;top:220px\">none</p>\
-     <script>for (const el of document.querySelectorAll('input[type=file]')) {\
+     <script>window.ready = true; for (const el of document.querySelectorAll('input[type=file]')) {\
        el.addEventListener('change', async () => { const parts = [];\
          for (const f of el.files) parts.push(f.name + '=' + await f.text());\
          document.getElementById('files').textContent = el.id + ': ' + parts.join(','); });\
@@ -37,7 +37,13 @@ fn chrome() -> String {
 }
 
 /// Runs `code` in `session` of the host on `socket` (cmux-browser-host eval).
-fn eval_in(socket: &std::path::Path, dir: &std::path::Path, chrome: &str, session: &str, code: &str) -> String {
+fn eval_in(
+    socket: &std::path::Path,
+    dir: &std::path::Path,
+    chrome: &str,
+    session: &str,
+    code: &str,
+) -> String {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
         .args(["eval", "--engine", "headless", "--session", session, "--socket"])
         .arg(socket)
@@ -175,7 +181,10 @@ fn only_the_choosers_session_answers_it_and_its_end_cancels_it() {
             .to_owned()
     };
     let click = |session: &HeadlessSession, target: &str| {
-        for kind in ["move", "down", "up"] {
+        session
+            .call("input.mouse", &json!({"targetId": target, "type": "move", "x": 50, "y": 50}))
+            .unwrap();
+        for kind in ["down", "up"] {
             session
                 .call(
                     "input.mouse",
@@ -195,8 +204,47 @@ fn only_the_choosers_session_answers_it_and_its_end_cancels_it() {
         .unwrap()
         .to_owned();
     // a created the tab: its chooser goes to a.
+    // tabs.open returns before the page loads: click once its script ran.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while a
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "page", "source": "() => window.ready === true"}),
+        )
+        .ok()
+        != Some(json!(true))
+    {
+        assert!(Instant::now() < deadline, "the page never loaded");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The chooser's event, or a failure that shows what each session got.
+    let chooser_event = |events: &Mutex<Vec<DriverEvent>>, others: &Mutex<Vec<DriverEvent>>| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let found = events
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|e| e.name == "filechooser.opened")
+                .cloned();
+            if let Some(event) = found {
+                return event;
+            }
+            let names = |list: &Mutex<Vec<DriverEvent>>| -> Vec<String> {
+                list.lock().unwrap().iter().map(|e| e.name.clone()).collect()
+            };
+            assert!(
+                Instant::now() < deadline,
+                "no filechooser.opened: this session got {:?}, the other {:?}",
+                names(events),
+                names(others)
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
     click(&a, &target);
-    let opened = wait_event(&a_events, "filechooser.opened");
+    let opened = chooser_event(&a_events, &b_events);
     assert_eq!(opened.payload["multiple"], false, "{opened:?}");
     assert!(opened.payload["element"].is_string(), "{opened:?}");
     let chooser = opened.payload["chooserId"].clone();
@@ -205,7 +253,10 @@ fn only_the_choosers_session_answers_it_and_its_end_cancels_it() {
         "only a gets the chooser"
     );
     let refused = b
-        .call("filechooser.respond", &json!({"targetId": target, "chooserId": chooser, "cancel": true}))
+        .call(
+            "filechooser.respond",
+            &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
+        )
         .unwrap_err();
     assert_eq!(refused.code, ErrorCode::NotFound, "{refused:?}");
     assert_eq!(read(&a, &target), "none", "b's answer left the chooser open");
@@ -225,7 +276,8 @@ fn only_the_choosers_session_answers_it_and_its_end_cancels_it() {
     a.call("tab.keep", &json!({"targetId": target})).unwrap();
     b.call("tab.handleEvents", &json!({"targetId": target, "events": ["filechooser"]})).unwrap();
     click(&a, &target);
-    wait_event(&b_events, "filechooser.opened");
+    let second = chooser_event(&b_events, &a_events);
+    assert_ne!(second.payload["chooserId"], chooser, "a new chooser");
     b.end_session();
     drop(b);
     let deadline = Instant::now() + Duration::from_secs(5);

@@ -45,6 +45,8 @@ pub struct Routes {
     dialogs: HashMap<String, u64>,
     /// Download id -> the session it went to.
     downloads: HashMap<String, u64>,
+    /// File chooser id -> (the session it went to, its tab).
+    choosers: HashMap<String, (u64, String)>,
     log: VecDeque<Value>,
 }
 
@@ -113,7 +115,18 @@ impl Routes {
         self.dialogs.remove(dialog);
     }
 
-    pub fn session_ended(&mut self, session: u64) {
+    /// The session a file chooser went to, if it went to one.
+    pub fn chooser_owner(&self, chooser: &str) -> Option<u64> {
+        self.choosers.get(chooser).map(|(session, _)| *session)
+    }
+
+    pub fn chooser_answered(&mut self, chooser: &str) {
+        self.choosers.remove(chooser);
+    }
+
+    /// Forgets the session; returns its open file choosers as (tab,
+    /// chooser), which the host cancels.
+    pub fn session_ended(&mut self, session: u64) -> Vec<(String, String)> {
         for list in self.handlers.values_mut() {
             list.retain(|(s, _)| *s != session);
         }
@@ -123,6 +136,14 @@ impl Routes {
         self.in_call.retain(|_, s| *s != session);
         self.dialogs.retain(|_, s| *s != session);
         self.downloads.retain(|_, s| *s != session);
+        let mut open = Vec::new();
+        self.choosers.retain(|chooser, (s, target)| {
+            if *s == session {
+                open.push((target.clone(), chooser.clone()));
+            }
+            *s != session
+        });
+        open
     }
 
     pub fn log_unrouted(&mut self, entry: Value) {
@@ -151,6 +172,7 @@ impl Routes {
                 self.creator.remove(target);
                 self.opened_by.remove(target);
                 self.in_call.remove(target);
+                self.choosers.retain(|_, (_, tab)| tab != target);
                 return Route::Everyone;
             }
             // A popup of a session's tab is that session's too.
@@ -209,6 +231,13 @@ impl Routes {
             && let Some(id) = payload.get("downloadId").and_then(Value::as_str)
         {
             self.downloads.insert(id.to_owned(), owner);
+        }
+        if kind == "filechooser"
+            && let Some(id) = payload.get("chooserId").and_then(Value::as_str)
+        {
+            // One open chooser per tab (the driver replaces an older one).
+            self.choosers.retain(|_, (_, tab)| tab != target);
+            self.choosers.insert(id.to_owned(), (owner, target.to_owned()));
         }
         Route::Session(owner)
     }

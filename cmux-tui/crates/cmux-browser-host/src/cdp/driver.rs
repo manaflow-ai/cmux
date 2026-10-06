@@ -32,7 +32,7 @@ pub(super) struct Inner {
     pub(super) agent_source: Arc<str>,
     /// Driver events go to the sink from a dispatcher thread, in order, so a
     /// sink that answers an event with a driver call cannot block the reader.
-    events: Mutex<mpsc::Sender<DriverEvent>>,
+    events: Mutex<mpsc::Sender<Dispatch>>,
     state: Mutex<State>,
     pub(super) changed: Condvar,
     /// The request filter (`set_request_filter`), shared with the worker
@@ -54,6 +54,9 @@ pub(super) struct Inner {
     /// Browser contexts this driver created (proxy stores); every other tab
     /// is in the default context, which `Storage.*` names by omission.
     pub(super) proxy_contexts: Mutex<std::collections::HashSet<String>>,
+    /// A browser the driver owns (headless) intercepts every file chooser
+    /// (`choosers.rs`); an app's CEF tab keeps the app's Open panel.
+    pub(super) intercept_choosers: bool,
 }
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
@@ -68,7 +71,8 @@ impl CdpDriver {
         agent_source: impl Into<Arc<str>>,
         events: EventSink,
     ) -> Result<CdpDriver, DriverError> {
-        let inner = Inner::start(conn.clone(), agent_source.into(), events, Some(HIDDEN_VIEWPORT))?;
+        let inner =
+            Inner::start(conn.clone(), agent_source.into(), events, Some(HIDDEN_VIEWPORT), true)?;
         Self::set_up_browser(&inner, &conn)?;
         Ok(CdpDriver { inner })
     }
@@ -93,7 +97,7 @@ impl CdpDriver {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .ok_or_else(|| DriverError::invalid("Target.getTargetInfo returned no targetId"))?;
-        let inner = Inner::start(conn, agent_source.into(), events, None)?;
+        let inner = Inner::start(conn, agent_source.into(), events, None, false)?;
         // The page is already attached: the relay is its session.
         inner.handle_event(CdpEvent {
             session_id: None,
@@ -110,13 +114,19 @@ impl Inner {
         agent_source: Arc<str>,
         events: EventSink,
         hidden_viewport: Option<(i64, i64)>,
+        intercept_choosers: bool,
     ) -> Result<Arc<Inner>, DriverError> {
-        let (event_tx, event_rx) = mpsc::channel::<DriverEvent>();
+        let (event_tx, event_rx) = mpsc::channel::<Dispatch>();
         std::thread::Builder::new()
             .name("cmux-browser-host-cdp-events".into())
             .spawn(move || {
-                for event in event_rx {
-                    events(event);
+                for item in event_rx {
+                    match item {
+                        Dispatch::Event(event) => events(event),
+                        Dispatch::Flush(done) => {
+                            let _ = done.send(());
+                        }
+                    }
                 }
             })
             .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
@@ -137,6 +147,7 @@ impl Inner {
             shells: Mutex::default(),
             default_ua: std::sync::OnceLock::new(),
             proxy_contexts: Mutex::default(),
+            intercept_choosers,
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -317,8 +328,10 @@ impl Driver for CdpDriver {
             "frame.contentFrames" => inner.content_frames(params),
             "frame.ownerBox" => inner.owner_box(params),
             "frame.focused" => inner.focused_frame(params),
-            "input.mouse" => inner.mouse(params),
-            "input.key" => inner.key(params),
+            "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
+            "input.key" => inner.with_chooser_events(method, params, || inner.key(params)),
+            "input.setFiles" => inner.set_files(params),
+            "filechooser.respond" => inner.chooser_respond(params),
             "input.insertText" => inner.insert_text(params),
             "tab.screenshot" => inner.screenshot(params),
             "tab.pdf" => inner.pdf(params),
@@ -374,6 +387,13 @@ impl Driver for CdpDriver {
     }
 }
 
+/// What the event thread gets: an event for the sink, or a flush to answer
+/// once the events before it went to the sink.
+enum Dispatch {
+    Event(DriverEvent),
+    Flush(mpsc::SyncSender<()>),
+}
+
 /// A ready tab's session.
 pub(super) struct Session {
     pub(super) target_id: String,
@@ -383,6 +403,22 @@ pub(super) struct Session {
 impl Inner {
     pub(super) fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Sends a driver event made off the reader thread (a follow-up's).
+    pub(super) fn emit(&self, event: DriverEvent) {
+        let _ =
+            self.events.lock().unwrap_or_else(PoisonError::into_inner).send(Dispatch::Event(event));
+    }
+
+    /// Waits (at most `wait`) until the sink took every event sent so far.
+    pub(super) fn flush_events(&self, wait: Duration) {
+        let (done, flushed) = mpsc::sync_channel(1);
+        let sent =
+            self.events.lock().unwrap_or_else(PoisonError::into_inner).send(Dispatch::Flush(done));
+        if sent.is_ok() {
+            let _ = flushed.recv_timeout(wait);
+        }
     }
 
     fn handle_event(self: &Arc<Self>, event: CdpEvent) {
@@ -395,7 +431,7 @@ impl Inner {
         if !applied.events.is_empty() {
             let events = self.events.lock().unwrap_or_else(PoisonError::into_inner);
             for event in applied.events {
-                let _ = events.send(event);
+                let _ = events.send(Dispatch::Event(event));
             }
         }
         for follow_up in applied.follow_ups {
@@ -436,6 +472,9 @@ impl Inner {
                     json!({"sessionId": session_id}),
                     INTERNAL_TIMEOUT,
                 );
+            }
+            FollowUp::ChooserOpened { target_id, chooser_id } => {
+                self.send_chooser_opened(&target_id, &chooser_id);
             }
             FollowUp::DisableDom { session_id } => {
                 let _ =
@@ -503,6 +542,7 @@ impl Inner {
             // A popup's opener's session.configure options, before its first request.
             .chain(self.inherited_override_steps(target_id))
             .chain(self.hidden_viewport_step().filter(|_| !shell))
+            .chain(super::choosers::intercept_step(self.intercept_choosers && !shell))
             // Out-of-process iframes attach as child sessions of this page.
             .chain([("Target.setAutoAttach", auto_attach)])
             .chain(self.fetch_enable_step())
@@ -551,6 +591,7 @@ impl Inner {
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()
+            .chain(super::choosers::intercept_step(self.intercept_choosers))
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),

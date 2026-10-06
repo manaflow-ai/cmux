@@ -134,6 +134,7 @@ impl FakeWire {
             | "Target.detachFromTarget"
             | "Page.enable"
             | "Page.setLifecycleEventsEnabled"
+            | "Page.setInterceptFileChooserDialog"
             | "Emulation.setFocusEmulationEnabled"
             | "Runtime.runIfWaitingForDebugger"
             | "Input.dispatchMouseEvent"

@@ -243,7 +243,16 @@ impl HeadlessSource {
                         "cancelled"
                     }
                     "download" => "dropped",
-                    _ => "cancelled",
+                    // filechooser: the page sees the browser's cancel.
+                    _ => {
+                        let chooser =
+                            event.payload.get("chooserId").cloned().unwrap_or(Value::Null);
+                        let _ = self.driver.call(
+                            "filechooser.respond",
+                            &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
+                        );
+                        "cancelled"
+                    }
                 };
                 let url = self.tab_url(target.as_str().unwrap_or(""));
                 let entry = unrouted_entry(&event, action, &url);
@@ -422,6 +431,15 @@ impl TabSource for SharedHeadless {
                 }
                 self.0.routes().dialog_answered(dialog);
             }
+            // Only the session a file chooser went to answers it.
+            "filechooser.respond" => {
+                let chooser = call.params["chooserId"].as_str().unwrap_or("");
+                let owner = self.0.routes().chooser_owner(chooser);
+                if owner.is_some_and(|owner| owner != call.session) {
+                    return Err(DriverError::not_found(format!("No file chooser {chooser}")));
+                }
+                self.0.routes().chooser_answered(chooser);
+            }
             _ => {}
         }
         // A dialog or chooser the page opens during this call is the caller's.
@@ -471,7 +489,15 @@ impl TabSource for SharedHeadless {
 
     fn session_ended(&self, session: u64) {
         self.0.configure_ended(session);
-        self.0.routes().session_ended(session);
+        // Its open file choosers are cancelled (driver-protocol.md: when
+        // the session leaves the tab).
+        let choosers = self.0.routes().session_ended(session);
+        for (target, chooser) in choosers {
+            let _ = self.0.driver.call(
+                "filechooser.respond",
+                &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
+            );
+        }
         // The last session left these tabs: release what was left pressed.
         let left: Vec<String> = {
             let mut driven = self.0.driven.lock().unwrap_or_else(PoisonError::into_inner);
