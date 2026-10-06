@@ -557,9 +557,22 @@ impl Config {
         } else {
             Config::default()
         };
+        cfg.join_discovered(discover_harnesses());
+        if cfg.default_harness.is_none() {
+            cfg.auto_default = true;
+            cfg.default_harness = cfg.harnesses.keys().next().cloned();
+        }
+        cfg.path = Some(path);
+        Ok(cfg)
+    }
+
+    /// Joins discovered harnesses to the configured ones (configured entries
+    /// always win) and sets the automatic Claude fallbacks and preference.
+    pub fn join_discovered(&mut self, discovered: BTreeMap<String, HarnessProfile>) {
+        let cfg = self;
         // Harnesses found on PATH join the configured ones, so installing an
         // adapter such as pi-acp is enough; configured entries always win.
-        for (name, profile) in discover_harnesses() {
+        for (name, profile) in discovered {
             if !cfg.harnesses.contains_key(&name) {
                 cfg.discovered.insert(name.clone());
                 cfg.harnesses.insert(name, profile);
@@ -595,12 +608,6 @@ impl Config {
                 }
             }
         }
-        if cfg.default_harness.is_none() {
-            cfg.auto_default = true;
-            cfg.default_harness = cfg.harnesses.keys().next().cloned();
-        }
-        cfg.path = Some(path);
-        Ok(cfg)
     }
 
     /// Where preset directories live (`presets/` next to config.json); None
@@ -653,34 +660,41 @@ impl Config {
 
 /// Look for agent adapters in the acpx config and on PATH.
 pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
+    let acpx = dirs::home_dir()
+        .and_then(|home| std::fs::read_to_string(home.join(".acpx").join("config.json")).ok());
+    discover_harnesses_from(acpx.as_deref(), &which)
+}
+
+/// `discover_harnesses` over an `~/.acpx/config.json` text and a PATH lookup.
+pub fn discover_harnesses_from(
+    acpx: Option<&str>,
+    which: &dyn Fn(&str) -> Option<String>,
+) -> BTreeMap<String, HarnessProfile> {
     let mut agents = BTreeMap::new();
-    if let Some(home) = dirs::home_dir() {
-        let acpx = home.join(".acpx").join("config.json");
-        if let Ok(text) = std::fs::read_to_string(&acpx)
-            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
-            && let Some(map) = v.get("agents").and_then(|a| a.as_object())
-        {
-            for (name, profile) in map {
-                if let Some(argv) = profile.get("argv").and_then(|a| a.as_array()) {
-                    let argv: Vec<String> =
-                        argv.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect();
-                    if !argv.is_empty() {
-                        agents.insert(
-                            name.clone(),
-                            HarnessProfile {
-                                kind: HarnessKind::Acp,
-                                argv,
-                                env: BTreeMap::new(),
-                                description: Some("imported from ~/.acpx".into()),
-                                fallback: None,
-                                family: None,
-                                models: vec![],
-                                model: None,
-                                effort: None,
-                                policy: None,
-                            },
-                        );
-                    }
+    if let Some(text) = acpx
+        && let Ok(v) = serde_json::from_str::<serde_json::Value>(text)
+        && let Some(map) = v.get("agents").and_then(|a| a.as_object())
+    {
+        for (name, profile) in map {
+            if let Some(argv) = profile.get("argv").and_then(|a| a.as_array()) {
+                let argv: Vec<String> =
+                    argv.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect();
+                if !argv.is_empty() {
+                    agents.insert(
+                        name.clone(),
+                        HarnessProfile {
+                            kind: HarnessKind::Acp,
+                            argv,
+                            env: BTreeMap::new(),
+                            description: Some("imported from ~/.acpx".into()),
+                            fallback: None,
+                            family: None,
+                            models: vec![],
+                            model: None,
+                            effort: None,
+                            policy: None,
+                        },
+                    );
                 }
             }
         }
