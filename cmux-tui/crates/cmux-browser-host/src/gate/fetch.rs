@@ -29,8 +29,8 @@ fn forbidden_header(name: &str) -> bool {
 /// shell fetch counts too). One more waits for a slot.
 pub const MAX_FETCHES: usize = 16;
 
-/// Classic main's text for a fetch its cell's timeout cancelled (no
-/// `cancelled` protocol code yet: the error is Timeout).
+/// Classic main's text for a fetch its cell's timeout cancelled (code
+/// `cancelled`, as classic).
 pub const CELL_TIMED_OUT: &str = "fetch: cancelled because the cell that started it timed out";
 
 /// Idle limit of a fetch without `timeoutMs`: classic's URLSession
@@ -69,9 +69,10 @@ impl FetchSlots {
     /// Why a fetch of `cell` may not run, if it may not.
     fn refusal(&self, cell: u64) -> Option<DriverError> {
         if self.ended {
-            return Some(DriverError::closed("fetch: the session ended"));
+            return Some(DriverError::cancelled("fetch: the session ended"));
         }
-        (cell != 0 && self.cancelled.contains(&cell)).then(|| DriverError::timeout(CELL_TIMED_OUT))
+        (cell != 0 && self.cancelled.contains(&cell))
+            .then(|| DriverError::cancelled(CELL_TIMED_OUT))
     }
 
     /// True while `cell` has a queued or running fetch.
