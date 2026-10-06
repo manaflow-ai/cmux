@@ -433,7 +433,9 @@
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
-      "cloud-conversation-unsubscribe"
+      "cloud-conversation-unsubscribe",
+      "conversation-attachment-upload",
+      "conversation-attachment-read"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326";
+inline constexpr std::string_view kProtocolIrSha256 = "55b3f33a84982ee0c570102451cb18c6ed6fda3151ca67445e0281c1b38d06a2";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -247,6 +247,10 @@ struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
 struct ConversationAgentTokenRequest;
 struct ConversationAgentTokenResult;
+struct ConversationAttachmentReadRequest;
+struct ConversationAttachmentReadResult;
+struct ConversationAttachmentUploadRequest;
+struct ConversationAttachmentUploadResult;
 struct ConversationBindRequest;
 struct ConversationBindResult;
 struct ConversationCreateRequest;
@@ -541,6 +545,7 @@ enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
 enum class BrowserMouseRequestKind;
 enum class BrowserMouseGuardedRequestKind;
+struct ConversationAttachmentUploadResultStored;
 enum class CopyRequestMode;
 enum class IdsRequestKind;
 enum class SubscribeRequestTreeEvents;
@@ -548,6 +553,8 @@ enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+struct ConversationAttachmentUploadResultStoredPoster;
+struct ConversationAttachmentUploadResultStoredPreview;
 
 struct Id {
     std::uint64_t value{};
@@ -1479,6 +1486,75 @@ struct ConversationAgentTokenResult {
     friend bool operator==(const ConversationAgentTokenResult&, const ConversationAgentTokenResult&) = default;
 };
 
+struct ConversationAttachmentReadRequest {
+    std::string conversation{};
+    std::string hash{};
+    Field<std::uint64_t> length{};
+    Field<std::uint64_t> offset{};
+    Field<std::string> variant{};
+    friend bool operator==(const ConversationAttachmentReadRequest&, const ConversationAttachmentReadRequest&) = default;
+};
+
+struct ConversationAttachmentReadResult {
+    std::uint64_t byte_count{};
+    std::string data{};
+    bool eof{};
+    std::string hash{};
+    std::string mime_type{};
+    std::uint64_t offset{};
+    friend bool operator==(const ConversationAttachmentReadResult&, const ConversationAttachmentReadResult&) = default;
+};
+
+struct ConversationAttachmentUploadRequest {
+    Field<std::uint64_t> byte_count{};
+    Field<std::string> conversation{};
+    Field<std::string> data{};
+    Field<std::uint64_t> duration_ms{};
+    Field<std::uint32_t> height{};
+    Field<std::string> mime_type{};
+    Field<std::string> name{};
+    Field<std::uint64_t> offset{};
+    std::string op{};
+    Field<std::string> piece{};
+    Field<JsonValue> poster{};
+    Field<JsonValue> preview{};
+    Field<std::string> sha256{};
+    Field<std::string> upload{};
+    Field<std::uint32_t> width{};
+    friend bool operator==(const ConversationAttachmentUploadRequest&, const ConversationAttachmentUploadRequest&) = default;
+};
+
+struct ConversationAttachmentUploadResultStoredPoster {
+    std::uint64_t byte_count{};
+    std::string hash{};
+    std::string mime_type{};
+    friend bool operator==(const ConversationAttachmentUploadResultStoredPoster&, const ConversationAttachmentUploadResultStoredPoster&) = default;
+};
+
+struct ConversationAttachmentUploadResultStoredPreview {
+    std::uint64_t byte_count{};
+    std::string hash{};
+    std::string mime_type{};
+    friend bool operator==(const ConversationAttachmentUploadResultStoredPreview&, const ConversationAttachmentUploadResultStoredPreview&) = default;
+};
+
+struct ConversationAttachmentUploadResultStored {
+    std::uint64_t byte_count{};
+    std::string hash{};
+    std::string mime_type{};
+    Field<ConversationAttachmentUploadResultStoredPoster> poster{};
+    Field<ConversationAttachmentUploadResultStoredPreview> preview{};
+    friend bool operator==(const ConversationAttachmentUploadResultStored&, const ConversationAttachmentUploadResultStored&) = default;
+};
+
+struct ConversationAttachmentUploadResult {
+    Field<std::vector<std::string>> needs{};
+    Field<std::uint64_t> received{};
+    Field<ConversationAttachmentUploadResultStored> stored{};
+    Field<std::string> upload{};
+    friend bool operator==(const ConversationAttachmentUploadResult&, const ConversationAttachmentUploadResult&) = default;
+};
+
 struct ConversationBindRequest {
     std::string participant{};
     std::string token{};
@@ -1500,7 +1576,7 @@ struct ConversationTextRun {
 
 struct ConversationPart {
     std::optional<std::string> host{};
-    std::optional<std::string> preview{};
+    std::optional<JsonValue> preview{};
     std::optional<std::vector<ConversationTextRun>> runs{};
     std::optional<std::string> session{};
     std::optional<std::string> status{};
@@ -6107,6 +6183,30 @@ struct Codec<ConversationAgentTokenResult> {
 };
 
 template <>
+struct Codec<ConversationAttachmentReadRequest> {
+    static Result<Json> encode(const ConversationAttachmentReadRequest& value);
+    static Result<ConversationAttachmentReadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentReadResult> {
+    static Result<Json> encode(const ConversationAttachmentReadResult& value);
+    static Result<ConversationAttachmentReadResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentUploadRequest> {
+    static Result<Json> encode(const ConversationAttachmentUploadRequest& value);
+    static Result<ConversationAttachmentUploadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentUploadResult> {
+    static Result<Json> encode(const ConversationAttachmentUploadResult& value);
+    static Result<ConversationAttachmentUploadResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationBindRequest> {
     static Result<Json> encode(const ConversationBindRequest& value);
     static Result<ConversationBindRequest> decode(const Json& value);
@@ -7871,6 +7971,12 @@ struct Codec<BrowserMouseGuardedRequestKind> {
 };
 
 template <>
+struct Codec<ConversationAttachmentUploadResultStored> {
+    static Result<Json> encode(const ConversationAttachmentUploadResultStored& value);
+    static Result<ConversationAttachmentUploadResultStored> decode(const Json& value);
+};
+
+template <>
 struct Codec<CopyRequestMode> {
     static Result<Json> encode(const CopyRequestMode& value);
     static Result<CopyRequestMode> decode(const Json& value);
@@ -7910,6 +8016,18 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentUploadResultStoredPoster> {
+    static Result<Json> encode(const ConversationAttachmentUploadResultStoredPoster& value);
+    static Result<ConversationAttachmentUploadResultStoredPoster> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAttachmentUploadResultStoredPreview> {
+    static Result<Json> encode(const ConversationAttachmentUploadResultStoredPreview& value);
+    static Result<ConversationAttachmentUploadResultStoredPreview> decode(const Json& value);
 };
 
 }  // namespace cmux::raw

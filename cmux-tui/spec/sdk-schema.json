@@ -6644,7 +6644,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties."
+     "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties."
     },
     "text": {
      "type": {
@@ -6696,12 +6696,12 @@
     },
     "preview": {
      "type": {
-      "kind": "scalar",
-      "name": "string"
+      "kind": "ref",
+      "name": "JsonValue"
      },
      "presence": "optional",
      "nullable": false,
-     "description": "type work."
+     "description": "type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}."
     }
    }
   },
@@ -20018,6 +20018,408 @@
    "constraints": [
     "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
     "The secret is never journaled, logged or put in an event."
+   ]
+  },
+  "conversation-attachment-upload": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-attachments-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "op": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "sha256": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "byte_count": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mime_type": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "width": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "height": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "duration_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "poster": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "preview": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "upload": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "piece": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "upload": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "needs": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "stored": {
+      "type": {
+       "kind": "object",
+       "fields": {
+        "hash": {
+         "type": {
+          "kind": "scalar",
+          "name": "string"
+         },
+         "presence": "required",
+         "nullable": false
+        },
+        "mime_type": {
+         "type": {
+          "kind": "scalar",
+          "name": "string"
+         },
+         "presence": "required",
+         "nullable": false
+        },
+        "byte_count": {
+         "type": {
+          "kind": "scalar",
+          "name": "uint64"
+         },
+         "presence": "required",
+         "nullable": false
+        },
+        "poster": {
+         "type": {
+          "kind": "object",
+          "fields": {
+           "hash": {
+            "type": {
+             "kind": "scalar",
+             "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+           },
+           "mime_type": {
+            "type": {
+             "kind": "scalar",
+             "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+           },
+           "byte_count": {
+            "type": {
+             "kind": "scalar",
+             "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+           }
+          },
+          "additional_properties": false
+         },
+         "presence": "optional",
+         "nullable": true,
+         "default": null
+        },
+        "preview": {
+         "type": {
+          "kind": "object",
+          "fields": {
+           "hash": {
+            "type": {
+             "kind": "scalar",
+             "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+           },
+           "mime_type": {
+            "type": {
+             "kind": "scalar",
+             "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+           },
+           "byte_count": {
+            "type": {
+             "kind": "scalar",
+             "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+           }
+          },
+          "additional_properties": false
+         },
+         "presence": "optional",
+         "nullable": true,
+         "default": null
+        }
+       },
+       "additional_properties": false
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "received": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
+   ]
+  },
+  "conversation-attachment-read": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-attachments-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "hash": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "variant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "length": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "hash": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mime_type": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "byte_count": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "eof": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
    ]
   }
  },
