@@ -116,6 +116,28 @@ test("snapshot: DOM read beside the walk (visible-box checks, aria-owns, labels)
 // WebKit's own getter, which scans the whole document for each control: a
 // page of many labels and controls would make every name a full scan. A
 // locator query past it names controls without those labels.
+test("frame owner lookup: light-DOM <iframe>s are checked within the node budget, not through a whole-document list", async () => {
+  // The parent agent's owner lookup (Frame._ownerHandle) for the last of
+  // 300 light-DOM <iframe>s, with a budget of 100 and of 1,000 elements.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => { document.body.innerHTML = '<iframe style="width:1px;height:1px"></iframe>'.repeat(300); });
+        await page.waitForFunction(() => window.length === 300);`);
+      const r = await run(`const main = page.mainFrame();
+        const small = await main._agent("iframeHandles", 299, 100);
+        const enough = await main._agent("iframeHandles", 299, 1000);
+        console.log("@@" + JSON.stringify({ small: [small.handles.length, small.truncated], enough: [enough.handles.length, enough.truncated] }));`);
+      const v = JSON.parse(r.value);
+      assert.deepEqual(v.small, [0, true], "the light-DOM lookup checked more <iframe>s than its node budget");
+      assert.deepEqual(v.enough, [1, false], "the light-DOM <iframe> was not found within the budget");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("locators: past the page-read budget, labels are not read by a whole-document scan", async () => {
   const servers = await startFixtureServers();
   try {
