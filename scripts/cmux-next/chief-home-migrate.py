@@ -149,6 +149,20 @@ def host_running(mux_home):
     return pid if "optchat-chief" in comm or "mux" in comm else None
 
 
+def owner_running(into):
+    """Read-only: whether the Chief home's conversation owner answers on its socket."""
+    import socket
+    temp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip() or "/tmp/"
+    path = os.path.join(temp, "cmux-tui-%d" % os.getuid(), chief_session(into) + ".sock")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            s.connect(path)
+        return path
+    except OSError:
+        return None
+
+
 def read_source(name, mux_home, db_path, scratch):
     log, tree = read_log(os.path.join(mux_home, "optchat", "chat"))
     host = {}
@@ -447,6 +461,8 @@ def report(sources, p, into, state):
     dropped = sum(len(s["host"].get("children") or {}) for s in sources)
     if dropped:
         lines.append("  %d subagent records stay with their tag's acpmux and are not carried" % dropped)
+    if owner_running(into):
+        lines.append("  BLOCKER for --apply: the Chief home's conversation owner runs; quit the build that opened it")
     running = [s["name"] for s in sources if s["host_pid"]]
     if running:
         lines.append("  BLOCKER for --apply: hosts still run for %s (quit those builds; a host outlives its app: stop it by pid)" % ", ".join(running))
@@ -503,6 +519,10 @@ def main(argv=None):
         if any(s["host_pid"] for s in sources) or host_running(into):
             print("Refused: a Chief host still runs; stop it first.", file=sys.stderr)
             return 5
+        if owner_running(into):
+            print("Refused: the Chief home's conversation owner runs (a build with the Chief home opened Home); "
+                  "quit it and stop that cmux-tui session first.", file=sys.stderr)
+            return 6
         record = apply(p, into, opts.user_home)
         print("\nMigrated: %d messages, %d memory entries into %s." % (record["messages"], record["log_entries"], into))
     return 0

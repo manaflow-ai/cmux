@@ -100,6 +100,15 @@ at once, marked not yet live), and writes it after owner snapshots and events, n
 intents. Deleting it loses only drafts and unsent sends; the history comes back from the owner.
 macOS may purge Caches; that is the same as deleting it.
 
+Built on this branch (HomeCache, HomeStore, HomeProjection): the list and opened conversations,
+text sends (unconfirmed and Not Delivered) and drafts. Writes are coalesced for 250 ms and done at
+once on `HomeStore.stop()`; the Mac app does not call `stop()` at quit yet, so a quit or crash can
+lose the last 250 ms of changes. Not built yet: sends with attachments (their local files are not
+kept), and restoring the scroll anchor in the view (HomeStore keeps it; the vendored MessagesLab
+scroll engine has no entry point to restore an offset, so a conversation still opens at the newest
+message). There is no Mac cloud Home source yet (iOS runs the mock); when it lands it gets the same
+cache under `cloud-<user id>`.
+
 ## 5. Changes to other plans
 
 - home.md section 4 and chief-mac.md: "`$MUX_HOME` defaults to `~/.cmux/mux`; tagged builds use
