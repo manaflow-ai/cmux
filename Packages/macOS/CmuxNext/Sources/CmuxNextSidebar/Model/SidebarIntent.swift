@@ -19,7 +19,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Move a group within its section. `index` excludes the group itself.
     case reorderGroup(GroupID, index: Int)
     /// Create a group holding the given workspaces. The UI mints the id.
-    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID])
+    /// The group forms where `anchor` is (a row dropped onto another forms
+    /// it at the target row), else at the first workspace in tree order.
+    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil)
     case renameGroup(GroupID, String)
     case setGroupColor(GroupID, GroupColor)
     /// Dissolve a group, leaving its workspaces in place.

@@ -42,7 +42,9 @@ final class SidebarBridge {
         self.state = state
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
-        model.ungroupedFirst = true
+        // Loose rows come before every group unless the home session places
+        // groups among them (`personal-mixed-order-v1`); refreshed on show.
+        model.ungroupedFirst = !services.machines.local.store.supportsPersonalMixedOrder
         // Synchronous, before the hide animation starts: focus leaves the
         // sidebar in the same turn (plans/cmux-next/focus.md).
         model.onPresentationChange = { [weak state] presentation in
@@ -155,6 +157,7 @@ final class SidebarBridge {
     /// Shows `live` with loading sections filled from the seed, then saves it.
     private func show(_ live: [SidebarRowSection], launching: Bool, failed: Set<MachineID>) {
         let sections = seed.merge(live, launching: launching, failed: failed)
+        model.ungroupedFirst = !usesMixedOrder
         if model.sections != sections { model.sections = sections }
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
         recordSnapshot()
