@@ -20,6 +20,7 @@
 //! `Settings::turn_limit`.
 
 mod children;
+pub mod images;
 mod inbox;
 mod outbox;
 mod recover;
@@ -62,7 +63,8 @@ pub enum Input {
     /// and answers with the texts to deliver (section 7).
     Boundary {
         key: String,
-        reply: Sender<Vec<String>>,
+        /// The prompt blocks to deliver: the messages' images, then their text.
+        reply: Sender<Vec<serde_json::Value>>,
     },
     TurnEnded {
         key: String,
@@ -107,6 +109,11 @@ pub enum Input {
         message: String,
         reply: Sender<Result<String, String>>,
     },
+    /// A description of a turn's image arrived (or failed): logged as a note.
+    Described {
+        image: Box<images::TurnImage>,
+        description: Result<String, String>,
+    },
 }
 
 impl From<DaemonEvent> for Input {
@@ -149,6 +156,9 @@ pub struct Settings {
     /// `MUX_POLICY` (default approve-all).
     pub policy: String,
     pub model: Option<String>,
+    /// acpmux `effort` of each turn session (`effort::turn_effort`); None:
+    /// the harness's default.
+    pub effort: Option<String>,
     /// The value of the `mux.parent` tag on the Chief's children.
     pub parent: String,
     /// Turn session names are `<turn_prefix>-<first id>`; `optchat-<home id>`,
@@ -193,6 +203,8 @@ const REPLY_BYTES: usize = 60_000;
 struct Queued {
     text: String,
     source: Source,
+    /// The images of a human message, for the turn's prompt (never logged).
+    images: Vec<images::TurnImage>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -243,6 +255,8 @@ pub struct Brain {
     /// their id, removed by name once acpmux is up.
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
+    /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
+    last_agent_send: Option<u64>,
     fatal: Option<String>,
     /// A human message arrived while an acpmux turn ran: that turn is
     /// being stopped, and its end posts nothing.
@@ -266,6 +280,10 @@ pub struct Brain {
     /// When the current settle wait and turn began.
     settle_clock: Option<Instant>,
     turn_clock: Option<Instant>,
+    /// Writes the log's description of each turn image (None: references only).
+    describer: Option<Arc<dyn images::Describe>>,
+    /// Images being described now (`conversation/hash`), started once each.
+    describing: HashSet<String>,
 }
 
 impl Brain {
@@ -277,6 +295,9 @@ impl Brain {
         tx: Sender<Input>,
         log: Log,
     ) -> Brain {
+        // The state lives in the memory database from here on (an old
+        // host.json is imported once).
+        let file = file.attach(chat.clone());
         let mut state = file.load();
         let acpmux = matches!(settings.engine, Engine::Acpmux);
         let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
@@ -304,6 +325,7 @@ impl Brain {
             sessions: HashMap::new(),
             stale_sessions,
             outbox_timer: None,
+            last_agent_send: None,
             fatal: None,
             stop_wanted: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
@@ -316,6 +338,8 @@ impl Brain {
             prev_view: None,
             settle_clock: None,
             turn_clock: None,
+            describer: None,
+            describing: HashSet::new(),
         };
         brain.save();
         brain
@@ -349,6 +373,11 @@ impl Brain {
     ) -> Brain {
         self.workspaces = workspaces;
         self
+    }
+
+    /// Describes each turn image for the log (the compactor's deny-all model).
+    pub fn set_describer(&mut self, describer: Arc<dyn images::Describe>) {
+        self.describer = Some(describer);
     }
 
     /// acpmux sessions the brain keeps a summary of (its children only).
@@ -420,8 +449,8 @@ impl Brain {
                 after,
             } => self.progress(&key, session_id, after),
             Input::Boundary { key, reply } => {
-                let texts = self.boundary(&key);
-                let _ = reply.send(texts);
+                let blocks = self.boundary(&key);
+                let _ = reply.send(blocks);
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
             Input::Notice { key, text } => self.notice(key, text),
@@ -437,6 +466,7 @@ impl Brain {
                 let answer = self.tell(&id, &message);
                 let _ = reply.send(answer);
             }
+            Input::Described { image, description } => self.described(&image, description),
         }
     }
 
@@ -502,16 +532,29 @@ impl Brain {
     }
 
     fn save(&self) {
-        if let Err(e) = self.file.save(&self.state) {
+        self.save_with(Vec::new());
+    }
+
+    /// Saves the state and `extra` writes in one transaction.
+    fn save_with(&self, extra: Vec<optchat_host::StateWrite>) {
+        if let Err(e) = self.file.save_with(&self.state, extra) {
             (self.log)(&format!("saving the host state failed: {e}"));
         }
     }
 
     fn queue(&mut self, text: String, source: Source) {
+        self.queue_with_images(text, Vec::new(), source);
+    }
+
+    fn queue_with_images(&mut self, text: String, images: Vec<images::TurnImage>, source: Source) {
         // Section 9: subagents' reports reach a working Chief between its
         // tool calls; on acpmux that is a stop like a human message's.
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
-        self.queue.push_back(Queued { text, source });
+        self.queue.push_back(Queued {
+            text,
+            source,
+            images,
+        });
         if human {
             self.interrupt_for_newer();
         }
@@ -525,12 +568,12 @@ impl Brain {
 /// owner would refuse or silently replay the reply). The millisecond stamp
 /// of message `first` tells the two apart.
 fn reply_key(chat: &OptChat, first: u64) -> String {
-    let stamp: String = chat
-        .stamp(first)
-        .unwrap_or_default()
-        .chars()
-        .filter(char::is_ascii_digit)
-        .collect();
+    reply_key_at(first, &chat.stamp(first).unwrap_or_default())
+}
+
+/// `reply_key` from message `first`'s stored date `stamp`.
+fn reply_key_at(first: u64, stamp: &str) -> String {
+    let stamp: String = stamp.chars().filter(char::is_ascii_digit).collect();
     format!("turn:optchat:{first}:{stamp}")
 }
 
@@ -560,6 +603,8 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
         },
         rate_retried: false,
         not_before: None,
+        attempted: false,
+        rate_attempts: 0,
     }
 }
 

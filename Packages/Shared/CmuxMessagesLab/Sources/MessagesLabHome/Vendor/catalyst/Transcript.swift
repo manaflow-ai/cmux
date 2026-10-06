@@ -338,6 +338,11 @@ final class RowCell: UICollectionViewCell {
     let typingContainer = CALayer()
     var dots: [CALayer] = []
     let receiptOld = CALayer()
+    /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
+    var tiled: TiledBody?
+    /// The row this cell waits for from the bitmap queue (renders nobody waits for are skipped).
+    private var pendingWant: RowSpec?
+    private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
     static var synchronousBitmaps = false
     /// Rows drawn on the main thread because their bitmap was not ready
     /// (bench evidence).
@@ -350,6 +355,9 @@ final class RowCell: UICollectionViewCell {
     /// row whose tail changes, receipts, the reply). The budget applies only
     /// to rows that scroll into view.
     static var transitionDepth = 0
+    /// Inside a paging commit (older/newer page, jump): rows whose images are not decoded
+    /// wait for their off-main bitmap (no image decode on main; MediaCache.swift).
+    static var inPaging = false
     /// Rows past the budget that waited for an off-main bitmap.
     static var overBudget = 0
     /// Main-thread drawing per run-loop turn (one frame's work): enough for
@@ -397,9 +405,7 @@ final class RowCell: UICollectionViewCell {
         connector.strokeColor = Fixture.connector.cgColor
         connector.lineWidth = 2.6
         connector.lineCap = .round
-        fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
-            ?? Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
-        fillGradient.locations = (Fixture.themedGradient?.map(\.0) ?? Fixture.gradientStops.map(\.0)).map { NSNumber(value: Double($0 / (Fixture.gradientHeight * 2))) }
+        applyFillPalette()  // cmux: themed accent
         fillContainer.addSublayer(fillGradient)
         fillContainer.mask = fillMask
         connectorLine.backgroundColor = connector.strokeColor
@@ -438,6 +444,8 @@ final class RowCell: UICollectionViewCell {
         clearAnimations()
         applied = []
         key = ""
+        tiled?.detach(self)
+        dropWant()
     }
 
     func clearAnimations() {
@@ -472,6 +480,7 @@ final class RowCell: UICollectionViewCell {
         let showingThisRow = key == spec.key && bitmap.contents != nil
         let repaint = palette != Fixture.paletteGeneration
         if key != spec.key { clearAnimations(); applied = []; key = spec.key }
+        if let w = pendingWant, w != spec { dropWant() }
         if palette != Fixture.paletteGeneration {
             palette = Fixture.paletteGeneration
             CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -485,8 +494,7 @@ final class RowCell: UICollectionViewCell {
                 d.backgroundColor = Fixture.typingDot.cgColor
                 d.sublayers?.first?.backgroundColor = Fixture.typingDotHighlight.cgColor
             }
-            fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
-            ?? Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
+            applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
             CATransaction.commit()
             self.spec = nil
         }
@@ -497,6 +505,9 @@ final class RowCell: UICollectionViewCell {
         self.spec = spec
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        // Long text: no bubble-sized bitmap (TiledBubble.swift, shared/LONG-MESSAGES.md).
+        if TiledBubble.applies(spec) { TiledBubble.configure(self, spec); CATransaction.commit(); return }
+        tiled?.detach(self)
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         let bitmapFrame = CGRect(origin: CGPoint(x: span.lowerBound, y: 0), size: size)
@@ -523,7 +534,10 @@ final class RowCell: UICollectionViewCell {
             Reclaimer.release(bitmap.contents)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
-        } else if RowCell.synchronousBitmaps || (!(repaint && showingThisRow) && (RowCell.transitionDepth > 0 || RowCell.mainDrawBudgetLeft())) {
+        } else if RowCell.synchronousBitmaps || (!(repaint && showingThisRow)
+                                                    && ((RowCell.transitionDepth > 0 && (!RowCell.inPaging || Images.ready(spec)))
+                                                        || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
+            // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
             let t0 = CACurrentMediaTime()
             let img = RowBitmaps.render(spec)
             RowCell.mainDrawSpent += CACurrentMediaTime() - t0
@@ -543,7 +557,11 @@ final class RowCell: UICollectionViewCell {
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
             }
+            dropWant()
+            RowBitmaps.shared.want(want)
+            pendingWant = want
             RowBitmaps.shared.request(want) { [weak self] img in
+                if self?.pendingWant == want { self?.dropWant() }
                 guard let self, self.spec == want else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)
                 Reclaimer.release(self.bitmap.contents)
@@ -583,8 +601,14 @@ final class RowCell: UICollectionViewCell {
         typingContainer.bounds = CGRect(x: 0, y: 0, width: 140, height: b.maxY + 8)
         typingContainer.position = CGPoint(x: 0, y: b.maxY + 8)
         typingContainer.sublayerTransform = CATransform3DIdentity
-        bitmap.removeFromSuperlayer()
-        typingContainer.addSublayer(bitmap)
+        // The bubble bitmap goes UNDER the dots. It used to be re-appended on every
+        // configure: after a palette change (the window losing or regaining key
+        // status) it landed on top of the running dots and hid them (dogfood:
+        // "if the user unfocuses, we lose the typing dots"; --typing-focus-check).
+        if bitmap.superlayer !== typingContainer || typingContainer.sublayers?.first !== bitmap {
+            bitmap.removeFromSuperlayer()
+            typingContainer.insertSublayer(bitmap, at: 0)
+        }
         dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
     }
 
@@ -602,7 +626,28 @@ final class RowCell: UICollectionViewCell {
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
         fillMask.frame = body
         fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)
-        fillGradient.frame = CGRect(x: 0, y: -windowY, width: spec.width, height: Fixture.gradientHeight)
+        fillGradient.frame = fillFrame(width: spec.width)  // cmux: a pane taller than the measured window
+    }
+
+    /// cmux: the outgoing gradient's colours and their locations from one
+    /// stop list. A palette change that set only the colours left a cell
+    /// made under the measured palette (8 stops) with 11 themed colours.
+    private func applyFillPalette() {
+        let stops: [(CGFloat, CGColor)] = Fixture.themedGradient?.map { ($0.0, $0.1.cgColor) }
+            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
+        fillGradient.colors = stops.map(\.1)
+        fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
+    }
+
+    /// cmux: the gradient layer in cell coordinates. It spans MessagesLab's
+    /// measured 1041 pt window, so in a taller pane a row whose fill would end
+    /// below that window takes the gradient's deepest band (the same colour
+    /// `Fixture.color(in:atPx:)` gives a static bitmap there) instead of
+    /// falling outside the layer and drawing with no fill under its text.
+    func fillFrame(width: CGFloat) -> CGRect {
+        let height = fillContainer.bounds.height
+        let span = max(Fixture.gradientHeight, height)
+        return CGRect(x: 0, y: -min(windowY, span - height), width: width, height: span)
     }
 
     /// Window y of the cell's top: the outgoing fill shades with it.
@@ -610,7 +655,7 @@ final class RowCell: UICollectionViewCell {
         didSet {
             guard windowY != oldValue, !fillContainer.isHidden else { return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
-            fillGradient.frame.origin.y = -windowY
+            fillGradient.frame = fillFrame(width: fillGradient.frame.width)  // cmux: clamped to the pane
             CATransaction.commit()
         }
     }

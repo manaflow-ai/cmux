@@ -399,3 +399,63 @@ fn thanks_during_a_tool_lets_the_tool_finish_then_starts_a_new_call() {
         ])
     );
 }
+
+/// An image sent while a native turn runs reaches the model with the
+/// delivered text, between tool calls, in the Messages API's shape.
+#[test]
+fn an_image_sent_during_a_native_turn_is_delivered_with_its_text() {
+    const HASH: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let model = scripted(vec![tool_step(), final_step("It says ORCHID.")], true);
+    let workdir = tempfile::tempdir().unwrap();
+    let mut h = Harness::with_engine(native(model.clone(), workdir.path()));
+    h.owner
+        .lock()
+        .unwrap()
+        .attachments
+        .insert((HASH.into(), "original".into()), "QUJD".into());
+    h.connect();
+    h.say("user_local", "check A");
+    h.step();
+    let deadline = std::time::Instant::now() + WAIT;
+    while model.bodies.lock().unwrap().is_empty() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    h.say_parts(
+        "user_local",
+        vec![
+            cmux_conversation::Part::Attachment {
+                hash: HASH.into(),
+                name: "shot.png".into(),
+                mime_type: "image/png".into(),
+                byte_count: 3,
+                width: None,
+                height: None,
+                duration_ms: None,
+                poster: None,
+                preview: None,
+            },
+            cmux_conversation::Part::Text {
+                text: "what does this say?".into(),
+                runs: None,
+            },
+        ],
+    );
+    *model.gate.lock().unwrap() = false;
+    model.opened.notify_all();
+    h.settle();
+    let bodies = model.bodies.lock().unwrap().clone();
+    assert_eq!(bodies.len(), 2, "delivered in the same turn");
+    let content = bodies[1]["messages"][2]["content"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(
+        content[1],
+        json!({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}})
+    );
+    assert_eq!(
+        content[2],
+        json!({"type": "text", "text": "what does this say?\n[image sha256:0123456789ab \"shot.png\" image/png]"})
+    );
+}

@@ -10,6 +10,11 @@ pub trait Store {
     fn message(&self, i: u64) -> (Kind, String);
     /// Text of a built node.
     fn node(&self, id: NodeId) -> Option<String>;
+    /// Byte size of a built node's text. A store that keeps sizes apart
+    /// (an index) answers without reading the text.
+    fn node_size(&self, id: NodeId) -> Option<usize> {
+        self.node(id).map(|t| t.len())
+    }
     /// Whether a read since the host last cleared it failed (a host whose
     /// reads can fail, such as the hosted store over DO SQLite, answers a
     /// failed read with a stand-in and sets this). `pump` stops before it
@@ -31,13 +36,32 @@ pub enum Work {
     Model { node: NodeId },
 }
 
+/// Where a lazy `Memory` stands, for a host to save and `resume` from:
+/// message count, the lowest unbuilt index per level, and the view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Checkpoint {
+    pub t: u64,
+    pub low: Vec<u64>,
+    pub view: Vec<NodeId>,
+}
+
 /// One chat's memory state. Single writer: one `Memory` per chat.
+///
+/// A node is built when its index is below its level's `low` (every node
+/// there is built) or it is in `frontier` (built out of order above it).
+/// Sizes of nodes below `low` are kept in `sizes`: all of them for a memory
+/// made with `new` or `load`; for a lazy one (`resume`, `make_lazy`) only
+/// the view's parts, the rest read from the store by key when a merge needs
+/// one. A lazy memory takes the `_in` methods, which get the store.
 #[derive(Clone, Debug)]
 pub struct Memory {
     /// Number of messages, T.
     t: u64,
-    /// Every built node with the byte size of its text.
-    built: HashMap<NodeId, usize>,
+    /// Built nodes at or above their level's `low`, with their sizes.
+    frontier: HashMap<NodeId, usize>,
+    /// Sizes of built nodes below `low` (all, or only the view's when lazy).
+    sizes: HashMap<NodeId, usize>,
+    lazy: bool,
     /// Lowest index not built yet, per level (the scan starts there).
     low: Vec<u64>,
     /// The view: parts tiling [0, T), oldest first (section 5).
@@ -59,7 +83,9 @@ impl Memory {
     pub fn new(budget: usize) -> Memory {
         Memory {
             t: 0,
-            built: HashMap::new(),
+            frontier: HashMap::new(),
+            sizes: HashMap::new(),
+            lazy: false,
             low: Vec::new(),
             view: Vec::new(),
             view_size: 0,
@@ -70,18 +96,120 @@ impl Memory {
 
     /// Rebuilds the state after a restart: the view is not saved, it is folded
     /// again from message 0 with the stored nodes (section 5.2, "At load").
+    /// O(T) in time and in the sizes it keeps; see `resume`.
     pub fn load(t: u64, built: impl IntoIterator<Item = (NodeId, usize)>, budget: usize) -> Memory {
         let mut m = Memory::new(budget);
-        m.built = built.into_iter().collect();
-        let levels = m.built.keys().map(|n| n.l as usize + 1).max().unwrap_or(0);
+        m.frontier = built.into_iter().collect();
+        let levels = m
+            .frontier
+            .keys()
+            .map(|n| n.l as usize + 1)
+            .max()
+            .unwrap_or(0);
         m.low = vec![0; levels];
         for l in 0..levels {
             m.advance_low(l as u32);
         }
         for _ in 0..t {
-            m.push_message();
+            m.push_message(&NoStore);
         }
         m
+    }
+
+    /// Picks up from a saved `Checkpoint` without reading the whole log:
+    /// `frontier` is every stored node at or above the checkpoint's `low` of
+    /// its level (with its size); the view's sizes come from `store` by key;
+    /// messages `checkpoint.t..t` are folded in as at load (section 5.2).
+    /// The result is lazy. None when the checkpoint does not fit the store
+    /// (a view that does not tile `[0, checkpoint.t)`, a merged part that is
+    /// not stored, more messages in it than `t`): the host then `load`s.
+    pub fn resume(
+        checkpoint: &Checkpoint,
+        t: u64,
+        frontier: impl IntoIterator<Item = (NodeId, usize)>,
+        budget: usize,
+        store: &dyn Store,
+    ) -> Option<Memory> {
+        if checkpoint.t > t || checkpoint.low.len() > 64 {
+            return None;
+        }
+        let mut m = Memory::new(budget);
+        m.lazy = true;
+        m.low = checkpoint.low.clone();
+        m.frontier = frontier.into_iter().collect();
+        let levels = m
+            .frontier
+            .keys()
+            .map(|n| n.l as usize + 1)
+            .max()
+            .unwrap_or(0)
+            .max(m.low.len());
+        m.low.resize(levels, 0);
+        for l in 0..levels {
+            m.advance_low(l as u32);
+        }
+        let mut at = 0u64;
+        for part in &checkpoint.view {
+            if part.start() != at || part.checked_end().is_none_or(|e| e > checkpoint.t) {
+                return None;
+            }
+            at = part.end();
+            let size = if m.is_built(*part) {
+                m.size(*part, store)?
+            } else if part.l == 0 {
+                PLACEHOLDER.len()
+            } else {
+                return None;
+            };
+            if m.is_built(*part) {
+                m.sizes.insert(*part, size);
+            }
+            m.view.push(*part);
+            m.view_size += size;
+        }
+        if at != checkpoint.t {
+            return None;
+        }
+        m.t = checkpoint.t;
+        while m.t < t {
+            m.push_message(store);
+        }
+        m.fit(store);
+        Some(m)
+    }
+
+    /// Where this memory stands, for `resume`.
+    pub fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            t: self.t,
+            low: self.low.clone(),
+            view: self.view.clone(),
+        }
+    }
+
+    /// Drops the sizes of nodes outside the view (they are read from the
+    /// store when needed): from here on only the `_in` methods may change it.
+    pub fn make_lazy(&mut self) {
+        self.lazy = true;
+        self.prune();
+    }
+
+    pub fn is_lazy(&self) -> bool {
+        self.lazy
+    }
+
+    fn prune(&mut self) {
+        let view: HashSet<NodeId> = self.view.iter().copied().collect();
+        self.sizes.retain(|id, _| view.contains(id));
+    }
+
+    /// Size of a built node: from memory, else (lazy) from the store.
+    fn size(&self, id: NodeId, store: &dyn Store) -> Option<usize> {
+        self.frontier
+            .get(&id)
+            .or_else(|| self.sizes.get(&id))
+            .copied()
+            .or_else(|| store.node_size(id))
     }
 
     pub fn len(&self) -> u64 {
@@ -105,7 +233,8 @@ impl Memory {
     }
 
     pub fn is_built(&self, id: NodeId) -> bool {
-        self.built.contains_key(&id)
+        self.low.get(id.l as usize).is_some_and(|low| id.i < *low)
+            || self.frontier.contains_key(&id)
     }
 
     pub fn busy(&self) -> impl Iterator<Item = &NodeId> {
@@ -113,22 +242,35 @@ impl Memory {
     }
 
     /// Appends one message (the host has stored and fsynced it) and returns its id.
-    /// Call `pump` afterwards.
+    /// Call `pump` afterwards. Not for a lazy memory (`append_in`).
     pub fn append(&mut self) -> u64 {
-        self.push_message();
+        debug_assert!(!self.lazy, "a lazy memory appends with append_in");
+        self.append_in(&NoStore)
+    }
+
+    /// `append` for any memory: sizes it does not hold come from `store`.
+    pub fn append_in(&mut self, store: &dyn Store) -> u64 {
+        self.push_message(store);
         self.t - 1
     }
 
-    fn push_message(&mut self) {
+    fn push_message(&mut self, store: &dyn Store) {
         let part = NodeId::new(0, self.t);
         self.t += 1;
         self.view.push(part);
-        self.view_size += self.part_size(part);
-        self.fit();
+        self.view_size += self.part_size(part, store);
+        self.fit(store);
     }
 
-    fn part_size(&self, part: NodeId) -> usize {
-        self.built.get(&part).copied().unwrap_or(PLACEHOLDER.len())
+    /// A view part's size; an unbuilt part counts the placeholder.
+    fn part_size(&self, part: NodeId, store: &dyn Store) -> usize {
+        if !self.is_built(part) {
+            return PLACEHOLDER.len();
+        }
+        // A built node the store cannot size is a failing store; the
+        // placeholder keeps the budget arithmetic going until `failed`
+        // stops the pump.
+        self.size(part, store).unwrap_or(PLACEHOLDER.len())
     }
 
     /// The first message whose view line is not built yet, or T (section 4.1, `first`).
@@ -170,11 +312,14 @@ impl Memory {
                             return out;
                         }
                         if let Some(text) = free {
-                            self.build(id, &text);
+                            self.build(id, text.len(), store);
                             fresh.insert(id, text.clone());
                             out.push(Work::Free { node: id, text });
                             continue 'again;
                         }
+                        // Deviation (README): the spec checks JOBS before any
+                        // node; JOBS caps model calls, and a free node is none,
+                        // so free nodes above are built even with JOBS running.
                         if self.busy.len() >= JOBS {
                             return out;
                         }
@@ -197,10 +342,16 @@ impl Memory {
     }
 
     /// A model call for `node` produced `text` (the host stored and fsynced it).
-    /// Call `pump` afterwards.
+    /// Call `pump` afterwards. Not for a lazy memory (`complete_in`).
     pub fn complete(&mut self, node: NodeId, text: &str) {
+        debug_assert!(!self.lazy, "a lazy memory completes with complete_in");
+        self.complete_in(node, text, &NoStore);
+    }
+
+    /// `complete` for any memory: sizes it does not hold come from `store`.
+    pub fn complete_in(&mut self, node: NodeId, text: &str, store: &dyn Store) {
         self.busy.remove(&node);
-        self.build(node, text);
+        self.build(node, text.len(), store);
     }
 
     /// A model call for `node` failed: it can be started again (after the host's
@@ -209,36 +360,44 @@ impl Memory {
         self.busy.remove(&node);
     }
 
-    fn build(&mut self, id: NodeId, text: &str) {
-        if self.built.insert(id, text.len()).is_some() {
+    fn build(&mut self, id: NodeId, len: usize, store: &dyn Store) {
+        if self.is_built(id) {
             return;
         }
+        self.frontier.insert(id, len);
         self.advance_low(id.l);
         // Only a level-0 part can be in the view unbuilt (a parent enters only once built).
         if id.l == 0 {
             if let Ok(k) = self.view.binary_search_by_key(&id.start(), |p| p.start()) {
                 if self.view[k] == id {
-                    self.view_size = self.view_size - PLACEHOLDER.len() + text.len();
+                    self.view_size = self.view_size - PLACEHOLDER.len() + len;
+                    self.sizes.insert(id, len);
                 }
             }
         }
-        self.fit();
+        self.fit(store);
     }
 
+    /// Moves `low` past built nodes; their sizes leave the frontier (a lazy
+    /// memory keeps only the view's, see `prune`).
     fn advance_low(&mut self, l: u32) {
         let l = l as usize;
         if self.low.len() <= l {
             self.low.resize(l + 1, 0);
         }
-        while self.built.contains_key(&NodeId::new(l as u32, self.low[l])) {
+        while let Some(size) = self.frontier.remove(&NodeId::new(l as u32, self.low[l])) {
+            self.sizes.insert(NodeId::new(l as u32, self.low[l]), size);
             self.low[l] += 1;
+        }
+        if self.lazy && self.sizes.len() > 4 * self.view.len() + 4096 {
+            self.prune();
         }
     }
 
     /// Merges the most due pair of built siblings while the view is over budget
     /// (section 5.2). Most due = the oldest relative to its weight 2^(l+2). A
     /// pair whose parent is not built yet is passed over. Never splits.
-    fn fit(&mut self) {
+    fn fit(&mut self, store: &dyn Store) {
         while self.view_size > self.budget {
             let mut best: Option<(usize, NodeId)> = None;
             for k in 0..self.view.len().saturating_sub(1) {
@@ -256,9 +415,16 @@ impl Memory {
             }
             let Some((k, a)) = best else { break };
             let parent = a.parent();
-            let removed = self.part_size(self.view[k]) + self.part_size(self.view[k + 1]);
+            let (left, right) = (self.view[k], self.view[k + 1]);
+            let removed = self.part_size(left, store) + self.part_size(right, store);
+            let added = self.part_size(parent, store);
             self.view.splice(k..k + 2, [parent]);
-            self.view_size = self.view_size - removed + self.part_size(parent);
+            self.view_size = self.view_size - removed + added;
+            if self.lazy {
+                self.sizes.remove(&left);
+                self.sizes.remove(&right);
+            }
+            self.sizes.insert(parent, added);
         }
     }
 
@@ -266,6 +432,21 @@ impl Memory {
     fn more_due(&self, a: NodeId, b: NodeId) -> bool {
         let age = |n: NodeId| (self.t - n.start()) as u128;
         (age(a) << (b.l + 2)) > (age(b) << (a.l + 2))
+    }
+}
+
+/// The store of a memory that holds every size itself (`new`, `load`).
+struct NoStore;
+
+impl Store for NoStore {
+    // Only sizes are asked of it (and it has none); messages are read
+    // through the store `pump` gets.
+    fn message(&self, _: u64) -> (Kind, String) {
+        (Kind::Note, String::new())
+    }
+
+    fn node(&self, _: NodeId) -> Option<String> {
+        None
     }
 }
 

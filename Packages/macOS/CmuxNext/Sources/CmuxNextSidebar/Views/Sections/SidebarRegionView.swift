@@ -21,7 +21,6 @@ final class SidebarRegionView: NSView {
     let region: SidebarRegion
     var onActivate: ((LayoutItemID) -> Void)?
     /// An item's trailing control was pressed.
-    var onAccessory: ((LayoutItemID) -> Void)?
     var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
@@ -206,7 +205,6 @@ final class SidebarRegionView: NSView {
                 self?.onActivate?(id)
             }
         }
-        view.onAccessory = { [weak self] in self?.onAccessory?(id) }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
         view.onContextMenu = { [weak self] event, view in

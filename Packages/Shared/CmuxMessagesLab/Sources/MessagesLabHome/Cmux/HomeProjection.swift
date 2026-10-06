@@ -68,14 +68,21 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
 
-    init(store: HomeStore, conversation: ConversationID, me: ParticipantID, controller: ChatController) {
+    /// Link card previews (LinkPresentation, MessagesLab's LinkPreviews): fetched
+    /// once per URL for links this Mac sends or the user taps; nil keeps domain cards.
+    let linkPreviews: HomeLinkPreviews?
+
+    init(store: HomeStore, conversation: ConversationID, me: ParticipantID, controller: ChatController,
+         linkPreviews: HomeLinkPreviews? = nil) {
         homeStore = store
+        self.linkPreviews = linkPreviews
         self.conversation = conversation
         self.me = me
         self.controller = controller
         core = ProjectionCore(me: me)
         let media = self.media
         core.media = { [unowned media] in media.asset($0) }
+        if let linkPreviews { core.links = { [unowned linkPreviews] in linkPreviews.cached($0) } }
         controller.intents = self
         video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }
@@ -151,6 +158,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let (conv, w) = core.install(conversation, items: items, summary: summary)
         self.hasOlder = hasOlder
         controller.install(conv, windowStart: w.start, total: w.total)
+        controller.store.linkPreviews = linkPreviews
         applyHeader()
         for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
         refreshAttachments()
@@ -166,7 +174,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         rebuilds += 1
         let pinned = controller.store.state.ui.scroll.pinnedToBottom
         let anchor = demo.anchorProbe
-        let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media) }
+        let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links) }
         let pendingLocal = controller.store.state.conversation.messages.filter { m in
             aliases.contains { $0.value == m.id } && !msgs.contains { $0.id == m.id }
         }
@@ -199,6 +207,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         guard !text.isEmpty || !attachments.isEmpty, store.state.atNewest else { return }
         let key = IdempotencyKey.make()
+        linkPreviews?.allowSend(text)
         controller.dispatch(.send)
         guard core.recordSend(key, in: controller.store.state) else { return }
         for a in attachments {
@@ -307,6 +316,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
     func draftChanged() { onDraftTextChange() }
 
+    /// A received card fetches its preview only after a tap (HomeLinkPreviews, through LinkGuard).
+    func linkTapped(_ ref: PartRef, url: String) {
+        guard let linkPreviews, !stopped else { return }
+        linkPreviews.allowTap(url)
+        linkPreviews.fetch(url) { [weak self] meta in
+            guard let self, !self.stopped, let meta else { return }
+            self.controller.dispatch(.linkMetadata(url: url, title: meta.title, site: meta.site, image: meta.image))
+        }
+    }
+
     /// lane 16's rule (HomeController.cancellableSend): my pending send while
     /// it uploads, or a failed one.
     func canCancelSend(_ message: ID) -> Bool {
@@ -353,8 +372,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func react(_ ref: PartRef, _ kind: Reaction.Kind) {
         guard isSendEnabled, let item = shown.first(where: { HomeMapping.id($0, aliases: aliases) == ref.messageId }),
               let message = item.messageID else { return }
+        // A split text (Messages' link rule) is one HomeStore part.
+        let partIndex = HomeMapping.homeIndex(ref.partIndex, HomeMapping.projectedParts(item, summary: shownSummary).owners)
         let intent = HomeIntent(op: .addReaction(message: message, conversation: conversation,
-                                                 reaction: HomeMapping.kind(kind), partIndex: ref.partIndex))
+                                                 reaction: HomeMapping.kind(kind), partIndex: partIndex))
         let homeStore = self.homeStore
         // task-owner: one op; ends with the owner's answer
         Task { [weak self] in
@@ -412,6 +433,8 @@ struct ProjectionCore {
     var aliases: [IdempotencyKey: ID] = [:]
     /// Bubble pictures by content hash (`HomeMedia.asset`).
     var media: HomeMapping.Media = { _ in nil }
+    /// Link previews already fetched (`LinkPreviews.cached`); none in the harness.
+    var links: HomeMapping.Links = { _ in nil }
 
     init(me: ParticipantID) { self.me = me }
 
@@ -422,13 +445,13 @@ struct ProjectionCore {
         self.summary = summary
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
-                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media) })
+                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links) })
         return (conv, HomeMapping.window(items, summary: summary))
     }
 
     /// The actions from the shown snapshot to this one.
     mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
-        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media)
+        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links)
         shown = items
         summary = new
         return d

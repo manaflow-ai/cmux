@@ -71,6 +71,17 @@ impl Routes {
         self.opened_by.insert(target.to_owned(), session);
     }
 
+    /// The open tabs the session created and did not keep (popups too):
+    /// the tabs its `session.configure` options apply to.
+    pub fn tabs_of(&self, session: u64) -> Vec<String> {
+        self.creator.iter().filter(|(_, s)| **s == session).map(|(t, _)| t.clone()).collect()
+    }
+
+    /// Whether `session` created `target` and did not keep it.
+    pub fn is_creator(&self, session: u64, target: &str) -> bool {
+        self.creator.get(target) == Some(&session)
+    }
+
     /// The session whose policy log gets the tab's unrouted events.
     pub fn log_session(&self, target: &str) -> Option<u64> {
         self.opened_by.get(target).copied()

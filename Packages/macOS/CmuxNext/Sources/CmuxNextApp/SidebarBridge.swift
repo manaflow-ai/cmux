@@ -54,7 +54,6 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host)
-        SidebarHelpMenuProvider.install(on: container.sidebarView, services: services)
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in

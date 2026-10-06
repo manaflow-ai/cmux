@@ -74,7 +74,7 @@ pub fn run(
     match run_inner(args, usage, load_config) {
         Ok(()) => 0,
         Err(error) => {
-            crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
+            crate::client_log::stderr_log!("remote", "{BIN}: {error:#}");
             1
         }
     }
@@ -2130,7 +2130,7 @@ fn install_agent_hooks(providers: Vec<String>) {
     if result.failed {
         crate::client_log::stderr_log!(
             "remote",
-            "cmux-tui: agent hook install failed: {}",
+            "{BIN}: agent hook install failed: {}",
             result.value["errors"]
         );
     }

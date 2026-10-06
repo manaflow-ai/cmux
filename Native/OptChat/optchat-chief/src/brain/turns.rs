@@ -7,14 +7,15 @@ use std::sync::mpsc::channel;
 
 use optchat_core::Kind;
 
-use super::{Brain, Engine, Input, Phase, Queued, STALL_NOTICE, Source, reply_entry, reply_key};
+use super::{Brain, Engine, Input, Phase, Queued, STALL_NOTICE, Source, reply_entry, reply_key_at};
 use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
 use crate::compactor::is_marker_limit_error;
 use crate::prompt::{cached_layout, turn_blocks};
-use crate::state::{Batch, ChildRef, ChildStatus, Item, PendingTurn};
+use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
+use optchat_host::{Appended, NewMessage};
 
 impl Brain {
     /// Starts a turn worker when idle with something queued.
@@ -175,29 +176,48 @@ impl Brain {
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
         let view = self.chat.render_view();
-        // Saved before the first append: a crash between an append and the
-        // next save must not log a message twice at restart (recover.rs).
+        // The messages, their bookkeeping (cursor, children) and the pending
+        // turn commit together: a crash leaves all of it or none of it, so a
+        // restart never logs a message twice and never loses one.
         let first_id = self.chat.status().messages;
-        self.state.turn = Some(PendingTurn {
-            conversation: self.state.conversation.clone(),
-            session: format!("{}-{first_id}", self.settings.turn_prefix),
-            first_id: Some(first_id),
-            items: items.iter().map(item).collect(),
-            ..PendingTurn::default()
-        });
-        self.save();
-        let first = self.log_items(&items)?;
-        let key = reply_key(&self.chat, first);
-        if let Some(turn) = self.state.turn.as_mut() {
-            turn.key = key.clone();
-        }
-        self.save();
+        let session = format!("{}-{first_id}", self.settings.turn_prefix);
+        let conversation = self.state.conversation.clone();
+        let opening: Vec<Item> = items.iter().map(item).collect();
+        let done = self.log_items(&items, move |next, done| {
+            let first = done.ids.first().copied().unwrap_or(first_id);
+            let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
+            next.turn = Some(PendingTurn {
+                key: reply_key_at(first, stamp),
+                conversation,
+                session,
+                first_id: Some(first_id),
+                items: opening,
+                ..PendingTurn::default()
+            });
+        })?;
+        let first = done.ids.first().copied().unwrap_or(first_id);
+        let key = self
+            .state
+            .turn
+            .as_ref()
+            .map(|t| t.key.clone())
+            .unwrap_or_default();
+        optchat_host::fault("brain:after-turn-log");
         self.set_cursor(self.handled);
         self.set_typing(true);
         self.phase = Phase::Running;
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
+        let images: Vec<super::images::TurnImage> = items
+            .iter()
+            .flat_map(|i| i.images.iter().cloned())
+            .collect();
+        let image_blocks: Vec<serde_json::Value> = images
+            .iter()
+            .filter_map(super::images::TurnImage::block)
+            .collect();
+        self.describe_images(&images);
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
@@ -217,6 +237,7 @@ impl Brain {
             }
             None => (turn_blocks(&view.text, &texts), None, None),
         };
+        let blocks = with_images(blocks, image_blocks);
         if self.settings.turn_preset.is_some() {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
@@ -243,7 +264,7 @@ impl Brain {
                 harness: self.settings.harness.clone(),
                 policy: self.settings.policy.clone(),
                 model: self.settings.model.clone(),
-                effort: None,
+                effort: self.settings.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
             },
@@ -254,45 +275,73 @@ impl Brain {
         })
     }
 
-    /// Logs `items` as `user` entries and finishes their bookkeeping; returns
-    /// the first one's id. On a failed write nothing is posted for them and
-    /// the host stops (the conversation's cursor stays before them).
-    fn log_items(&mut self, items: &[Queued]) -> Option<u64> {
-        let mut first = None;
-        for item in items {
-            match self.chat.append(Kind::User, &item.text) {
-                Ok(id) => {
-                    first.get_or_insert(id);
-                }
-                Err(e) => {
-                    (self.log)(&format!("logging a message failed: {e}"));
-                    self.fatal = Some(format!("the memory stopped writing: {e}"));
-                    self.phase = Phase::Idle;
-                    return None;
-                }
-            }
-        }
-        for item in items {
-            if let Source::Child { session_id, floor } = &item.source
-                && let Some(record) = self.state.children.get_mut(session_id)
-            {
-                record.status = ChildStatus::Reported;
-                record.floor = *floor;
-            }
-            if let Source::Spawn(r) = &item.source {
-                self.state.spawn_logged(r);
-                self.trace_report_logged(r, &item.text);
-            }
-        }
+    /// Logs `items` as `user` entries and, in the same transaction, the
+    /// state their bookkeeping leaves (each child's report marked, the read
+    /// cursor past every handled message, then `update`). On a failed write
+    /// nothing is posted for them and the host stops (the conversation's
+    /// cursor stays before them).
+    fn log_items(
+        &mut self,
+        items: &[Queued],
+        update: impl FnOnce(&mut HostState, &Appended),
+    ) -> Option<Appended> {
+        let conversation = self.state.conversation.clone().unwrap_or_default();
+        let entries: Vec<NewMessage<'_>> = items
+            .iter()
+            .map(|q| NewMessage {
+                key: match q.source {
+                    Source::Message { seq } => Some(format!("{conversation}#{seq}")),
+                    _ => None,
+                },
+                ..NewMessage::new(Kind::User, &q.text)
+            })
+            .collect();
+        let mut next = self.state.clone();
         // The queue is empty now, so every handled seq is logged or needed no log.
-        self.state.logged_seq = self.handled;
-        first
+        let handled = self.handled;
+        let file = &self.file;
+        let mut writes = Vec::new();
+        let result = self.chat.append_with(&entries, |done| {
+            for item in items {
+                if let Source::Child { session_id, floor } = &item.source
+                    && let Some(record) = next.children.get_mut(session_id)
+                {
+                    record.status = ChildStatus::Reported;
+                    record.floor = *floor;
+                }
+                if let Source::Spawn(r) = &item.source {
+                    next.spawn_logged(r);
+                }
+            }
+            next.logged_seq = handled;
+            update(&mut next, done);
+            writes = file.writes(&next);
+            writes.clone()
+        });
+        match result {
+            Ok(done) => {
+                self.state = next;
+                self.file.committed(&writes);
+                for item in items {
+                    if let Source::Spawn(r) = &item.source {
+                        self.trace_report_logged(r, &item.text);
+                    }
+                }
+                Some(done)
+            }
+            Err(e) => {
+                (self.log)(&format!("logging a message failed: {e}"));
+                self.fatal = Some(format!("the memory stopped writing: {e}"));
+                self.phase = Phase::Idle;
+                None
+            }
+        }
     }
 
     /// A native turn is between tool calls: everything queued is logged as
     /// `user` and delivered (section 7: "Messages the user types mid-run are
     /// delivered at the agent's next tool boundary and logged as `user`").
-    pub(super) fn boundary(&mut self, key: &str) -> Vec<String> {
+    pub(super) fn boundary(&mut self, key: &str) -> Vec<serde_json::Value> {
         let current = self.state.turn.as_ref().is_some_and(|t| t.key == key);
         if self.phase != Phase::Running || !current {
             return Vec::new();
@@ -304,23 +353,34 @@ impl Brain {
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
         let at = self.chat.status().messages;
-        if let Some(turn) = self.state.turn.as_mut() {
-            turn.mid.push(Batch {
-                at,
-                items: items.iter().map(item).collect(),
-                done: false,
-            });
-        }
-        self.save();
-        if self.log_items(&items).is_none() {
+        let batch: Vec<Item> = items.iter().map(item).collect();
+        let logged = self.log_items(&items, move |next, _| {
+            if let Some(turn) = next.turn.as_mut() {
+                turn.mid.push(Batch {
+                    at,
+                    items: batch,
+                    done: true,
+                });
+            }
+        });
+        if logged.is_none() {
             return Vec::new();
         }
-        if let Some(batch) = self.state.turn.as_mut().and_then(|t| t.mid.last_mut()) {
-            batch.done = true;
-        }
-        self.save();
         self.set_cursor(self.handled);
-        items.into_iter().map(|i| i.text).collect()
+        // The delivered messages' images go with them, and are described
+        // for the log like a turn's own.
+        let images: Vec<super::images::TurnImage> = items
+            .iter()
+            .flat_map(|i| i.images.iter().cloned())
+            .collect();
+        self.describe_images(&images);
+        let mut blocks: Vec<serde_json::Value> = images
+            .iter()
+            .filter_map(super::images::TurnImage::block)
+            .collect();
+        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        blocks.push(serde_json::json!({"type": "text", "text": texts.join("\n\n")}));
+        blocks
     }
 
     /// A human message arrived during a turn (decision 2026-10-04): the
@@ -485,9 +545,22 @@ impl Brain {
                 "turn {key} ended with no conversation to answer in"
             )),
         }
+        // The session's fold position goes with the pending turn, unless the
+        // session lives on as an orphan whose fold continues from it.
+        let session = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .and_then(|t| t.session_id.clone());
+        let orphaned = |s: &String| self.state.orphans.iter().any(|o| &o.session == s);
+        let extra = match session {
+            Some(s) if !orphaned(&s) => vec![(crate::state::fold_key(&s), None)],
+            _ => Vec::new(),
+        };
         self.state.turn = None;
         self.stop_wanted = false;
-        self.save();
+        self.save_with(extra);
         self.flush_outbox();
         self.set_typing(false);
         self.phase = Phase::Idle;
@@ -508,11 +581,28 @@ fn source_name(source: &Source) -> &'static str {
     }
 }
 
+/// The turn's images go just before its last block (the new messages, which
+/// name them), so the view blocks and their cache marker stay as they were.
+fn with_images(
+    mut blocks: Vec<serde_json::Value>,
+    images: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    if images.is_empty() {
+        return blocks;
+    }
+    let tail = blocks.pop();
+    blocks.extend(images);
+    blocks.extend(tail);
+    blocks
+}
+
 /// A queued item's source as the pending turn saves it.
 fn item(queued: &Queued) -> Item {
+    let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
         Source::Message { seq } => Item {
             seq: Some(*seq),
+            images,
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {
@@ -520,12 +610,17 @@ fn item(queued: &Queued) -> Item {
                 session_id: session_id.clone(),
                 floor: *floor,
             }),
+            images,
             ..Item::default()
         },
         Source::Spawn(r) => Item {
             spawn: Some(r.clone()),
+            images,
             ..Item::default()
         },
-        Source::Note => Item::default(),
+        Source::Note => Item {
+            images,
+            ..Item::default()
+        },
     }
 }

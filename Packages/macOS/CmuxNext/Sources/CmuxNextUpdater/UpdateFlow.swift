@@ -1,20 +1,17 @@
 import Foundation
 
-/// The install gate over Sparkle's flow (R114): downloads stay invisible,
-/// a ready update is the compact control on the Settings row, one click installs unless agents are
-/// in a turn (then the click waits for them), and a quit installs a staged
-/// update unless `updates.installOnQuit` is off. A pure value: the App
-/// feeds events and performs the effects.
+/// The install gate over Sparkle's flow (R114, SIDEBAR-FOOTER-MINIMAL):
+/// downloads stay invisible, a staged update is the footer's "Update Ready"
+/// pill, one click installs and relaunches at once (the relaunch keeps every
+/// terminal and agent, so nothing waits for agents and nothing asks), and a
+/// quit installs a staged update unless `updates.installOnQuit` is off. A
+/// pure value: the App feeds events and performs the effects.
 nonisolated public struct UpdateFlow: Equatable, Sendable {
     public private(set) var phase: UpdateIndicatorPhase = .hidden
-    public private(set) var blockers: UpdateBlockers = .none
-    /// The user asked to install; held until the update is staged and no
-    /// agent is busy.
+    /// The user asked to install; held until the update is staged.
     public private(set) var installRequested = false
     /// The user asked to check: checking, downloading and the result show.
     public private(set) var userAsked = false
-    /// The "install although work runs" dialog is open.
-    public private(set) var confirmationOpen = false
 
     public init() {}
 
@@ -29,7 +26,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             switch phase {
             case .ready:
                 installRequested = true
-                return installIfClear()
+                return installIfStaged()
             case .downloading, .checking:
                 // Installs once staged.
                 installRequested = true
@@ -42,28 +39,6 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             case .hidden, .installing, .note:
                 return []
             }
-        case .installNowRequested:
-            guard installRequested, case .ready = phase else { return [] }
-            if blockers.isEmpty { return installIfClear() }
-            confirmationOpen = true
-            return [.confirmInterrupt(blockers)]
-        case .interruptConfirmed:
-            guard confirmationOpen else { return [] }
-            confirmationOpen = false
-            guard installRequested, case .ready = phase else { return [] }
-            installRequested = false
-            return [.install]
-        case .interruptDeclined:
-            confirmationOpen = false
-            return []
-        case .later:
-            installRequested = false
-            confirmationOpen = false
-            return []
-        case .blockersChanged(let next):
-            blockers = next
-            guard case .ready = phase else { return [] }
-            return installIfClear()
         case .quitRequested:
             guard case .ready = phase, !preferences.installOnQuit else { return [.quit(.proceed)] }
             return [.quit(.cancelPendingInstall)]
@@ -79,65 +54,70 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         switch next {
         case .ready:
             userAsked = false
-            return installIfClear()
+            return installIfStaged()
         case .installing:
             installRequested = false
-            confirmationOpen = false
             userAsked = false
             return []
-        case .hidden:
-            // The flow ended or was cancelled: a held click does not carry
-            // over to a later update.
+        case .hidden, .note:
+            // The flow ended, failed or was cancelled: a held click does not
+            // carry over to a later update.
             installRequested = false
-            confirmationOpen = false
-            return []
-        case .note:
-            installRequested = false
-            confirmationOpen = false
             return []
         case .checking, .downloading, .available:
             return []
         }
     }
 
-    /// Installs when the user asked, the update is staged and no agent is busy.
-    private mutating func installIfClear() -> [UpdateFlowEffect] {
-        guard installRequested, blockers.isEmpty, case .ready = phase else { return [] }
+    /// Installs when the user asked and the update is staged.
+    private mutating func installIfStaged() -> [UpdateFlowEffect] {
+        guard installRequested, case .ready = phase else { return [] }
         installRequested = false
-        confirmationOpen = false
         return [.install]
     }
 
-    /// The card above Settings, or nil. Background work never shows; what
-    /// the user asked for (a check, a held install) always shows. A found
-    /// or staged update is no card: the Settings row's control shows it
-    /// (``settingsBadgeTitle(preferences:)``).
+    /// The card above the footer, or nil: only what the user asked for (a
+    /// check, its download, its result). A found, staged or installing
+    /// update is never a card (``footerPill(preferences:)``).
     public var card: UpdateCard? {
+        guard userAsked else { return nil }
         switch phase {
-        case .hidden, .available:
-            return nil
-        case .checking:
-            return userAsked ? .checking : nil
-        case .downloading(let progress):
-            return userAsked ? .downloading(progress: progress) : nil
-        case .note(let text, let isError):
-            return userAsked ? .note(text, isError: isError) : nil
-        case .installing:
-            return .installing
-        case .ready(let version):
-            guard installRequested, !blockers.isEmpty else { return nil }
-            return .waiting(version: version, busyAgents: blockers.busyAgents)
+        case .checking: return .checking
+        case .downloading(let progress): return .downloading(progress: progress)
+        case .note(let text, let isError): return .note(text, isError: isError)
+        case .hidden, .available, .ready, .installing: return nil
         }
     }
 
-    /// The badge on the Settings item: a staged update, unless silent.
-    public func showsSettingsBadge(preferences: UpdatePreferences) -> Bool {
-        settingsBadgeTitle(preferences: preferences) != nil
+    /// The footer's update pill: "Update Ready" while an update is staged
+    /// (not while it is checked for, found or downloading), disabled while
+    /// it installs; nil otherwise and, for a staged update, under
+    /// `updates.notify` silent.
+    public func footerPill(preferences: UpdatePreferences) -> UpdateFooterPill? {
+        switch phase {
+        case .ready: preferences.notify == .silent ? nil : .ready
+        case .installing: .installing
+        case .hidden, .checking, .downloading, .available, .note: nil
+        }
+    }
+}
+
+/// The footer's update pill (SIDEBAR-FOOTER-MINIMAL): its label, and its
+/// tooltip and VoiceOver label, which say that the relaunch keeps the
+/// terminals and agents (browser pages reload, so they are not named).
+nonisolated public enum UpdateFooterPill: Equatable, Sendable {
+    /// A staged update: a click installs and relaunches.
+    case ready
+    /// The click was taken: the pill stays, disabled, until the relaunch.
+    case installing
+
+    public var title: String {
+        switch self {
+        case .ready: UpdaterStrings.readyToInstall
+        case .installing: UpdaterStrings.installing
+        }
     }
 
-    /// The Settings row control's tooltip and VoiceOver label ("Restart to
-    /// Update" for a staged update), or nil when the control does not show.
-    public func settingsBadgeTitle(preferences: UpdatePreferences) -> String? {
-        preferences.notify == .silent ? nil : phase.badgeTitle
-    }
+    public var help: String { UpdaterStrings.restartKeepsSessions }
+    public var isEnabled: Bool { self == .ready }
 }
