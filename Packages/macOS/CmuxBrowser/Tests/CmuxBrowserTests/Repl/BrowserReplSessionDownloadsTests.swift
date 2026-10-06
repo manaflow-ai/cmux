@@ -19,6 +19,28 @@ import Testing
 
     private static let allowed = BrowserReplDownloadSource(hops: ["https://allowed.test/get", "https://allowed.test/file.zip"])
 
+    /// A session's unfinished downloads end with it: teardown hands back
+    /// their ids so cmux cancels them and removes their partial files. They
+    /// never stay for a later finish, which would find no session and give
+    /// the file to the user's download location or save panel.
+    @Test func aSessionThatLeavesHandsBackItsUnfinishedDownloads() {
+        var downloads = BrowserReplSessionDownloads()
+        let other = BrowserReplNetworkRecipient(sessionID: "other", seesCredentials: false)
+        downloads.add("d1", to: Self.creator, source: Self.allowed)
+        downloads.add("d2", to: other, source: Self.allowed)
+        downloads.add("d3", to: Self.creator, source: Self.allowed)
+
+        #expect(Set(downloads.sessionLeft("agent")) == ["d1", "d3"])
+        #expect(downloads.sessionID(of: "d1") == nil)
+        #expect(downloads.sessionID(of: "d3") == nil)
+        #expect(downloads.sessionID(of: "d2") == "other", "another session's download left with the leaving session")
+        #expect(downloads.sessionLeft("agent").isEmpty)
+
+        // The tab's last session leaving (or the tab closing) hands back the rest.
+        #expect(downloads.removeAll() == ["d2"])
+        #expect(downloads.sessionID(of: "d2") == nil)
+    }
+
     @Test func aLaterRedirectToABlockedPlaceTakesTheDownloadAway() throws {
         let policy = try Self.blocking("blocked.test")
         var downloads = BrowserReplSessionDownloads()
