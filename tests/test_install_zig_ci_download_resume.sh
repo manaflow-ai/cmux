@@ -148,11 +148,20 @@ fi
 
   if [ -n "${FAKE_CURL_CLOCK_FILE:-}" ]; then
     elapsed=6
+    if [ "$FAKE_CURL_MODE" = "slow-fallback" ]; then
+      elapsed=1
+    fi
+    timed_out=0
     if [ "$max_time" -lt "$elapsed" ]; then
       elapsed="$max_time"
+      timed_out=1
     fi
     now="$(cat "$FAKE_CURL_CLOCK_FILE")"
     printf '%s\n' "$((now + elapsed))" > "$FAKE_CURL_CLOCK_FILE"
+    if [ "$timed_out" -eq 1 ]; then
+      touch "$output"
+      exit 28
+    fi
   fi
 
 case "$url" in
