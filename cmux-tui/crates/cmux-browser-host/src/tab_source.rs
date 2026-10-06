@@ -9,7 +9,7 @@
 //! and the remote tab host later. Engine-neutral: nothing here names an
 //! engine's transport.
 
-use crate::driver::{EventSink, RequestFilter};
+use crate::driver::{EventSink, Reply, RequestFilter};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::DriverError;
 use crate::provider::{LeaseState, TabAnnounce};
@@ -29,6 +29,9 @@ pub struct TabCall<'a> {
     pub observe: Option<&'a Value>,
     /// The page agent bundle, for a source that attaches tabs lazily.
     pub agent_source: &'a Arc<str>,
+    /// The caller takes a script's value as the engine sent it
+    /// ([`Reply::Json`], the page's key order).
+    pub raw: bool,
 }
 
 pub trait TabSource: Send + Sync {
@@ -39,6 +42,21 @@ pub trait TabSource: Send + Sync {
     fn unsubscribe(&self, id: u64);
     /// The tabs of one engine.
     fn tab_list(&self, engine: &str) -> Vec<TabAnnounce>;
+    /// `tabs.list`'s answer. The default lists [`TabSource::tab_list`].
+    fn list_tabs(&self, engine: &str) -> Value {
+        let tabs: Vec<Value> = self
+            .tab_list(engine)
+            .into_iter()
+            .map(|tab| {
+                serde_json::json!({
+                    "targetId": tab.target_id, "engine": tab.engine, "url": tab.url,
+                    "title": tab.title, "workspace": tab.workspace, "profile": tab.profile,
+                    "visible": tab.visible,
+                })
+            })
+            .collect();
+        serde_json::json!({ "tabs": tabs })
+    }
     /// The engine of a tab, `None` when the tab is unknown.
     fn tab_engine(&self, target_id: &str) -> Option<String>;
     /// A refusal for `method` on the tab (browser pages, extension tabs).
@@ -49,7 +67,19 @@ pub trait TabSource: Send + Sync {
     /// `tabs.close` with its reason.
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError>;
     /// A call on one tab.
-    fn tab_call(&self, call: &TabCall<'_>) -> Result<Value, DriverError>;
+    fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError>;
+    /// A call that names no tab, when the source serves it (`None`: the
+    /// session engine refuses it; the person's tabs answer no tab-less call).
+    fn session_call(
+        &self,
+        _session: u64,
+        _method: &str,
+        _params: &Value,
+    ) -> Option<Result<Value, DriverError>> {
+        None
+    }
+    /// The session opened `target_id` (`tabs.open`): it drives it.
+    fn opened(&self, _session: u64, _target_id: &str) {}
     /// Installs (or with `None` removes) a session's request filter; false
     /// when the engine cannot filter (the gate then fails closed).
     fn set_request_filter(&self, session: u64, engine: &str, filter: Option<RequestFilter>)
