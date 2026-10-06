@@ -672,12 +672,13 @@
     let main = false;
     if (opts.main) {
       // Whether the element shows any text: its text nodes, within the
-      // budget, up to the first one that is shown.
+      // budget, up to the first one that is shown (without checkVisibility,
+      // the first one that holds text; never a whole innerText).
       const showsText = (e) => {
-        if (typeof e.checkVisibility !== "function") return (e.innerText || "").trim().length > 0;
         const walker = document.createTreeWalker(e, 4 /* NodeFilter.SHOW_TEXT */);
         for (let n = walker.nextNode(); n && B.spend(1); n = walker.nextNode()) {
-          if (n.data.trim() && n.parentElement && n.parentElement.checkVisibility({ visibilityProperty: true })) return true;
+          const parent = n.parentElement;
+          if (/\S/.test(n.data) && parent && (typeof parent.checkVisibility !== "function" || parent.checkVisibility({ visibilityProperty: true }))) return true;
         }
         return false;
       };
@@ -724,6 +725,16 @@
     const limit = opts.limit || 1000;
     const all = (sel, scope, max) => A.queryAll(sel, scope && scope !== document ? A.handleFor(scope) : undefined, max).map((h) => A.element(h));
     const value = (v) => (v === null || v === undefined || B.truncated ? null : B.fit(String(v)));
+    // An <option>'s label as `label || text` gives it (the trimmed label
+    // attribute, else its text with spaces collapsed), read within the
+    // budget: the attribute is cut before it is trimmed, the text read by
+    // the bounded textContent.
+    const optionLabel = (o) => {
+      if (B.truncated) return null;
+      const label = B.head(o.getAttribute("label") || "").trim();
+      if (label) return B.fit(label);
+      return (B.textContent(o) || "").replace(/[\s ]+/g, " ").trim();
+    };
     const text = (el) => {
       const t = (el.tagName || "").toUpperCase();
       if (t === "INPUT" || t === "TEXTAREA") return value(el.value);
@@ -731,11 +742,15 @@
         const picked = [];
         for (const o of el.selectedOptions) {
           if (!B.spend(1)) break;
-          picked.push(value(o.label || o.text));
+          picked.push(optionLabel(o));
         }
         return picked.join(", ");
       }
-      return value((el.innerText !== undefined ? el.innerText : el.textContent || "").replace(/[\s ]+/g, " ").trim());
+      if (B.truncated) return null;
+      // Read within the budget (charged), then normalized: never a whole
+      // getter's string.
+      const raw = "innerText" in el ? B.innerText(el) : B.textContent(el);
+      return (raw || "").replace(/[\s ]+/g, " ").trim();
     };
     const split = (spec) => {
       const m = /^(.*?)@([A-Za-z_][\w:.-]*)$/.exec(spec);
@@ -843,9 +858,10 @@
       if (n.nextSibling) stack.push(n.nextSibling);
       if (!B.spend(1)) break;
       if (n.nodeType === 3) {
-        if (!n.data.trim() || !visible(n.parentElement)) continue;
+        if (!/\S/.test(n.data) || !visible(n.parentElement)) continue;
         const b = blockOf(n.parentElement);
-        let piece = (text && b !== lastBlock ? "\n" : "") + n.data.replace(/[\s\u00a0]+/g, " ");
+        // Cut where the budget ends before it is normalized.
+        let piece = (text && b !== lastBlock ? "\n" : "") + B.head(n.data).replace(/[\s\u00a0]+/g, " ");
         lastBlock = b;
         piece = B.fit(piece);
         nodes.push(n);
@@ -905,12 +921,17 @@
     const el = A.element(handle);
     const clean = (s) => (s || "").replace(/[\s ]+/g, " ").trim();
     const fit = (s) => (s === null || s === undefined ? s : B.fit(String(s)));
+    // A label read within the budget and charged there, then normalized:
+    // an attribute is cut first, element text read by the bounded readers.
+    const attributeLabel = (v) => fit(clean(B.head(v)));
+    const textLabel = (e) => clean(B.innerText(e) || B.textContent(e));
     if (el.tagName && el.tagName.toUpperCase() === "SELECT") {
       const options = [];
       const all = el.options;
       for (let index = 0; index < all.length && B.spend(1); index++) {
         const o = all[index];
-        options.push({ index, label: fit(o.label || clean(o.text)), value: fit(o.value), selected: o.selected, disabled: o.disabled });
+        const label = B.head(o.getAttribute("label") || "").trim();
+        options.push({ index, label: label ? fit(label) : clean(B.textContent(o)), value: fit(o.value), selected: o.selected, disabled: o.disabled });
       }
       return { kind: "select", multiple: el.multiple, options, report: B.report() };
     }
@@ -936,7 +957,7 @@
       if (typeof o.checkVisibility === "function" && !o.checkVisibility({ visibilityProperty: true })) continue;
       options.push({
         index: options.length,
-        label: fit(clean(o.getAttribute("aria-label") || o.innerText || o.textContent)),
+        label: o.getAttribute("aria-label") ? attributeLabel(o.getAttribute("aria-label")) : textLabel(o),
         value: fit(o.getAttribute("data-value") || o.getAttribute("value") || null),
         selected: o.getAttribute("aria-selected") === "true" || o.getAttribute("aria-checked") === "true",
         disabled: o.getAttribute("aria-disabled") === "true",

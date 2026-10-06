@@ -952,6 +952,8 @@
       spend: (count) => spend(b, count === undefined ? 1 : count),
       charge: (count) => chargeSize(b, count),
       fit: (s) => fit(b, s),
+      // `s` cut where the budget ends, before the caller normalizes it.
+      head: (s) => head(b, s),
       // The characters left to charge, so a caller can refuse work (such as
       // parsing a URL) on a value fit would cut anyway.
       get sizeLeft() {
@@ -1066,6 +1068,17 @@
     if (chargeSize(ctx, s.length)) return s;
     let end = left;
     // Never split a surrogate pair.
+    if (end > 0 && /[\ud800-\udbff]/.test(s[end - 1])) end--;
+    return s.slice(0, end) + CUT;
+  }
+  // `s` cut where the size budget ends, before the caller normalizes or
+  // parses it (normalizing only shortens a string); not charged, `fit`
+  // charges what the caller keeps. A cut leaves CUT and stops the read
+  // ("size"), as `fit` does.
+  function head(ctx, s) {
+    if (typeof s !== "string" || s.length <= ctx.sizeLeft) return s;
+    if (!ctx.truncated) ctx.truncated = "size";
+    let end = ctx.sizeLeft;
     if (end > 0 && /[\ud800-\udbff]/.test(s[end - 1])) end--;
     return s.slice(0, end) + CUT;
   }
@@ -1191,7 +1204,7 @@
     walkTree(el, (n) => {
       if (!spend(b, 1)) return STOP;
       if (n.nodeType === 3 || n.nodeType === 4) {
-        parts.push(fit(b, n.data.replace(/[ \t\r\n]+/g, " ")));
+        parts.push(fit(b, head(b, n.data).replace(/[ \t\r\n]+/g, " ")));
         return b.truncated ? STOP : true;
       }
       if (n.nodeType !== 1) return false;
