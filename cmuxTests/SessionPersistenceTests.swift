@@ -1657,9 +1657,8 @@ final class SessionPersistenceTests: XCTestCase {
             agentProcessPresence: { _ in .absent }
         )
 
-        XCTAssertEqual(
+        XCTAssertNil(
             wasRunning,
-            false,
             "Generic shell activity must not keep a restored agent Running without a live process or hook"
         )
     }
@@ -1750,7 +1749,7 @@ final class SessionPersistenceTests: XCTestCase {
             includeScrollback: false,
             restorableAgentIndex: sourceIndex
         )
-        XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, false)
+        XCTAssertNil(snapshot.panels.first?.terminal?.wasAgentRunning)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
