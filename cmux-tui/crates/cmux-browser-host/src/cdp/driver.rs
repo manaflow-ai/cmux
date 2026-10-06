@@ -34,7 +34,7 @@ pub(super) struct Inner {
     /// sink that answers an event with a driver call cannot block the reader.
     events: Mutex<mpsc::Sender<DriverEvent>>,
     state: Mutex<State>,
-    changed: Condvar,
+    pub(super) changed: Condvar,
     /// The request filter (`set_request_filter`), shared with the worker
     /// that decides paused requests.
     pub(super) request_filter: Arc<Mutex<Option<crate::driver::RequestFilter>>>,
@@ -231,6 +231,7 @@ impl Driver for CdpDriver {
             "net.fetch.cancel" => inner.net_fetch_cancel(params),
             "net.fetch.done" => inner.net_fetch_done(params),
             "dialog.respond" => inner.dialog_respond(params),
+            "download.path" => inner.download_path(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
             "cookies.clear" => inner.cookies_clear(params),
