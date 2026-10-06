@@ -1,5 +1,5 @@
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 import Network
 import Synchronization
 
