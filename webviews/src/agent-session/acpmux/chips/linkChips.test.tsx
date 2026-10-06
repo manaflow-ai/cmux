@@ -214,3 +214,15 @@ test("prose that only looks like a path or a URL stays text", async () => {
   expect(container.querySelector(".cv-chip")).toBeNull();
   await unmount();
 });
+
+test("a backticked path whose file name holds a space is a chip, also from home", async () => {
+  const { container, unmount } = await render(
+    "See `/Users/x/Library/Application Support/cmux/spaced demo.ts` and `~/My Notes/to do.md`.",
+  );
+  expect([...container.querySelectorAll<HTMLButtonElement>(".cv-chip.is-path")].map((chip) => chip.dataset.path)).toEqual([
+    "/Users/x/Library/Application Support/cmux/spaced demo.ts",
+    "~/My Notes/to do.md",
+  ]);
+  expect(container.querySelector("code")).toBeNull();
+  await unmount();
+});
