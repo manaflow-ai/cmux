@@ -15377,6 +15377,7 @@ private struct SidebarFooter: View {
 
 struct SidebarFooterButtons: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let onSendFeedback: () -> Void
@@ -15387,6 +15388,11 @@ struct SidebarFooterButtons: View {
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
+    }
+
+    private var billingPlanRefreshID: String? {
+        guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
+        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable)"
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
@@ -15406,6 +15412,10 @@ struct SidebarFooterButtons: View {
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         .clipped()
+        .task(id: billingPlanRefreshID) {
+            guard let flow = accountFlow, flow.isAuthenticated else { return }
+            await flow.refreshBillingPlan()
+        }
     }
 
     /// The footer menu button takes the free width on the left; the other
@@ -15424,7 +15434,9 @@ struct SidebarFooterButtons: View {
             if shows(.upgrade),
                SidebarFooterPresentationPolicy.isUpgradeVisible(
                    featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
-                   isProActive: AppDelegate.shared?.auth?.accountFlow.isProActive == true
+                   isProActive: accountFlow?.isProActive == true,
+                   isProStatusKnown: accountFlow?.isAuthenticated != true
+                       || accountFlow?.isProStatusKnown == true
                ) {
                 SidebarProBadge()
             }

@@ -24,6 +24,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
+    /// True only after the current account's billing endpoint returned a
+    /// successful plan response. An unknown plan must not be treated as free:
+    /// doing so would briefly show an upgrade prompt to an existing Pro user.
+    private(set) var isProStatusKnown = false
     private(set) var canManageBilling = false
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
@@ -182,6 +186,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     func signOut() async {
         await browserSignIn.signOut()
         isProActive = false
+        isProStatusKnown = false
         canManageBilling = false
     }
 
@@ -190,6 +195,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     func signOut(timeout: TimeInterval) async {
         await browserSignIn.signOut(timeout: timeout)
         isProActive = false
+        isProStatusKnown = false
         canManageBilling = false
     }
 
@@ -200,6 +206,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func refreshBillingPlan() async {
+        isProStatusKnown = false
         guard coordinator.currentUser != nil else {
             isProActive = false
             canManageBilling = false
@@ -224,6 +231,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             }
             let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
             isProActive = decoded.isPro
+            isProStatusKnown = true
             canManageBilling = decoded.billingManagement == .stripe
         } catch {
             isProActive = false

@@ -29,10 +29,6 @@ struct SidebarFooterMenuButton: View {
     @State private var isShortcutsPopoverPresented = false
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     private var showsAccount: Bool { CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled }
-    private var billingPlanRefreshID: String? {
-        guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
-        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable)"
-    }
     private let accountTitle = String(localized: "settings.section.account", defaultValue: "Account")
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
 #if DEBUG
@@ -131,12 +127,6 @@ struct SidebarFooterMenuButton: View {
         .popover(isPresented: $isShortcutsPopoverPresented, arrowEdge: .top) {
             AllShortcutsPopover()
         }
-        .task(id: billingPlanRefreshID) {
-            guard let flow = accountFlow,
-                  flow.isAuthenticated,
-                  flow.isProUpgradeAvailable else { return }
-            await flow.refreshBillingPlan()
-        }
     }
 
     @ViewBuilder
@@ -215,7 +205,8 @@ struct SidebarFooterMenuButton: View {
         let offersUpgrade = SidebarFooterPresentationPolicy.isUpgradeVisible(
             featureFlagEnabled: flow?.isProUpgradeAvailable
                 ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
-            isProActive: flow?.isProActive == true
+            isProActive: flow?.isProActive == true,
+            isProStatusKnown: flow?.isAuthenticated != true || flow?.isProStatusKnown == true
         )
         if offersUpgrade {
             menu.addSidebarFooterSeparator()
