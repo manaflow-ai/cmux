@@ -14,7 +14,14 @@ fn send(conversation: &str, key: &str, text: &str) -> OutboxEntry {
     OutboxEntry {
         conversation: conversation.into(),
         idempotency_key: key.into(),
-        op: Op::MessageSend { client_msg_id: key.into(), parts: vec![Part::Text { text: text.into(), runs: None }], reply_to: None },
+        op: Op::MessageSend {
+            client_msg_id: key.into(),
+            parts: vec![Part::Text {
+                text: text.into(),
+                runs: None,
+            }],
+            reply_to: None,
+        },
         rate_retried: false,
         not_before: None,
         attempted: false,
@@ -24,14 +31,24 @@ fn send(conversation: &str, key: &str, text: &str) -> OutboxEntry {
 
 fn text_of(e: &OutboxEntry) -> String {
     match &e.op {
-        Op::MessageSend { parts, .. } => parts.iter().map(|p| match p { Part::Text { text, .. } => text.clone(), _ => String::new() }).collect(),
+        Op::MessageSend { parts, .. } => parts
+            .iter()
+            .map(|p| match p {
+                Part::Text { text, .. } => text.clone(),
+                _ => String::new(),
+            })
+            .collect(),
         _ => String::new(),
     }
 }
 
 #[test]
 fn unsent_messages_to_one_conversation_become_one_send_under_the_first_key() {
-    let mut out = vec![send("c1", "k1", "[child a] done"), send("c1", "k2", "[child b] done"), send("c2", "k3", "other")];
+    let mut out = vec![
+        send("c1", "k1", "[child a] done"),
+        send("c1", "k2", "[child b] done"),
+        send("c2", "k3", "other"),
+    ];
     coalesce(&mut out);
     assert_eq!(out.len(), 2);
     assert_eq!(out[0].idempotency_key, "k1");
@@ -45,7 +62,11 @@ fn a_message_already_tried_keeps_its_content() {
     first.attempted = true;
     let mut out = vec![first, send("c1", "k2", "later")];
     coalesce(&mut out);
-    assert_eq!(out.len(), 2, "a tried key must keep its text (the owner dedupes by key)");
+    assert_eq!(
+        out.len(),
+        2,
+        "a tried key must keep its text (the owner dedupes by key)"
+    );
 }
 
 #[test]

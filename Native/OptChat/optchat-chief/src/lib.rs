@@ -24,6 +24,7 @@ pub mod log;
 pub mod mcp;
 pub mod memory;
 pub mod native;
+pub mod pacing;
 pub mod paths;
 pub mod persist;
 pub mod prompt;

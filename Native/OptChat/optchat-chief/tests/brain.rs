@@ -105,6 +105,10 @@ fn the_view_is_rendered_before_the_new_messages_are_logged_and_later_messages_wa
         pairs(&log[5..7]),
         vec![("user", "second"), ("user", "third")]
     );
+    // The second reply comes inside the agent gap after the first: it waits it out (G11).
+    if h.brain.next_timer().is_some() {
+        timer(&mut h);
+    }
     let owner = h.owner.lock().unwrap();
     let keys: Vec<String> = owner.sends().iter().map(|(k, _)| turn_of(k)).collect();
     assert_eq!(keys, vec!["turn:optchat:0", "turn:optchat:5"]);
@@ -259,11 +263,19 @@ fn agent_rate_is_never_dropped_and_agent_budget_is() {
     h.say("user_local", "hello");
     h.settle();
     timer(&mut h);
-    assert_eq!(h.brain.state().outbox.len(), 1, "a second agent_rate waits again (G11)");
+    assert_eq!(
+        h.brain.state().outbox.len(),
+        1,
+        "a second agent_rate waits again (G11)"
+    );
     timer(&mut h);
     assert!(h.brain.state().outbox.is_empty());
     let owner = h.owner.lock().unwrap();
-    assert_eq!(owner.sends().len(), 3, "the same reply, retried until the owner took it");
+    assert_eq!(
+        owner.sends().len(),
+        3,
+        "the same reply, retried until the owner took it"
+    );
     assert_eq!(owner.messages.last().unwrap().author, "agent_mux");
     drop(owner);
 
