@@ -155,6 +155,10 @@ enum TabHandlers {
     /// is saved and the window raised.
     private static func reveal(workspace: WorkspaceModel, screen: ScreenModel, pane: PaneModel?, tab: TabModel?, ctx: AppActionContext) {
         guard let controller = ctx.window(showing: workspace.id) ?? ctx.refuse(RefusalStrings.noWindowOpen) else { return }
+        // The window's observer swaps the content on a later turn; swap it
+        // now (idempotent), so the screen is selected in this workspace's
+        // content and not dropped (screen.focus from Home, chwsr4 E2E).
+        if controller.content?.workspace !== workspace { controller.showWorkspace(requested: workspace.id) }
         if let content = controller.content, content.workspace === workspace {
             ScreenCommands.select(LayoutScreenID(screen.id), in: content)
         }
