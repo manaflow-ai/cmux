@@ -122,6 +122,43 @@ extension BrowserReplPasteboardRedirectTests {
             #expect(texts == [action.text])
         }
 
+        /// The page owns its world's built-ins: replacing the string methods
+        /// the routing script would use to read the command name must not
+        /// turn `execCommand("copy")` back into WebKit's own Copy.
+        @Test func aPageThatReplacesStringBuiltInsStillCopiesOnlyToTheTabClipboard() async throws {
+            let shim = try Self.shim()
+            let system = NSPasteboard.general
+            let systemBefore = system.changeCount
+            var routed: [[[String: Any]]] = []
+            var outcome: (done: String?, standInChanged: Bool)?
+            try await Self.withStandInSystemPasteboard { standIn in
+                let standInBefore = standIn.changeCount
+                let webView = try await Self.load(Self.page) { webView in
+                    BrowserReplPageClipboard(shim: shim).install(on: webView) { _, items in
+                        routed.append(items)
+                        return true
+                    }
+                }
+                _ = try await webView.callAsyncJavaScript(
+                    """
+                    String.prototype.toLowerCase = function () { return "not-a-command"; };
+                    String.prototype.toUpperCase = function () { return "NOT-A-COMMAND"; };
+                    Array.prototype.slice = function () { return []; };
+                    return true
+                    """,
+                    arguments: [:], in: nil, contentWorld: .page
+                )
+                try await Self.click("exec-copy", in: webView)
+                let done = try await Self.waitForDone(in: webView)
+                try await Self.settle { !routed.isEmpty || standIn.changeCount != standInBefore }
+                outcome = (done, standIn.changeCount != standInBefore)
+            }
+            let result = try #require(outcome)
+            #expect(!result.standInChanged, "execCommand(\"copy\") with replaced string built-ins wrote the system pasteboard")
+            #expect(system.changeCount == systemBefore)
+            #expect(routed.count == 1, "the copy did not reach the tab's clipboard")
+        }
+
         /// The guard's first half is WebKit's own switch for the asynchronous
         /// Clipboard API; the page script cannot reach a frame's initial empty
         /// document, so without the switch such a document keeps a native
