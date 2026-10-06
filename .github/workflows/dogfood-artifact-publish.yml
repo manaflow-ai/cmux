@@ -232,7 +232,7 @@ jobs:
     # MACOS_RUNNER_DISPLAY must name the GUI-enabled capture mini. The cloud
     # fallback keeps workflow validation and fork checks deterministic; the
     # step below fails closed when capture tools are absent.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     permissions:
       actions: write
@@ -252,6 +252,9 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Download the published head archive
         run: |
