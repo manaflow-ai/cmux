@@ -606,7 +606,7 @@ checks nothing stays reserved after the session ends.
 | Resource | Limit | Past it |
 | --- | --- | --- |
 | Memory the session holds in all (the rows marked M) | 512 MiB at once | the reservation is refused |
-| The session's JavaScript heap (M) | 384 MiB, measured as each cell ends and after other runs (at most 5% of the thread's time) | after a full garbage collection, the session ends: the running cell fails with the limit, and the next session of its name prints it first |
+| The session's JavaScript heap (M) | 384 MiB, measured as each cell ends, after other runs, and while a run goes on (about every 0.25 to 2 s; at most 5% of the thread's time) | after a full garbage collection, the session ends: the running cell fails with the limit, and the next session of its name prints it first |
 | Cells waiting for the running one | 64 | the cell fails at once |
 | Source of the waiting cells (M) | 64 MiB | the cell fails at once |
 | Parsing the running cell (M) | 64 bytes for each byte of its source, reserved before it is parsed and held until it ends (Acorn's tree is about 50 bytes a byte of dense code); within the session's 512 MiB, so a cell holds at most about 8 MiB of source | the cell fails at once |
@@ -650,8 +650,10 @@ checks nothing stays reserved after the session ends.
 | Domain policy | 1,024 patterns per list, 1,024 bytes a pattern | `invalid`, naming the limit |
 
 JavaScriptCore has no heap limit a context can set, so the heap row is a
-measure, not a refusal: a cell or callback can allocate past it while it
-runs, and the session ends once the run returns. It counts toward the
+measure, not a refusal: a cell or callback can allocate past it between
+two measures. A run that goes on is measured at JavaScriptCore's execution
+checks, so the session ends there, during the run, not only once it
+returns. It counts toward the
 session's memory, so other holders are refused beside a large heap.
 
 Outside the session's ledger, bounded by their own tables: the driver's

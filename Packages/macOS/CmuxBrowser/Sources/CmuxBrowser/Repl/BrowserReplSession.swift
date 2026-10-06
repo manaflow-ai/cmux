@@ -1232,7 +1232,8 @@ public final class BrowserReplSession: @unchecked Sendable {
             for id in timers { scheduler.cancel(id: id) }
             if let firedTimer { scheduler.cancel(id: firedTimer) }
         }
-        if !isClosedNow, let reason = measureScriptHeap(in: context, always: false) {
+        if !isClosedNow, stateLock.withLock({ endReason == nil }),
+           let reason = measureScriptHeap(in: context, always: false) {
             end(because: reason)
         }
     }
@@ -1252,7 +1253,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// is still past, the session ends. `always` measures now (a cell is
     /// ending); otherwise only once ``heapMeasureInterval`` (or 20 times
     /// the last measure's cost) has passed. JavaScript a cell or callback
-    /// makes while it runs is measured once it returns to the session.
+    /// makes while it runs is measured once it returns to the session and,
+    /// while it goes on, at the watchdog's checks (``BrowserReplWatchdog/checkInterval``).
     /// - Returns: Why the session ends, or nil.
     private func measureScriptHeap(in context: JSContext, always: Bool) -> String? {
         let start = ContinuousClock.now
@@ -1277,6 +1279,17 @@ public final class BrowserReplSession: @unchecked Sendable {
             + "(it held \(describe(bytes)) after a full garbage collection); \(resource.remedy). The next command starts a new session"
     }
 
+    /// The watchdog's check of a run that goes on: measures the heap (at
+    /// most as often as between runs) and, past its limit, ends the
+    /// session, which terminates the run. On the session's thread.
+    /// - Returns: Whether the session ended.
+    private func heapIsPastLimitDuringRun() -> Bool {
+        guard let context, !isClosedNow, stateLock.withLock({ endReason == nil }) else { return false }
+        guard let reason = measureScriptHeap(in: context, always: false) else { return false }
+        end(because: reason)
+        return true
+    }
+
     /// Ends the session for `reason` (its JavaScript heap is past its
     /// limit): no more of its JavaScript runs, and the cell running, or the
     /// next session of its name, says why. Called on the session's thread,
@@ -1291,6 +1304,12 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// heap is measured first, and a heap past its limit ends the session
     /// and the cell with it.
     private func finishOnThread(_ state: EvalState, error: String?) {
+        // The heap ended the session while the cell ran: the cell says why,
+        // not how its terminated script ended.
+        if let reason = stateLock.withLock({ endReason }) {
+            finish(state, error: reason)
+            return
+        }
         if let context, !isClosedNow, let reason = measureScriptHeap(in: context, always: true) {
             end(because: reason)
             return
@@ -1567,6 +1586,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         context.exceptionHandler = { context, exception in
             context?.exception = exception
         }
+        // A run that goes on is measured too: JavaScriptCore cannot refuse
+        // an allocation, so a cell that keeps allocating would otherwise
+        // hold the app's memory until it returns or times out.
+        watchdog.setRunCheck { [weak self] in self?.heapIsPastLimitDuringRun() ?? false }
         // Without the watchdog nothing could stop a looping script: the
         // cell's timeout, reset and close() would all wait behind it.
         guard watchdog.install(on: context) else {
