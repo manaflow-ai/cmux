@@ -4,7 +4,7 @@
 //! the app's tab id to the page's CDP target id and back.
 
 use crate::cdp::CdpDriver;
-use crate::driver::{Driver, EventSink};
+use crate::driver::{Driver, EventSink, Reply};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider::{LeaseState, TabAnnounce};
@@ -231,7 +231,7 @@ impl TabSource for ProviderSource {
         Driver::call(&*self.0, method, params)
     }
 
-    fn tab_call(&self, call: &TabCall<'_>) -> Result<Value, DriverError> {
+    fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
         if call.engine == "cef" && !matches!(call.method, "tabs.close" | "tabs.activate") {
             self.0.drive_tab(call.session, call.target_id);
             self.0.call_cef(call.method, call.target_id, call.params, call.agent_source)
@@ -241,6 +241,7 @@ impl TabSource for ProviderSource {
         } else {
             Driver::call(&*self.0, call.method, call.params)
         }
+        .map(Reply::Value)
     }
 
     /// CEF tabs take the session's filter on their relays (for the tabs the
