@@ -10,7 +10,12 @@ extension DaemonService {
     /// can show it again meanwhile. Older daemons keep detached terminals
     /// forever, so there the tab ends its terminal (`close-terminal`).
     func closeCommand(for tab: TabModel) -> TabCloseCommand {
-        Self.closeCommand(for: tab, reaps: supports(DaemonCapabilities.shared.terminalReap))
+        Self.closeCommand(for: tab, reaps: Self.reapsDetachedTerminals(supports))
+    }
+
+    /// Whether a closed terminal tab may only detach its terminal.
+    static func reapsDetachedTerminals(_ supports: (String) -> Bool) -> Bool {
+        supports(DaemonCapabilities.shared.terminalReap)
     }
 
     static func closeCommand(for tab: TabModel, reaps: Bool) -> TabCloseCommand {
