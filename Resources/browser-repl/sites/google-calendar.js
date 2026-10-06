@@ -310,9 +310,11 @@
                   const save = page.getByRole("button", { name: "Save", exact: true });
                   await save.first().waitFor({ timeout: 30000 });
                   // The account this event editor saves as and the event the
-                  // form holds, read right before Save.
+                  // form holds, read right before Save; the account once
+                  // more as the last read before each click (Save, Send).
+                  const account = () => g.observeAccount(t, "googleCalendar.create", page, uid);
                   return c.write(
-                    async () => ({ ...(await g.observeAccount(t, "googleCalendar.create", page, uid)), ...(await observeForm(page, c.intent, who.email)) }),
+                    async () => ({ ...(await account()), ...(await observeForm(page, c.intent, who.email)) }),
                     async (press) => {
                       await press();
                       // With guests, Save opens the invitation dialog, whose
@@ -327,7 +329,7 @@
                       await t.waitIn(page, () => !/\/eventedit/.test(location.pathname) || /Event saved|Saved/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleCalendar", timeout: 20000, what: "Calendar to save the event" });
                       return { status: "saved", title: String(e.title), start: start.toISOString(), end: end.toISOString() };
                     },
-                    { submit: save.first() },
+                    { submit: save.first(), account },
                   );
                 }),
             };

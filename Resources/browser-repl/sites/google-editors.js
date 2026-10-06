@@ -305,7 +305,7 @@
                     const who = await g.observeAccount(t, name, p, ref.uid);
                     return { account: who.accountEmail, accountId: who.accountId };
                   };
-                  return c.write(async () => ({ ...(await editors.observe(name, ref, p)), ...(await s.observe(p)) }), (press) => s.act(p, press), { account, inputs: "guarded" });
+                  return c.write(async () => ({ ...(await editors.observe(name, ref, p)), ...(await s.observe(p)) }), (press) => s.act(p, press), { account });
                 }),
             };
           }),

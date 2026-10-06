@@ -202,16 +202,24 @@
                   // the last-active one): who it acts as and the channel's
                   // id and name. chat.postMessage then checks, in the same
                   // page call, that the token is still the drafted member's.
+                  // The member is read once more, last, right before the
+                  // post (press.input).
+                  const member = async () => {
+                    const auth = await call(team.id, "auth.test", {});
+                    return { team: { id: auth.team_id, name: auth.team || null }, user: { id: auth.user_id, name: auth.user || null } };
+                  };
                   return c.write(
                     async () => {
-                      const auth = await call(team.id, "auth.test", {});
+                      const who = await member();
                       const info = await call(team.id, "conversations.info", { channel: channel.id });
-                      return { team: { id: auth.team_id, name: auth.team || null }, user: { id: auth.user_id, name: auth.user || null }, channel: { id: info.channel.id, name: info.channel.name || null } };
+                      return { ...who, channel: { id: info.channel.id, name: info.channel.name || null } };
                     },
-                    async () => {
-                      const r = await call(team.id, "chat.postMessage", { channel: channel.id, text, thread_ts: threadTs || undefined }, { teamId: team.id, userId: user.id });
-                      return { status: "posted", channel: r.channel, ts: r.ts };
-                    },
+                    (press) =>
+                      press.input(async () => {
+                        const r = await call(team.id, "chat.postMessage", { channel: channel.id, text, thread_ts: threadTs || undefined }, { teamId: team.id, userId: user.id });
+                        return { status: "posted", channel: r.channel, ts: r.ts };
+                      }),
+                    { account: member },
                   );
                 }, { world: "agent" }),
             };

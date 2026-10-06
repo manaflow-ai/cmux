@@ -252,16 +252,21 @@
               sent: ["blocks", "markdown"],
               commit: async (c) => {
                 let parent = null;
+                // Who the session holds now (no user named, so another user
+                // answers as themself); read again, last, right before the
+                // write (press.input).
+                const holderNow = async () => {
+                  const [nowSpaces] = await calls([{ endpoint: "getSpaces", body: {} }], { ...input, userId: undefined, world: "agent" });
+                  const holder = rec(((nowSpaces && nowSpaces[account.userId] && nowSpaces[account.userId].notion_user) || {})[account.userId]);
+                  const others = Object.entries(nowSpaces || {}).map(([uid, v]) => ({ userId: uid, email: (rec((v.notion_user || {})[uid]) || {}).email || null }));
+                  return { account: holder ? { userId: account.userId, email: holder.email || null } : others.find((o) => o.userId !== account.userId) || { userId: null, email: null } };
+                };
                 return c.write(
                   async () => {
-                    // Who the session holds now (no user named, so another
-                    // user answers as themself), then the page as the
-                    // drafted user (x-notion-active-user-header: Notion
-                    // answers as that user or refuses).
-                    const [nowSpaces] = await calls([{ endpoint: "getSpaces", body: {} }], { ...input, userId: undefined, world: "agent" });
-                    const holder = rec(((nowSpaces && nowSpaces[account.userId] && nowSpaces[account.userId].notion_user) || {})[account.userId]);
-                    const others = Object.entries(nowSpaces || {}).map(([uid, v]) => ({ userId: uid, email: (rec((v.notion_user || {})[uid]) || {}).email || null }));
-                    const out = { account: holder ? { userId: account.userId, email: holder.email || null } : others.find((o) => o.userId !== account.userId) || { userId: null, email: null } };
+                    // The user, then the page as the drafted user
+                    // (x-notion-active-user-header: Notion answers as that
+                    // user or refuses).
+                    const out = await holderNow();
                     // A refusal (the session no longer holds that user)
                     // leaves the page unverified.
                     const r = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], { ...as, world: "agent" }).then(([x]) => x, () => null);
@@ -270,7 +275,7 @@
                     out.page = parent && parent.alive !== false ? parent.id : null;
                     return out;
                   },
-                  async () => {
+                  (press) => press.input(async () => {
                     // The write names the drafted user too: Notion runs it as
                     // that user or refuses it, also when the session switches
                     // users after the read.
@@ -288,7 +293,8 @@
                     }
                     await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], as);
                     return { status: "appended", page: id, blockIds: ids };
-                  },
+                  }),
+                  { account: holderNow },
                 );
               },
             };
