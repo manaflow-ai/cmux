@@ -494,6 +494,57 @@ class FormatBeforeLanding(unittest.TestCase):
         self.assertEqual([text for _, text in landed], ["landed", "landed"])
 
 
+class NotifyOwners(unittest.TestCase):
+    """Until landing is allowed, serve posts a receipt and the owner lands."""
+
+    def controller(self, notify: bool) -> nb.Controller:
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, land=not notify)
+        controller.run_url = "u"
+        controller.gh = mock.Mock()
+        controller.merge_green = lambda: Path("/bin/true")
+        controller.comments = []
+        controller.comment_once = lambda item, kind, body: controller.comments.append((item.number, kind, body))
+        controller.merged = []
+        controller.merge_one = lambda helper, item, validation: controller.merged.append(item.number) or "landed"
+        return controller
+
+    def validation(self, prs, passed=("cmux-next swift test",)) -> nb.Validation:
+        return nb.Validation(name="batch", stack=nb.Stack(base="b" * 40, head="h" * 40, included=prs),
+                             branch="next-batch/x-1", heavy_url="https://heavy", heavy_passed=list(passed),
+                             build={"ok": True, "job_id": "job-7", "link": "cmux-ci artifact job-7"})
+
+    def test_serve_notifies_by_default(self):
+        with mock.patch.object(nb, "cmd_serve", lambda args: args), mock.patch.object(nb.subprocess, "run"):
+            args = nb.main(["serve", "--worktree", tempfile.mkdtemp() + "/w"])
+        self.assertFalse(args.land)
+
+    def test_notify_posts_a_receipt_and_merges_nothing(self):
+        controller = self.controller(notify=True)
+        prs = [pr(1), pr(2)]
+        with mock.patch.object(nb, "open_prs", return_value=prs):
+            landed = controller.land(self.validation(prs))
+        self.assertEqual(controller.merged, [])
+        self.assertEqual([kind for _, kind, _ in controller.comments], ["receipt", "receipt"])
+        self.assertIn("job-7", controller.comments[0][2])
+        self.assertIn("land it yourself", controller.comments[0][2])
+        self.assertTrue(all(text.startswith("receipt posted") for _, text in landed))
+
+    def test_a_receipt_says_when_the_heavy_tier_did_not_run(self):
+        controller = self.controller(notify=True)
+        prs = [pr(1)]
+        with mock.patch.object(nb, "open_prs", return_value=prs):
+            controller.land(self.validation(prs, passed=()))
+        self.assertIn("heavy tier did not run", controller.comments[0][2])
+
+    def test_land_flag_merges(self):
+        controller = self.controller(notify=False)
+        prs = [pr(1)]
+        with mock.patch.object(nb, "open_prs", return_value=prs):
+            controller.land(self.validation(prs))
+        self.assertEqual(controller.merged, [1])
+
+
 class LocalController(unittest.TestCase):
     """`serve` on a workstation: the operator's gh login, cmux-ci for the build."""
 
