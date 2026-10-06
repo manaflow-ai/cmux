@@ -557,8 +557,11 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// navigation action, unique for the tab) in `frame` as the frame's
     /// latest: the acting session's when exactly one session's input is in
     /// flight (``inputSessionID``), otherwise nobody's. A redirect
-    /// (`continuing` true) is the same navigation and keeps the session that
-    /// started it, also after its input ended.
+    /// (`continuing` true) is the same navigation: it keeps the starter and
+    /// the start time that navigation recorded (`nil`: the user's or the
+    /// page's own), whoever's input is in flight when WebKit reports it, so
+    /// another session's input never takes over a navigation it did not
+    /// start. A redirect of a navigation with no record is nobody's.
     public mutating func noteNavigationAction(
         _ navigation: Int,
         frame: String,
@@ -568,12 +571,18 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         at now: ContinuousClock.Instant = .now
     ) {
         let acting = inputSessionID.flatMap { attachedSessionIDs.contains($0) ? $0 : nil }
-        let previous = latestNavigations[frame].flatMap { now - $0.at > Self.navigationStartLifetime ? nil : $0 }
-        let sessionID = acting ?? (continuing ? previous?.sessionID : nil)
+        // The navigation a redirect continues: past its lifetime it claims
+        // nothing, unless its starter left (that claim stays, and cancels).
+        let previous = latestNavigations[frame].flatMap { start in
+            let departed = start.sessionID.map { !attachedSessionIDs.contains($0) } ?? false
+            return now - start.at > Self.navigationStartLifetime && !departed ? nil : start
+        }
+        let sessionID = continuing ? previous?.sessionID : acting
+        let startedAt = continuing ? previous?.at ?? now : now
         // A redirect goes on from where the navigation went; a new one starts over.
         var source = continuing ? previous?.source ?? BrowserReplDownloadSource(initiator: initiator) : BrowserReplDownloadSource(initiator: initiator)
         if let url { source.went(to: url) }
-        latestNavigations[frame] = NavigationStart(navigation: navigation, sessionID: sessionID, at: now, source: source)
+        latestNavigations[frame] = NavigationStart(navigation: navigation, sessionID: sessionID, at: startedAt, source: source)
         if latestNavigations.count > Self.maximumNavigationStarts,
            let oldest = latestNavigations.min(by: { $0.value.at < $1.value.at })?.key {
             latestNavigations.removeValue(forKey: oldest)
