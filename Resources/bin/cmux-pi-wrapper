@@ -43,6 +43,14 @@ if [ "${CMUX_PI_HOOKS_DISABLED:-0}" = "1" ]; then
     exec "$cmux_pi" "$@"
 fi
 
+# Pi dispatches these commands before parsing options. Keep this list in sync
+# with Pi's command dispatcher when new subcommands are added.
+case "${1:-}" in
+    install|remove|uninstall|update|list|config|auth|mcp)
+        exec "$cmux_pi" "$@"
+        ;;
+esac
+
 cmux_pi_managed_extension() {
     local candidate="$1"
     [ -f "$candidate" ] || return 1
