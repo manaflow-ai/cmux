@@ -414,14 +414,15 @@ struct BrowserReplBoundaryTests {
         #expect(anyOutput.contains("secure: typed"), "\(anyOutput)")
     }
 
-    /// r15 whole#1: the values a user types into the sign-in sheet go into
-    /// the page, which can send them on; only the domain policy's content
-    /// rules stop that. So the sheet is asked for only while the policy
-    /// keeps the session's tabs on the page's site, the driver gets that
-    /// site as the credential's domains (never the agent's), and the policy
-    /// cannot widen past it later, as for a typed secret.
-    @Test("A sign-in sheet is asked for only while the policy keeps the tab on the page's site, and the policy cannot widen after")
-    func credentialRequestNeedsAPolicyWithinTheSite() async throws {
+    /// r15 whole#1, owner decision 2026-10-06: the values a user types into
+    /// the sign-in sheet go into the page, which can send them on; only the
+    /// domain policy's content rules stop that. So the sheet is asked for
+    /// only while the policy names the page's exact host (with https; a
+    /// wildcard over its site is not enough), the driver gets that host as
+    /// the credential's domains (never the agent's), and the policy cannot
+    /// widen past it later, as for a typed secret.
+    @Test("A sign-in sheet is asked for only while the policy names the page's exact host, and the policy cannot widen after")
+    func credentialRequestNeedsAPolicyOnTheExactHost() async throws {
         let driver = ScriptedPageDriver()
         let session = try makeSession(driver)
         defer { session.close() }
@@ -430,20 +431,24 @@ struct BrowserReplBoundaryTests {
         console.log("none:", await ask("https://login.example.com"));
         session.allowedDomains(["example.com", "other.test"]);
         console.log("wider:", await ask("https://login.example.com"));
+        session.allowedDomains(["https://*.example.com"]);
+        console.log("wildcard:", await ask("https://login.example.com"));
         session.allowedDomains(["https://login.example.com"]);
         console.log("elsewhere:", await ask("https://evil.test"));
         console.log("within:", await ask("https://login.example.com"));
         try { session.allowedDomains(["https://login.example.com", "evil.test"]); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
         """)
         let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
-        for refused in ["none: refused", "wider: refused", "elsewhere: refused", "within: asked", "kept: "] {
+        for refused in ["none: refused", "wider: refused", "wildcard: refused", "elsewhere: refused", "within: asked", "kept: "] {
             #expect(output.contains(refused), "\(refused) missing from: \(output)")
         }
         #expect(!output.contains("widened"), "\(output)")
         let asked = driver.params("auth.request")
         #expect(asked.count == 1, "\(asked)")
         let domains = (asked.first?["secretDomains"] as? [[String: Any]])?.compactMap { $0["raw"] as? String }
-        #expect(domains == ["*.example.com"], "\(String(describing: domains))")
+        #expect(domains == ["https://login.example.com"], "\(String(describing: domains))")
+        // The refusal names the exact host to allow.
+        #expect(output.contains("session.allowedDomains([\"https://login.example.com\"])"), "\(output)")
     }
 
     @Test("A secret fill that retries after the page moved to another origin is refused")
