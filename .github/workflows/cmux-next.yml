@@ -344,9 +344,17 @@ jobs:
 
       # Fail-safe: without the marker the run is only not watched. Skipped
       # only when every macOS job took its fallback.
+      # Opt-in (vars.CMUX_NEXT_POOL_RESCUE == '1'): the sweeper runs main's
+      # owned_pool_rescue.py, which lacks #17003's cmux-next rules. It judged
+      # these jobs on the 30 s CI_OWNED_POOL_RESCUE_SECONDS budget, cancelled
+      # the run, and re-ran its failed and cancelled jobs on attempt 2, which
+      # this workflow keeps on the same minis: 13 of 20 cmux-next PR runs
+      # (2026-10-06) lost their queue place, re-queued 2 to 13 minutes and
+      # re-ran jobs that had failed for real. Set the variable once main has
+      # the cmux-next rescue rules.
       - name: Mark a run on the minis
         id: marker
-        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && steps.place.outputs.watch != 'false'
+        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && steps.place.outputs.watch != 'false' && vars.CMUX_NEXT_POOL_RESCUE == '1'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -579,6 +587,8 @@ jobs:
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
     # dependencies) and the selected suites.
     timeout-minutes: 60
+    outputs:
+      patch: ${{ steps.regenerate.outputs.patch }}
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -588,6 +598,9 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       SWIFT_FILTER: ${{ needs.path_route.outputs.swift_filter }}
       SWIFT_TARGETS: ${{ needs.path_route.outputs.swift_targets }}
+      # The generated tier rides on this job's package build when it builds
+      # one (generated-files then skips): one Mac build per PR, not two.
+      GENERATED: ${{ needs.path_route.outputs.generated }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -745,6 +758,71 @@ jobs:
           CMUX_NEXT_TEST_HANG_SECONDS: "420"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
 
+      # The generated tier on this job's build (generated-files skips when this
+      # job builds): the same checks, regeneration and autofix artifact. Last,
+      # so a stale file never hides a test step, and after a red test step too.
+      - name: Check generated action catalog, surfaces and inventory
+        id: actions
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && env.GENERATED == 'true' }}
+        continue-on-error: true
+        working-directory: Packages/macOS/CmuxNext
+        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+
+      - name: Check the CI target graph
+        id: graph
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && env.GENERATED == 'true' }}
+        continue-on-error: true
+        run: python3 scripts/cmux-next/ci-target-graph.py --check
+
+      # Only these paths may change: the autofix job refuses any other file.
+      - name: Regenerate stale files
+        id: regenerate
+        if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure') }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.actions.outcome }}" == failure ]]; then
+            scripts/cmux-next/regenerate-action-contracts.sh
+          fi
+          if [[ "${{ steps.graph.outcome }}" == failure ]]; then
+            python3 scripts/cmux-next/ci-target-graph.py
+          fi
+          out="$RUNNER_TEMP/generated/files"
+          mkdir -p "$out"
+          git add -N -- 'plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json
+          git diff --name-only -- 'plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json > "$RUNNER_TEMP/generated/paths.txt"
+          git diff --stat
+          while IFS= read -r path; do
+            mkdir -p "$out/$(dirname "$path")"
+            cp "$path" "$out/$path"
+          done < "$RUNNER_TEMP/generated/paths.txt"
+          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
+          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
+            echo "patch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload the regenerated files
+        if: ${{ !cancelled() && steps.regenerate.outputs.patch == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-generated-patch
+          path: ${{ runner.temp }}/generated/files
+          include-hidden-files: true
+          retention-days: 3
+
+      - name: Fail on stale generated files
+        if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure') }}
+        run: |
+          {
+            echo "### Generated cmux-next files are stale"
+            echo
+            [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
+            [[ "${{ steps.graph.outcome }}" != failure ]] || echo "- CI target graph: scripts/cmux-next/ci-target-graph.py"
+            echo
+            echo "On a same-repository pull request the generated-autofix job commits the regenerated files."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::error::Generated cmux-next files are stale. Pull the autofix commit, or regenerate them as the step summary says."
+          exit 1
+
   # The live-daemon suites (daemon integration and branch tests, the mobile
   # live daemon and first launch) against this commit's own cmux-tui tree,
   # which the gate above waits for on Linux. Only the daemon tier runs it:
@@ -856,7 +934,9 @@ jobs:
   # generated-autofix commits it to a same-repository pull request.
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
+    # Only when swift-test builds no package (no swift tier or no selected
+    # target): otherwise swift-test runs these checks on its own build.
+    if: ${{ !cancelled() && needs.path_route.outputs.generated == 'true' && !(needs.path_route.outputs.swift == 'true' && needs.path_route.outputs.swift_targets != '') && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next generated files
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     permissions:
@@ -974,15 +1054,16 @@ jobs:
           echo "::error::Generated cmux-next files are stale. Pull the autofix commit, or regenerate them as the step summary says."
           exit 1
 
-  # Commits generated-files' regenerated files to the pull request branch, the
+  # Commits the regenerated files (from generated-files, or from swift-test
+  # when it ran the generated tier) to the pull request branch, the
   # way a formatter autofix does, so stale generated files never reach the
   # base. No pull request code runs here: the files are data, copied only to
   # the generated paths, and pushed only while the branch head is still the
   # commit that was checked (never to main). The App token's push starts a
   # new run.
   generated-autofix:
-    needs: generated-files
-    if: ${{ always() && needs.generated-files.outputs.patch == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'main' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+    needs: [generated-files, swift-test]
+    if: ${{ always() && (needs.generated-files.outputs.patch == 'true' || needs.swift-test.outputs.patch == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'main' && vars.GLAEDA_ROUTE_APP_ID != '' }}
     name: cmux-next generated autofix
     runs-on: ubuntu-24.04 # github-hosted-required: holds a write token for a pull request branch
     timeout-minutes: 5

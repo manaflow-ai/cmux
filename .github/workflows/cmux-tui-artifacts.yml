@@ -424,6 +424,11 @@ jobs:
       # Rust legs run on the background lane (free GitHub-hosted capacity)
       # unless a dispatch names a runner. See docs/ci-runners.md.
       macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+      # cmux-next's scheme and daemon jobs wait on this tree (same-tree-cmux-tui,
+      # 8.8 min median on PRs): the x86_64 musl zigbuild took 13.6 min on 4 vCPU
+      # and was the publish's long pole. Blacksmith Linux is free, so the
+      # cmux-next tree builds take 16 vCPU. main keeps its default ('').
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.ref == 'refs/heads/feat-cmux-next' || github.event_name == 'pull_request_target' && github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository) && 'blacksmith-16vcpu-ubuntu-2404' || '' }}
       checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
 
   # The daemon tests the cmux-next app relies on (Rust tests named

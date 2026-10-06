@@ -221,14 +221,41 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("SWIFT_FILTER", swift["env"])
 
     def test_generated_files_are_checked_outside_the_package_tests(self):
-        """a925bd9 went red when PRs that skipped swift test landed a stale export."""
+        """a925bd9 went red when PRs that skipped swift test landed a stale export.
+
+        The generated tier runs in exactly one job: on swift-test's package build
+        when swift-test builds one (no second Mac build of the same package), and
+        in generated-files otherwise, so a PR that skips swift test still checks it.
+        """
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         runs = " ".join(step.get("run", "") for step in jobs["generated-files"]["steps"])
         self.assertIn("check-action-surfaces.sh", runs)
         self.assertIn("ci-target-graph.py --check", runs)
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
-        swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
-        self.assertNotIn("check-action-surfaces.sh", swift_runs)
+        generated_if = jobs["generated-files"]["if"]
+        self.assertIn("!(needs.path_route.outputs.swift == 'true' && needs.path_route.outputs.swift_targets != '')",
+                      generated_if)
+
+        swift = jobs["swift-test"]
+        self.assertEqual(swift["env"]["GENERATED"], "${{ needs.path_route.outputs.generated }}")
+        self.assertIn("patch", swift["outputs"])
+        names = [step.get("name") for step in swift["steps"]]
+        by_id = {step.get("id"): step for step in swift["steps"] if step.get("id")}
+        for step_id in ("actions", "graph"):
+            with self.subTest(step=step_id):
+                self.assertIn("steps.build-tests.outcome == 'success'", by_id[step_id]["if"])
+                self.assertIn("env.GENERATED == 'true'", by_id[step_id]["if"])
+                self.assertTrue(by_id[step_id]["continue-on-error"])
+        self.assertIn("check-action-surfaces.sh", by_id["actions"]["run"])
+        self.assertIn("ci-target-graph.py --check", by_id["graph"]["run"])
+        # After every test step: a stale file never skips a test step.
+        last_test = max(i for i, name in enumerate(names) if name and name.startswith("Run "))
+        self.assertGreater(names.index(by_id["actions"]["name"]), last_test)
+
+        autofix = jobs["generated-autofix"]
+        self.assertEqual(sorted(autofix["needs"]), ["generated-files", "swift-test"])
+        self.assertIn("needs.swift-test.outputs.patch == 'true'", autofix["if"])
+        self.assertIn("needs.generated-files.outputs.patch == 'true'", autofix["if"])
 
     def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
