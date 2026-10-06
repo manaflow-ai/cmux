@@ -743,10 +743,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     }
                 },
                 stillAllowed: { [weak self, weak panel] in
-                    // The session still runs and drives this tab, which still
-                    // shows the web view the sheet was asked for.
+                    // The session still runs and is still the live creator
+                    // of this tab, whose attachment is still the one the
+                    // request was made through, and which still shows the
+                    // web view the sheet was asked for.
                     guard let self, let panel, !self.lock.withLock({ self.isDetached }) else { return false }
-                    return panel.webView === webView && tabAttachment.sessionIDs.contains(sessionID)
+                    return panel.webView === webView
+                        && BrowserReplTabAttachments.shared.attachment(for: panel.id) === tabAttachment
+                        && tabAttachment.liveCreatorSessionID == sessionID
                 }
             )
         }

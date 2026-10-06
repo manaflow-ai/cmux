@@ -153,31 +153,54 @@ extension WKWebView {
     /// clipboard); without one this uses WebKit's own variant that takes the
     /// choice, and throws `unsupported` when that is missing rather than
     /// give the gesture anyway.
+    ///
+    /// - Parameter onlyIf: The authority for the script, checked in the
+    ///   same main-actor turn in which WebKit gets the script, after the
+    ///   caller's last suspension: when it fails, the script never reaches
+    ///   the page and the call throws `cancelled`. A native write into a
+    ///   page (the sign-in sheet's fill) passes the check that the session
+    ///   still drives the tab here, so no detach or reset can come between
+    ///   that check and the write.
     @MainActor
     public func browserReplCallAsyncJavaScript(
         _ body: String,
         arguments: [String: Any],
         in frame: WKFrameInfo?,
         contentWorld: WKContentWorld,
-        userGesture: Bool
+        userGesture: Bool,
+        onlyIf: (@MainActor () -> Bool)? = nil
     ) async throws -> Any? {
-        if userGesture {
+        if userGesture, onlyIf == nil {
             return try await callAsyncJavaScript(body, arguments: arguments, in: frame, contentWorld: contentWorld)
         }
-        guard responds(to: Self.callWithGestureSelector) else {
+        guard userGesture || responds(to: Self.callWithGestureSelector) else {
             throw BrowserReplDriverError(code: "unsupported", message: "This WebKit cannot run the agent's script without a user gesture")
         }
         typealias Completion = @convention(block) (Any?, (any Error)?) -> Void
         typealias Function = @convention(c) (AnyObject, Selector, NSString, NSDictionary, WKFrameInfo?, WKContentWorld, Bool, Completion) -> Void
-        let function = unsafeBitCast(method(for: Self.callWithGestureSelector), to: Function.self)
         let box = BrowserReplScriptResultBox()
         let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<BrowserReplScriptResult, any Error>) in
             box.continuation = continuation
+            // The same turn as the dispatch below: nothing runs between.
+            if let onlyIf, !onlyIf() {
+                box.finish(.failure(BrowserReplDriverError(code: "cancelled", message: "The script's authority ended before it ran")))
+                return
+            }
+            if userGesture {
+                callAsyncJavaScript(body, arguments: arguments, in: frame, in: contentWorld) { result in
+                    switch result {
+                    case .success(let value): box.finish(.success(BrowserReplScriptResult(value: value)))
+                    case .failure(let error): box.finish(.failure(error))
+                    }
+                }
+                return
+            }
             let completion: Completion = { value, error in
                 MainActor.assumeIsolated {
                     if let error { box.finish(.failure(error)) } else { box.finish(.success(BrowserReplScriptResult(value: value))) }
                 }
             }
+            let function = unsafeBitCast(method(for: Self.callWithGestureSelector), to: Function.self)
             function(self, Self.callWithGestureSelector, body as NSString, arguments as NSDictionary, frame, contentWorld, false, completion)
         }
         return result.value is NSNull ? nil : result.value
