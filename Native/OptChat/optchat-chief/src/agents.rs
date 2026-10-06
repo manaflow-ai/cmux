@@ -222,6 +222,15 @@ pub fn child_preset_name(home_id: &str, harness: &str) -> Option<String> {
     plain(harness).then(|| format!("chief-child-{home_id}-{harness}"))
 }
 
+/// `agents spawn` is retired: its children got no workspace and no chat tab.
+pub const SPAWN_RETIRED: &str = "chief agents spawn is retired: use chief spawn \"task\" [\"task\" ...] (a workspace and chat per subagent, one combined report); chief tell ID \"message\" steers one";
+
+/// The refusal for a retired `agents` verb in `words` (`agents VERB ...`).
+pub fn retired(words: &[String]) -> Option<&'static str> {
+    let _ = words;
+    None
+}
+
 /// Runs one `agents` verb; Ok carries what to print.
 pub fn run(flags: &Flags) -> Result<String, String> {
     let words = &flags.words[1..];

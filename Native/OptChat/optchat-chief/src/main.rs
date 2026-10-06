@@ -110,6 +110,13 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        Some("agents") if optchat_chief::agents::retired(&flags.words).is_some() => {
+            eprintln!(
+                "{}",
+                optchat_chief::agents::retired(&flags.words).unwrap_or_default()
+            );
+            2
+        }
         Some("agents") => match optchat_chief::agents::run(&flags) {
             Ok(out) => {
                 println!("{out}");
