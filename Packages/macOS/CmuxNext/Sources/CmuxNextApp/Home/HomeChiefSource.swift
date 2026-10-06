@@ -8,13 +8,14 @@ import Foundation
 enum HomeChiefSource {
     /// The Chief tab's conversation: the placed chief's main conversation, else `local`.
     nonisolated static func choose(local: String?, placed: CloudChief?) -> String? {
-        local  // red: not implemented yet
+        placed?.mainConversation ?? local
     }
 
     /// The placed chief (`CloudChiefs.placed`) with a main conversation, or
     /// nil: signed out, no chief placed, or the read failed (Home then keeps
     /// the local chief; a failure is logged by the caller, never shown).
     static func readPlaced(call: CloudChiefs.Call) async throws -> CloudChief? {
-        nil  // red: not implemented yet
+        guard let chief = CloudChiefs.placed(in: try await CloudChiefs.list(call: call)), chief.mainConversation != nil else { return nil }
+        return chief
     }
 }
