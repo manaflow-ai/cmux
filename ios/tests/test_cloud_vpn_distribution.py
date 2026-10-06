@@ -32,7 +32,7 @@ class CloudVPNDistributionTests(unittest.TestCase):
             "bash", str(ROOT / "ios/scripts/upload-testflight.sh"),
             "--lane", lane, "--signing", "manual", "--export-only",
             "--build-number", "20261006000100",
-        ], env=env, tmp=path)
+        ], env=env, tmp=path, log_failure=False)
         return path, result
 
     def test_both_exports_share_host_keychain_and_packet_tunnel(self):
