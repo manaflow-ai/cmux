@@ -383,3 +383,25 @@ describe("resume is an event, not a poll", () => {
     expect(reasons).toEqual(["resume"]);
   });
 });
+
+describe("report reasons are merged, not overwritten", () => {
+  test("a change and a resume before one send are both named on that report", async () => {
+    const store = new MemoryStore();
+    store.write("/var/lib/cmux/bind.json", bindFileText, 0o600);
+    bindCalls = 0;
+    const key = await ensureInstallKey(store, "i-yyy");
+    await bindMachine({ fetch: fakeFetch, store, key, wg, daemon });
+    const clock = new FakeClock();
+    const client = new CloudClient({ fetch: fakeFetch, bound: JSON.parse(store.read("/var/lib/cmux/bound.json")!), key, clock });
+    const reasons: string[] = [];
+    opsScript = [];
+    const reporter = new StatusReporter({ client, clock, machine: bound.machine, daemon: await daemon(), heartbeatMs: 60_000, random: () => 0.5, onResult: (r) => reasons.push(r.reason) });
+    reporter.trigger("start");
+    await reporter.settled();
+    reporter.update({ active_sessions: 1 });
+    reporter.trigger("resume");
+    clock.advance(10_000);
+    await reporter.settled();
+    expect(reasons).toEqual(["start", "change+resume"]);
+  });
+});
