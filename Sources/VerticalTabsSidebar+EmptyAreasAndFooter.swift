@@ -88,6 +88,17 @@ enum SidebarFooterPresentationPolicy {
     ) -> Bool {
         presentationMode != .minimal || control == .upgrade
     }
+
+    /// The upgrade affordance is only meaningful after the signed-in
+    /// account's entitlement has been checked. Unknown billing state must not
+    /// flash an upgrade prompt at a paid user during auth restoration.
+    static func isUpgradeVisible(
+        featureFlagEnabled: Bool,
+        isProActive: Bool,
+        isProStatusKnown: Bool = true
+    ) -> Bool {
+        featureFlagEnabled && isProStatusKnown && !isProActive
+    }
 }
 
 #if DEBUG

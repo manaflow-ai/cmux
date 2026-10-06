@@ -7264,7 +7264,16 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.computerUseUXEnabled, featureFlags.isComputerUseUXEnabled)
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.accountFlow.isAuthenticated)
-            snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
+            let isProStatusKnown = !auth.accountFlow.isWorkingOnAuth
+                && (auth.accountFlow.currentIdentity == nil || auth.accountFlow.hasLoadedBillingPlan)
+            snapshot.setBool(
+                CommandPaletteContextKeys.proUpgradeEnabled,
+                SidebarFooterPresentationPolicy.isUpgradeVisible(
+                    featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
+                    isProActive: auth.accountFlow.isProActive,
+                    isProStatusKnown: isProStatusKnown
+                )
+            )
             snapshot.setBool(CommandPaletteContextKeys.authWorking, auth.accountFlow.isWorkingOnAuth)
         }
 
@@ -15456,6 +15465,7 @@ private struct SidebarFooter: View {
 
 struct SidebarFooterButtons: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
@@ -15475,6 +15485,16 @@ struct SidebarFooterButtons: View {
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
+    }
+
+    private var billingPlanRefreshID: String? {
+        guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
+        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
+    }
+
+    private var isProStatusKnownForUpgrade: Bool {
+        guard let flow = accountFlow else { return true }
+        return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.hasLoadedBillingPlan)
     }
 
     private func shows(_ control: SidebarFooterControl) -> Bool {
@@ -15502,7 +15522,12 @@ struct SidebarFooterButtons: View {
                (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
                 ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
-            if shows(.upgrade) {
+            if shows(.upgrade),
+               SidebarFooterPresentationPolicy.isUpgradeVisible(
+                   featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
+                   isProActive: accountFlow?.isProActive == true,
+                   isProStatusKnown: isProStatusKnownForUpgrade
+               ) {
                 SidebarProBadge()
             }
             // The puzzle button opens the extensions browser; it only shows
@@ -15529,6 +15554,10 @@ struct SidebarFooterButtons: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: billingPlanRefreshID) {
+            guard let flow = accountFlow, flow.isAuthenticated else { return }
+            await flow.refreshBillingPlan()
+        }
     }
 }
 
@@ -15565,6 +15594,13 @@ private struct SidebarHelpMenuButton: View {
     @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
 
     let onSendFeedback: () -> Void
+
+    private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
+
+    private var isProStatusKnownForUpgrade: Bool {
+        guard let flow = accountFlow else { return true }
+        return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.hasLoadedBillingPlan)
+    }
 
     @State private var isPopoverPresented = false
 
@@ -15625,7 +15661,12 @@ private struct SidebarHelpMenuButton: View {
                 accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
             )
-            if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
+            if SidebarFooterPresentationPolicy.isUpgradeVisible(
+                featureFlagEnabled: accountFlow?.isProUpgradeAvailable
+                    ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
+                isProActive: accountFlow?.isProActive == true,
+                isProStatusKnown: isProStatusKnownForUpgrade
+            ) {
                 helpOptionButton(
                     title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
                     action: .upgrade,

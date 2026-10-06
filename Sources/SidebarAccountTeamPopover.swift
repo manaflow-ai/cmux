@@ -7,6 +7,10 @@ import SwiftUI
 struct SidebarAccountMenuButton: View {
     @EnvironmentObject private var tabManager: TabManager
     private var accountFlow: HostAccountFlow? { AppDelegate.shared?.auth?.accountFlow }
+    private var billingPlanRefreshID: String? {
+        guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
+        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
+    }
     private let title = String(localized: "settings.section.account", defaultValue: "Account")
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
     private let buttonSize = SidebarFooterButtonMetrics.buttonSize
@@ -100,6 +104,10 @@ struct SidebarAccountMenuButton: View {
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
         .accessibilityIdentifier("SidebarAccountMenuButton")
+        .task(id: billingPlanRefreshID) {
+            guard let flow = accountFlow, flow.isAuthenticated else { return }
+            await flow.refreshBillingPlan()
+        }
     }
 }
 
@@ -152,7 +160,15 @@ private struct SidebarAccountPopover: View {
                 }
                 .accessibilityIdentifier("SidebarAccountSignInButton")
             }
-            if accountFlow?.isProUpgradeAvailable == true {
+            let isProStatusKnown = accountFlow.map {
+                !$0.isWorkingOnAuth && ($0.currentIdentity == nil || $0.hasLoadedBillingPlan)
+            } ?? true
+            if SidebarFooterPresentationPolicy.isUpgradeVisible(
+                featureFlagEnabled: accountFlow?.isProUpgradeAvailable
+                    ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
+                isProActive: accountFlow?.isProActive == true,
+                isProStatusKnown: isProStatusKnown
+            ) {
                 if accountFlow?.currentIdentity == nil {
                     Divider()
                         .padding(.vertical, 4)

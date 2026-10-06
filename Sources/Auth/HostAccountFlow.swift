@@ -197,6 +197,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
+        billingPlanRequestID = UUID()
         billingPlanState = .unknown
     }
 
@@ -241,6 +242,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
         await browserSignIn.signOut(timeout: timeout)
+        billingPlanRequestID = UUID()
         billingPlanState = .unknown
     }
 
@@ -266,13 +268,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // request is in flight. Unknown keeps Cloud enabled until a verified
         // response arrives and avoids a false Free/Upgrade state.
         billingPlanState = .unknown
-        let tokens = try? await coordinator.currentTokens()
+        guard let tokens = try? await coordinator.currentTokens(),
+              billingPlanRequestID == requestID,
+              !Task.isCancelled else { return false }
 
         do {
             let details = try await BillingPlanClient().fetch(
                 from: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"),
-                accessToken: tokens?.accessToken,
-                refreshToken: tokens?.refreshToken
+                accessToken: tokens.accessToken,
+                refreshToken: tokens.refreshToken
             )
             guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingSuccess(

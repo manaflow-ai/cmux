@@ -27,7 +27,15 @@ extension cmuxApp {
 
             helpResourceButton(.githubIssues)
             helpResourceButton(.discord)
-            if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
+            let accountFlow = AppDelegate.shared?.auth?.accountFlow
+            let isProStatusKnown = accountFlow.map {
+                !$0.isWorkingOnAuth && ($0.currentIdentity == nil || $0.hasLoadedBillingPlan)
+            } ?? true
+            if SidebarFooterPresentationPolicy.isUpgradeVisible(
+                featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
+                isProActive: accountFlow?.isProActive == true,
+                isProStatusKnown: isProStatusKnown
+            ) {
                 Button(String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")) {
                     ProUpgradePresenter.present(source: .helpMenu)
                 }
