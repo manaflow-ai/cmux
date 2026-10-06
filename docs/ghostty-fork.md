@@ -27,7 +27,11 @@ When we change the fork, update this document and the parent submodule SHA.
   clears both ivars, so `loopEnter` cannot rebind them. #17524 clears them
   from the cmux side as well.
 - Coverage: Ghostty's `teardown invalidation makes display a no-op`, run by
-  `build-ghosttykit.yml` before packaging.
+  `build-ghosttykit.yml` before packaging. It passed in
+  [run 37421168473](https://github.com/manaflow-ai/cmux/actions/runs/37421168473).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e2a26bc9457c3a7c8bc3701c63676b41fc4cdf2c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `bee3bce68bd6d5eb1496e17ebb0e4e3e4aea48e78a2f62dfe8fe7b8e9d512cd9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: upstream fixed the same bug in `4b4a5b241` by clearing the
   callback in `IOSurfaceLayer.release()` from the freeing thread. On a merge,
   keep the main-thread clear in `invalidateSurfaceUpdatesCallback`; taking
