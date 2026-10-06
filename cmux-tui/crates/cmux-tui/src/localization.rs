@@ -428,6 +428,7 @@ pub(crate) struct RuntimeMessages {
     pub terminal_capacity_exhausted: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
+    host_input_closed: &'static str,
     session_transport_lost: &'static str,
     signal_handlers_failed: &'static str,
     terminal_restore_also_failed: &'static str,
@@ -440,6 +441,13 @@ impl RuntimeMessages {
 
     pub(crate) fn host_input_failed(&self, error: &str) -> String {
         self.host_input_failed.replace("{error}", error)
+    }
+
+    /// The reason to show when the host terminal itself reports the end of its
+    /// input. Kept here so the wording stays in the catalog instead of arriving
+    /// as text from the terminal reader.
+    pub(crate) fn host_input_closed(&self) -> String {
+        self.host_input_closed.to_owned()
     }
 
     pub(crate) fn session_transport_lost(&self) -> String {
@@ -1562,6 +1570,7 @@ edits shell files. Authenticate with the configured host before retrying.
         terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
+        host_input_closed: "the host terminal closed its input",
         session_transport_lost: "session connection lost. Reconnect and retry.",
         signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
@@ -2287,6 +2296,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        host_input_closed: "ホストターミナルの入力が閉じました",
         session_transport_lost: "セッションへの接続が失われました。再接続して再試行してください。",
         signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
@@ -3025,6 +3035,10 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").runtime.host_input_failed("切断"),
             "ホストターミナルの入力に失敗しました: 切断"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").runtime.host_input_closed(),
+            "ホストターミナルの入力が閉じました"
         );
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").runtime.signal_handlers_failed("権限がありません"),

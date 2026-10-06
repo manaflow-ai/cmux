@@ -115,16 +115,22 @@ fn is_child() -> bool {
 /// a live terminal. `setup` feeds the terminal before that, and only runs while the
 /// terminal is still live.
 fn run_reader(hang_up: bool, setup: impl FnOnce(&mut File)) -> String {
-    let directory = std::env::temp_dir().join(format!("cmux-dead-tty-{}", std::process::id()));
-    std::fs::create_dir_all(&directory).expect("child directory");
-    let verdict_path = directory.join("verdict");
+    // One directory per scenario: cargo runs tests in parallel and both
+    // scenarios share this process, so a name derived from the process id would
+    // let them read each other's `ready` and `verdict` files. A fresh temporary
+    // directory also means no `ready` file survives an aborted run to make the
+    // parent hang the terminal up before the reader exists. Holding it for the
+    // whole function is what keeps the directory alive for the child, and its
+    // drop is what removes it.
+    let child_directory = tempfile::tempdir().expect("child directory");
+    let directory = child_directory.path();
 
     let (mut master, slave) = open_pty();
     let mut child = Command::new(std::env::current_exe().expect("test binary path"))
         .arg(CHILD_TEST)
         .arg("--exact")
         .arg("--nocapture")
-        .env(CHILD_DIR_ENV, &directory)
+        .env(CHILD_DIR_ENV, directory)
         // crossterm reads the terminal through `tty_fd`, which uses stdin whenever stdin is
         // a terminal, so the slave has to be stdin.
         .stdin(Stdio::from(slave))
@@ -151,9 +157,8 @@ fn run_reader(hang_up: bool, setup: impl FnOnce(&mut File)) -> String {
     drop(master);
     assert!(status.success(), "reader child exited with {status}");
 
-    let verdict = std::fs::read_to_string(&verdict_path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", verdict_path.display()));
-    let _ = std::fs::remove_dir_all(&directory);
+    let verdict = std::fs::read_to_string(directory.join("verdict"))
+        .unwrap_or_else(|error| panic!("read verdict: {error}"));
     verdict.trim().to_string()
 }
 

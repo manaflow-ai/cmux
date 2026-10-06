@@ -21,13 +21,6 @@ const WAKE_TOKEN: Token = Token(2);
 // is enough.
 const TTY_BUFFER_SIZE: usize = 1_024;
 
-/// The controlling terminal reported end of input and will never produce another
-/// byte. Reporting that as an error is what lets a reader above notice a terminal
-/// that went away instead of polling a descriptor that stays ready forever.
-fn eof() -> io::Error {
-    io::Error::new(io::ErrorKind::UnexpectedEof, "the terminal closed its input")
-}
-
 pub(crate) struct UnixInternalEventSource {
     poll: Poll,
     events: Events,
@@ -104,7 +97,10 @@ impl EventSource for UnixInternalEventSource {
                                 // End of input: the terminal is gone. The poll
                                 // keeps reporting this descriptor ready, so
                                 // retrying here would spin without ever yielding.
-                                Ok(0) => return Err(eof()),
+                                // The kind is the whole signal, so a caller can
+                                // recognize it without carrying this crate's
+                                // wording into its own messages.
+                                Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
                                 Ok(read_count) => {
                                     self.parser.advance(
                                         &self.tty_buffer[..read_count],
