@@ -39,6 +39,8 @@ pub(crate) mod personal;
 pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 mod prelude;
+#[cfg(test)]
+mod room_delete_tests;
 pub(crate) mod router;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
