@@ -61,7 +61,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.hoverCards = services.hoverCards
-        view.onResize = { [weak services] in services?.surfaceInvariant.noteChange() }
+        view.onResize = { [weak services, weak paneView = view] in
+            services?.surfaceInvariant.noteChange()
+            services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
+        }
         observe()
     }
 
@@ -202,6 +205,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                                                 defaultIndex: snapshot.defaultIndex, hidden: hidden)
         let selectedID = selected.map { StripTabID($0) }
         if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
+        if view.underlay != nil, let key = currentTabKey, !services.agentTabs.isNewTabPage(key) { view.dropBackdrop(keeping: nil) } // became a chat
         if selectNew {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
@@ -254,7 +258,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let content = key.flatMap(content(for:))
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
-        view.show(content?.view)
+        view.show(content?.view, overBackdrop: key.map(services.agentTabs.isNewTabPage) == true) // PaneContentView+NewTabBackdrop
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.
         if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }

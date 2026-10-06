@@ -32,10 +32,10 @@
 .nt-card[data-state=error] .nt-card-message{color:var(--agent-danger)}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card{transition:background-color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out)}}
-/* R81: the "!" placeholder terminal. The page background is the terminal's (one backdrop), so the swap to the real terminal shows no change; the field stays focused under it, invisible. */
+/* R81: the "!" placeholder terminal. It paints the pane's background, the terminal's (the New Tab page itself is transparent over its blurred backdrop), so the swap to the real terminal shows no change; the field stays focused under it, invisible. */
 .nt-screen[data-converting]{padding:0}
 .nt-screen[data-converting] .nt-box{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none}
-.nt-terminal{position:absolute;inset:0;padding:6px 8px;box-sizing:border-box;font:13px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--agent-text);white-space:pre-wrap;overflow:hidden}
+.nt-terminal{position:absolute;inset:0;background:var(--agent-surface,transparent);padding:6px 8px;box-sizing:border-box;font:13px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--agent-text);white-space:pre-wrap;overflow:hidden}
 .nt-cursor{display:inline-block;width:.6em;height:1.2em;vertical-align:text-bottom;background:var(--agent-text);opacity:.7}
 .nt-terminal-starting{display:block;margin-top:6px;color:var(--acpmux-composer-dim);font:12px system-ui;opacity:0;animation:nt-starting .2s ease-out 1s forwards}
 @keyframes nt-starting{to{opacity:1}}

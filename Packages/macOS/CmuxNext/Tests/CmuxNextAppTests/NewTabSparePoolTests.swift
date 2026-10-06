@@ -46,11 +46,13 @@ import Testing
     }
 
     /// The parked spare is a live page (its cards hover and set the cursor even at alpha 0):
-    /// it waits at the window's size but outside its content, so the pointer never reaches it.
-    @MainActor @Test func theParkedSpareIsSizedLikeTheWindowButNeverUnderThePointer() {
+    /// it waits at its pane's size (the window's when no pane is known) but outside the window
+    /// content, so the pointer never reaches it.
+    @MainActor @Test func theParkedSpareIsNeverUnderThePointer() {
         for bounds in [NSRect(x: 0, y: 0, width: 1100, height: 720), NSRect(x: 0, y: 0, width: 5120, height: 2880)] {
-            let frame = NewTabSpareParking.frame(in: bounds)
+            let frame = NewTabSpareParking.frame(in: bounds, size: nil)
             #expect(frame.size == bounds.size)
+            #expect(!NewTabSpareParking.frame(in: bounds, size: NSSize(width: 800, height: 600)).intersects(bounds))
             #expect(!frame.intersects(bounds))
             // The window growing later (the parking view keeps its origin) still leaves it outside.
             #expect(!NSRect(origin: frame.origin, size: NSSize(width: 20_000, height: 20_000)).intersects(bounds))

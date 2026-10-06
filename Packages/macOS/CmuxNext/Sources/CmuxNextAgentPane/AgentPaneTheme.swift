@@ -20,7 +20,9 @@ enum AgentPaneTheme {
         return [
             "isDark": tokens.isDark,
             "pageBackground": css(page),
-            "surfaceBackground": css(page),
+            // On the transparent New Tab page: the pane's own background, for the part that
+            // stands in for a terminal ("!", R81), so the swap to the terminal changes nothing.
+            "surfaceBackground": css(surface == .newTabPage ? pageColor(tokens) : page),
             "surfaceElevatedBackground": css(tokens.elevatedBackground),
             // The field sits on the page; it adds only the hover tint, so a
             // translucent window's backdrop shows through it as much as
@@ -60,12 +62,16 @@ enum AgentPaneTheme {
     /// The page's background: the content background where panes paint it
     /// (an opaque window), clear where the window root paints the one
     /// translucent sheet (`WindowBackdrop`), as the terminal leaves it.
+    /// Clear on the New Tab page, which its pane backs.
     /// With the user's background for `surface` (`appearance.surfaces`,
     /// R55) it is clear: the document root paints that override once
     /// (`WebTheme`), and translucent layers must not stack on it.
     static func pageColor(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane,
                           backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
         if backgrounds.fill(for: surface, tokens: tokens) != nil { return tokens.surfaceBackground.withAlpha(0) }
+        // The New Tab page is transparent: its pane paints the background, or the previous
+        // content blurred and dimmed under it (PaneContentView+NewTabBackdrop).
+        if surface == .newTabPage { return tokens.surfaceBackground.withAlpha(0) }
         return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
     }
 
@@ -88,6 +94,19 @@ enum AgentPaneTheme {
               let json = String(data: data, encoding: .utf8) else { return nil }
         // The shared web theme first (`--cmux-*`, the page background), then
         // the pane's own bridge.
-        return WebTheme(tokens, surface: surface).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
+        return webTheme(tokens, surface: surface).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
+    }
+
+    /// The shared web theme of `surface`. The New Tab page is transparent (the page background
+    /// rule paints nothing) unless `appearance.surfaces.newTabPage` gives it a background: its
+    /// pane backs it, with the previous content blurred and dimmed (the app's
+    /// PaneContentView+NewTabBackdrop).
+    @MainActor static func webTheme(_ tokens: ThemeTokens, surface: SurfaceKind,
+                                    backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
+        var backgrounds = backgrounds
+        if surface == .newTabPage, backgrounds[.newTabPage] == nil {
+            backgrounds.overrides[.newTabPage] = SurfaceBackground(color: tokens.surfaceBackground.withAlpha(0))
+        }
+        return WebTheme(tokens, surface: surface, backgrounds: backgrounds)
     }
 }

@@ -19,7 +19,7 @@ import Testing
 
         model.tabs.append(TabItem(id: TabID("page"), title: "New Tab"))
         model.selectedID = TabID("page")
-        strip.presentNow()
+        strip.sync(fromModel: true, motion: false)
 
         let cell = try #require(strip.cells[TabID("page")])
         let slot = try #require(strip.result.slot(TabID("page")))
