@@ -116,6 +116,17 @@ nonisolated final class HomeSourceRouter: HomeSource {
         try await cloud.resolve(contact)
     }
 
+    /// Attachment bytes go to the owner of their conversation (each owner
+    /// keeps its own blob records; without these the store got HomeSource's
+    /// "attachments unsupported" default for every upload and fetch).
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        try await source(for: file.conversation).upload(file)
+    }
+
+    func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        try await source(for: location.conversation).fetch(ref, at: location, variant: variant)
+    }
+
     /// A closed transcript goes to its owner; one no owner reported was
     /// never opened on the cloud, and the local owner ignores it.
     func close(_ conversation: ConversationID) {
