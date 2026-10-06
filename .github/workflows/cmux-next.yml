@@ -1016,8 +1016,84 @@ jobs:
           echo "::error::Generated cmux-next files are stale. Pull the autofix commit, or regenerate them as the step summary says."
           exit 1
 
-  # Commits the regenerated files (from generated-files, or from swift-test
-  # when it ran the generated tier) to the pull request branch, the
+  # Page strings generated from the xcstrings catalogs and the settings schema
+  # (webviews/scripts/pages/gen-strings.mjs). Every run checks them on Linux in
+  # seconds: #17559 changed only the Swift catalog and schema, web checks were
+  # path-filtered off it, and the stale Settings strings.json turned
+  # react-apps-check red on every later pull request. A stale file is
+  # regenerated and handed to generated-autofix (pull request) or
+  # generated-autofix-pr (push); a missing translation fails without a patch.
+  generated-strings:
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-generated-strings
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
+    name: cmux-next generated strings
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      patch: ${{ steps.regenerate.outputs.patch }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Check generated page strings
+        id: check
+        continue-on-error: true
+        run: node webviews/scripts/pages/gen-strings.mjs --check
+
+      # Only the pages' generated/strings.json may change: the autofix jobs
+      # refuse any other file. A missing translation writes nothing.
+      - name: Regenerate stale page strings
+        id: regenerate
+        if: ${{ steps.check.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          node webviews/scripts/pages/gen-strings.mjs || true
+          out="$RUNNER_TEMP/generated/files"
+          mkdir -p "$out"
+          git diff --name-only -- 'webviews/src/*/generated/strings.json' > "$RUNNER_TEMP/generated/paths.txt"
+          git diff --stat
+          while IFS= read -r path; do
+            mkdir -p "$out/$(dirname "$path")"
+            cp "$path" "$out/$path"
+          done < "$RUNNER_TEMP/generated/paths.txt"
+          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
+          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
+            echo "patch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload the regenerated strings
+        if: ${{ steps.regenerate.outputs.patch == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-generated-strings
+          path: ${{ runner.temp }}/generated/files
+          include-hidden-files: true
+          retention-days: 3
+
+      - name: Fail on stale or missing page strings
+        if: ${{ steps.check.outcome == 'failure' }}
+        run: |
+          {
+            echo "### Generated page strings are stale or incomplete"
+            echo
+            echo "Run: node webviews/scripts/pages/gen-strings.mjs"
+            [[ "${{ steps.regenerate.outputs.patch }}" != true ]] || echo "On a same-repository pull request the generated-autofix job commits the regenerated files."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::error::Generated page strings are stale or incomplete (gen-strings --check)."
+          exit 1
+
+  # Commits the regenerated files (from generated-files, from swift-test
+  # when it ran the generated tier, and from generated-strings) to the pull
+  # request branch, the
   # way a formatter autofix does, so stale generated files never reach the
   # base. No pull request code runs here: the files are data, copied only to
   # the generated paths, and pushed only while the branch head is still the
@@ -1027,13 +1103,16 @@ jobs:
     concurrency:
       group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-generated-autofix
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    needs: [generated-files, swift-test]
-    if: ${{ always() && (needs.generated-files.outputs.patch == 'true' || needs.swift-test.outputs.patch == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'main' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+    needs: [generated-files, swift-test, generated-strings]
+    if: ${{ always() && (needs.generated-files.outputs.patch == 'true' || needs.swift-test.outputs.patch == 'true' || needs.generated-strings.outputs.patch == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'main' && vars.GLAEDA_ROUTE_APP_ID != '' }}
     name: cmux-next generated autofix
     runs-on: ubuntu-24.04 # github-hosted-required: holds a write token for a pull request branch
     timeout-minutes: 5
     permissions:
       contents: read
+      # The pull request comment goes out with this job's token: the App has
+      # no pull-requests permission.
+      pull-requests: write
     steps:
       - name: Mint the autofix token
         id: app-token
@@ -1055,7 +1134,9 @@ jobs:
       - name: Download the regenerated files
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-next-generated-patch
+          # cmux-next-generated-patch and cmux-next-generated-strings, each in
+          # a directory of its own name.
+          pattern: cmux-next-generated-*
           path: ${{ runner.temp }}/generated
 
       - name: Commit and push the regenerated files
@@ -1064,22 +1145,25 @@ jobs:
           BRANCH: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          files="$RUNNER_TEMP/generated"
           # Copy only the generated paths; refuse anything else.
-          while IFS= read -r path; do
-            case "$path" in
-              *..*) echo "::error::refusing generated path $path"; exit 1 ;;
-              plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;
-              *) echo "::error::the generated files include $path, which is not a generated file"; exit 1 ;;
-            esac
-            [[ -f "$files/$path" && ! -L "$files/$path" ]] || { echo "::error::$path is missing from the artifact"; exit 1; }
-            mkdir -p "$(dirname "$path")"
-            cp "$files/$path" "$path"
-            git add -- "$path"
-          done < "$files/.paths"
+          for files in "$RUNNER_TEMP"/generated/*/; do
+            files="${files%/}"
+            while IFS= read -r path; do
+              case "$path" in
+                *..*) echo "::error::refusing generated path $path"; exit 1 ;;
+                plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json|webviews/src/*/generated/strings.json) ;;
+                *) echo "::error::the generated files include $path, which is not a generated file"; exit 1 ;;
+              esac
+              [[ -f "$files/$path" && ! -L "$files/$path" ]] || { echo "::error::$path is missing from the artifact"; exit 1; }
+              mkdir -p "$(dirname "$path")"
+              cp "$files/$path" "$path"
+              git add -- "$path"
+            done < "$files/.paths"
+          done
           if git diff --cached --quiet; then
             echo "The PR head already has these generated files; nothing to commit." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -1103,8 +1187,110 @@ jobs:
             echo "The branch moved during the autofix; its own run checks the generated files." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          GH_TOKEN="$APP_TOKEN" gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Generated cmux-next files were stale, so CI committed the regenerated files ($(git rev-parse --short HEAD)). Pull before your next push. Run: $RUN_URL"
+          GH_TOKEN="$GITHUB_TOKEN" gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Generated cmux-next files were stale, so CI committed the regenerated files ($(git rev-parse --short HEAD)). Pull before your next push. Run: $RUN_URL"
           echo "Pushed $(git rev-parse HEAD) to $BRANCH." | tee -a "$GITHUB_STEP_SUMMARY"
+
+  # A push to feat-cmux-next with stale generated files (a pull request that
+  # skipped the autofix, or a direct push) gets an autofix pull request at
+  # once, instead of turning every later pull request red. One bot branch,
+  # replaced by each newer stale push, and at most one open pull request.
+  # Opening it needs the App's pull-requests permission; without it the job
+  # still pushes the branch and fails, naming the compare link.
+  generated-autofix-pr:
+    concurrency:
+      group: cmux-next-generated-autofix-pr
+      cancel-in-progress: false
+    needs: [push-head-preflight, generated-files, swift-test, generated-strings]
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (needs.generated-files.outputs.patch == 'true' || needs.swift-test.outputs.patch == 'true' || needs.generated-strings.outputs.patch == 'true') && vars.GLAEDA_ROUTE_APP_ID != '' }}
+    name: cmux-next generated autofix pull request
+    runs-on: ubuntu-24.04 # github-hosted-required: holds a write token for this repository
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      AUTOFIX_BRANCH: autofix/cmux-next-generated
+    steps:
+      - name: Mint the autofix token (contents and pull requests)
+        id: pr-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Mint the autofix token (contents only)
+        id: push-token
+        if: ${{ steps.pr-token.outputs.token == '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download the regenerated files
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cmux-next-generated-*
+          path: ${{ runner.temp }}/generated
+
+      - name: Push the autofix branch and open its pull request
+        env:
+          PR_TOKEN: ${{ steps.pr-token.outputs.token }}
+          PUSH_TOKEN: ${{ steps.pr-token.outputs.token || steps.push-token.outputs.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for files in "$RUNNER_TEMP"/generated/*/; do
+            files="${files%/}"
+            while IFS= read -r path; do
+              case "$path" in
+                *..*) echo "::error::refusing generated path $path"; exit 1 ;;
+                plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json|webviews/src/*/generated/strings.json) ;;
+                *) echo "::error::the generated files include $path, which is not a generated file"; exit 1 ;;
+              esac
+              [[ -f "$files/$path" && ! -L "$files/$path" ]] || { echo "::error::$path is missing from the artifact"; exit 1; }
+              mkdir -p "$(dirname "$path")"
+              cp "$files/$path" "$path"
+              git add -- "$path"
+            done < "$files/.paths"
+          done
+          if git diff --cached --quiet; then
+            echo "feat-cmux-next already has these generated files; nothing to fix." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "cmux CI autofix"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qm "chore(cmux-next): regenerate generated files" -m "feat-cmux-next at ${GITHUB_SHA::10} had stale generated files: $RUN_URL"
+          auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          # The bot's own branch: each newer stale push replaces it.
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push --quiet --force "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$AUTOFIX_BRANCH"
+          compare="${{ github.server_url }}/$GITHUB_REPOSITORY/compare/feat-cmux-next...$AUTOFIX_BRANCH?expand=1"
+          if [[ -z "$PR_TOKEN" ]]; then
+            echo "Pushed $AUTOFIX_BRANCH; the App has no pull-requests permission, so open it: $compare" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::feat-cmux-next has stale generated files. Open the autofix pull request: $compare"
+            exit 1
+          fi
+          open="$(GH_TOKEN="$PR_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${AUTOFIX_BRANCH}" --jq '.[0].html_url // empty')"
+          if [[ -z "$open" ]]; then
+            open="$(GH_TOKEN="$PR_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" -f head="$AUTOFIX_BRANCH" -f base=feat-cmux-next \
+              -f title="chore(cmux-next): regenerate stale generated files" \
+              -f body="feat-cmux-next at ${GITHUB_SHA::10} has stale generated files (run: $RUN_URL). CI regenerated them; this pull request changes only generated paths. Land it with gh-merge-green once its checks pass." \
+              --jq .html_url)"
+          fi
+          echo "Autofix pull request: $open" | tee -a "$GITHUB_STEP_SUMMARY"
 
   release-compile:
     concurrency:
@@ -1342,7 +1528,7 @@ jobs:
     concurrency:
       group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-push-attribution
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    needs: [checks, generated-files, swift-test, daemon-test, release-compile, cmux-scheme-compile]
+    needs: [checks, generated-strings, generated-files, swift-test, daemon-test, release-compile, cmux-scheme-compile]
     if: ${{ failure() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next push attribution
     runs-on: ubuntu-24.04 # github-hosted-required: holds a pull-requests write token
