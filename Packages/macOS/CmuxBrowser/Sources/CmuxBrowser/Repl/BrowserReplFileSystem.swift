@@ -839,7 +839,8 @@ public struct BrowserReplFileSystem: Sendable {
     /// no link. Holds at most two directories open: it descends by name
     /// from `parent` with `O_NOFOLLOW` at each step, so a deep tree cannot
     /// use up descriptors. Stops with `ECANCELED` when `isCancelled` says
-    /// so, checked every ``entriesPerCancellationCheck`` entries.
+    /// so, checked every ``entriesPerCancellationCheck`` entries handled
+    /// and directories opened together.
     ///
     /// It reads a directory ``entriesPerCancellationCheck`` entries at a
     /// time and handles each batch before it reads again (removed entries
@@ -870,6 +871,9 @@ public struct BrowserReplFileSystem: Sendable {
                 )
             }
         }
+        // Work done: each entry handled and each directory opened on the
+        // way down (an empty directory's ancestors are reopened at every
+        // level, so a deep chain of them is work an entry count misses).
         var handled = 0
         func count() throws {
             handled += 1
@@ -880,6 +884,7 @@ public struct BrowserReplFileSystem: Sendable {
         func open(_ path: [String]) throws -> BrowserReplDescriptor {
             var current = parent
             for component in path {
+                try count()
                 let next = openat(current.fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
                 guard next >= 0 else { throw posixError(errno, syscall: "rm", display: display) }
                 current = BrowserReplDescriptor(next)
