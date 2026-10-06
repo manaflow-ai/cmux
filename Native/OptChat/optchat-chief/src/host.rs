@@ -116,6 +116,36 @@ pub fn harness_families(
     ))
 }
 
+/// The env every turn session's tools see (and the `chief` launcher bakes
+/// in): this home, the daemon and acpmux sockets, the passed-through keys and
+/// PATH. `inherited` reads the host's own env; `exe` is this executable.
+pub fn session_env(
+    home: &std::path::Path,
+    daemon_socket: &str,
+    acpmux_socket: &std::path::Path,
+    exe: &std::path::Path,
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> BTreeMap<String, String> {
+    let _ = exe;
+    let mut session_env = BTreeMap::new();
+    session_env.insert("MUX_HOME".to_owned(), home.display().to_string());
+    session_env.insert("CMUX_DAEMON_SOCKET".to_owned(), daemon_socket.to_owned());
+    session_env.insert(
+        "ACPMUX_SOCKET".to_owned(),
+        acpmux_socket.display().to_string(),
+    );
+    for key in PASSTHROUGH {
+        if let Some(value) = inherited(key) {
+            session_env.insert(key.to_owned(), value);
+        }
+    }
+    session_env.insert(
+        "PATH".to_owned(),
+        inherited("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
+    );
+    session_env
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     let Some(daemon_socket) = flags
@@ -181,22 +211,7 @@ fn start(
         .and_then(|p| p.canonicalize())
         .map_err(|e| format!("finding this executable: {e}"))?;
     let acpmux_socket = crate::acpmux_daemon::socket_path();
-    let mut session_env = BTreeMap::new();
-    session_env.insert("MUX_HOME".to_owned(), home.display().to_string());
-    session_env.insert("CMUX_DAEMON_SOCKET".to_owned(), daemon_socket.to_owned());
-    session_env.insert(
-        "ACPMUX_SOCKET".to_owned(),
-        acpmux_socket.display().to_string(),
-    );
-    for key in PASSTHROUGH {
-        if let Some(value) = env(key) {
-            session_env.insert(key.to_owned(), value);
-        }
-    }
-    session_env.insert(
-        "PATH".to_owned(),
-        env("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
-    );
+    let session_env = session_env(home, daemon_socket, &acpmux_socket, &exe, &env);
     let instructions = crate::prompt::user_instructions(&paths.instructions);
     // One setting picks the harness of turns and compactor alike.
     let (harness, compactor_harness) = harness_choice(
