@@ -538,6 +538,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -546,7 +547,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFeedTests",
       "targets": [
-        "CmuxNextFeed"
+        "CmuxNextFeed",
+        "CmuxNextIcons"
       ],
       "packages": [],
       "reads": []

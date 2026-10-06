@@ -478,7 +478,7 @@ let package = Package(
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -486,7 +486,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextFeedTests",
-            dependencies: ["CmuxNextFeed"],
+            dependencies: ["CmuxNextFeed", "CmuxNextIcons"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
