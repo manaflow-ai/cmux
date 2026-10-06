@@ -6,7 +6,8 @@ public import AppKit
 /// important part we control is the source rect and point: derive it from the
 /// trigger's bounds, in that trigger's coordinate space, so titlebar/content
 /// scale and flipped views cannot introduce an offset.
-public enum CmuxPopoverAnchor {
+public struct CmuxPopoverAnchor {
+    public init() {}
     public static let defaultGap: CGFloat = 6
 
     /// The point at the trigger's leading edge for an `NSMenu.popUp` call.
