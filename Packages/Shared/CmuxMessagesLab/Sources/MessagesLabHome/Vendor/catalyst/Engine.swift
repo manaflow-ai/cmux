@@ -316,6 +316,30 @@ final class Store {
 
     func dispatch(_ action: Action) { apply(action, at: now) }
 
+    /// Apply a user action at `t` ahead of the jobs that fall due by then: they fire at the
+    /// next `advance`, in their own order and at that time. A keystroke's pass then carries
+    /// only the keystroke; statuses, replies and typing due in it follow in the next run-loop
+    /// pass (they are not latency-critical; appkit-native Host.dispatch).
+    func dispatchAhead(_ action: Action, at t: Double) {
+        now = max(now, t)
+        apply(action, at: now)
+    }
+
+    /// Whether every job due by `t` is a status or a typing change (a send may go ahead of
+    /// them: neither changes the order of the messages). Replies and responder steps keep
+    /// their place in time.
+    func onlyAmbientDue(by t: Double) -> Bool {
+        for j in queue {
+            guard j.time <= t else { break }
+            guard case let .action(a) = j.job else { return false }
+            switch a {
+            case .status, .typing: continue
+            default: return false
+            }
+        }
+        return true
+    }
+
     func schedule(_ action: Action, after delay: Double) { schedule(action, at: now + delay) }
 
     func schedule(_ action: Action, at time: Double) { enqueue(.action(action), at: time) }
