@@ -16,5 +16,4 @@ import Testing
         #expect(radius > 0 && radius < chip.bounds.height / 2, "radius \(radius) on a \(chip.bounds.height) pt chip")
         #expect(chip.surface.layer?.borderWidth == 1)
     }
-
 }

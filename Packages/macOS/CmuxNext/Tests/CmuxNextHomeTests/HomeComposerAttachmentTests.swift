@@ -1,5 +1,5 @@
 import AppKit
-import CmuxHomeCore
+@testable import CmuxHomeCore
 import CmuxHomeRender
 import Foundation
 import Testing
@@ -155,13 +155,13 @@ import Testing
 
     /// A send the owner refused after logging it ("Not Delivered") says
     /// why in the composer, for example a conversation that stores no files.
-    @Test func aNotDeliveredSendSaysWhy() {
-        let (window, view, _) = host()
-        defer { window.close() }
+    @Test func aNotDeliveredSendSaysWhy() async throws {
+        let (window, view, _, store, _) = try await host()
+        defer { close(window, view, store) }
         view.showNotDelivered(.invalid("attachments unsupported"))
-        #expect(view.field.notice == "This conversation can’t receive attachments yet.")
+        #expect(view.notice == "This conversation can’t receive attachments yet.")
         view.showNotDelivered(.notAuthorized)
-        #expect(view.field.notice == "You can’t send messages in this conversation.")
+        #expect(view.notice == "You can’t send messages in this conversation.")
     }
 
     /// An op that ran out of resends (a tapback, a read cursor) may not have
@@ -249,19 +249,19 @@ import Testing
         #expect(view.notice == "You can’t send messages in this conversation.", "a background refusal shows in the composer notice")
     }
 
-    /// The binding chains with every other binding of the store: a second
-    /// Home of the same store keeps the first one's notices (lane 16 rule:
-    /// never set `store.onRefusal` or `store.onUnanswered` directly).
+    /// Each binding registers its conversation's hooks with the store: a
+    /// second Home of the same store keeps the first one's notices (lane 16
+    /// rule: never set `store.onRefusal` or `store.onUnanswered` directly).
     @Test func twoHomesOfOneStoreEachGetTheirOwnNotices() async throws {
         let (window, view, _, store, id) = try await host()
         defer { close(window, view, store) }
         let other = ConversationID("conv_other")
         let second = HomeNativeTranscriptView(store: store, conversation: other, me: view.me)
         defer { second.stop() }
-        store.onUnanswered?(HomeIntent(op: .setReadCursor(conversation: id, seq: 1)))
+        store.reportUnanswered(HomeIntent(op: .setReadCursor(conversation: id, seq: 1)))
         #expect(view.notice == "A change may not have gone through. Check your connection.")
         #expect(second.notice == nil)
-        store.onRefusal?(HomeIntent(op: .setReadCursor(conversation: other, seq: 1)), .notAuthorized)
+        store.reportRefusal(HomeIntent(op: .setReadCursor(conversation: other, seq: 1)), .notAuthorized)
         #expect(second.notice == "You can’t send messages in this conversation.")
     }
 
