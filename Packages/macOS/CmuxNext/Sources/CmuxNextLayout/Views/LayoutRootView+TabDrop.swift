@@ -16,10 +16,11 @@ extension LayoutRootView {
             return nil
         }
         let local = view.convert(locationInWindow, from: nil)
-        guard let hit = view.dropTarget(at: local, removing: removing) else {
+        guard let hit = view.dropTarget(at: local, removing: removing, previous: tabDropHit) else {
             hideHighlight()
             return nil
         }
+        tabDropHit = hit.hit
         let rect = convert(hit.highlight, from: view)
         let region = convert(hit.region, from: view)
         tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
@@ -44,6 +45,7 @@ extension LayoutRootView {
         guard let window else { return }
         let rect = convert(window.convertFromScreen(screenRect), from: nil)
         tabDragHighlightOnScreen = screenRect
+        tabDropHit = nil
         let radius = min(context.style.panelCornerRadius, rect.height / 2)
         if highlight.show(rect, region: rect, zone: .center, text: "", inset: 0, cornerRadius: radius,
                           pointer: CGPoint(x: rect.midX, y: rect.midY), animated: canAnimate) { driver.start() }
@@ -73,6 +75,7 @@ extension LayoutRootView {
 
     func hideHighlight() {
         tabDragHighlightOnScreen = nil
+        tabDropHit = nil
         if highlight.hide(animated: canAnimate) { driver.start() }
     }
 

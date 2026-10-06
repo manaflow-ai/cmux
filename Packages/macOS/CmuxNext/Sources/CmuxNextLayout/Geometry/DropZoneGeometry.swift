@@ -18,11 +18,22 @@ public nonisolated enum DropZoneGeometry {
         let body = CGRect(x: rect.minX, y: top, width: rect.width, height: bottom - top)
         let bandX = band(for: body.width, style: style)
         let bandY = band(for: body.height, style: style)
+        // Hysteresis: the zone shown holds until the pointer is `margin`
+        // past its line, so a pointer held near a line (or in a corner)
+        // does not flip the preview on every jitter.
+        let margin = max(0, style.dropZoneHysteresis)
+        func reach(_ zone: PaneDropZone, _ distance: CGFloat, _ band: CGFloat) -> CGFloat {
+            switch previous {
+            case zone?: (distance - margin) / band
+            case .center?: (distance + margin) / band
+            default: distance / band
+            }
+        }
         let candidates: [(PaneDropZone, CGFloat)] = [
-            (.left, (point.x - body.minX) / bandX),
-            (.right, (body.maxX - point.x) / bandX),
-            (.top, (point.y - body.minY) / bandY),
-            (.bottom, (body.maxY - point.y) / bandY),
+            (.left, reach(.left, point.x - body.minX, bandX)),
+            (.right, reach(.right, body.maxX - point.x, bandX)),
+            (.top, reach(.top, point.y - body.minY, bandY)),
+            (.bottom, reach(.bottom, body.maxY - point.y, bandY)),
         ]
         guard let nearest = candidates.min(by: { $0.1 < $1.1 }), nearest.1 < 1 else { return .center }
         return nearest.0
@@ -108,8 +119,9 @@ public nonisolated enum DropZoneGeometry {
                            previous: DropTarget? = nil) -> DropTarget? {
         let sorted = candidates.sorted { $0.pane < $1.pane }
         func resolve(_ point: CGPoint, _ pane: PaneID, _ cell: CGRect) -> PaneDropZone {
-            Self.zone(at: point, in: cell, header: header(of: pane, in: cell, headers, style),
-                      footer: footer(of: pane, in: cell, footers, style), style: style)
+            let shown: PaneDropZone? = if case let .pane(previousPane, zone)? = previous, previousPane == pane { zone } else { nil }
+            return Self.zone(at: point, in: cell, header: header(of: pane, in: cell, headers, style),
+                             footer: footer(of: pane, in: cell, footers, style), style: style, previous: shown)
         }
         if let hit = sorted.first(where: { $0.visible.contains(point) }) {
             return .pane(hit.pane, resolve(point, hit.pane, hit.cell))
