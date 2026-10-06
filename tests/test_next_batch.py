@@ -364,6 +364,45 @@ class RemoteRegeneration(unittest.TestCase):
         self.assertIs(seen["regen"], False)
 
 
+class MiniRetry(unittest.TestCase):
+    """A mini refused at setup (host busy) writes no result: try once more."""
+
+    def controller(self, outcomes: list[bool]) -> tuple[nb.Controller, list]:
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", ref="feat-cmux-next")
+        controller.batch_id = "b"
+        attempts = []
+
+        def once(mode, branch, sha, extra):
+            wrote = outcomes[len(attempts)]
+            attempts.append(mode)
+            return {"html_url": f"u{len(attempts)}"}, ({"ok": True, "run": "u"} if wrote else
+                                                        {"ok": False, "error": "mini run failure", "run": "u",
+                                                         "no_result": True})
+
+        controller.mini_once = once
+        return controller, attempts
+
+    def test_a_job_without_a_result_is_dispatched_once_more(self):
+        controller, attempts = self.controller([False, True])
+        _, result = controller.mini("regen", "next-batch/x", "c" * 40, {})
+        self.assertTrue(result["ok"])
+        self.assertEqual(attempts, ["regen", "regen"])
+
+    def test_it_gives_up_after_the_second_refusal(self):
+        controller, attempts = self.controller([False, False, True])
+        _, result = controller.mini("regen", "next-batch/x", "c" * 40, {})
+        self.assertFalse(result["ok"])
+        self.assertEqual(len(attempts), 2)
+
+    def test_a_generator_failure_is_not_retried(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        attempts = []
+        controller.mini_once = lambda *args: attempts.append(1) or ({}, {"ok": False, "error": "script failed"})
+        self.assertFalse(controller.mini("regen", "next-batch/x", "c" * 40, {})[1]["ok"])
+        self.assertEqual(len(attempts), 1)
+
+
 class LocalController(unittest.TestCase):
     """`serve` on a workstation: the operator's gh login, cmux-ci for the build."""
 
