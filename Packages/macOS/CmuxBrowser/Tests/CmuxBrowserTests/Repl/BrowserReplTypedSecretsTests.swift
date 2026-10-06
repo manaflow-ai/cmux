@@ -40,6 +40,42 @@ struct BrowserReplTypedSecretsTests {
         #expect(!typed.typedSince(typed.captureMark(forReader: "reader"), forReader: "reader"))
     }
 
+    /// Forced order of a masked screenshot or PDF: the masks are taken and
+    /// applied, then another session types a secret, then the pixels are
+    /// taken. The masks the capture got lack that value, so a check after
+    /// the capture that read them would pass; the driver's check reads the
+    /// records as they are after the capture and refuses it.
+    @MainActor
+    @Test func aSecretTypedBetweenTheMaskAndTheCaptureRefusesIt() async throws {
+        let typed = BrowserReplTypedSecrets()
+        try typed.record(tab: "tab1", name: "password", value: "first-secret", domains: Self.domains, typist: "typist")
+        let own = [["value": "own-secret", "domains": Self.domains.map(\.json)] as [String: Any]]
+        var given: [String] = []
+        var error: BrowserReplDriverError?
+        do {
+            _ = try await typed.capturing(forReader: "reader", sessionMasks: own) { masks in
+                given = masks.compactMap { $0["value"] as? String }
+                // The masks are on; another session types before the pixels.
+                try typed.record(tab: "tab1", name: "otp", value: "second-secret", domains: Self.domains, typist: "typist")
+                return "pixels"
+            }
+        } catch let caught as BrowserReplDriverError {
+            error = caught
+        }
+        #expect(given.sorted() == ["first-secret", "own-secret"], "the capture's masks: \(given)")
+        #expect(!given.contains("second-secret"), "the forced order did not put the typing after the masks")
+        #expect(error?.code == "stale", "a capture whose masks lacked a value typed before its pixels returned them: \(String(describing: error))")
+
+        // The reader's own typing meanwhile is its session's to check, and
+        // with nothing typed the capture returns.
+        let ownTyping = try await typed.capturing(forReader: "reader", sessionMasks: own) { _ in
+            try typed.record(tab: "tab1", name: "mine", value: "own-secret", domains: Self.domains, typist: "reader")
+            return "pixels"
+        }
+        #expect(ownTyping == "pixels")
+        #expect(try await typed.capturing(forReader: "reader", sessionMasks: []) { _ in "pixels" } == "pixels")
+    }
+
     /// r15 whole#1: a value the user typed into the sign-in sheet is
     /// masked for every session that reads the tab, the one whose agent
     /// asked for it included: the agent never holds it.
