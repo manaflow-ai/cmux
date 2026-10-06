@@ -253,3 +253,40 @@ fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::Digest;
     sha2::Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
+/// Each `client-hello` reply says whether origin `user` is allowed on the
+/// connection (`user_origin_allowed`), so the app sends `user` only then
+/// and never resends a refused click as `script`. The value equals what an
+/// origin-user request then gets.
+#[test]
+fn hello_replies_say_whether_origin_user_is_allowed() {
+    let allowed = |reply: &Value| {
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"]["user_origin_allowed"].as_bool().unwrap_or_else(|| panic!("no bool: {reply}"))
+    };
+    let (_mux, socket) = daemon("hello-allowed", true);
+
+    // Prover B: step 1 is not yet proved, step 2 is.
+    let mut app = Client::connect(&socket);
+    let started = app.challenge(INSTALL_ID);
+    assert!(!allowed(&started));
+    let proved = app.prove(INSTALL_ID, &hello_proof(&key(), INSTALL_ID, &nonce_of(&started)));
+    assert!(allowed(&proved));
+    assert_ne!(app.origin_user().as_deref(), Some(FORBIDDEN));
+
+    // Role main without a proof (an unsigned build with no install id).
+    let mut unproved = Client::connect(&socket);
+    assert!(!allowed(&unproved.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "main" }))));
+    assert_eq!(unproved.origin_user().as_deref(), Some(FORBIDDEN));
+
+    // A page relay never.
+    let mut relay = Client::connect(&socket);
+    assert!(!allowed(&relay.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "page_relay" }))));
+    assert_eq!(relay.origin_user().as_deref(), Some(FORBIDDEN));
+
+    // A daemon with no install key: step 1 is not allowed, step 2 is refused.
+    let (_mux, socket) = daemon("hello-allowed-nokey", false);
+    let mut keyless = Client::connect(&socket);
+    assert!(!allowed(&keyless.challenge(INSTALL_ID)));
+    assert_eq!(keyless.origin_user().as_deref(), Some(FORBIDDEN));
+}

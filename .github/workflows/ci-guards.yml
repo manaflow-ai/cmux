@@ -859,6 +859,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_install_zig_ci_download_resume.sh
 
+      - name: Validate retried Ghostty Zig package fetches
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: ./tests/test_fetch_ghostty_zig_packages.sh
+
       - name: Initialize Ghostty for Zig version guard
         if: ${{ matrix.group == 'release-tooling' }}
         run: git submodule update --init --depth 1 ghostty

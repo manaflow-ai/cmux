@@ -591,7 +591,11 @@ private protocol's ids or public `tab_...` and `pane_...` ids.
 Workspace groups are personal state of the home session. `workspace group`
 uses the `workspace_group.*` resource operations, and `add`/`remove` use
 `workspace.place` with a workspace selector (`--workspace <ws>`). The shared
-workspace group commands are no longer used by the CLI.
+workspace group commands are no longer used by the CLI. `workspace group <group> update --top-index <n>`
+puts a group right before the personal workspace at placement index `<n>`;
+`--clear-top-index` puts it after every loose workspace
+(`personal-mixed-order-v1`). `workspace list --order personal` lists the
+workspaces in the sidebar order.
 
 ## Raw access
 

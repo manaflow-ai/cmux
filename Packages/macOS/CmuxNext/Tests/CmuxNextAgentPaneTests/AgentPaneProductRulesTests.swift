@@ -183,4 +183,101 @@ import Testing
         rig.transport.sessions.add("s-tab")
         await rig.send("_acpmux/kill", ["sessionId": "s-tab", "purge": true])
     }
+
+    /// An attach is not a grant: the click that opens a session in the pane (an attach with a
+    /// gesture) is still there for the prompt the same click sends. Only the grant uses it.
+    @Test func anAttachNeverSpendsTheGestureThatAPromptOnTheSameClickNeeds() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let root = rig.root
+        rig.transport.roots = { [root] }
+        rig.transport.primaryRoot = { root }
+        rig.transport.gestures.record()
+        await rig.send("_acpmux/attach", ["sessionId": "s-clicked", "limit": 10])
+        #expect(rig.transport.sessions.contains("s-clicked"))
+        #expect(rig.transport.gestures.isAvailable)
+        await rig.send("session/prompt", ["sessionId": "s-clicked", "prompt": [Any]()])
+        // The prompt used the click: the next grant needs a new one.
+        await rig.send("session/prompt", ["sessionId": "s-clicked", "prompt": [Any]()], expect: .gestureRequired)
+    }
+
+    /// A click is two single-use credits: one scope-add (an attach of a session that is not yet
+    /// the pane's) and one grant. A second attach on the same click brings nothing in.
+    @Test func oneClickBringsOneSessionInNotTwo() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let root = rig.root
+        rig.transport.roots = { [root] }
+        rig.transport.primaryRoot = { root }
+        rig.transport.gestures.record()
+        await rig.send("_acpmux/attach", ["sessionId": "s-first", "limit": 10])
+        await rig.send("_acpmux/attach", ["sessionId": "s-second", "limit": 10])
+        #expect(rig.transport.sessions.contains("s-first"))
+        #expect(!rig.transport.sessions.contains("s-second"))
+        await rig.send("_acpmux/kill", ["sessionId": "s-second", "purge": true], expect: .sessionNotInPane)
+        // The grant credit of the same click is still there.
+        await rig.send("session/prompt", ["sessionId": "s-first", "prompt": [Any]()])
+    }
+
+    /// One click is one grant: a second prompt on it is refused.
+    @Test func oneClickIsOneGrant() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let root = rig.root
+        rig.transport.roots = { [root] }
+        rig.transport.primaryRoot = { root }
+        rig.transport.sessions.add("s-tab")
+        rig.transport.gestures.record()
+        await rig.send("session/prompt", ["sessionId": "s-tab", "prompt": [Any]()])
+        await rig.send("session/prompt", ["sessionId": "s-tab", "prompt": [Any]()], expect: .gestureRequired)
+    }
+
+    /// A second attach on one click is a read-only view: the pane never sends anything to that
+    /// session. Every write frame for it is refused (session_not_in_pane or gesture_required) and
+    /// the daemon sees none of them; the same frames for the session in scope follow the normal rules.
+    @Test func aReadOnlyViewNeverSendsAnythingToItsSession() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let root = rig.root
+        rig.transport.roots = { [root] }
+        rig.transport.primaryRoot = { root }
+        rig.transport.gestures.record()
+        await rig.send("_acpmux/attach", ["sessionId": "s-scope", "limit": 10])
+        await rig.send("_acpmux/attach", ["sessionId": "s-view", "limit": 10])
+        #expect(rig.transport.sessions.contains("s-scope"))
+        #expect(!rig.transport.sessions.contains("s-view"))
+        let writes: [(String, [String: Any])] = [
+            ("session/prompt", ["prompt": [Any]()]),
+            ("session/set_mode", ["modeId": "bypassPermissions"]),
+            ("session/set_config_option", ["configId": "mode", "value": "bypassPermissions"]),
+            ("session/set_model", ["modelId": "m"]),
+            ("_acpmux/permission_respond", ["permissionId": "p", "optionId": "allow_once"]),
+            ("_acpmux/permission_group_respond", ["groupId": "g", "revision": 1, "decisionKey": "k", "decision": "allow_once"]),
+            ("_acpmux/permission_chat_revoke", [:]),
+            ("_acpmux/kill", ["purge": true]),
+        ]
+        for (method, params) in writes {
+            rig.nextID += 1
+            var fields = params
+            fields["sessionId"] = "s-view"
+            let object: [String: Any] = ["jsonrpc": "2.0", "id": rig.nextID, "method": method, "params": fields]
+            let text = String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+            let error = await rig.transport.send(connection: rig.connection, frames: [text])
+            #expect(error == .sessionNotInPane || error == .gestureRequired, "\(method) for a read-only view: \(String(describing: error))")
+        }
+        // session/cancel is a notification: refused all the same.
+        let cancel = #"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s-view"}}"#
+        #expect(await rig.transport.send(connection: rig.connection, frames: [cancel]) == .sessionNotInPane)
+        // The session in scope: the click's grant credit is still there for one prompt.
+        await rig.send("session/prompt", ["sessionId": "s-scope", "prompt": [Any]()])
+        await rig.send("_acpmux/kill", ["sessionId": "s-scope", "purge": true])
+        _ = await rig.server.wait(seconds: 2) { ($0.first?.frames ?? []).contains { $0.contains("\"_acpmux/kill\"") } }
+        // The daemon saw only the attach for the read-only view.
+        let toView = (rig.server.peers.first?.frames ?? []).filter { $0.contains("\"s-view\"") }
+        #expect(toView.count == 1 && toView.first?.contains("_acpmux/attach") == true, "\(toView)")
+    }
 }

@@ -58,6 +58,15 @@ export const Globe = (p: CvIconProps) => (
   </Svg>
 );
 
+/// A picture: a framed landscape (a web image the pane links to, Markdown.tsx).
+export const ImageIcon = (p: CvIconProps) => (
+  <Svg {...p}>
+    <rect x="2.5" y="3" width="11" height="10" rx="1.75" />
+    <circle cx="6" cy="6.5" r="1.1" />
+    <path d="m3 12 3.5-3.5 2.25 2.25L10.5 9l3 3" />
+  </Svg>
+);
+
 export const Copy = (p: CvIconProps) => (
   <Svg {...p}>
     <rect x="5.25" y="5.25" width="8.25" height="8.25" rx="2" />

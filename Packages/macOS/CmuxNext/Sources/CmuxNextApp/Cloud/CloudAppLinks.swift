@@ -16,11 +16,6 @@ enum CloudAppLinks {
     /// Sends one `apps-run` line and returns its result value.
     typealias Send = @Sendable (AppsRunRequest) async throws -> JSONValue
 
-    /// The daemon's Gate A2 refusals of origin `user`: the connection is not
-    /// the verified cmux app (`origin.forbidden`) or is bound to an agent
-    /// (`apps.origin_forbidden`). Both refuse the line before it runs.
-    nonisolated static let userOriginRefusals: Set<String> = ["origin.forbidden", "apps.origin_forbidden"]
-
     /// Runs Cloud app ops on `local`'s current connection.
     static func runner(local: DaemonService) -> CloudAppOpRunner {
         let timeout = connectTimeout
@@ -28,38 +23,42 @@ enum CloudAppLinks {
             guard let connection = await local.connection else {
                 throw CloudLinkError.disconnected(reason: DaemonError.notConnected.description)
             }
+            let userOriginAllowed = await connection.userOriginAllowed
             // A pause or a removed machine cancels the connect hop: stop
             // waiting at once instead of up to `connectTimeout`.
-            return try await run(op: op, args: args, key: key, origin: origin) { request in
+            return try await run(op: op, args: args, key: key, origin: origin, userOriginAllowed: userOriginAllowed) { request in
                 try await abandoningOnCancel { try await connection.request(request, timeout: timeout).value }
             }
         }
     }
 
-    /// One Cloud app op with the connect's own origin: a click is `user`
-    /// (the daemon admits it only from the verified app connection, P8), any
-    /// other connect is `script`. The app cannot see the daemon's proof (a
-    /// signed build is proved by its code signature on the daemon side), so
-    /// when the daemon refuses `user` with a Gate A2 code, the click is sent
-    /// once more as `script` with the same key: the refused line ran nothing.
-    /// For `cloud.machine.connect` the Cloud server gives `script` the same
-    /// authority as `user` (only the answer's `focus` differs); the app's own
-    /// `isLive || origin == .user` guard in `CloudMachineSession.connect` is
-    /// what keeps a non-gesture connect from starting a paused machine. A
-    /// `script` request is never sent again.
-    nonisolated static func run(op: String, args: [String: String], key: String, origin: CloudLinkOrigin, send: Send) async throws -> Data {
-        func request(_ origin: AppsRunRequest.Origin) -> AppsRunRequest {
-            AppsRunRequest(app: CloudLinkKey.app, op: op, args: .object(args.mapValues(JSONValue.string)),
-                           idempotencyKey: key, origin: origin)
-        }
+    /// The `apps-run` origin of a connect: `user` only for a click on a
+    /// connection where the daemon said origin `user` is allowed
+    /// (`client-hello` `user_origin_allowed`: the verified app, not bound to
+    /// an agent, P8); `script` otherwise.
+    nonisolated static func wireOrigin(_ origin: CloudLinkOrigin, userOriginAllowed: Bool) -> AppsRunRequest.Origin {
+        origin == .user && userOriginAllowed ? .user : .script
+    }
+
+    /// One Cloud app op, sent once with ``wireOrigin(_:userOriginAllowed:)``.
+    /// A refusal, an origin refusal of `user` included, is thrown as
+    /// ``CloudAppOpError`` and shown; it is never sent again with another
+    /// origin, so a click the daemon did not admit as the user never becomes
+    /// a `script` request. For `cloud.machine.connect` the Cloud server gives
+    /// `script` the same authority as `user` (only the answer's `focus`
+    /// differs); the app's own `isLive || origin == .user` guard in
+    /// `CloudMachineSession.connect` keeps a non-gesture connect from
+    /// starting a paused machine.
+    nonisolated static func run(op: String, args: [String: String], key: String, origin: CloudLinkOrigin,
+                                userOriginAllowed: Bool, send: Send) async throws -> Data {
+        let request = AppsRunRequest(app: CloudLinkKey.app, op: op, args: .object(args.mapValues(JSONValue.string)),
+                                     idempotencyKey: key, origin: wireOrigin(origin, userOriginAllowed: userOriginAllowed))
         do {
-            do {
-                return try JSONEncoder().encode(try await send(request(origin == .user ? .user : .script)))
-            } catch DaemonError.command(_, _, let code?, _, _) where origin == .user && userOriginRefusals.contains(code) {
-                logger.info("Cloud connect: origin user refused (\(code, privacy: .public)); sent as script")
-                return try JSONEncoder().encode(try await send(request(.script)))
-            }
+            return try JSONEncoder().encode(try await send(request))
         } catch DaemonError.command(_, let message, let code, _, _) {
+            if request.origin == .user {
+                logger.info("Cloud connect: origin user refused (\(code ?? "", privacy: .public)); not resent")
+            }
             throw CloudAppOpError(code: code ?? "", message: message)
         }
     }

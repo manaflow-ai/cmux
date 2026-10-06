@@ -584,13 +584,16 @@ fn personal_change(
             index: index(fields, "index"),
         },
         Op::WorkspaceGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed", "room"])?;
+            require_any(fields, &["name", "color", "collapsed", "room", "top_index"])?;
             PersonalChange::GroupUpdate {
                 group: group(),
                 name: string(fields, "name"),
                 color: nullable_string(fields, "color"),
                 collapsed: fields.get("collapsed").and_then(Value::as_bool),
                 room: string(fields, "room"),
+                top_index: fields
+                    .get("top_index")
+                    .map(|value| value.as_u64().and_then(|index| usize::try_from(index).ok())),
             }
         }
         Op::WorkspaceGroupDelete => PersonalChange::GroupDelete { group: group() },

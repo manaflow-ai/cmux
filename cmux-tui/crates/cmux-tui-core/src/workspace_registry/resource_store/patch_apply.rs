@@ -17,8 +17,11 @@ pub(crate) fn apply_resource_patch(
     // Closes by any path land in the closed history before their rows go.
     crate::state::closed_history_store::capture_closed(transaction, &patch)?;
     let closing = closing_browsers(transaction, &patch)?;
+    // Creations by any path get their personal row (personal-mixed-order-v1).
+    let created = crate::state::personal_order::created_workspaces(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
     delete_closed_browser_rows(transaction, &closing)?;
+    crate::state::personal_order::place_created_workspaces(transaction, &created)?;
     Ok(patch)
 }
 

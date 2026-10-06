@@ -1,18 +1,19 @@
 import AppKit
 
-/// The compose field: a Liquid Glass capsule holding a real NSTextView
-/// (TextKit 2: IME, undo, spell checking, services). Return sends,
-/// Option- or Shift-Return inserts a newline; marked text owns Return.
+/// The compose field: a raised, small-radius rect in the theme's colours
+/// holding a real NSTextView (TextKit 2: IME, undo, spell checking,
+/// services). Return sends, Option- or Shift-Return inserts a newline;
+/// marked text owns Return.
 final class HomeFieldView: NSView {
-    let glass = NSGlassEffectView()
+    /// The field's surface: the theme's raised fill and a hairline.
+    let surface = NSView()
     let textView = HomeFieldTextView(usingTextLayoutManager: true)
     private let placeholder = NSTextField(labelWithString: "")
     /// Draft attachments above the text, and the button that picks files.
     let tray = HomeDraftTrayView()
     let attachButton = NSButton()
-    /// The glass's content: the glass sizes its content view to the field, so
-    /// the text view, the tray and the attach button sit inside this holder
-    /// at the field's insets (top-left origin).
+    /// The surface's content: the text view, the tray and the attach button
+    /// sit inside this holder at the field's insets (top-left origin).
     private let content = HomeFlippedView()
     private(set) var draftAttachments: [HomeDraftAttachment] = []
     /// Why an attachment was refused; cleared by the next edit, attach or send.
@@ -39,7 +40,9 @@ final class HomeFieldView: NSView {
     static let baseFontSize: CGFloat = 13
     static let baseLineHeight: CGFloat = 16
     static let baseHorizontalInset: CGFloat = 12
-    static let baseVerticalInset: CGFloat = 7
+    static let baseVerticalInset: CGFloat = 9
+    /// A small-radius rect, never a capsule, at every height.
+    static let cornerRadius: CGFloat = 10
 
     /// The user's text size relative to 13 pt (the transcript's `textScale`).
     var scale: CGFloat = 1 {
@@ -59,7 +62,11 @@ final class HomeFieldView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        addSubview(glass)
+        surface.wantsLayer = true
+        surface.layer?.cornerRadius = Self.cornerRadius
+        surface.layer?.cornerCurve = .continuous
+        surface.layer?.borderWidth = 1
+        addSubview(surface)
         textView.drawsBackground = false
         textView.isRichText = false
         textView.allowsUndo = true
@@ -82,12 +89,13 @@ final class HomeFieldView: NSView {
         noticeLabel.font = .systemFont(ofSize: 11)
         noticeLabel.textColor = .secondaryLabelColor
         noticeLabel.maximumNumberOfLines = 2
-        glass.contentView = content
+        surface.addSubview(content)
         tray.isHidden = true
         tray.onRemove = { [weak self] hash in self?.removeDraft(hash) }
         attachButton.isBordered = false
-        attachButton.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: HomeStrings.attachFiles)
-        attachButton.imageScaling = .scaleProportionallyUpOrDown
+        attachButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: HomeStrings.attachFiles)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .medium))
+        attachButton.imageScaling = .scaleNone
         attachButton.contentTintColor = .secondaryLabelColor
         attachButton.setAccessibilityLabel(HomeStrings.attachFiles)
         attachButton.toolTip = HomeStrings.attachFiles
@@ -99,6 +107,23 @@ final class HomeFieldView: NSView {
     }
 
     @objc private func attachClicked() { onAttach() }
+
+    /// Colours from the theme (caller runs inside `performWithTheme`): the
+    /// raised fill, its hairline, the typed text and the quieter placeholder
+    /// and attach glyph.
+    func applyColors(fill: NSColor, border: NSColor, text: NSColor, secondary: NSColor) { // theme-scoped
+        surface.layer?.backgroundColor = fill.cgColor
+        surface.layer?.borderColor = border.cgColor
+        textView.textColor = text
+        textView.insertionPointColor = text
+        textView.typingAttributes[.foregroundColor] = text
+        textColor = text
+        placeholder.textColor = secondary
+        attachButton.contentTintColor = secondary
+    }
+
+    /// The typed text's colour (`applyColors`); kept across font changes.
+    private var textColor = NSColor.labelColor
 
     /// Adds a prepared attachment to the draft (after the ones already there).
     func addDraft(_ draft: HomeDraftAttachment) {
@@ -146,13 +171,12 @@ final class HomeFieldView: NSView {
     var textLeft: CGFloat { attachEnabled ? horizontalInset + attachSide + 6 : horizontalInset }
 
     private func applyFont() {
-        glass.cornerRadius = height(lines: 1) / 2
         let font = NSFont.systemFont(ofSize: Self.baseFontSize * scale)
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = lineHeight
         paragraph.maximumLineHeight = lineHeight
         textView.font = font
-        textView.typingAttributes = [.font: font, .paragraphStyle: paragraph, .foregroundColor: NSColor.labelColor]
+        textView.typingAttributes = [.font: font, .paragraphStyle: paragraph, .foregroundColor: textColor]
         // Restyle committed text only: IME marked text keeps its own
         // attributes (the scale applies to it once it is committed).
         if let storage = textView.textStorage, storage.length > 0, !textView.hasMarkedText() {
@@ -189,8 +213,8 @@ final class HomeFieldView: NSView {
 
     override func layout() {
         super.layout()
-        glass.frame = bounds
-        content.frame = glass.bounds
+        surface.frame = bounds
+        content.frame = surface.bounds
         let top = verticalInset + trayHeight
         let width = max(0, bounds.width - textLeft - horizontalInset)
         let height = max(0, bounds.height - top - verticalInset)

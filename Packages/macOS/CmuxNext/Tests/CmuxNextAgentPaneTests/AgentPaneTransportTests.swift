@@ -116,6 +116,8 @@ private actor FileTokenHost: AgentPaneHostProviding {
         _ = await transport.send(connection: id, frames: [Self.initialize])
         let refused = #"{"jsonrpc":"2.0","id":9,"method":"_acpmux/peer_add","params":{"url":"ssh://-oProxyCommand=x"}}"#
         #expect(await transport.send(connection: id, frames: [refused]) == .methodRefused)
+        // A session the pane shows (a cancel for any other is refused as outside its scope).
+        transport.sessions.add("s")
         let allowed = #"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s"}}"#
         #expect(await transport.send(connection: id, frames: [allowed]) == nil)
         #expect(await server.wait { $0.first?.frames.count == 2 })
@@ -281,6 +283,7 @@ private actor FileTokenHost: AgentPaneHostProviding {
         let id = try await transport.open(connection(server))
         _ = await transport.send(connection: id, frames: [Self.initialize])
         var replies: [String] = []
+        transport.sessions.add("s")
         let cancel = #"{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s"}}"#
         // The frame's work runs off the main thread (0 ms on it per action), so the reply comes on a
         // later turn; the order is what holds.

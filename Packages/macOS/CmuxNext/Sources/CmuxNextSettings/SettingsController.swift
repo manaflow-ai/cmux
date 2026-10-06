@@ -138,18 +138,24 @@ public final class SettingsController {
     /// Writes `value` at a dotted or array key path. The watcher applies it.
     public func set(_ value: JSONValue, at path: [String]) async throws {
         try await file.set(value, at: path)
+        // Atomic replacement can race the vnode event on the old inode. The
+        // writer already knows the newest source exists, so drive the same
+        // reload path and wait for it to apply even when that event is
+        // coalesced away.
+        await reloadAfterWrite()
     }
 
     /// Writes a shortcut override for `id`; nil unbinds it.
     public func setShortcut(_ shortcut: Shortcut?, for id: ActionID) async throws {
         let value: JSONValue = shortcut.map { .string(ShortcutBindingFormat.configString(SettingsApplier.stroke(for: $0))) } ?? .null
-        try await file.set(value, at: ["shortcuts", "bindings", id.rawValue])
+        try await set(value, at: ["shortcuts", "bindings", id.rawValue])
     }
 
     /// Removes the override for `id`, restoring its default shortcut.
     public func resetShortcut(for id: ActionID) async throws {
         try await file.remove(["shortcuts", "bindings", id.rawValue])
         try await file.remove(["shortcuts", id.rawValue])
+        await reloadAfterWrite()
     }
 
     /// Writes `browser.defaultEngine` through `setSetting`.
@@ -214,6 +220,13 @@ public final class SettingsController {
     }
 
     // MARK: - Loading
+
+    /// Applies a completed controller write before returning to its caller.
+    /// The file watcher remains responsible for edits made by other writers.
+    func reloadAfterWrite() async {
+        lastSource = nil
+        await loadOnce()
+    }
 
     /// Coalesces bursts of file events into one load of the latest content.
     func requestReload() {

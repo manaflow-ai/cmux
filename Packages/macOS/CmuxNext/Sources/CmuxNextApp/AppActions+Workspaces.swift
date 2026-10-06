@@ -69,7 +69,8 @@ extension AppActions {
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 
-    /// New workspace with one terminal (`WorkspaceSpawn` arguments), shown
+    /// New workspace (`WorkspaceSpawn` arguments: the New Tab page for a
+    /// person, one terminal for a script or a `command`), shown
     /// in the active window unless `focus` is false (the CLI's default).
     /// With `activate: true` as well (`cmux open <dir>` run by a person) it
     /// also brings that window forward and activates the app

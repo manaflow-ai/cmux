@@ -794,7 +794,7 @@ USAGE
 
 const WORKSPACE_HELP: &str = "\
 USAGE
-  cmux workspace list
+  cmux workspace list [--order session|personal]
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
     [--expected-revision <revision>]
   cmux workspace <selector> show|rename|move|focus|close
@@ -817,7 +817,7 @@ USAGE
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
-    [--room <room>] [--collapse|--expand]
+    [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
   cmux workspace group <group> delete
   cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <selector> [--index <n>]
@@ -829,7 +829,10 @@ the current one. Levels: info, progress, success, warning, error. Text that
 starts with a dash goes after --. --ephemeral creates an incognito workspace
 the session closes at its next start. Workspace groups and rooms are
 personal: they live in this Mac's home session. A group or room is named by
-its id or exact name.
+its id or exact name. list --order personal gives the sidebar order: loose
+workspaces, and each group's workspaces where the group shows. --top-index
+puts a group right before the workspace at that placement index;
+--clear-top-index puts it after every loose workspace.
 ";
 
 const PANE_HELP: &str = "\

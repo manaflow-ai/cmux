@@ -8,12 +8,18 @@ extension AgentTabStore {
     /// An empty workspace's explicit New action creates an agent chat directly,
     /// so no temporary shell or chooser page appears.
     func openFirstPage(in workspace: WorkspaceModel, on daemon: DaemonService, services: AppServices) async throws -> SurfaceID? {
+        try await openFirstPage(workspace: workspace.handle, cwd: daemon.defaultCwd, on: daemon)
+    }
+
+    /// The same, for a workspace this app just created (not mirrored yet),
+    /// starting in `cwd`.
+    func openFirstPage(workspace: WorkspaceHandle, cwd: String?, on daemon: DaemonService) async throws -> SurfaceID? {
         guard let connection = daemon.connection, let localHost, canHost(on: daemon) else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: localHost, hostName: localHostName)
-        let request = NewConversationTabRequest(agentSession: record, workspace: workspace.handle, origin: Self.createOrigin, mutationID: UUID().uuidString)
+        let request = NewConversationTabRequest(agentSession: record, workspace: workspace, origin: Self.createOrigin, mutationID: UUID().uuidString)
         let response = try await connection.request(request)
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
-        seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: daemon.defaultCwd))
+        seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
         track(key, in: daemon.store)
         return response.surface
     }
