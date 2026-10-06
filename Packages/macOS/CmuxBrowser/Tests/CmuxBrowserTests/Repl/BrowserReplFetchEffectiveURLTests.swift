@@ -76,4 +76,92 @@ struct BrowserReplFetchEffectiveURLTests {
         }
         #expect(!driver.methods.contains("cookies.set"), "\(driver.methods)")
     }
+
+    /// The Cookie header each request reached the network with, by URL.
+    final class CookieRecordingProtocol: URLProtocol {
+        nonisolated(unsafe) private static var recorded: [(url: String, cookie: String?)] = []
+        private static let lock = NSLock()
+
+        static func reset() { lock.withLock { recorded = [] } }
+        static var requests: [(url: String, cookie: String?)] { lock.withLock { recorded } }
+
+        override class func canInit(with request: URLRequest) -> Bool {
+            ["upgrade.test", "hop.test"].contains(request.url?.host ?? "")
+        }
+
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            guard let url = request.url else { return }
+            Self.lock.withLock { Self.recorded.append((url.absoluteString, request.value(forHTTPHeaderField: "Cookie"))) }
+            if url.host == "hop.test" {
+                let next = URLRequest(url: URL(string: "http://upgrade.test/landing")!)
+                let response = HTTPURLResponse(url: url, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: ["Location": "http://upgrade.test/landing"])!
+                client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: response)
+                return
+            }
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/plain"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data("ok".utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
+    }
+
+    /// Gives every URL the tab cookie `sid=tab-secret`.
+    final class CookieDriver: BrowserReplDriver, @unchecked Sendable {
+        var capabilities: [String] { [] }
+
+        func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+            .success(method == "cookies.get" ? #"[{"name":"sid","value":"tab-secret"}]"# : "null")
+        }
+
+        func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+        func detach() {}
+    }
+
+    private func cookies(allowing allowed: [String], fetching url: String) async throws -> [(url: String, cookie: String?)] {
+        CookieRecordingProtocol.reset()
+        let fetcher = BrowserReplFetcher(driver: CookieDriver(), protocolClasses: [CookieRecordingProtocol.self])
+        defer { fetcher.invalidate() }
+        var policy = BrowserReplDomainPolicy()
+        policy.allowed = try allowed.map { try BrowserReplDomainPattern.parse($0, title: "t") }
+        policy.locked = true
+        fetcher.setBlockReason { [policy] in policy.blockReason($0) }
+        let request: [String: Any] = ["url": url, "method": "GET"]
+        _ = await fetcher.fetch(requestJSON: JSONSerialization.browserReplString(request) ?? "{}")
+        return CookieRecordingProtocol.requests
+    }
+
+    /// r25 native#1: CFNetwork upgrades an `http` request to a host it has
+    /// an HSTS entry for (one it saw, or the preloaded list) to `https`
+    /// before the request is sent, with the Cookie header the fetcher put
+    /// on it, and tells the delegate nothing until the response. An `http`
+    /// URL whose `https` form the policy blocks gets no cookies.
+    @Test("An http URL whose https form the policy blocks is sent without cookies")
+    func httpOnlyPolicySendsNoCookies() async throws {
+        let sent = try await cookies(allowing: ["http://upgrade.test"], fetching: "http://upgrade.test/x")
+        #expect(sent.map(\.url) == ["http://upgrade.test/x"])
+        #expect(sent.allSatisfy { $0.cookie == nil }, "\(sent)")
+    }
+
+    @Test("A redirect hop to an http URL whose https form the policy blocks gets no cookies")
+    func redirectToHTTPOnlySendsNoCookies() async throws {
+        let sent = try await cookies(allowing: ["https://hop.test", "http://upgrade.test"], fetching: "https://hop.test/start")
+        #expect(sent.map(\.url) == ["https://hop.test/start", "http://upgrade.test/landing"], "\(sent)")
+        #expect(sent.first?.cookie == "sid=tab-secret", "the allowed https URL keeps its cookies: \(sent)")
+        #expect(sent.last?.cookie == nil, "\(sent)")
+    }
+
+    @Test("An http URL the policy allows on https too keeps its cookies")
+    func bothSchemesKeepCookies() async throws {
+        for allowed in [["upgrade.test"], ["http://upgrade.test", "https://upgrade.test"]] {
+            let sent = try await cookies(allowing: allowed, fetching: "http://upgrade.test/x")
+            #expect(sent.count == 1 && sent.allSatisfy { $0.cookie == "sid=tab-secret" }, "\(allowed): \(sent)")
+        }
+        // The https form of a URL on port 80 is the one on 443, as HSTS moves it.
+        let ported = try await cookies(allowing: ["http://upgrade.test:80", "https://upgrade.test:443"], fetching: "http://upgrade.test/x")
+        #expect(ported.count == 1 && ported.allSatisfy { $0.cookie == "sid=tab-secret" }, "\(ported)")
+    }
 }
