@@ -2141,56 +2141,62 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let heldBefore = attachment.holdsPointer(sessionID: sessionID)
         if type == "down" { attachment.pointerPressed(sessionID: sessionID) }
         defer { if type == "up" { attachment.pointerReleased(sessionID: sessionID) } }
+        let positionBefore = attachment.mousePosition
         if let x, let y { attachment.mousePosition = CGPoint(x: x, y: y) }
         let css = attachment.mousePosition
-        try await withWindow(panel) { [self] webView, window in
-            // Only the modifiers this session holds: another session's held
-            // Meta must not turn this click into a chord.
-            let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: self.sessionID))
-            if type == "wheel" {
-                // The REPL is untrusted: any number reaches here, and the
-                // counts are clamped to a wheel count's range.
-                guard let delta = BrowserReplWheelDelta(
-                    validatingDeltaX: (params["deltaX"] as? NSNumber)?.doubleValue ?? 0,
-                    deltaY: (params["deltaY"] as? NSNumber)?.doubleValue ?? 0
-                ) else {
-                    throw Self.error("invalid", "mouse.wheel: deltaX and deltaY must be finite numbers")
+        do {
+            try await withWindow(panel) { [self] webView, window in
+                // Only the modifiers this session holds: another session's held
+                // Meta must not turn this click into a chord.
+                let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: self.sessionID))
+                if type == "wheel" {
+                    // The REPL is untrusted: any number reaches here, and the
+                    // counts are clamped to a wheel count's range.
+                    guard let delta = BrowserReplWheelDelta(
+                        validatingDeltaX: (params["deltaX"] as? NSNumber)?.doubleValue ?? 0,
+                        deltaY: (params["deltaY"] as? NSNumber)?.doubleValue ?? 0
+                    ) else {
+                        throw Self.error("invalid", "mouse.wheel: deltaX and deltaY must be finite numbers")
+                    }
+                    guard let event = BrowserReplNativeInput.wheelEvent(
+                        webView: webView,
+                        window: window,
+                        cssPoint: css,
+                        delta: delta,
+                        modifierFlags: flags
+                    ) else {
+                        throw Self.error("invalid", "Could not create a wheel event")
+                    }
+                    try self.frameGate.checkTab(in: webView)
+                    webView.deliverAutomationMouseEvent(event)
+                    await BrowserReplNativeInput.roundTrip(webView)
+                    return
                 }
-                guard let event = BrowserReplNativeInput.wheelEvent(
+                if let pressTarget {
+                    try await self.verifyPress(pressTarget, in: webView)
+                }
+                guard let eventType = attachment.mouseState.eventType(forType: type, button: button) else {
+                    throw Self.error("invalid", "Unknown mouse event \(type)")
+                }
+                try await self.deliverMouse(
+                    eventType,
+                    button: button,
+                    at: css,
+                    clickCount: clickCount,
+                    flags: flags,
                     webView: webView,
                     window: window,
-                    cssPoint: css,
-                    delta: delta,
-                    modifierFlags: flags
-                ) else {
-                    throw Self.error("invalid", "Could not create a wheel event")
-                }
-                try self.frameGate.checkTab(in: webView)
-                webView.deliverAutomationMouseEvent(event)
-                await BrowserReplNativeInput.roundTrip(webView)
-                return
+                    attachment: attachment
+                )
             }
-            if let pressTarget {
-                do {
-                    try await self.verifyPress(pressTarget, in: webView)
-                } catch {
-                    if !heldBefore { attachment.pointerReleased(sessionID: self.sessionID) }
-                    throw error
-                }
-            }
-            guard let eventType = attachment.mouseState.eventType(forType: type, button: button) else {
-                throw Self.error("invalid", "Unknown mouse event \(type)")
-            }
-            try await self.deliverMouse(
-                eventType,
-                button: button,
-                at: css,
-                clickCount: clickCount,
-                flags: flags,
-                webView: webView,
-                window: window,
-                attachment: attachment
-            )
+        } catch {
+            // A refused event was not delivered: the pointer stays where
+            // the last delivered one put it, and a refused press holds
+            // nothing, so no later event (a release when the session
+            // leaves) is sent at the refused point.
+            if attachment.mousePosition == css { attachment.mousePosition = positionBefore }
+            if type == "down", !heldBefore { attachment.pointerReleased(sessionID: sessionID) }
+            throw error
         }
         return nil
     }
