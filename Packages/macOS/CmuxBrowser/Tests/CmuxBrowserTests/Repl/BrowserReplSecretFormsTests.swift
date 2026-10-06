@@ -184,6 +184,33 @@ struct BrowserReplSecretFormsTests {
         #expect(store.redact("&#112; \\u0070 &amp;") == "&#112; \\u0070 &amp;")
     }
 
+    /// HTML accepts the names in its legacy table without a semicolon
+    /// (`&amp`, `&lt`, `&QUOT`, `&eacute`, `&copy`), and a page that echoes
+    /// a value through such a reference must not get it past the mask.
+    @Test("HTML legacy named references without a semicolon are masked")
+    func semicolonlessLegacyNamedReferencesAreMasked() throws {
+        let store = BrowserReplSecretStore()
+        try store.set(name: "markup", value: "a&b<c\"d>e", domains: ["example.com"], totp: false, title: "t")
+        try store.set(name: "latin", value: "caf\u{E9}\u{A9}\u{AE}x\u{A0}y", domains: ["example.com"], totp: false, title: "t")
+        let samples = [
+            ("a&ampb&ltc&quotd&gte", "markup"),
+            ("a&AMPb&LTc&QUOTd&GTe", "markup"),
+            ("a&amp;b&ltc&quot;d&gte", "markup"),
+            ("caf&eacute&copy&regx&nbspy", "latin"),
+            ("caf&eacute;&COPY&REG;x&nbsp;y", "latin"),
+            ("caf\u{E9}&copy\u{AE}x&nbspy", "latin"),
+        ]
+        for (sample, name) in samples {
+            #expect(store.redact(" \(sample) ") == " <secret:\(name)> ", "\(sample)")
+        }
+        // Names that differ only in case are different characters.
+        #expect(store.redact("caf&Eacute&copy&regx&nbspy") == "caf&Eacute&copy&regx&nbspy")
+        // `&apos` is not a legacy name: HTML leaves it undecoded.
+        try store.set(name: "quote", value: "it's", domains: ["example.com"], totp: false, title: "t")
+        #expect(store.redact("it&apos;s") == "<secret:quote>")
+        #expect(store.redact("it&aposs") == "it&aposs")
+    }
+
     /// A page can turn a digit-only value into a JavaScript number
     /// (`Number(field.value)`), which drops leading zeros and reaches the
     /// session as a JSON number, not text. Each registered value whose
