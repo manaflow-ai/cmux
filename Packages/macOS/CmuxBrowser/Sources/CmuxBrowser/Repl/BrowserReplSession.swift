@@ -144,6 +144,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// The timers the outermost run in progress set and has not cleared,
     /// or nil outside one.
     private var timersSetInRun: Set<Int>?
+    /// The cell each pending timer belongs to: the cell running when it
+    /// was set, or the cell of the timer whose callback set it (an
+    /// interval re-arming itself). A cell's timeout cancels its timers
+    /// (``cancelTimers(ofEval:)``), as it does its fetches and driver
+    /// calls. JS thread only.
+    private var timerOwners: [Int: Int] = [:]
+    /// The cell of the timer whose callback runs now, or nil.
+    private var firingTimerOwner: Int?
     /// When the JavaScript heap is measured next after a run that ends no
     /// cell (``measureScriptHeap(in:always:)``).
     private var nextHeapMeasure = ContinuousClock.now
@@ -933,7 +941,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         watchdog.requestTermination()
         thread.perform { [self] in
             self.watchdog.clearTermination()
-            self.cancelRunningCell(message, evalID: state.id)
+            self.cancelRunningCell(message, evalID: state.id, timers: self.cancelTimers(ofEval: state.id))
         }
         finish(state, error: message)
         cancelWork(ofEval: state.id)
@@ -1199,10 +1207,29 @@ public final class BrowserReplSession: @unchecked Sendable {
     }
 
     /// Asks the runtime to drop cell `evalID` if it is still running
-    /// (`__cmuxReplCancel`); a cell that already ended is left alone.
-    private func cancelRunningCell(_ message: String, evalID: Int) {
+    /// (`__cmuxReplCancel`); a cell that already ended is left alone. The
+    /// runtime forgets the callbacks of `timers` either way, so a fire
+    /// already queued for one runs nothing.
+    private func cancelRunningCell(_ message: String, evalID: Int, timers: [Int] = []) {
         guard let context, !isClosedNow, let cancel = entryPoints?.cancel else { return }
-        enter(context) { _ = cancel.call(withArguments: [message, evalID]) }
+        enter(context) { _ = cancel.call(withArguments: [message, evalID, timers]) }
+    }
+
+    /// Cancels the timers cell `evalID` owns (``timerOwners``), the held
+    /// ones too, and returns their ids. JS thread only.
+    private func cancelTimers(ofEval evalID: Int) -> [Int] {
+        let ids = timerOwners.compactMap { $0.value == evalID ? $0.key : nil }
+        guard !ids.isEmpty else { return [] }
+        let cancelled = Set(ids)
+        for id in ids {
+            timerOwners.removeValue(forKey: id)
+            scheduler.cancel(id: id)
+        }
+        heldCallbacks.removeAll { held in
+            if case .timer(let id) = held { return cancelled.contains(id) }
+            return false
+        }
+        return ids
     }
 
     /// Runs `body`, which calls into `context`, as one watchdog run under
@@ -1217,6 +1244,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func enter(_ context: JSContext, firedTimer: Int? = nil, _ body: () -> Void) {
         watchdog.absorbTermination(in: context)
         let running = runningEvalID
+        // A fired timer's callback works for the timer's cell.
+        let previousOwner = firingTimerOwner
+        if let firedTimer { firingTimerOwner = timerOwners.removeValue(forKey: firedTimer) }
+        defer { firingTimerOwner = previousOwner }
         let outermost = timersSetInRun == nil
         if outermost {
             timersSetInRun = []
@@ -1687,6 +1718,11 @@ public final class BrowserReplSession: @unchecked Sendable {
             let duration = Duration.milliseconds(BrowserReplSession.timerDelayMilliseconds(delay?.toDouble()))
             guard self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false) else { return false }
             self.timersSetInRun?.insert(Int(id))
+            if let owner = self.firingTimerOwner ?? self.runningEvalID {
+                self.timerOwners[Int(id)] = owner
+            } else {
+                self.timerOwners.removeValue(forKey: Int(id))
+            }
             return true
         }
         let clearTimer: @convention(block) (JSValue?) -> Void = { [weak self] id in
@@ -1694,6 +1730,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             self.scheduler.cancel(id: Int(id))
             // So the run's list holds at most the pending timers.
             self.timersSetInRun?.remove(Int(id))
+            self.timerOwners.removeValue(forKey: Int(id))
         }
         let driverCall: @convention(block) (JSValue?, JSValue?, JSValue?) -> Void = { [weak self] callID, method, params in
             guard let self, let callID = callID?.toInt32() else { return }

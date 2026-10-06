@@ -252,7 +252,8 @@
       },
       // Ends the running cell now (the app calls this when a cell times
       // out): its evaluate() result is { ok: false, error: message } and the
-      // next cell starts. Work the cell already scheduled is not undone.
+      // next cell starts. The app cancels the cell's timers, fetches and
+      // driver calls itself.
       // With an `id`, only that cell is cancelled: a late cancel for a cell
       // that already ended never ends the next one.
       cancel(message, id) {
@@ -569,7 +570,12 @@
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
-    root.__cmuxReplCancel = (message, evalId) => (repl ? repl.cancel(message, evalId === null ? undefined : evalId) : false);
+    // `timerIds`: the timers the app cancelled with the cell; their
+    // callbacks go, so a fire already queued for one runs nothing.
+    root.__cmuxReplCancel = (message, evalId, timerIds) => {
+      for (const id of Array.isArray(timerIds) ? timerIds : []) timers.delete(id);
+      return repl ? repl.cancel(message, evalId === null ? undefined : evalId) : false;
+    };
     root.__cmuxFormatError = (e) => formatError(e);
     // The app takes these entry points and deletes the globals before any
     // cell runs, so a cell cannot call them (work they start would belong
