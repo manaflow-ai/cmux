@@ -43,6 +43,21 @@ public struct BrowserReplSecretTarget {
         self.probe = probe
     }
 
+    /// Why a secret may not be typed into a tab whose live creating session
+    /// is `creator` by the session `sessionID`, or nil. The page that
+    /// receives a secret can send it on, and only the creating session's
+    /// domain policy (its content rules) holds a tab's requests: a user's
+    /// tab, or another session's, keeps its own. The session checks that
+    /// its policy keeps its tabs on the secret's domains
+    /// (`BrowserReplBoundary.prepare`).
+    public static func tabRefusal(name: String, creator: String?, sessionID: String) -> BrowserReplDriverError? {
+        guard creator != sessionID else { return nil }
+        return BrowserReplDriverError(
+            code: "invalid",
+            message: "secret \"\(name)\" is typed only into a tab this session opened (tabs.open), where its domain policy keeps the page from sending it elsewhere; this tab is \(creator == nil ? "the user's" : "another session's")"
+        )
+    }
+
     /// Throws `invalid` unless the focused frame's origin matches one of the
     /// secret's domains, and `stale` when a frame does not answer within the
     /// probe's bound.

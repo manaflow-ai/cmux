@@ -211,6 +211,7 @@ test("secrets: a registered value never appears in output, errors, page reads or
       assert.match(r.output, /name: 'apikey', domains: \[ 'localhost' \]/);
       r = await run(`
         const rec = session.record();
+        session.allowedDomains(["http://localhost"]);
         await page.goto("${primary}/agent-tools.html?peer=${peer}");
         await page.fill("#apikey", secret("apikey"));
         await page.locator("#pass").pressSequentially(secret("pw"));
@@ -256,11 +257,13 @@ test("secrets: a registered value never appears in output, errors, page reads or
       assert.match(r.error, /thrown .*<secret:apikey>/);
       assert.match(r.formatted, /<secret:apikey>/);
       assert.match(r.output, /# output continues in .*output-\d+\.txt/);
-      // A secret is refused outside its domains, also in a frame of another site.
-      r = await run(`await page.frameLocator("#peer-frame").locator("#frame-pass").fill(secret("pw"))`);
-      assert.match(r.error, /may not be typed into http:\/\/127\.0\.0\.1:\d+; its domains are localhost/);
+      // A secret is refused outside its domains: a frame of another site
+      // does not load under the policy its typing needs, and a secret of
+      // other domains is refused while the policy allows this page.
+      r = await run(`await page.frameLocator("#peer-frame").locator("#frame-pass").fill(secret("pw"), { timeout: 2000 })`);
+      assert.match(r.error, /Timeout|blocked|may not be typed/);
       r = await run(`secrets.set("other", "elsewhere-value-1", { domains: ["example.com"] }); await page.fill("#user", secret("other"))`);
-      assert.match(r.error, /may not be typed into http:\/\/localhost:\d+; its domains are example\.com/);
+      assert.match(r.error, /secret "other" is typed only while the domain policy keeps the session's tabs on its domains \(example\.com\); the policy also allows http:\/\/localhost/);
       assert.equal(await run(`await page.locator("#user").inputValue()`).then((o) => o.output), "ada");
 
       const texts = outputs.flatMap((o) => [o.output, o.error || "", o.formatted || ""]);
@@ -325,6 +328,7 @@ test("secrets: a TOTP secret types the current code, and reading it back shows t
       const candidates = [T.totp(seed, now), T.totp(seed, now + 30_000), T.totp(seed, now + 60_000)];
       const r = await run(`
         secrets.set("otp", "${seed}", { domains: ["localhost"], totp: true });
+        session.allowedDomains(["http://localhost"]);
         await page.goto("${servers.origins.primary}/agent-tools.html");
         await page.fill("#otp", secret("otp"));
         const typed = await page.evaluate((codes) => codes.includes(document.getElementById("otp").value), ${JSON.stringify(candidates)});

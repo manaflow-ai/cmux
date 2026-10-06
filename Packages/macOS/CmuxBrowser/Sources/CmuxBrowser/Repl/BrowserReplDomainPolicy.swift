@@ -363,6 +363,23 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         return self.host.split(separator: ".").count == 2 && host == "www." + self.host
     }
 
+    /// Whether every URL `other` lets load is on this pattern's hosts (and
+    /// its scheme and port, when it names them): a domain policy whose
+    /// allowed patterns this covers keeps pages on them. A pattern without
+    /// a scheme covers either; secret scopes add https themselves.
+    func covers(_ other: BrowserReplDomainPattern) -> Bool {
+        if let port, other.port != port { return false }
+        if let scheme {
+            guard let theirs = other.scheme, Self.glob(scheme, matches: theirs) else { return false }
+        }
+        if host == "*" { return true }
+        if other.host == "*" { return false }
+        if other.host.hasPrefix("*.") { return coversSubdomains(of: String(other.host.dropFirst(2))) }
+        guard hostMatches(other.host) else { return false }
+        // A root domain also lets its www host load.
+        return other.host.split(separator: ".").count != 2 || hostMatches("www." + other.host)
+    }
+
     /// Whether a host this pattern names receives cookies set on `domain`
     /// (normalized): the domain itself or one of its subdomains.
     func receivesCookies(on domain: String) -> Bool {

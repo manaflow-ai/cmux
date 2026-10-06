@@ -375,6 +375,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         _ = await run(session, """
         secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["example.com"]);
         await page.goto("https://example.com/login");
         await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
         """)
@@ -391,6 +392,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         _ = await run(session, """
         secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["example.com"]);
         await page.goto("https://example.com/login");
         await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
         """)

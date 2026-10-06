@@ -433,7 +433,17 @@ native (`BrowserReplBoundary` in the session, and the driver):
   of at most 32 characters with at most one wildcard (`http*://`); past
   any of them the pattern or list fails with `invalid`, naming the limit.
 
-- Secrets: values stay in the session. `input.insertText { secret }` reaches
+- Secrets: values stay in the session. The page that receives a typed
+  value can send it on, and only the domain policy's content rules stop
+  that, in the tabs the session created. So the session refuses
+  `input.insertText { secret }` (`invalid`, naming the call to make)
+  unless its policy's `allowed` list is set and each pattern in it is
+  covered by one of the secret's domains, and from then on refuses a
+  policy change (`invalid`) whose `allowed` list would reach past the
+  domains of any secret it sent to be typed; the driver refuses it
+  (`invalid`) in a tab whose live creator is not the typing session (a
+  user's tab, also one `tabs.use` attached, or another session's).
+  `input.insertText { secret }` reaches
   the driver as `{ text, secretName, secretDomains, secretRevision }`; the driver types it
   only when the document that holds the focused element has an origin
   matching one of `secretDomains`, else fails with `secret "x" may not be

@@ -84,7 +84,9 @@ at once.
 - `secrets.set(name, value, { domains, totp })` or `secrets.load(file)`
   (`{ "<domain>": { name: value } }`) registers a secret; type it with
   `locator.fill(secret("name"))` or `locator.type(secret("name"))`. It is
-  typed only into frames on its domains, and its value prints, reads and
+  typed only into frames on its domains, in a tab this session opened,
+  while `session.allowedDomains([...])` allows only its domains (and the
+  policy cannot widen past them afterwards), and its value prints, reads and
   saves as `<secret:name>` everywhere. `{ totp: true }` types the current
   one-time code of a base32 seed.
 - `search(query, { engine, limit })`: `[{ title, url, snippet }]` from

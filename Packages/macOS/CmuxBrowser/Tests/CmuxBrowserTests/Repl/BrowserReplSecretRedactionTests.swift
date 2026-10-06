@@ -215,6 +215,7 @@ struct BrowserReplSecretRedactionTests {
         // the new secret is typed.
         let result = await run(session, """
         secrets.set("a", "\(Self.value)", { domains: ["example.com"] });
+        session.allowedDomains(["example.com"]);
         await page.goto("https://example.com/login");
         const shot = page.screenshot().then(() => "captured", (e) => "refused " + (e.code || e.message));
         while ((await page.evaluate(() => 0)) !== "capturing") {}
