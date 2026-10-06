@@ -25,6 +25,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
+    /// Shell mode (`!` first in the composer or the new tab field): run
+    /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
+    /// real gesture in the pane.
+    case shellRun(command: String, cwd: String?)
+    /// `shell.read {id, after}`: the run's output from byte `after`.
+    case shellRead(id: String, after: Int)
+    /// `shell.stop {id}`: interrupt the run's process group.
+    case shellStop(id: String)
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(agent: String)
@@ -101,6 +109,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Most frames in one `transport.send` (the page sends what one task wrote).
     public static let maximumSendFrames = 4096
 
+    /// A shell mode request: a command can carry secrets and `shell.read` polls, so never logged.
+    public var isShell: Bool {
+        switch self {
+        case .shellRun, .shellRead, .shellStop: true
+        default: false
+        }
+    }
+
     /// A transport request: frequent and carrying chat content, so never logged with its values.
     public var isTransport: Bool {
         switch self {
@@ -114,6 +130,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     public static let maximumOpenTabText = 8192
 
     public static let handlerName = "agentSession"
+
+    /// A shell run's id as ``AgentPaneShell`` mints them.
+    static func shellID(_ params: [String: Any]?) -> String? {
+        guard let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 64 else { return nil }
+        return id
+    }
 
     /// Decodes a `WKScriptMessage.body` (a dictionary once bridged).
     public init(body: Any) {
@@ -167,6 +189,24 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "shell.run":
+            if let command = params?["command"] as? String,
+               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               command.utf8.count <= Self.maximumOpenTabText {
+                // A relative folder would resolve against the app's, not the chat's.
+                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") && $0.utf8.count <= 4096 ? $0 : nil }
+                self = .shellRun(command: command, cwd: cwd)
+            } else {
+                self = .unsupported(method)
+            }
+        case "shell.read":
+            if let id = Self.shellID(params), let after = (params?["after"] as? NSNumber)?.intValue, after >= 0 {
+                self = .shellRead(id: id, after: after)
+            } else {
+                self = .unsupported(method)
+            }
+        case "shell.stop":
+            if let id = Self.shellID(params) { self = .shellStop(id: id) } else { self = .unsupported(method) }
         case "newTab.touched":
             self = .touched
         case "newTab.remember":
