@@ -55,3 +55,39 @@ struct PaneKeyDefaultsTests {
         #expect(ran == ["focusRight"])
     }
 }
+
+/// PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS amendment 3: focus history
+/// Ctrl-- / Ctrl-Shift-- runs everywhere except a focused terminal, where
+/// Ctrl-_ (readline/emacs undo) and Ctrl-- reach the terminal program.
+@MainActor
+struct FocusHistoryTerminalKeyTests {
+    typealias K = KeyInterceptionTests
+    typealias M = KeyOwnershipMatrixTests
+
+    static func keys() throws -> [(name: String, event: NSEvent, action: ActionID)] {
+        [
+            ("ctrl-minus", try K.key("-", keyCode: 27, [.control]), "focusHistoryBack"),
+            ("ctrl-shift-minus", try K.key("_", keyCode: 27, [.control, .shift]), "focusHistoryForward"),
+        ]
+    }
+
+    @Test func inAFocusedTerminalTheKeysReachTheTerminal() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        for key in try Self.keys() {
+            #expect(M.owner(services, key.event, M.Surface(name: "terminal", focus: M.terminal)) == .surface, "\(key.name)")
+        }
+    }
+
+    @Test func elsewhereTheKeysRunFocusHistory() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        let surfaces = [
+            M.Surface(name: "page", focus: M.page),
+            M.Surface(name: "sidebar", focus: M.focused(.terminal, tab: "t1", target: .sidebar(keyboard: false))),
+        ]
+        for key in try Self.keys() {
+            for surface in surfaces {
+                #expect(M.owner(services, key.event, surface) == .action(key.action), "\(surface.name) \(key.name)")
+            }
+        }
+    }
+}
