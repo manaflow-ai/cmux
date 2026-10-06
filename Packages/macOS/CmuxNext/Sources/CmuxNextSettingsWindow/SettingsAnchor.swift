@@ -44,7 +44,7 @@ public struct SettingsAnchor: Hashable, Sendable {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return nil }
         let path = key.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        if let descriptor = SettingsSchema.descriptor(for: path), descriptor.isShownInCmuxNext {
+        if let descriptor = SettingsSchema.descriptor(for: path), descriptor.isShownOnSettingsPage {
             self = .setting(descriptor)
             return
         }

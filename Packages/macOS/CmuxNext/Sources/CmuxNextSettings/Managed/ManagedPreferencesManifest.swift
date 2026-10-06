@@ -51,7 +51,7 @@ public nonisolated enum ManagedPreferencesManifest {
             return Entry(name: d.id, title: d.title, help: help, type: .real, choices: [], range: number.range, defaultValue: d.defaultValue, members: [])
         case .color, .sound, .url, .theme, .fontFamily:
             return Entry(name: d.id, title: d.title, help: help, type: .string, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
-        case .hostList, .folderList, .numberList:
+        case .hostList, .folderList, .numberList, .stringList:
             return Entry(name: d.id, title: d.title, help: help, type: .array, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
         case .timeRange:
             return Entry(name: d.id, title: d.title, help: help, type: .dictionary, choices: [], range: nil, defaultValue: d.defaultValue, members: ["start", "end"])
