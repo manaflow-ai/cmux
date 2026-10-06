@@ -8,7 +8,7 @@
 //! conversation; mentions in other conversations are not answered.
 
 use cmux_chief::rules::{AGENT_MUX, PAGE, message_text, wakes};
-use cmux_conversation::{Change, Message, Op};
+use cmux_conversation::{Change, Message, Op, Part};
 
 use super::{Brain, Source};
 use crate::daemon::{DaemonEvent, OpError};
@@ -165,9 +165,19 @@ impl Brain {
             return;
         };
         let text = message_text(&message);
-        if !text.trim().is_empty() && wakes(summary, &message, |id| self.mux_messages.contains(id))
+        let has_images = message.parts.iter().any(|part| {
+            matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
+        });
+        if (!text.trim().is_empty() || has_images)
+            && wakes(summary, &message, |id| self.mux_messages.contains(id))
         {
-            self.queue(text, Source::Message { seq: message.seq });
+            // The turn sees the images; the log keeps their references.
+            let images = match self.daemon.as_mut() {
+                Some(daemon) if has_images => super::images::read_images(daemon.as_mut(), &message),
+                _ => Vec::new(),
+            };
+            let logged = super::images::logged_text(&text, &images);
+            self.queue_with_images(logged, images, Source::Message { seq: message.seq });
             return;
         }
         if !self

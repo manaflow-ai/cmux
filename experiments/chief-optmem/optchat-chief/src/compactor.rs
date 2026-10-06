@@ -207,6 +207,8 @@ pub struct AcpmuxCompactor {
     slots: Arc<Slots>,
     live: Mutex<HashMap<NodeId, Live>>,
     prompts: AtomicU64,
+    /// Image descriptions started (each gets its own node id).
+    describes: AtomicU64,
     /// Makes prompt ids unique across host starts (acpmux runs an id once).
     stamp: u64,
     /// Claude Code refused the node's cache marker (it placed a fourth
@@ -227,6 +229,7 @@ impl AcpmuxCompactor {
             slots,
             live: Mutex::new(HashMap::new()),
             prompts: AtomicU64::new(0),
+            describes: AtomicU64::new(0),
             stamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64),
@@ -541,7 +544,15 @@ impl CompactModel for AcpmuxCompactor {
     }
 
     fn end(&self, request: &CompactRequest) {
-        let Some(live) = self.live.lock().expect("live").remove(&request.node) else {
+        self.end_node(request.node);
+    }
+}
+
+impl AcpmuxCompactor {
+    /// Ends `node`'s session: purges its transcript, gives its slot back
+    /// and logs its use.
+    fn end_node(&self, node: NodeId) {
+        let Some(live) = self.live.lock().expect("live").remove(&node) else {
             return;
         };
         // Purged: a node's session holds the chat's text, and nothing reads it again.
@@ -564,12 +575,26 @@ impl CompactModel for AcpmuxCompactor {
         let cost = live.cost.map_or(String::new(), |c| format!(", ${c:.3}"));
         self.say(&format!(
             "compactor node {} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
-            request.node.name(),
+            node.name(),
             self.spec.harness,
             self.spec.model.as_deref().unwrap_or("default model"),
             live.opened.elapsed().as_secs_f64(),
             live.prompts
         ));
+    }
+}
+
+/// Image descriptions for the OptChat log (chief-done.md item 12): one
+/// deny-all session per image, under a node id no chat node uses (level 0,
+/// counting down from the top of the id space), ended at once.
+impl crate::brain::images::Describe for AcpmuxCompactor {
+    fn describe(&self, blocks: Vec<Value>) -> Result<String, String> {
+        let n = self.describes.fetch_add(1, Ordering::SeqCst);
+        let node = NodeId::new(0, u64::MAX - n);
+        let session = self.open(node, None).map_err(|e| e.message)?;
+        let reply = self.prompt(node, &session, blocks);
+        self.end_node(node);
+        reply.map(|r| r.text).map_err(|e| e.message)
     }
 }
 

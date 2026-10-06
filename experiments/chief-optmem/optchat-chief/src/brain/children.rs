@@ -269,7 +269,9 @@ impl Brain {
             floor: next_floor,
         };
         match queued {
-            Some(k) => self.queue[k] = super::Queued { text, source },
+            Some(k) => {
+                self.queue[k] = super::Queued { text, source, images: Vec::new() }
+            }
             None => self.queue(text, source),
         }
     }

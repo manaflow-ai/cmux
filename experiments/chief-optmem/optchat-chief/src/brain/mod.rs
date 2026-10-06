@@ -20,6 +20,7 @@
 //! `Settings::turn_limit`.
 
 mod children;
+pub mod images;
 mod inbox;
 mod outbox;
 mod recover;
@@ -73,6 +74,11 @@ pub enum Input {
     Notice {
         key: String,
         text: String,
+    },
+    /// A description of a turn's image arrived (or failed): logged as a note.
+    Described {
+        image: images::TurnImage,
+        description: Result<String, String>,
     },
 }
 
@@ -160,6 +166,8 @@ const REPLY_BYTES: usize = 60_000;
 struct Queued {
     text: String,
     source: Source,
+    /// The images of a human message, for the turn's prompt (never logged).
+    images: Vec<images::TurnImage>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -222,6 +230,8 @@ pub struct Brain {
     /// Claude Code refused a turn's cache marker (it placed a fourth
     /// breakpoint of its own): later turns go without it.
     marker_refused: Arc<std::sync::atomic::AtomicBool>,
+    /// Writes the log's description of each turn image (None: references only).
+    describer: Option<Arc<dyn images::Describe>>,
 }
 
 impl Brain {
@@ -267,6 +277,7 @@ impl Brain {
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
+            describer: None,
         };
         brain.save();
         brain
@@ -276,6 +287,11 @@ impl Brain {
     pub fn on_turn_end(mut self, hook: TurnHook) -> Brain {
         self.after_turn = Some(hook);
         self
+    }
+
+    /// Describes each turn image for the log (the compactor's deny-all model).
+    pub fn set_describer(&mut self, describer: Arc<dyn images::Describe>) {
+        self.describer = Some(describer);
     }
 
     /// acpmux sessions the brain keeps a summary of (its children only).
@@ -352,6 +368,7 @@ impl Brain {
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
             Input::Notice { key, text } => self.notice(key, text),
+            Input::Described { image, description } => self.described(&image, description),
         }
     }
 
@@ -423,8 +440,12 @@ impl Brain {
     }
 
     fn queue(&mut self, text: String, source: Source) {
+        self.queue_with_images(text, Vec::new(), source);
+    }
+
+    fn queue_with_images(&mut self, text: String, images: Vec<images::TurnImage>, source: Source) {
         let human = matches!(source, Source::Message { .. });
-        self.queue.push_back(Queued { text, source });
+        self.queue.push_back(Queued { text, source, images });
         if human {
             self.interrupt_for_newer();
         }

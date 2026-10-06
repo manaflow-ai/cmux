@@ -291,10 +291,14 @@ fn start(
         );
     }
 
-    let (model, fallback, route_text): (
+    // The describer of turn images (chief-done.md item 12) is the compactor's
+    // deny-all acpmux model; the Messages API route has none yet, so its log
+    // keeps image references without descriptions.
+    let (model, fallback, route_text, describer): (
         Arc<dyn CompactModel>,
         Option<Arc<dyn CompactModel>>,
         String,
+        Option<Arc<dyn crate::brain::images::Describe>>,
     ) = match route {
         CompactRoute::Api => (
             Arc::new(AnthropicModel::new(&config)),
@@ -306,6 +310,7 @@ fn start(
                 "{} over the Messages API at {}",
                 config.model, config.base_url
             ),
+            None,
         ),
         CompactRoute::Acpmux => {
             // The Claude models are Claude-only: another harness builds with
@@ -327,7 +332,7 @@ fn start(
                 Arc::new(
                     AcpmuxCompactor::new(port.clone(), spec, slots.clone())
                         .with_log(compactor_log.clone()),
-                ) as Arc<dyn CompactModel>
+                )
             };
             let text = format!(
                 "{} in deny-all {compactor_harness} sessions through acpmux",
@@ -339,8 +344,10 @@ fn start(
                 .fallback_model
                 .as_deref()
                 .filter(|_| compactor_claude)
-                .map(|m| build(Some(m)));
-            (build(compactor_model.as_deref()), fallback, text)
+                .map(|m| build(Some(m)) as Arc<dyn CompactModel>);
+            let main = build(compactor_model.as_deref());
+            let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
+            (main as Arc<dyn CompactModel>, fallback, text, Some(describer))
         }
     };
     log(format!(
@@ -461,6 +468,10 @@ fn start(
         brain_log.clone(),
     )
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)));
+    let mut brain = brain;
+    if let Some(describer) = describer {
+        brain.set_describer(describer);
+    }
     spawn_probe(model, fallback, system, route, tx.clone());
     let (display_name, title) = LinkConfig::names_from_env();
     daemon::spawn_link(

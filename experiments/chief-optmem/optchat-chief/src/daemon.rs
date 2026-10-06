@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cmux::raw::{
-    Client, ClientConfig, ConversationBindRequest, ConversationCreateRequest,
+    Client, ClientConfig, ConversationAttachmentReadRequest, ConversationBindRequest, ConversationCreateRequest,
     ConversationHistoryRequest, ConversationListRequest, ConversationOpRequest, ConversationSnapshotRequest,
     ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
     SubscribeRequestTreeEvents,
@@ -56,6 +56,19 @@ pub trait ConversationPort: Send {
     /// Commits `op` as `agent_mux`; returns the change on success.
     fn op(&mut self, conversation: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError>;
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError>;
+    /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
+    /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
+    /// when the owner has not sent all of it (`local-attachments-v1`).
+    fn attachment(
+        &mut self,
+        conversation: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+    ) -> Result<String, OpError> {
+        let _ = (conversation, hash, variant, bytes);
+        Err(OpError::Rejected("attachments_unsupported".into()))
+    }
 }
 
 /// What the brain hears from the daemon.
@@ -196,6 +209,29 @@ impl ConversationPort for SdkConversations {
             })
             .map_err(sdk_error)?;
         Ok(rewire(&data.change, "op change").ok())
+    }
+
+    fn attachment(
+        &mut self,
+        conversation: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+    ) -> Result<String, OpError> {
+        let data = self
+            .client
+            .conversation_attachment_read(ConversationAttachmentReadRequest {
+                conversation: conversation.into(),
+                hash: hash.into(),
+                length: Optional::Value(bytes),
+                offset: Optional::Value(0),
+                variant: Optional::Value(variant.into()),
+            })
+            .map_err(sdk_error)?;
+        if !data.eof {
+            return Err(OpError::Rejected("attachment_needs_more_than_one_read".into()));
+        }
+        Ok(data.data)
     }
 
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {

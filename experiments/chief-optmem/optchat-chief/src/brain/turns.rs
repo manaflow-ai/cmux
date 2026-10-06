@@ -193,6 +193,11 @@ impl Brain {
         self.set_typing(true);
         self.phase = Phase::Running;
         self.stop_wanted = false;
+        let images: Vec<super::images::TurnImage> =
+            items.iter().flat_map(|i| i.images.iter().cloned()).collect();
+        let image_blocks: Vec<serde_json::Value> =
+            images.iter().filter_map(super::images::TurnImage::block).collect();
+        self.describe_images(&images);
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
@@ -212,6 +217,7 @@ impl Brain {
             }
             None => (turn_blocks(&view.text, &texts), None, None),
         };
+        let blocks = with_images(blocks, image_blocks);
         if self.settings.turn_preset.is_some() {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
@@ -383,6 +389,18 @@ impl Brain {
         }
         self.maybe_start_turn();
     }
+}
+
+/// The turn's images go just before its last block (the new messages, which
+/// name them), so the view blocks and their cache marker stay as they were.
+fn with_images(mut blocks: Vec<serde_json::Value>, images: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    if images.is_empty() {
+        return blocks;
+    }
+    let tail = blocks.pop();
+    blocks.extend(images);
+    blocks.extend(tail);
+    blocks
 }
 
 /// A queued item's source as the pending turn saves it.

@@ -127,6 +127,12 @@ impl Native {
             .iter()
             .enumerate()
             .map(|(i, block)| {
+                // A turn image (an ACP block) in the Messages API's shape.
+                if block["type"] == "image" && block.get("mimeType").is_some() {
+                    return json!({"type": "image", "source": {
+                        "type": "base64", "media_type": block["mimeType"], "data": block["data"],
+                    }});
+                }
                 let mut block = block.clone();
                 if i < views && i < VIEW_BREAKPOINTS {
                     block["cache_control"] = json!({"type": "ephemeral"});
