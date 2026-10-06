@@ -41,6 +41,16 @@ enum TopPages {
         }
     }
 
+    /// RED stub.
+    @discardableResult
+    static func leave(_ services: AppServices) -> Bool { false }
+
+    /// RED stub.
+    static func bookmarkProfile(of window: WindowController, services: AppServices) -> String { "" }
+
+    /// RED stub.
+    static func bookmarkTab(of window: WindowController, services: AppServices) -> String? { nil }
+
     /// The provider of internal page `id`: a registered one, else an app's
     /// page registered on first use (CodeRouter, `app:<id>` pages).
     static func provider(_ id: InternalPageID, services: AppServices) -> (any InternalPageProvider)? {
