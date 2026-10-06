@@ -74,6 +74,10 @@ extension HomeNativeTranscriptView {
     public func debugTapbackNewestIncoming() -> Bool { transcript.debugTapbackNewestIncoming() }
     /// Plays or pauses the newest video bubble (the click's path).
     public func debugToggleNewestVideo() -> Bool { transcript.debugToggleNewestVideo() }
+    /// The context menu's titles at the newest text bubble (the right-click's path).
+    public func debugMenuTitles(mine: Bool) -> [String]? { transcript.debugMenuTitles(mine: mine) }
+    /// The field's height and the gap under the newest receipt, in points.
+    public func debugGeometry() -> [String: Double] { transcript.debugGeometry() }
     /// Scrolls the transcript by `dy` points through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) { transcript.debugScroll(by: dy) }
 }
