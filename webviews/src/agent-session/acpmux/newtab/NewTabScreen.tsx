@@ -1,26 +1,24 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ProjectChooser, type Project } from "../ProjectChooser";
 import { AgentMark, FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ChatCards } from "./ChatCards";
-import { orderedAgents, recentChatCards, screenRows, terminalConversion, type ScreenRow } from "./screenModel";
+import { recentChatCards, screenRows, terminalConversion, type ScreenRow } from "./screenModel";
 import { type NewTabTranslate, useNt } from "./strings";
 import { useT } from "../i18n";
 
 /// What the screen asks the host to do. Agent rows stay in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
-  onAsk(harness: string, text: string, cwd?: string): void;
+  onAsk(harness: string, text: string): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// `!` was typed: the tab becomes a terminal now, `command` typed at its prompt.
-  onTerminal(command: string, cwd?: string): void;
+  onTerminal(command: string): void;
   /// The command as typed since `onTerminal`, whole each time, until the terminal has focus.
   onTypeAhead(command: string): void;
   onJump(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
-  onAction?(id: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
 };
@@ -33,11 +31,6 @@ type Props = NewTabScreenActions & {
   lastAgent?: string;
   home?: string;
   now?: number;
-  cwd?: string;
-  projects?: Project[];
-  loadProjects?(): Promise<Project[]>;
-  onBrowseProject?(): Promise<string | undefined>;
-  onImport?(): void;
 };
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): one field that reads what is
@@ -45,22 +38,6 @@ type Props = NewTabScreenActions & {
 /// row under it; no Search/Ask mode, R86), and the recent chats as cards.
 export function NewTabScreen(props: Props) {
   const nt = useNt();
-  const t = useT();
-  const [projectCwd, setProjectCwd] = useState(props.cwd);
-  const [projects, setProjects] = useState(props.projects ?? []);
-  const loadProjects = props.loadProjects;
-  useEffect(() => {
-    if (!loadProjects) return;
-    let cancelled = false;
-    void loadProjects()
-      .then((next) => {
-        if (!cancelled) setProjects(next);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [loadProjects]);
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now } = props;
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
@@ -84,6 +61,7 @@ export function NewTabScreen(props: Props) {
     () => (touched && !converting ? screenRows(text, { agents, omnibar, lastAgent, home }) : []),
     [touched, converting, text, agents, omnibar, lastAgent, home],
   );
+  const t = useT();
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now, t), [snapshot.sessions, now, t]);
   useEffect(() => setSelected(0), [rows]);
 
@@ -103,7 +81,7 @@ export function NewTabScreen(props: Props) {
   const activate = (row: ScreenRow) => {
     switch (row.type) {
       case "agent":
-        return projectCwd ? props.onAsk(row.harness, row.text, projectCwd) : props.onAsk(row.harness, row.text);
+        return props.onAsk(row.harness, row.text);
       case "search":
         return props.onSearch(row.text);
       case "open":
@@ -113,8 +91,6 @@ export function NewTabScreen(props: Props) {
       case "tab":
       case "workspace":
         return props.onJump(row.type, row.id);
-      case "action":
-        return props.onAction?.(row.id);
     }
   };
   const edit = (next: string) => {
@@ -130,8 +106,7 @@ export function NewTabScreen(props: Props) {
     setText(next);
     if (conversion) {
       setConverting(true);
-      if (projectCwd) props.onTerminal(conversion.command, projectCwd);
-      else props.onTerminal(conversion.command);
+      props.onTerminal(conversion.command);
     }
   };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -148,10 +123,6 @@ export function NewTabScreen(props: Props) {
       event.preventDefault();
       const row = rows[selected];
       if (row) activate(row);
-      else if (!touched || !text.trim()) {
-        const agent = orderedAgents(agents, lastAgent)[0];
-        if (agent) activate({ type: "agent", harness: agent.id, name: agent.name, text: "" });
-      }
     } else if (event.key === "Escape" && text) {
       event.preventDefault();
       setText("");
@@ -168,37 +139,6 @@ export function NewTabScreen(props: Props) {
           <span className="nt-terminal-command">{text.replace(/^\s*!/, "")}</span>
           <span className="nt-cursor" aria-hidden="true" />
           <span className="nt-terminal-starting">{nt("terminal")}</span>
-        </div>
-      )}
-      {!converting && (
-        <div className="nt-project">
-          <ProjectChooser
-            projects={projects}
-            current={projectCwd}
-            currentLabel={projectCwd?.split("/").filter(Boolean).pop()}
-            icon={null}
-            onPick={(cwd) => {
-              setProjectCwd(cwd);
-              field.current?.focus();
-            }}
-            onBrowse={
-              props.onBrowseProject
-                ? () => {
-                    void props.onBrowseProject!()
-                      .then((cwd) => {
-                        if (cwd) setProjectCwd(cwd);
-                        field.current?.focus();
-                      })
-                      .catch(() => undefined);
-                  }
-                : undefined
-            }
-          />
-          {props.onImport && (
-            <button type="button" onClick={props.onImport}>
-              {t("empty.import")}
-            </button>
-          )}
         </div>
       )}
       <div className="nt-box">
@@ -268,8 +208,6 @@ function rowKey(row: ScreenRow): string {
       return `${row.type}:${row.id}`;
     case "history":
       return `history:${row.url}`;
-    case "action":
-      return `action:${row.id}`;
     default:
       return row.type;
   }
@@ -299,7 +237,6 @@ function rowDetail(row: ScreenRow): string | undefined {
       return row.title ? row.url.replace(/^https?:\/\/(www\.)?/, "") : undefined;
     case "tab":
     case "workspace":
-    case "action":
       return row.detail;
     default:
       return undefined;
@@ -320,7 +257,5 @@ function rowAction(nt: NewTabTranslate, row: ScreenRow): string {
       return nt("row.workspace");
     case "history":
       return nt("row.history");
-    case "action":
-      return nt("row.open");
   }
 }

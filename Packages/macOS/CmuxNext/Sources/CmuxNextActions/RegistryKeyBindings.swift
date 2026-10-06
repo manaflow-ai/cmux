@@ -57,8 +57,12 @@ public struct RegistryKeyBindings {
             let requires = registry.descriptor(for: id)?.requires ?? []
             let when = WhenClause.requiring(requires)
             // The code editor's editing chords win over these defaults (R127).
-            let defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
+            var defaultWhen = KeyBindingDefaults.yieldsToCodeEditor.contains(id)
                 ? WhenClause.and([when, .not(.has(KeyContext.codeEditorFocusedKey))].compactMap { $0 }) : when
+            // A terminal program's own keys win over these defaults (amendment 3).
+            if KeyBindingDefaults.yieldsToTerminal.contains(id) {
+                defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
+            }
             let specificity = requires.rawValue.nonzeroBitCount
             func add(_ keys: [Shortcut], argument: String?, source: KeyBinding.Source) {
                 let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? defaultWhen : when, source: source)
