@@ -70,7 +70,7 @@ for name in shipping:
         check(ref.strip() == BUILD_SHA, f"{name} checks out {ref.strip()}, not the resolved build commit")
     for line in body.splitlines():
         if "needs.decide.outputs.head_sha" in line or "needs.decide.outputs.short_sha" in line:
-            check("key: xcode-compilation" in line or "|| needs.decide.outputs.head_sha" in line,
+            check("|| needs.decide.outputs.head_sha" in line,
                   f"{name} still uses the tip outside a cache key: {line.strip()}")
 check(not re.search(r"^    if: .*build_only", blocks.get(RESOLVE, ""), re.MULTILINE),
       "the resolver must run for build_only too, so every app build has a build commit")
@@ -81,6 +81,26 @@ check('CMUX_TUI_TREE_MAX_AGE_HOURS: "24"' in blocks.get(RESOLVE, ""), "the resol
 publish = blocks.get("publish-nightly", "")
 for needle in ("outputs.tip_sha", "outputs.behind }}", "outputs.behind_hours"):
     check(publish.count(needle) >= 2, f"both nightly release bodies must record {needle}")
+
+# The publication check compares the RESOLVED build commit, not the tip, with
+# the published marker: a run whose resolved commit is already published builds
+# nothing (the tip may move while its tree is unpublished). The app build keys
+# its Xcode compilation cache by the commit it builds.
+check(re.search(r"^      force: \$\{\{ steps\.decide\.outputs\.force \}\}", blocks.get("decide", ""), re.MULTILINE) is not None,
+      "decide must output force")
+check("setOutput('force'" in blocks.get("decide", ""), "decide must set its force output")
+resolver = blocks.get(RESOLVE, "")
+check(re.search(r"^      already_published: \$\{\{ steps\.build\.outputs\.already_published \}\}", resolver, re.MULTILINE) is not None,
+      f"{RESOLVE} must output already_published")
+check("needs.decide.outputs.published_sha" in resolver and "needs.decide.outputs.force" in resolver,
+      "already_published must compare build_sha with decide's published_sha and honor force")
+for name in ("build-nightly-ghostty-cli-helper", "build-nightly-app", "build-sign-notarize-nightly", "publish-nightly"):
+    job_if = re.search(r"^    if: (.*)$", blocks.get(name, ""), re.MULTILINE)
+    check(bool(job_if) and f"needs.{RESOLVE}.outputs.already_published != 'true'" in job_if.group(1),
+          f"{name} must skip a resolved commit that is already published")
+for line in blocks.get("build-nightly-app", "").splitlines():
+    if "key: xcode-compilation-release-" in line:
+        check(line.rstrip().endswith(BUILD_SHA), f"build-nightly-app cache key must use build_sha: {line.strip()}")
 
 test = ROOT / "scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh"
 result = subprocess.run(["bash", str(test)], capture_output=True, text=True)
