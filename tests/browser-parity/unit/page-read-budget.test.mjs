@@ -380,3 +380,41 @@ test("page.exportContent: the default Markdown export stops at the page-read bud
     await servers.close();
   }
 });
+
+// Secrets are masked natively, after a reply leaves the page, by matching
+// whole values: a read cut at the budget inside a value (a typed secret in
+// a field or an editor, its text split across nodes) would hand on the
+// value's unmasked prefix. A cut read must end before any value it could
+// have split, whatever the page put in front of it.
+test("a read cut at the page-read budget never ends inside a value the session masks", async () => {
+  const servers = await startFixtureServers();
+  const SECRET = "Zq9Wv7Kj";
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(({ size, secret }) => {
+          document.body.innerHTML = '<h1>Top</h1><textarea id="field"></textarea><p id="split"></p>';
+          // The cut falls three characters into the secret.
+          document.getElementById("field").value = "x".repeat(size - 3) + secret + "y".repeat(10);
+          // Text nodes: the first ends in the secret's start, the cut falls in the second.
+          const p = document.getElementById("split");
+          p.appendChild(document.createTextNode("x".repeat(size - 3) + secret.slice(0, 3)));
+          p.appendChild(document.createTextNode(secret.slice(3) + "y".repeat(10)));
+        }, { size: ${READ_SIZE}, secret: ${JSON.stringify(SECRET)} });`);
+      const reads = {
+        inputValue: 'page.locator("#field").inputValue()',
+        textContent: 'page.locator("#split").textContent()',
+        innerText: 'page.locator("#split").innerText()',
+        innerHTML: 'page.locator("#split").innerHTML()',
+        markdown: "page.markdown()",
+      };
+      for (const [name, expr] of Object.entries(reads)) {
+        const r = await run(`const v = await ${expr}; console.log("@@" + JSON.stringify({ leaked: v.includes(${JSON.stringify(SECRET.slice(0, 1))}) }));`);
+        const v = JSON.parse(r.value);
+        assert.equal(v.leaked, false, `${name}: the cut read ends inside the secret`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
