@@ -83,6 +83,8 @@ final class SidebarItemRowView: NSView {
     var onDragEnded: (() -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
+    /// The press's modifiers, which the release acts with (Option opens a workspace).
+    private var pressModifiers: NSEvent.ModifierFlags = []
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -287,8 +289,8 @@ final class SidebarItemRowView: NSView {
         if hitsAccessory(point) { return onAccessory?() ?? () }
         isPressed = true
         pressLocation = event.locationInWindow
+        pressModifiers = event.modifierFlags
         didDrag = false
-        if let onPressWithModifiers { onPressWithModifiers(event.modifierFlags) } else { onPress?() }
     }
 
     /// The accessory takes a click a little outside its glyph.
@@ -323,12 +325,19 @@ final class SidebarItemRowView: NSView {
         isPressed = false
     }
 
+    /// The item acts on release, like a button: a press that became a drag
+    /// (or left the item first) never opens it. Acting on the press opened
+    /// the App Store, Import and Sync or a new workspace under a tile the
+    /// user only meant to move.
     override func mouseUp(with event: NSEvent) {
-        if didDrag { onDragEnded?() }
+        let dragged = didDrag
+        if dragged { onDragEnded?() }
         pressLocation = nil
         didDrag = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
+        guard !dragged, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
+        if let onPressWithModifiers { onPressWithModifiers(pressModifiers) } else { onPress?() }
     }
 
     override func rightMouseDown(with event: NSEvent) {

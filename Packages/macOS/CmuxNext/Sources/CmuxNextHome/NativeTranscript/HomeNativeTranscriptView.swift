@@ -41,7 +41,10 @@ public final class HomeNativeTranscriptView: NSView {
     private var observers: [any NSObjectProtocol] = []
 
     static let fieldInset: CGFloat = 16
-    static let fieldBottom: CGFloat = 10.75
+    static let fieldBottom: CGFloat = 14
+    /// A wide window centres the field at a reading width instead of
+    /// stretching one bar across the page.
+    static let fieldMaxWidth: CGFloat = 760
 
     public init(conversation: ConversationID, me: ParticipantID) {
         let palette = ThemeScope.app.perform { HomeThemePalette.resolveInScope(active: true) }
@@ -137,8 +140,8 @@ public final class HomeNativeTranscriptView: NSView {
     /// The field's frame in viewport points (top-left origin).
     var fieldFrame: CGRect {
         let h = field.preferredHeight
-        return CGRect(x: Self.fieldInset, y: bounds.height - Self.fieldBottom - h,
-                      width: max(60, bounds.width - 2 * Self.fieldInset), height: h)
+        let width = max(60, min(Self.fieldMaxWidth, bounds.width - 2 * Self.fieldInset))
+        return CGRect(x: ((bounds.width - width) / 2).rounded(), y: bounds.height - Self.fieldBottom - h, width: width, height: h)
     }
 
     public override func layout() {
@@ -233,8 +236,17 @@ public final class HomeNativeTranscriptView: NSView {
         let accent = accentOverride
         controller.palette = performWithTheme { HomeThemePalette.resolveInScope(active: active, accentOverride: accent) }
         performWithTheme {
-            header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary, page: Palette.pageBackground)
+            // The header takes the transcript's own fill, so the two read as
+            // one page; over a see-through fill (window backdrop art) it fades
+            // from the opaque page colour so no bar edge sits on the art.
+            let home = Palette.fill(for: .home, default: Palette.paneFill)
+            let seeThrough = home.alphaComponent < 1
+            header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary,
+                               page: seeThrough ? Palette.pageBackground : home, seeThrough: seeThrough,
+                               accent: Palette.highlight)
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
+            field.applyColors(fill: Palette.elevatedBackground, border: Palette.separator,
+                              text: Palette.textPrimary, secondary: Palette.textTertiary)
         }
     }
 }

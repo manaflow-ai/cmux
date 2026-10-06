@@ -11,7 +11,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var groupHeaderHeight: CGFloat
     /// Workspace row with one line.
     public var rowHeight: CGFloat
-    /// Workspace row with a live status line.
+    /// Workspace row with a secondary detail line.
     public var rowHeightWithSubtitle: CGFloat
     public var tabRowHeight: CGFloat
     public var rowSpacing: CGFloat
@@ -37,7 +37,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     }
 
     func height(for ws: SidebarWorkspace) -> CGFloat {
-        ws.liveDetail == nil ? rowHeight : rowHeightWithSubtitle
+        ws.rowDetail == nil ? rowHeight : rowHeightWithSubtitle
     }
 }
 

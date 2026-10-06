@@ -13,6 +13,7 @@ extension SidebarView {
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
+            region.liftHost = self
             region.onActivateWithModifiers = { [weak self] id, flags in
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
@@ -128,17 +129,26 @@ extension SidebarView {
 
     func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)]) {
         let f = footer.bounds
-        // account leading, cloud next to it, status fills the trailing space.
+        // Account and cloud lead; status fills the remaining space before the
+        // Help button, which stays discoverable at the trailing edge.
         let side = Metrics.sidebarRowHeight
         var x = Metrics.space4
+        let helpSide = helpButton.isHidden ? 0 : side
+        let helpX = f.width - Metrics.space4 - helpSide
         for (slot, view) in slots {
             let width: CGFloat
             switch slot {
             case .account, .cloud: width = side
-            case .status: width = max(0, f.width - x - Metrics.space4)
+            case .status:
+                width = helpButton.isHidden
+                    ? max(0, f.width - x - Metrics.space4)
+                    : max(0, helpX - Metrics.space2 - x)
             }
             view.frame = NSRect(x: x, y: (f.height - side) / 2, width: width, height: side)
             x += width + Metrics.space2
+        }
+        if !helpButton.isHidden {
+            helpButton.frame = NSRect(x: helpX, y: (f.height - side) / 2, width: side, height: side)
         }
     }
 
