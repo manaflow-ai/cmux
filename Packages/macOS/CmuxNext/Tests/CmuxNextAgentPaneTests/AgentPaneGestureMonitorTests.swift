@@ -48,6 +48,33 @@ import Testing
                                         pressure: 1))
     }
 
+    /// The real path end to end: a keyDown NSEvent (Return, as when the user sends a prompt) goes
+    /// through `NSApplication.sendEvent`, whose local monitors run before any dispatch. The pane's
+    /// monitor records the credit, and the prompt frame's gesture check uses it once.
+    @Test func aRealKeyDownThroughTheAppRecordsTheGestureThePromptUses() async throws {
+        let app = NSApplication.shared
+        let rig = try rig()
+        defer { rig.view.close(); rig.window.close() }
+        func returnKey() throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                          timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: rig.window.windowNumber, context: nil, characters: "\r",
+                                          charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        }
+        // Control: the same key while a native field has the keyboard is not the pane's gesture.
+        rig.window.makeFirstResponder(rig.field)
+        app.sendEvent(try returnKey())
+        await settle()
+        #expect(!rig.gestures.isAvailable, "the key went to a native field")
+
+        rig.window.makeFirstResponder(rig.view.webView)
+        app.sendEvent(try returnKey())
+        await settle()
+        #expect(rig.gestures.isAvailable, "a key with the page focused is the user's gesture")
+        #expect(rig.gestures.consume(), "the prompt frame uses the credit")
+        #expect(!rig.gestures.consume(), "once")
+    }
+
     @Test func aKeyThatMovesFocusIntoTheWebViewIsNoGesture() async throws {
         let rig = try rig()
         defer { rig.view.close(); rig.window.close() }
