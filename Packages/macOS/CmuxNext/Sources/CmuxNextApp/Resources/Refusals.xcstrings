@@ -20176,6 +20176,400 @@
           }
         }
       }
+    },
+    "handlers.refusal.homeFlightRecorderOff": {
+      "comment": "Refusal: Save Last 10 Seconds ran while the Home flight recorder is off or no Home conversation is shown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The flight recorder is off, or no Home conversation is open. Turn it on in Debug Settings > Home."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مسجّل الرحلة متوقف، أو لا توجد محادثة مفتوحة في الرئيسية. شغّله من إعدادات التصحيح > الرئيسية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimač leta je isključen ili nijedan razgovor u Početnoj nije otvoren. Uključite ga u Postavke za otklanjanje grešaka > Početna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flyskriveren er slået fra, eller ingen samtale i Hjem er åben. Slå den til under Fejlfindingsindstillinger > Hjem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Flugschreiber ist aus, oder keine Unterhaltung in „Home“ ist geöffnet. Schalte ihn unter Debug-Einstellungen > Home ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La grabadora de vuelo está desactivada o no hay ninguna conversación de Inicio abierta. Actívala en Ajustes de depuración > Inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’enregistreur de vol est désactivé ou aucune conversation de l’Accueil n’est ouverte. Activez-le dans Réglages de débogage > Accueil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il registratore di volo è disattivato o nessuna conversazione di Home è aperta. Attivalo in Impostazioni di debug > Home."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フライトレコーダーがオフか、ホームの会話が開いていません。デバッグ設定 > ホームでオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឧបករណ៍កត់ត្រាជើងហោះហើរត្រូវបានបិទ ឬគ្មានការសន្ទនាក្នុងទំព័រដើមបើកទេ។ បើកវានៅក្នុងការកំណត់បំបាត់កំហុស > ទំព័រដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "플라이트 레코더가 꺼져 있거나 열린 홈 대화가 없습니다. 디버그 설정 > 홈에서 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ferdsskriveren er av, eller ingen samtale i Hjem er åpen. Slå den på i Feilsøkingsinnstillinger > Hjem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rejestrator lotu jest wyłączony lub nie otwarto żadnej rozmowy w Home. Włącz go w Ustawieniach debugowania > Home."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O gravador de voo está desativado ou nenhuma conversa do Início está aberta. Ative-o em Ajustes de depuração > Início."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бортовой самописец выключен или не открыт разговор на главной. Включите его в разделе Настройки отладки > Главная."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องบันทึกการบินปิดอยู่ หรือไม่มีการสนทนาในหน้าหลักเปิดอยู่ เปิดได้ที่การตั้งค่าดีบัก > หน้าหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uçuş kaydedici kapalı veya açık bir Ana Sayfa sohbeti yok. Hata Ayıklama Ayarları > Ana Sayfa’dan açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бортовий самописець вимкнено або не відкрито розмову на головній. Увімкніть його в Налаштуваннях налагодження > Головна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ ghi chuyến bay đang tắt hoặc chưa mở cuộc trò chuyện nào trong Trang chủ. Bật nó trong Cài đặt gỡ lỗi > Trang chủ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "飞行记录器已关闭，或没有打开主页中的对话。请在调试设置 > 主页中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "飛行記錄器已關閉，或沒有打開主頁中的對話。請在除錯設定 > 主頁中開啟。"
+          }
+        }
+      }
+    },
+    "refusal.server.chiefNotMoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت إضافة الخادم، لكن تعذّر نقل Chief إليه: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server je dodan, ali vaš Chief nije mogao preći na njega: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveren blev tilføjet, men din Chief kunne ikke flytte til den: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Server wurde hinzugefügt, aber dein Chief konnte nicht dorthin wechseln: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server was added, but your Chief could not move to it: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se añadió el servidor, pero tu Chief no pudo trasladarse a él: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le serveur a été ajouté, mais votre Chief n’a pas pu y être déplacé : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il server è stato aggiunto, ma il tuo Chief non è riuscito a spostarsi lì: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サーバーは追加されましたが、Chief を移せませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបន្ថែមម៉ាស៊ីនមេហើយ ប៉ុន្តែ Chief របស់អ្នកមិនអាចផ្លាស់ទៅវាបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버는 추가되었지만 Chief를 옮기지 못했습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveren ble lagt til, men din Chief kunne ikke flytte dit: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serwer został dodany, ale nie udało się przenieść na niego twojego Chiefa: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O servidor foi adicionado, mas seu Chief não pôde ser movido para ele: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервер добавлен, но перенести на него вашего Chief не удалось: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มเซิร์ฟเวอร์แล้ว แต่ย้าย Chief ของคุณไปยังเซิร์ฟเวอร์นี้ไม่ได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu eklendi, ancak Chief'iniz ona taşınamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервер додано, але перенести на нього вашого Chief не вдалося: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã thêm máy chủ, nhưng không thể chuyển Chief của bạn sang đó: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "服务器已添加，但无法将你的 Chief 移到该服务器：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "伺服器已新增，但無法將你的 Chief 移到該伺服器：%@"
+          }
+        }
+      }
+    },
+    "handlers.refusal.topPageHasNoTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This page has no tabs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このページにはタブがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تحتوي هذه الصفحة على علامات تبويب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova stranica nema kartica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne side har ingen faner."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Seite hat keine Tabs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página no tiene pestañas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette page n’a pas d’onglets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa pagina non ha schede."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រនេះគ្មានផ្ទាំងទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 페이지에는 탭이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne siden har ingen faner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta strona nie ma kart."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página não tem abas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На этой странице нет вкладок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้านี้ไม่มีแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sayfada sekme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "На цій сторінці немає вкладок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang này không có thẻ nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此页面没有标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此頁面沒有分頁。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

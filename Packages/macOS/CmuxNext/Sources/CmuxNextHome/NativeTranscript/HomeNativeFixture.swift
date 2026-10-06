@@ -1,10 +1,9 @@
 #if DEBUG
 public import AppKit
 import CmuxHomeCore
-import CmuxHomeRender
 
 /// DEBUG ONLY. A fixture for screenshots and dogfood: the real
-/// `HomeNativeTranscriptView` wired with the real `HomeStoreBinding` to a
+/// `HomeNativeTranscriptView` (MessagesLab's code) over a
 /// `HomeStore` over CmuxHomeCore's mock owner, showing its first (chief)
 /// conversation. Compiled out of Release.
 @MainActor
@@ -12,16 +11,16 @@ public final class HomeNativeFixture {
     public let container = NSView()
     /// The fixture tab's title.
     public static var title: String { HomeStrings.conversations }
-    private let source = MockHomeSource(options: .immediate)
+    /// No latency; the Chief types for 1.5 s before it answers (the typing
+    /// indicator shows, as in MessagesLab's script).
+    private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
     private let store: HomeStore
-    private var binding: HomeStoreBinding?
     private var view: HomeNativeTranscriptView?
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
     /// With `attachments`, the conversation also gets a photo, a video and a
-    /// PDF from me, served by a local fake loader, and the composer takes
-    /// drops, pastes and picked files through a local fake preparer.
+    /// PDF from me (prepared and sent through the store like a drop).
     private let attachments: Bool
 
     public init(attachments: Bool = false) {
@@ -34,26 +33,26 @@ public final class HomeNativeFixture {
     /// Stops the store and the binding (the fixture tab closed).
     public func close() {
         loading?.cancel()
-        binding?.stop()
+        view?.stop()
         store.stop()
     }
 
     private func load() async {
-        guard let inbox = try? await source.inbox(), let id = inbox.conversations.first?.id, !Task.isCancelled else { return }
+        let chief = await source.chief.id
+        guard let inbox = try? await source.inbox(), !Task.isCancelled,
+              let id = (inbox.conversations.first { $0.participants.contains { $0.id == chief } && $0.participants.count == 2 }
+                  ?? inbox.conversations.first)?.id else { return }
         let me = inbox.me.id
-        let view = HomeNativeTranscriptView(conversation: id, me: me)
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         self.view = view
-        let binding = HomeStoreBinding(store: store, controller: view.controller)
-        self.binding = binding
-        view.connect(binding)
-        await binding.opened()
-        if attachments { await addAttachments(to: view, in: id) }
+        await view.binding.opened()
+        if attachments { await addAttachments(in: id) }
     }
 
-    private func addAttachments(to view: HomeNativeTranscriptView, in id: ConversationID) async {
+    private func addAttachments(in id: ConversationID) async {
         guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
         for file in files {
             guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }

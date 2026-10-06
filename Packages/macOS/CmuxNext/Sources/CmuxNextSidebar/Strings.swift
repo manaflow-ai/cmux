@@ -60,5 +60,4 @@ enum Strings {
         String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current space", bundle: .module)
     }
     static var resize: String { String(localized: "sidebar.a11y.resize", defaultValue: "Resize sidebar", bundle: .module) }
-    static var help: String { String(localized: "sidebar.help.button", defaultValue: "Help", bundle: .module) }
 }

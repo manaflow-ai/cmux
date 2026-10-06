@@ -109,6 +109,14 @@ impl Gate {
         self
     }
 
+    /// An entry the engine wrote for this session (an event of its tab that
+    /// no session took, D2): kept in the policy log, masked like the tab's
+    /// other values.
+    pub fn log_policy(&self, entry: Value) {
+        let target = entry.get("targetId").and_then(Value::as_str).map(str::to_owned);
+        push_log(&self.log, self.mask_for_target(target.as_deref(), &entry));
+    }
+
     /// The session ends: the driver releases its per-session state now.
     pub fn end_session(&self) {
         self.end_fetches();

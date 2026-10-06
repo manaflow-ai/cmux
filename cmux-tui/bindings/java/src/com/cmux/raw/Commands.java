@@ -54,6 +54,8 @@ public final class Commands {
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_AGENT_TOKEN = new CommandMetadata("conversation-agent-token", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_ATTACHMENT_READ = new CommandMetadata("conversation-attachment-read", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_ATTACHMENT_UPLOAD = new CommandMetadata("conversation-attachment-upload", Authority.LOCAL_ADMIN, 12, "local-attachments-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_BIND = new CommandMetadata("conversation-bind", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_CREATE = new CommandMetadata("conversation-create", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_HISTORY = new CommandMetadata("conversation-history", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -209,6 +211,7 @@ public final class Commands {
     public static final CommandMetadata SNAPSHOT_REQUEST = new CommandMetadata("snapshot-request", Authority.FRONTEND, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SPLIT = new CommandMetadata("split", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("cwd", 12L), Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("kind", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 12L), Map.entry("url", 12L)), Map.ofEntries(Map.entry("cwd", "terminal-env-v1"), Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("kind", "pane-browser-kind-v1"), Map.entry("shell_args", "terminal-shell-args-v1"), Map.entry("terminal_id", "terminal-placement-env-v1"), Map.entry("url", "pane-browser-kind-v1")));
     public static final CommandMetadata SUBSCRIBE = new CommandMetadata("subscribe", Authority.FRONTEND, 5, null, StreamKind.SUBSCRIBE, Map.ofEntries(Map.entry("surface", 9L), Map.entry("tree_events", 7L)), Map.ofEntries(Map.entry("surface", "surface-subscribe-filter")));
+    public static final CommandMetadata SUBSCRIBE_ACTIVITY = new CommandMetadata("subscribe-activity", Authority.LOCAL_ADMIN, 12, "vm-activity-v1", StreamKind.SUBSCRIBE, Map.of(), Map.of());
     public static final CommandMetadata SWAP_PANE = new CommandMetadata("swap-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_CLIPBOARD_REPLY = new CommandMetadata("terminal-clipboard-reply", Authority.FRONTEND, 12, "terminal-clipboard-read-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_CLIPBOARD_SUBSCRIBE = new CommandMetadata("terminal-clipboard-subscribe", Authority.FRONTEND, 12, "terminal-clipboard-read-v1", StreamKind.SUBSCRIBE, Map.of(), Map.of());
@@ -286,6 +289,8 @@ public final class Commands {
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);
         values.put("conversation-agent-token", CONVERSATION_AGENT_TOKEN);
+        values.put("conversation-attachment-read", CONVERSATION_ATTACHMENT_READ);
+        values.put("conversation-attachment-upload", CONVERSATION_ATTACHMENT_UPLOAD);
         values.put("conversation-bind", CONVERSATION_BIND);
         values.put("conversation-create", CONVERSATION_CREATE);
         values.put("conversation-history", CONVERSATION_HISTORY);
@@ -441,6 +446,7 @@ public final class Commands {
         values.put("snapshot-request", SNAPSHOT_REQUEST);
         values.put("split", SPLIT);
         values.put("subscribe", SUBSCRIBE);
+        values.put("subscribe-activity", SUBSCRIBE_ACTIVITY);
         values.put("swap-pane", SWAP_PANE);
         values.put("terminal-clipboard-reply", TERMINAL_CLIPBOARD_REPLY);
         values.put("terminal-clipboard-subscribe", TERMINAL_CLIPBOARD_SUBSCRIBE);

@@ -46,6 +46,8 @@ strip_if_macho "$APP_PATH/Contents/MacOS/cmux"
 # bin/cmux is the cmux-tui binary; bin/cmux-tui and bin/acpmux are symlinks to it.
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux"
 strip_if_macho "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar"
+# The cmux-next nightly's Home Chief brain host (absent from other builds).
+strip_if_macho "$APP_PATH/Contents/Resources/bin/optchat-chief"
 
 if [ -d "$APP_PATH/Contents/PlugIns" ]; then
   while IFS= read -r -d '' binary; do

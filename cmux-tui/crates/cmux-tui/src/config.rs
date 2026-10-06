@@ -148,10 +148,10 @@ use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use cmux_tui_core::BrowserMode;
-use cmux_tui_core::SidebarPluginOptions;
+use crate::cli::BIN;
 use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
+use cmux_tui_core::{BrowserMode, SidebarPluginOptions};
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
@@ -1205,7 +1205,7 @@ fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) 
                 }),
                 Ok(_) => crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring duplicate {owner} plus menu action {:?}",
+                    "{BIN}: ignoring duplicate {owner} plus menu action {:?}",
                     raw_action.action().trim()
                 ),
                 Err(warning) => {
@@ -1350,7 +1350,7 @@ fn parse_sidebar_view(value: &str) -> Result<SidebarView, String> {
         "files" => Ok(SidebarView::Files),
         "workspaces" => Ok(SidebarView::Workspaces),
         _ => Err(format!(
-            "cmux-tui: ignoring unknown sidebar.view {value:?}; expected \"files\" or \"workspaces\""
+            "{BIN}: ignoring unknown sidebar.view {value:?}; expected \"files\" or \"workspaces\""
         )),
     }
 }
@@ -1361,7 +1361,7 @@ fn parse_sidebar_column_kind(value: &str) -> Result<SidebarColumnKind, String> {
         "workspaces" => Ok(SidebarColumnKind::Workspaces),
         "tabs" => Ok(SidebarColumnKind::Tabs),
         _ => Err(format!(
-            "cmux-tui: ignoring unknown sidebar column {value:?}; expected \"machines\", \"workspaces\", or \"tabs\""
+            "{BIN}: ignoring unknown sidebar column {value:?}; expected \"machines\", \"workspaces\", or \"tabs\""
         )),
     }
 }
@@ -1374,7 +1374,7 @@ fn parse_sidebar_resource_kind(value: &str) -> Result<SidebarResourceKind, Strin
         "tabs" => Ok(SidebarResourceKind::Tabs),
         "agents" => Ok(SidebarResourceKind::Agents),
         _ => Err(format!(
-            "cmux-tui: ignoring unknown sidebar resource {value:?}; expected \"machines\", \"workspaces\", \"panes\", \"tabs\", or \"agents\""
+            "{BIN}: ignoring unknown sidebar resource {value:?}; expected \"machines\", \"workspaces\", \"panes\", \"tabs\", or \"agents\""
         )),
     }
 }
@@ -1440,14 +1440,14 @@ fn parse_sidebar_action(value: &str, command_ids: &[String]) -> Result<Action, S
             .position(|id| id == command_id)
             .and_then(Action::user_command)
             .ok_or_else(|| {
-                format!("cmux-tui: ignoring sidebar action for unknown command {command_id:?}")
+                format!("{BIN}: ignoring sidebar action for unknown command {command_id:?}")
             });
     }
     action_definitions()
         .iter()
         .find(|definition| definition.config_key == value)
         .map(|definition| definition.action)
-        .ok_or_else(|| format!("cmux-tui: ignoring unknown sidebar action {value:?}"))
+        .ok_or_else(|| format!("{BIN}: ignoring unknown sidebar action {value:?}"))
 }
 
 fn resolve_sidebar_view_specs(
@@ -1467,7 +1467,7 @@ fn resolve_sidebar_view_specs(
         if id.is_empty() || ids.contains(id) {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring {owner} view with an empty or duplicate id"
+                "{BIN}: ignoring {owner} view with an empty or duplicate id"
             );
             continue;
         }
@@ -1489,7 +1489,7 @@ fn resolve_sidebar_view_specs(
         if let Err(reason) = validate_sidebar_levels(&levels) {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring {owner} view {id:?}: {reason}"
+                "{BIN}: ignoring {owner} view {id:?}: {reason}"
             );
             continue;
         }
@@ -1506,7 +1506,7 @@ fn resolve_sidebar_view_specs(
         if legacy_kind.is_some_and(|kind| !legacy_kinds.insert(kind)) {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
+                "{BIN}: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
             );
             continue;
         }
@@ -1521,7 +1521,7 @@ fn resolve_sidebar_view_specs(
         {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
+                "{BIN}: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
             );
             Vec::new()
         } else if let Some(raw_actions) = view.actions.as_ref() {
@@ -1540,7 +1540,7 @@ fn resolve_sidebar_view_specs(
                         }),
                         Ok(_) => {
                             crate::client_log::stderr_log!("config",
-                                "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
+                                "{BIN}: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
                                 raw_action.action().trim()
                             );
                             None
@@ -2902,7 +2902,7 @@ impl Keys {
         if chord == self.prefix {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring command binding {id:?} because it conflicts with the prefix"
+                "{BIN}: ignoring command binding {id:?} because it conflicts with the prefix"
             );
             return false;
         }
@@ -2949,12 +2949,12 @@ impl Keys {
             } else if value.as_str().is_some() {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring unparseable key binding prefix = {value:?}"
+                    "{BIN}: ignoring unparseable key binding prefix = {value:?}"
                 );
             } else {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring non-string prefix binding {value:?}"
+                    "{BIN}: ignoring non-string prefix binding {value:?}"
                 );
             }
         }
@@ -2994,14 +2994,14 @@ impl Keys {
                         let Some(chord) = parse_chord(raw_chord) else {
                             crate::client_log::stderr_log!(
                                 "config",
-                                "cmux-tui: ignoring unparseable key binding {name} = {raw_chord:?}"
+                                "{BIN}: ignoring unparseable key binding {name} = {raw_chord:?}"
                             );
                             continue;
                         };
                         if chord == self.prefix && definition.action != Action::SendPrefix {
                             crate::client_log::stderr_log!(
                                 "config",
-                                "cmux-tui: ignoring key binding {name} = {raw_chord:?} because it conflicts with the prefix"
+                                "{BIN}: ignoring key binding {name} = {raw_chord:?} because it conflicts with the prefix"
                             );
                             continue;
                         }
@@ -3017,7 +3017,7 @@ impl Keys {
                 }
                 None => crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring unknown key action {name:?}"
+                    "{BIN}: ignoring unknown key action {name:?}"
                 ),
             }
         }
@@ -3234,7 +3234,7 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
         if segments.len() >= MAX_STATUS_SEGMENTS {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring status_bar.{side} segments beyond the {MAX_STATUS_SEGMENTS}-segment limit"
+                "{BIN}: ignoring status_bar.{side} segments beyond the {MAX_STATUS_SEGMENTS}-segment limit"
             );
             break;
         }
@@ -3242,7 +3242,7 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
             (Some(_), Some(_)) | (None, None) => {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring status_bar.{side} segment: exactly one of text or run is required"
+                    "{BIN}: ignoring status_bar.{side} segment: exactly one of text or run is required"
                 );
                 continue;
             }
@@ -3269,7 +3269,7 @@ fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<Status
                 if run.first().is_none_or(|program| program.is_empty()) {
                     crate::client_log::stderr_log!(
                         "config",
-                        "cmux-tui: ignoring status_bar.{side} segment without a run program"
+                        "{BIN}: ignoring status_bar.{side} segment without a run program"
                     );
                     continue;
                 }
@@ -3485,7 +3485,7 @@ pub fn load() -> Config {
         } else {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
+                "{BIN}: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
             );
         }
     }
@@ -3503,7 +3503,7 @@ pub fn load() -> Config {
         if command.first().is_none_or(|arg| arg.trim().is_empty()) {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring sidebar.plugin with empty command"
+                "{BIN}: ignoring sidebar.plugin with empty command"
             );
         } else {
             config.sidebar.plugin = Some(SidebarPluginOptions {
@@ -3520,7 +3520,7 @@ pub fn load() -> Config {
             if command.first().is_none_or(|arg| arg.trim().is_empty()) {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring agents.plugin with empty command"
+                    "{BIN}: ignoring agents.plugin with empty command"
                 );
             } else {
                 let options = cmux_tui_core::JournalPluginOptions {
@@ -3532,7 +3532,7 @@ pub fn load() -> Config {
                 if let Err(error) = options.validate() {
                     crate::client_log::stderr_log!(
                         "config",
-                        "cmux-tui: ignoring invalid agents.plugin: {error}"
+                        "{BIN}: ignoring invalid agents.plugin: {error}"
                     );
                 } else {
                     config.agents.plugin = Some(options);
@@ -3541,7 +3541,7 @@ pub fn load() -> Config {
         } else {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring agents.plugin without an explicit id"
+                "{BIN}: ignoring agents.plugin without an explicit id"
             );
         }
     }
@@ -3562,7 +3562,7 @@ pub fn load() -> Config {
             if id.is_empty() || name.is_empty() || !source_ids.insert(id.clone()) {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring machine creation source with an empty or duplicate id/name"
+                    "{BIN}: ignoring machine creation source with an empty or duplicate id/name"
                 );
                 continue;
             }
@@ -3589,7 +3589,7 @@ pub fn load() -> Config {
             if !seen.insert(kind) {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring duplicate sidebar column {:?}",
+                    "{BIN}: ignoring duplicate sidebar column {:?}",
                     column.kind
                 );
                 continue;
@@ -3610,7 +3610,7 @@ pub fn load() -> Config {
         if resolved.is_empty() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: sidebar.columns had no usable entries; keeping defaults"
+                "{BIN}: sidebar.columns had no usable entries; keeping defaults"
             );
         } else {
             config.sidebar.columns = resolved;
@@ -3651,7 +3651,7 @@ pub fn load() -> Config {
         if raw.sidebar.columns.is_some() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: sidebar.views overrides sidebar.columns"
+                "{BIN}: sidebar.views overrides sidebar.columns"
             );
         }
         let resolved = resolve_sidebar_view_specs(
@@ -3666,7 +3666,7 @@ pub fn load() -> Config {
         if resolved.is_empty() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: sidebar.views had no usable entries; keeping defaults"
+                "{BIN}: sidebar.views had no usable entries; keeping defaults"
             );
         } else {
             config.sidebar.columns = resolved
@@ -3689,7 +3689,7 @@ pub fn load() -> Config {
         if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: sidebar.profiles overrides sidebar.views and sidebar.columns"
+                "{BIN}: sidebar.profiles overrides sidebar.views and sidebar.columns"
             );
         }
         let mut ids = HashSet::new();
@@ -3699,7 +3699,7 @@ pub fn load() -> Config {
             if id.is_empty() || !ids.insert(id.to_string()) {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring sidebar profile with an empty or duplicate id"
+                    "{BIN}: ignoring sidebar profile with an empty or duplicate id"
                 );
                 continue;
             }
@@ -3716,7 +3716,7 @@ pub fn load() -> Config {
             if views.is_empty() {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring sidebar profile {id:?} with no usable views"
+                    "{BIN}: ignoring sidebar profile {id:?} with no usable views"
                 );
                 continue;
             }
@@ -3732,7 +3732,7 @@ pub fn load() -> Config {
         if profiles.is_empty() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: sidebar.profiles had no usable entries; keeping defaults"
+                "{BIN}: sidebar.profiles had no usable entries; keeping defaults"
             );
         } else {
             let requested =
@@ -3742,7 +3742,7 @@ pub fn load() -> Config {
                 .unwrap_or_else(|| {
                     if let Some(requested) = requested {
                         crate::client_log::stderr_log!("config",
-                            "cmux-tui: sidebar.profile {requested:?} was not found; using the first profile"
+                            "{BIN}: sidebar.profile {requested:?} was not found; using the first profile"
                         );
                     }
                     0
@@ -3768,7 +3768,7 @@ pub fn load() -> Config {
     } else if raw.sidebar.profile.is_some() {
         crate::client_log::stderr_log!(
             "config",
-            "cmux-tui: ignoring sidebar.profile without sidebar.profiles"
+            "{BIN}: ignoring sidebar.profile without sidebar.profiles"
         );
     }
     match raw.machine_provider.command {
@@ -3778,7 +3778,7 @@ pub fn load() -> Config {
         Some(_) => {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring machine_provider.command without a program"
+                "{BIN}: ignoring machine_provider.command without a program"
             );
         }
         None => {}
@@ -3792,7 +3792,7 @@ pub fn load() -> Config {
         if host.is_empty() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring empty machine_provider.cloud.host"
+                "{BIN}: ignoring empty machine_provider.cloud.host"
             );
         } else {
             config.machine_provider.cloud.host = host.to_string();
@@ -3804,7 +3804,7 @@ pub fn load() -> Config {
         Some(0) => {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring zero machine_provider.cloud.port"
+                "{BIN}: ignoring zero machine_provider.cloud.port"
             );
             None
         }
@@ -3822,7 +3822,7 @@ pub fn load() -> Config {
         if id.is_empty() || name.is_empty() || !machine_ids.insert(id.clone()) {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring machine with an empty or duplicate id/name"
+                "{BIN}: ignoring machine with an empty or duplicate id/name"
             );
             continue;
         }
@@ -3852,7 +3852,7 @@ pub fn load() -> Config {
             _ => {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring machine {id:?} with an empty transport target"
+                    "{BIN}: ignoring machine {id:?} with an empty transport target"
                 );
                 continue;
             }
@@ -3883,7 +3883,7 @@ pub fn load() -> Config {
         } else {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring browser.max_capture_megapixels={megapixels:?}; expected 0 < value <= {TRANSPORT_SAFE_CAPTURE_MEGAPIXELS}"
+                "{BIN}: ignoring browser.max_capture_megapixels={megapixels:?}; expected 0 < value <= {TRANSPORT_SAFE_CAPTURE_MEGAPIXELS}"
             );
         }
     }
@@ -3893,7 +3893,7 @@ pub fn load() -> Config {
         } else {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring browser.capture_scale={scale:?}; expected 0 < scale <= 1"
+                "{BIN}: ignoring browser.capture_scale={scale:?}; expected 0 < scale <= 1"
             );
         }
     }
@@ -3972,14 +3972,14 @@ fn resolve_user_command_specs(
         if id.is_empty() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring command with a missing or empty id"
+                "{BIN}: ignoring command with a missing or empty id"
             );
             continue;
         }
         if ids.contains(&id) {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring command with duplicate id {id:?}"
+                "{BIN}: ignoring command with duplicate id {id:?}"
             );
             continue;
         }
@@ -3989,14 +3989,14 @@ fn resolve_user_command_specs(
         if run.first().is_none_or(|program| program.is_empty()) {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring command {id:?} without a run program"
+                "{BIN}: ignoring command {id:?} without a run program"
             );
             continue;
         }
         if Action::user_command(commands.len()).is_none() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring command {id:?} beyond the {MAX_USER_COMMANDS}-command limit"
+                "{BIN}: ignoring command {id:?} beyond the {MAX_USER_COMMANDS}-command limit"
             );
             continue;
         }
@@ -4033,14 +4033,14 @@ fn bind_user_command_chords(
             if bound >= MAX_USER_COMMAND_CHORDS {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
+                    "{BIN}: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
                 );
                 break;
             }
             let Some(chord) = parse_chord(raw_chord) else {
                 crate::client_log::stderr_log!(
                     "config",
-                    "cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}"
+                    "{BIN}: ignoring unparseable command binding {id} = {raw_chord:?}"
                 );
                 continue;
             };
@@ -4059,7 +4059,7 @@ fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
         Some(0) => {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring zero SSH machine port for {id:?}"
+                "{BIN}: ignoring zero SSH machine port for {id:?}"
             );
             None
         }
@@ -4126,7 +4126,7 @@ fn load_raw_config() -> RawConfig {
     let Some(object) = value.as_object() else {
         crate::client_log::stderr_log!(
             "config",
-            "cmux-tui: ignoring invalid config {}: root must be an object",
+            "{BIN}: ignoring invalid config {}: root must be an object",
             path.display()
         );
         return RawConfig::default();
@@ -4151,7 +4151,7 @@ fn load_raw_config() -> RawConfig {
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
         crate::client_log::stderr_log!(
             "config",
-            "cmux-tui: ignoring invalid config {}: unknown top-level field `{unknown}`",
+            "{BIN}: ignoring invalid config {}: unknown top-level field `{unknown}`",
             path.display()
         );
         return RawConfig::default();
@@ -4164,7 +4164,7 @@ fn load_raw_config() -> RawConfig {
                     Ok(parsed) => raw.$field = parsed,
                     Err(error) => crate::client_log::stderr_log!(
                         "config",
-                        "cmux-tui: ignoring invalid `{}` section in {}: {}",
+                        "{BIN}: ignoring invalid `{}` section in {}: {}",
                         $name,
                         path.display(),
                         error
@@ -4197,7 +4197,7 @@ fn config_diagnostic(error: &serde_json::Error) -> String {
         return catalog().config.unknown_field("(see config file)");
     }
     if text.contains("invalid type") && text.contains("map") {
-        return catalog().config.invalid_root().to_string();
+        return catalog().config.invalid_root();
     }
     catalog().config.invalid_section("(see config file)")
 }

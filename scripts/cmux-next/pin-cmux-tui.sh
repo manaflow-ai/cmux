@@ -85,7 +85,10 @@
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
-#        | resolve-commit (the commit that published this tree, for nightly)
+#        | resolve-commit (the commit that published this tree; waits for it)
+#        | resolve-newest-published (nightly: newest verified published tree in the last
+#          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
+#          default 24; never waits)
 #        | wait (the cmux-next gate: wait for the tree; superseded=true output for a superseded commit)
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
@@ -552,6 +555,83 @@ resolve_tree_commit() {
   echo "$commit"
 }
 
+# The nightly's resolver: the newest commit within the last
+# CMUX_TUI_TREE_SEARCH_COMMITS (default 50) commits of HEAD whose v2 tree is
+# published and whose publishing commit's attested manifest carries the same
+# cmux-tui sha256. It never waits: cmux-tui-artifacts.yml lets a running build
+# finish and a newer push replaces only the pending run, so under steady
+# pushes the tip's own tree may never publish (nightly-next run 37464320457).
+# Prints commit=, key=, source_commit= (the branch commit whose tree was
+# used), tip_key=, behind= (commits) and behind_hours= lines, and appends them
+# to GITHUB_STEP_SUMMARY. The nightly builds the app at source_commit, so app and
+# daemon come from one commit. A tree more than CMUX_TUI_TREE_MAX_AGE_HOURS
+# (default 24) behind the tip, or none in the window, fails: never ship stale.
+resolve_newest_published_tree() {
+  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 seen=" " distinct=0
+  limit="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
+  [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_SEARCH_COMMITS must be a positive whole number" >&2; exit 2; }
+  limit=$((10#$limit))
+  max_age="${CMUX_TUI_TREE_MAX_AGE_HOURS:-24}"
+  [[ "$max_age" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_MAX_AGE_HOURS must be a positive whole number" >&2; exit 2; }
+  max_age=$((10#$max_age))
+  tip="$(git rev-parse HEAD)"
+  tip_time="$(git log -1 --format=%ct HEAD)"
+  tip_key="$(tree_key HEAD 2>/dev/null || true)"
+  # A depth-1 CI checkout holds no window; deepen once (best effort).
+  if [[ "$(git rev-parse --is-shallow-repository)" == true ]] && (( $(git rev-list --count HEAD) < limit )); then
+    git fetch -q --deepen="$limit" origin 2>/dev/null \
+      || echo "warning: could not deepen the shallow checkout; searching the history it has" >&2
+  fi
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-tree.XXXXXX")"
+  # shellcheck disable=SC2064 # expand now: the trap must remove this temp dir
+  trap "rm -rf '$temp_dir'" EXIT
+  # Commit-date order covers both parents of a merge (a safe-push auto-merge
+  # puts the previous branch tip on the second parent).
+  while read -r rev; do
+    checked=$((checked + 1))
+    rev_time="$(git log -1 --format=%ct "$rev")"
+    behind_hours=$(( (tip_time - rev_time) / 3600 ))
+    (( behind_hours < 0 )) && behind_hours=0
+    if (( tip_time - rev_time > max_age * 3600 )); then
+      echo "error: no published cmux-tui tree within ${max_age} h of the tip ${tip:0:12}: the newest candidate left, ${rev:0:12}, is ${behind_hours} h behind the tip (bound ${max_age} h, ${behind} commits). The nightly does not ship a stale build; publish a newer cmux-tui tree (pin-cmux-tui.sh --help)." >&2
+      exit 1
+    fi
+    key="$(tree_key "$rev" 2>/dev/null)" || { behind=$((behind + 1)); continue; }
+    if [[ "$seen" == *" $key "* ]]; then behind=$((behind + 1)); continue; fi
+    seen+="$key "; distinct=$((distinct + 1))
+    if ! download "$BASE/tree/$key/cmux-tui-$TARGET.sha256" "$temp_dir/sha256" 2>/dev/null; then
+      echo "tree $key (${rev:0:12}): not published" >&2; behind=$((behind + 1)); continue
+    fi
+    published_sha="$(awk 'NR==1{print $1}' "$temp_dir/sha256")"
+    commit=""
+    if [[ "$published_sha" =~ ^[0-9a-f]{64}$ ]] \
+      && download "$BASE/tree/$key/source.json" "$temp_dir/source.json" 2>/dev/null; then
+      commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$temp_dir/source.json" 2>/dev/null || true)"
+    fi
+    manifest_sha=""
+    if [[ "$commit" =~ ^[0-9a-f]{40}$ ]] && download "$BASE/$commit/manifest.json" "$temp_dir/manifest.json" 2>/dev/null; then
+      manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2], ""))' "$temp_dir/manifest.json" "cmux-tui-$TARGET" 2>/dev/null || true)"
+    fi
+    if [[ -z "$manifest_sha" || "$manifest_sha" != "$published_sha" ]]; then
+      echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${commit:0:12} does not carry its sha256 ${published_sha:0:12} (manifest: ${manifest_sha:-none}); skipping" >&2
+      behind=$((behind + 1)); continue
+    fi
+    echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
+    printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$commit" "$key" "$rev" "$tip_key" "$behind" "$behind_hours"
+    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+      {
+        echo "### cmux-tui client"
+        echo "- tree: \`$key\` (tip tree \`${tip_key:-unknown}\`)"
+        echo "- build commit (app and daemon): \`$rev\` ($behind commits and $behind_hours h behind the tip \`$tip\`)"
+        echo "- publishing commit (manifest sha256 verified): \`$commit\`"
+      } >> "$GITHUB_STEP_SUMMARY"
+    fi
+    return 0
+  done < <(git rev-list --date-order --max-count="$limit" HEAD)
+  echo "error: no published cmux-tui tree in the last $limit commits of ${tip:0:12} ($checked checked, $distinct distinct trees): no commit there has a tree under $BASE/tree/<key>/ whose publishing commit's manifest sha256 matches. Publish one (pin-cmux-tui.sh --help) or raise CMUX_TUI_TREE_SEARCH_COMMITS." >&2
+  exit 1
+}
+
 # fetch_pinned <url> <sha256> <destination> <label>
 fetch_pinned() {
   local url="$1" want="$2" dest="$3" label="$4" temp actual
@@ -732,6 +812,9 @@ PY
     ;;
   resolve-commit)
     resolve_tree_commit
+    ;;
+  resolve-newest-published)
+    resolve_newest_published_tree
     ;;
   wait)
     wait_for_checkout_tree

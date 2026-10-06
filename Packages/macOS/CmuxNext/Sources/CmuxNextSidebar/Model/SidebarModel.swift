@@ -16,8 +16,16 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
-    /// The workspace shown in the window.
-    public var activeWorkspaceID: WorkspaceID?
+    /// The window's one sidebar selection (SIDEBAR-SELECTION-ONE-MODEL): a
+    /// top-section item while the window shows its page, else the shown
+    /// workspace. The App derives it from the window state; the one
+    /// highlight, stepping and numbering read it.
+    public var selectedItem: SidebarItem?
+    /// The workspace shown in the window: the selection when it is a workspace.
+    public var activeWorkspaceID: WorkspaceID? {
+        get { if case .workspace(let id)? = selectedItem { id } else { nil } }
+        set { selectedItem = newValue.map(SidebarItem.workspace) }
+    }
     /// Profiles in order (the bar at the bottom center). The bar hides
     /// while there is at most one.
     public var profiles: [SidebarProfile] = []
@@ -39,6 +47,9 @@ public final class SidebarModel {
     public var filterText = ""
     /// The card stack above the bottom band (R114): update, what's new, announcements.
     public var cards: [SidebarCard] = []
+    /// The footer's update pill (SIDEBAR-FOOTER-MINIMAL): set by the App only
+    /// while an update is staged or installing; nil shows nothing.
+    public var updatePill: SidebarUpdatePill?
     /// A card's click, button or dismiss.
     @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
@@ -139,7 +150,7 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .activateItemAccessory:
+        case .activateItem, .installUpdate:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }

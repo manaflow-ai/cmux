@@ -2482,7 +2482,7 @@
             "key": "h",
             "modifiers": [
               "ctrl",
-              "cmd"
+              "shift"
             ]
           },
           "chord": null,
@@ -2530,7 +2530,7 @@
             "key": "l",
             "modifiers": [
               "ctrl",
-              "cmd"
+              "shift"
             ]
           },
           "chord": null,
@@ -2578,7 +2578,7 @@
             "key": "k",
             "modifiers": [
               "ctrl",
-              "cmd"
+              "shift"
             ]
           },
           "chord": null,
@@ -2626,7 +2626,7 @@
             "key": "j",
             "modifiers": [
               "ctrl",
-              "cmd"
+              "shift"
             ]
           },
           "chord": null,
@@ -2678,7 +2678,20 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "h",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusRight",
@@ -2713,7 +2726,20 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "l",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusUp",
@@ -2748,7 +2774,20 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "k",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusDown",
@@ -2783,7 +2822,20 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "j",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "triggerFlash",
