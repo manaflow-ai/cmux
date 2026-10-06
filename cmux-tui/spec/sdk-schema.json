@@ -7267,6 +7267,514 @@
     }
    },
    "additional_properties": false
+  },
+  "TabGroupRecord": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "May be empty: the group shows only its color."
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+    },
+    "collapsed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "saved_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "The linked saved group."
+    }
+   },
+   "additional_properties": true
+  },
+  "TabGroupOutcome": {
+   "kind": "object",
+   "fields": {
+    "group": {
+     "type": {
+      "kind": "ref",
+      "name": "TabGroupRecord"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "Null when the command left no group."
+    },
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "workspace": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "The workspace of the group's pane."
+    },
+    "surfaces": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Members in strip order."
+    }
+   },
+   "additional_properties": true
+  },
+  "TabGroupRun": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+    },
+    "collapsed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "saved_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Strip index of the first member."
+    },
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "surfaces": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": true
+  },
+  "TabGroupEndedTerminal": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_incarnation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": true
+  },
+  "SavedTabGroupMember": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties."
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "kind terminal."
+    },
+    "cwd": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "kind terminal."
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "kind browser."
+    },
+    "engine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "kind browser. Known values: webkit, cef."
+    },
+    "profile_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "kind browser."
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    }
+   },
+   "additional_properties": true
+  },
+  "SavedTabGroupRecord": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "room": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The room whose bar shows the saved group (`default` for groups saved by these commands)."
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+    },
+    "updated_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "members": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "SavedTabGroupMember"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": true
+  },
+  "Bookmark": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "`bm_` and 32 lowercase hex digits."
+    },
+    "browser_profile_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "parent": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "`bar`, `other`, or a folder's id."
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: url, folder. Other values are future kinds."
+    },
+    "index": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Dense 0-based position among the node's siblings."
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "url nodes."
+    },
+    "favicon_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "source_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Folders only."
+    },
+    "created_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_used_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": true
+  },
+  "BookmarkImportNode": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "url or folder."
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Required for a url node; refused for a folder."
+    },
+    "created_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Defaults to now."
+    },
+    "children": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "BookmarkImportNode"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "A folder's nodes."
+    }
+   },
+   "additional_properties": false
+  },
+  "BookmarkChangeResult": {
+   "kind": "object",
+   "fields": {
+    "bookmark": {
+     "type": {
+      "kind": "ref",
+      "name": "Bookmark"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "changed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "replayed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": true
   }
  },
  "commands": {
@@ -14963,8 +15471,21 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "groups": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "TabGroupRun"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15033,7 +15554,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -15087,7 +15608,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -15137,7 +15658,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -15178,8 +15699,33 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "surfaces": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "groups": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Ids of the groups the tabs left."
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15233,7 +15779,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -15294,7 +15840,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -15366,7 +15912,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -15420,7 +15966,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -15446,8 +15992,29 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surfaces": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15484,8 +16051,41 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "closed": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminals": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "TabGroupEndedTerminal"
+       }
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "With end_terminals: the member terminals the close ended."
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15605,8 +16205,21 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "saved_groups": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "SavedTabGroupRecord"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15632,8 +16245,26 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "saved": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15659,8 +16290,26 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "unsaved": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15686,8 +16335,26 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "saved": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "deleted": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15731,7 +16398,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -16699,8 +17366,30 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "bookmarks_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "bookmarks": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Bookmark"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The whole tree in depth-first pre-order: the bar tree, then the other tree."
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -16823,7 +17512,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "BookmarkChangeResult"
    },
    "stream": null,
    "constraints": [
@@ -16904,7 +17593,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "BookmarkChangeResult"
    },
    "stream": null,
    "constraints": [
@@ -16965,7 +17654,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "BookmarkChangeResult"
    },
    "stream": null,
    "constraints": [
@@ -17009,8 +17698,30 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "deleted": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The deleted node's id first, then its descendants."
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -17072,7 +17783,7 @@
        "kind": "array",
        "items": {
         "kind": "ref",
-        "name": "JsonValue"
+        "name": "BookmarkImportNode"
        }
       },
       "presence": "required",
@@ -17100,8 +17811,39 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "root_ids": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Top-level nodes written; in replace mode the kept folder first."
+     },
+     "count": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Nodes in the request, descendants included."
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
