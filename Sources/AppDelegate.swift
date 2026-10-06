@@ -1399,6 +1399,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var preconfirmedMainWindowCloses: Set<ObjectIdentifier> = []
     // Avoid showing the quit warning twice after confirmation.
     private var isQuitWarningConfirmed = false
+    /// Set when Sparkle is about to relaunch to finish an update, so the terminate it
+    /// requests next skips the quit confirmation the user already gave by installing.
+    private var isRelaunchingForUpdate = false
     // One-shot guard for deferred terminate replies.
     private var didReplyToTerminate = false
     // True while owned asynchronous cleanup controls the terminate reply.
@@ -2196,6 +2199,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !shouldTerminate {
             didReplyToTerminate = false
             isAwaitingTerminateCleanup = false
+            // Sparkle's relaunch notice does not guarantee the quit; a later Cmd+Q
+            // is a user quit again and must reach the confirmation.
+            isRelaunchingForUpdate = false
         }
     }
 
@@ -2424,7 +2430,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
         let hasDirtyWorkspaces = hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = quitConfirmationStore.confirmQuitMode
-        let quitReason = Self.currentQuitRequestReason()
+        let quitReason: QuitRequestReason = isRelaunchingForUpdate ? .updateRelaunch : Self.currentQuitRequestReason()
 
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
@@ -2432,7 +2438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "buildFlavor": buildFlavor.rawValue,
                 "confirmQuitMode": confirmQuitMode.rawValue,
                 "hasDirtyWorkspaces": hasDirtyWorkspaces ? "1" : "0",
-                "quitReason": quitReason == .sessionEnd ? "sessionEnd" : "user",
+                "quitReason": Self.breadcrumbName(for: quitReason),
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
                 "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
             ]
@@ -2449,8 +2455,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             prepareForConfirmedAppTermination()
             closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
-            if quitReason == .sessionEnd {
-                reason = "sessionEnd"
+            if quitReason != .user {
+                reason = Self.breadcrumbName(for: quitReason)
             } else if isQuitWarningConfirmed {
                 reason = "confirmed"
             } else if buildFlavor == .dev {
@@ -2478,6 +2484,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    private static func breadcrumbName(for reason: QuitRequestReason) -> String {
+        switch reason {
+        case .user: return "user"
+        case .sessionEnd: return "sessionEnd"
+        case .updateRelaunch: return "updateRelaunch"
+        }
     }
 
     /// Reads `kAEQuitReason` from the quit Apple Event AppKit is handling.
@@ -20587,6 +20601,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     }
 
     func updaterWillRelaunchApplication() {
+        isRelaunchingForUpdate = true
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         NSApp.invalidateRestorableState()

@@ -562,6 +562,20 @@ struct QuitConfirmationPolicyTests {
         ))
     }
 
+    /// Install and Relaunch is the user's consent to quit. A confirmation shown
+    /// when Sparkle then terminates the app stalls the update behind a modal.
+    @Test(arguments: ["always", "dirty-only"])
+    func updateRelaunchNeverWarns(mode: String) {
+        let defaults = makeScratchDefaults()
+        defaults.set(mode, forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false,
+            quitReason: .updateRelaunch
+        ))
+    }
+
     @Test func quitEventReasonMapsSessionChanges() {
         let sessionCodes: [OSType] = [
             kAELogOut, kAEReallyLogOut,
