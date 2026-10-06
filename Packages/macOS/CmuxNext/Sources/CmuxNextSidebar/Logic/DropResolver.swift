@@ -12,10 +12,12 @@ public nonisolated enum DropResolver {
         return RustSidebarClient.call("base_y", request, as: Double.self).map { CGFloat($0) }
     }
 
-    public static func resolve(y: CGFloat, payload: DragPayload, base: SidebarLayout, sections: [SidebarSection], ungroupedFirst: Bool = false) -> DropTarget? {
+    /// `groupsOnto: false` leaves a row's middle to `SidebarGroupDwell`.
+    public static func resolve(y: CGFloat, payload: DragPayload, base: SidebarLayout, sections: [SidebarSection], ungroupedFirst: Bool = false,
+                               groupsOnto: Bool = true) -> DropTarget? {
+        let onto = groupsOnto ? (SidebarTunables.workspaceOntoStart.value, SidebarTunables.workspaceOntoEnd.value) : (0.5, 0.5)
         let request = RustDropRequest(y: Double(y), payload: RustPayload(payload), rows: base.rows.map(RustRow.init), sections: sections.map(RustSection.init), ungroupedFirst: ungroupedFirst, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction),
-                                      workspaceOntoStart: Double(SidebarTunables.workspaceOntoStart.value),
-                                      workspaceOntoEnd: Double(SidebarTunables.workspaceOntoEnd.value))
+                                      workspaceOntoStart: Double(onto.0), workspaceOntoEnd: Double(onto.1))
         return RustSidebarClient.call("resolve", request, as: RustTarget.self)?.swiftValue
     }
 

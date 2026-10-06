@@ -12,7 +12,7 @@ extension SidebarListView {
         // Over a row's middle the list keeps the last slot (the row highlights instead).
         let shownPosition: DropPosition? = switch drag?.target {
         case let .position(position)?: position
-        case .ontoWorkspace?: drag?.lastPosition
+        case .ontoWorkspace?, .intoGroup?: drag?.lastPosition
         default: nil
         }
         guard let drag, let position = shownPosition else {

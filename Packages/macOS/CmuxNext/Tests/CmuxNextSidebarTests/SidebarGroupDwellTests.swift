@@ -23,7 +23,7 @@ import Testing
         #expect(hit(.workspace(id("a")), 0.5)?.target == .ontoWorkspace(id("a")))
         #expect(hit(.group(g1), 0.5)?.target == .intoGroup(g1))
         #expect(hit(.workspace(id("g2")), 0.5)?.target == .intoGroup(g1))
-        #expect(hit(.workspace(id("a")), 0.1)?.fraction == 0.1)
+        #expect(abs((hit(.workspace(id("a")), 0.1)?.fraction ?? 0) - 0.1) < 0.001)
     }
 
     @Test func nothingToGroupWith() {

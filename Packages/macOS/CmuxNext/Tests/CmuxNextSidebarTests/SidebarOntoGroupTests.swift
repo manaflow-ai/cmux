@@ -62,7 +62,7 @@ import Testing
         #expect(try h.frame(.workspace(id("x"))) == x, "the row under the pointer holds still while it waits")
 
         h.now += SidebarGroupDwell.dwell
-        h.list.groupDwellElapsed()
+        SidebarGroupDrop.dwellElapsed(h.list)
         let drag = try #require(h.list.drag)
         #expect(drag.target == .ontoWorkspace(id("x")))
         #expect((h.list.rowViews[.workspace(id("x"))] as? WorkspaceRowView)?.isDropTarget == true, "the target row highlights")
@@ -88,7 +88,7 @@ import Testing
         // Through x's middle without stopping, into its top quarter.
         try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.1)
         h.now += SidebarGroupDwell.dwell
-        h.list.groupDwellElapsed()
+        SidebarGroupDrop.dwellElapsed(h.list)
         #expect(h.list.drag?.target == .position(DropPosition(section: cloudSection, index: 0)))
         h.list.finishDrag()
         #expect(h.groups(cloudSection).isEmpty)
@@ -100,14 +100,14 @@ import Testing
         defer { h.window.close() }
         try h.drag(.workspace(id("c")), over: .group(g1), at: 0.5)
         h.now += SidebarGroupDwell.dwell
-        h.list.groupDwellElapsed()
+        SidebarGroupDrop.dwellElapsed(h.list)
         #expect(h.list.drag?.target == .intoGroup(g1))
         h.list.cancelDrag()
         #expect(shape(h.model.sections, local).contains("G1[g1,g2,g3]"))
 
         try h.drag(.workspace(id("c")), over: .group(g1), at: 0.5)
         h.now += SidebarGroupDwell.dwell
-        h.list.groupDwellElapsed()
+        SidebarGroupDrop.dwellElapsed(h.list)
         h.list.finishDrag()
         #expect(shape(h.model.sections, local).contains("G1[g1,g2,g3,c]"))
         h.window.undoManager?.undo()
