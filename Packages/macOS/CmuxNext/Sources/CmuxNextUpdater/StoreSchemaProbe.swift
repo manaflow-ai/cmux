@@ -52,6 +52,7 @@ nonisolated public struct StoreSchemaProbe: Sendable {
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
         do { try process.run() } catch { return nil }
+        // concurrency-allow: off the main actor (detached task); bounded by `timeout`.
         guard exited.wait(timeout: .now() + timeout) == .success else {
             process.terminate()
             return nil
