@@ -22,7 +22,7 @@ public final class TypingLatencyProbe: Sendable {
     public enum Mark: Int, CaseIterable, Sendable {
         case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputMain, outputParsed, contents
 
-        var column: String {
+        var columnName: String {
             switch self {
             case .dispatchStart: "dispatch_start_ms"
             case .dispatchEnd: "dispatch_end_ms"
@@ -74,7 +74,7 @@ public final class TypingLatencyProbe: Sendable {
             return
         }
         output = handle
-        let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.column)).joined(separator: ",") + "\n"
+        let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName)).joined(separator: ",") + "\n"
         handle.write(Data(header.utf8))
     }
 
@@ -114,6 +114,11 @@ public final class TypingLatencyProbe: Sendable {
             return nil
         }
         if let finished { emit(finished, complete: true) }
+    }
+
+    /// Waits for every row emitted so far to reach the file (tests).
+    func flush() {
+        writes.sync {}
     }
 
     private func emit(_ sample: Sample, complete: Bool) {
