@@ -451,3 +451,42 @@ test("snapshot: a shortened link URL never shows a prefix of a value the session
     await servers.close();
   }
 });
+
+// Every URL summary of a link (the off-site "host/first-segment/…" form, an
+// on-site link's path without its origin) drops part of the URL. Made in the
+// page agent, it drops part of a secret before native masking sees the
+// value whole, and the rest goes out unmasked; the snapshot makes them from
+// the masked URL instead.
+test("snapshot: a link URL summary never shows part of a value the session masks", async () => {
+  const servers = await startFixtureServers();
+  // A secret with a path separator: the off-site summary keeps only its
+  // first segment.
+  const PATH_SECRET = "Zq9Wv7Kj/Q3xP8mLtRb";
+  try {
+    await withLoggedRepl(async (run) => {
+      const origin = servers.origins.primary;
+      // A secret that is a whole URL of the page's own origin (a webhook,
+      // a magic link): the on-site path drops the origin.
+      const URL_SECRET = `${origin}/hook/T0K3NabcdXYZ`;
+      await run(`secrets.set("p", ${JSON.stringify(PATH_SECRET)}, { domains: ["localhost"] });
+        secrets.set("u", ${JSON.stringify(URL_SECRET)}, { domains: ["localhost"] });
+        await page.goto(${JSON.stringify(origin + "/")});
+        await page.evaluate(([pathSecret, urlSecret]) => {
+          document.body.innerHTML = '<a id="o">Off</a> <a id="s">Same</a> <a id="b"><span style="display:inline-block;width:10px;height:10px"></span></a>';
+          document.getElementById("o").href = "https://e.example/" + pathSecret;
+          document.getElementById("s").href = urlSecret;
+          document.getElementById("b").href = urlSecret;
+        }, ${JSON.stringify([PATH_SECRET, URL_SECRET])});`);
+      const leaks = [];
+      for (const opts of [{}, { urls: true }]) {
+        const r = await run(`const s = await snapshot(${JSON.stringify(opts)}); console.log("@@" + JSON.stringify(String(s.tree || s)));`);
+        const tree = JSON.parse(r.value);
+        assert.match(tree, /\[url=e\.example|\[url=https:\/\/e\.example/, `the off-site link URL is not in the snapshot: ${tree}`);
+        for (const part of [...PATH_SECRET.split("/"), "T0K3NabcdXYZ"]) if (tree.includes(part)) leaks.push(`${JSON.stringify(opts)} shows ${part}: ${tree}`);
+      }
+      assert.deepEqual(leaks, []);
+    });
+  } finally {
+    await servers.close();
+  }
+});
