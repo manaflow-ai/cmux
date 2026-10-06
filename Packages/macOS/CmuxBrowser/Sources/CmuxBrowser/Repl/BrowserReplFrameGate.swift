@@ -310,6 +310,11 @@ public final class BrowserReplFrameGate {
     /// judges by ``policy`` alone, in no tab.
     public var scope: @MainActor (WKWebView) -> Scope? = { _ in nil }
 
+    /// Reads `webView`'s frame tree as it is now; the driver shares one
+    /// read among its callers (``callAsyncJavaScript(_:arguments:in:frame:contentWorld:userGesture:)``
+    /// judges every frame a script could reach).
+    public var frameTree: @MainActor (WKWebView) async -> [BrowserReplFrame] = { await BrowserReplFrame.readTree(of: $0) }
+
     /// The authority that judges `webView`'s documents, and the tab as it
     /// needs it: the gate's policy, with the session, its directories and
     /// the tab from ``scope``. The gate decides nothing itself.
@@ -459,6 +464,12 @@ public final class BrowserReplFrameGate {
         if blockReason(expected, in: webView) != nil, let current = try await authorize(frame, in: webView) {
             expected = current
         }
+        // Script in a world agent or page code reaches can traverse to other
+        // frames of the tab; a frame of its site that relaxes
+        // `document.domain` becomes its origin. The gate's own world runs
+        // only the driver's checks.
+        let reaches = contentWorld != world
+        if reaches { try await checkReach(from: expected, frame: frame, in: webView) }
         var bound = arguments
         for _ in 0..<3 {
             bound[Self.originArgument] = expected.origin ?? NSNull()
@@ -482,6 +493,9 @@ public final class BrowserReplFrameGate {
                     known[key] = nil
                     throw blocked(frame, document: after, reason: reason)
                 }
+                // A blocked frame of the site that loaded while the script
+                // ran: its result is not handed on.
+                if reaches { try await checkReach(from: expected, frame: frame, in: webView) }
                 known[key] = expected
                 return value
             }
@@ -489,6 +503,50 @@ public final class BrowserReplFrameGate {
             expected = current
         }
         throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) kept navigating; try again once it has loaded")
+    }
+
+    /// Throws `blocked` when a frame of the tab that the authority refuses
+    /// shows a document that script in `frame`, which shows `document`,
+    /// could reach: one whose host shares a domain with the target's that
+    /// both could set `document.domain` to (a common suffix that is not a
+    /// public suffix), which makes them one origin to page script. Hosts are
+    /// compared whatever their scheme and port, which relaxation ignores.
+    private func checkReach(from document: BrowserReplFrameDocument, frame: BrowserReplFrame, in webView: WKWebView) async throws {
+        guard let host = Self.host(of: document) else { return }
+        for other in await frameTree(webView) where other.frameID != frame.frameID {
+            let recorded = other.info.map { BrowserReplFrameDocument(info: $0) } ?? BrowserReplFrameDocument(url: webView.url)
+            guard let otherHost = Self.host(of: recorded), Self.canRelaxToOneOrigin(host, otherHost),
+                  let reason = recordedBlockReason(of: other, in: webView) else { continue }
+            throw BrowserReplDriverError(
+                code: "blocked",
+                message: "Frame \(frame.frameID) shares the site of frame \(other.frameID) (\(otherHost)), which page script there can reach by setting document.domain, and the domain policy blocks it: \(reason)"
+            )
+        }
+    }
+
+    private static func host(of document: BrowserReplFrameDocument) -> String? {
+        guard let origin = document.origin, origin != "null", let host = URL(string: origin)?.host(percentEncoded: false),
+              !host.isEmpty else { return nil }
+        return host
+    }
+
+    /// Whether documents of hosts `a` and `b` can become one origin by
+    /// setting `document.domain`: the same host, or a common domain suffix
+    /// that is not a public suffix. Where the system's list cannot be read,
+    /// any shared suffix counts (it refuses more, never less).
+    nonisolated static func canRelaxToOneOrigin(_ a: String, _ b: String, publicSuffixes: BrowserReplPublicSuffixList = .system) -> Bool {
+        let x = BrowserReplHostName.normalize(a)
+        let y = BrowserReplHostName.normalize(b)
+        guard !x.isEmpty, !y.isEmpty else { return false }
+        if x == y { return true }
+        if BrowserReplHostName.isIPAddress(x) || BrowserReplHostName.isIPAddress(y) { return false }
+        var common: [Substring] = []
+        for (l, r) in zip(x.split(separator: ".").reversed(), y.split(separator: ".").reversed()) {
+            guard l == r else { break }
+            common.append(l)
+        }
+        guard !common.isEmpty else { return false }
+        return !publicSuffixes.isPublicSuffix(common.reversed().joined(separator: "."))
     }
 
     /// Throws `blocked` when a pointer event at any of `points` (CSS pixels

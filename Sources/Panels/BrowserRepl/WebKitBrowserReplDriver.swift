@@ -50,6 +50,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor private lazy var frameGate: BrowserReplFrameGate = {
         let gate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
         gate.scope = { [weak self] webView in self?.frameGateScope(webView) }
+        // One shared tree read for the gate's reach check (BrowserReplFrameTree).
+        gate.frameTree = { await BrowserReplFrameTree.frames(of: $0) }
         return gate
     }()
     /// Ties `<iframe>` elements to their child frames' ids.

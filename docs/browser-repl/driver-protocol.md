@@ -657,7 +657,17 @@ native (`BrowserReplBoundary` in the session, and the driver):
   that script runs in a scope of its own after the check, and the agent's
   `source` must be one expression on its own (else `invalid`, before
   anything runs), so nothing in it can replace the `location` the check
-  reads or run before the check. A frame that shows a
+  reads or run before the check. Script in the page world or a session's
+  agent world can also reach other frames of the tab, and two frames of
+  one site that both set `document.domain` to it are one origin: such
+  script (the agent's `frame.evaluate`, and the driver's own reads in the
+  agent's world, which agent code can patch) fails with `blocked` while
+  any frame of the tab that the authority refuses has a host sharing a
+  domain with the target frame's host that both could relax to (any
+  scheme or port), judged on a fresh tree read before the script and
+  again after it, whose result is then withheld. Residual: a timer or
+  observer agent code left in its world can read such a frame that loads
+  between calls, and hand it on in a later call once the frame is gone. A frame that shows a
   blocked page fails with `blocked` (`snapshot()` marks its iframe
   `[not read: blocked by the domain policy]`). A tree read can lack frames
   (WebKit gives no tree, or cannot describe a child): while the policy is
