@@ -941,10 +941,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-engine"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+]
+
+[[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

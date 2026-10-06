@@ -55,16 +55,25 @@ async function shape(vm: Vm): Promise<Shape> {
   return { cpu, memoryMb: mem, rootMb: root };
 }
 
-/** Grows the clone to md (4 vCPU, 8 GiB, 32 GiB) and reports how long the call and the guest view take. */
+/**
+ * Grows the clone to md (4 vCPU, 8 GiB, 32 GiB) in two provider calls (vCPU+memory, then disk) so
+ * a slow sample names its phase (cloud-automation.md 18: one 21.2 s outlier in six samples), with
+ * UTC start times for correlation with the provider.
+ */
 export async function resizeProbe(vm: Vm): Promise<Record<string, number | string>> {
   const before = await shape(vm);
   const t0 = Date.now();
-  await vm.resize({ cpu: 4, memory: 8192, storage: 32768 });
+  const startedAt = new Date(t0).toISOString();
+  await vm.resize({ cpu: 4, memory: 8192 });
+  const cpuMemoryCallMs = Date.now() - t0;
+  const t1 = Date.now();
+  await vm.resize({ storage: 32768 });
+  const storageCallMs = Date.now() - t1;
   const callMs = Date.now() - t0;
   let after = await shape(vm);
   while (Date.now() - t0 < 90_000 && (after.cpu < 4 || after.memoryMb < 7000 || after.rootMb < 32768 * 0.85)) {
     await sleep(1000);
     after = await shape(vm);
   }
-  return { before: JSON.stringify(before), after: JSON.stringify(after), callMs, guestViewMs: Date.now() - t0 };
+  return { before: JSON.stringify(before), after: JSON.stringify(after), startedAt, cpuMemoryCallMs, storageCallMs, callMs, guestViewMs: Date.now() - t0 };
 }
