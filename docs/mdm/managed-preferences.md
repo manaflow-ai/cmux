@@ -62,6 +62,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.hue` | real | `0.5` | 0 to 1 | Hue. Shift the tint color around the hue wheel. |
 | `appearance.saturation` | real | `1` | 0 to 2 | Saturation. Increase or reduce the tint color intensity. |
 | `appearance.density` | string | `"compact"` | `compact`, `comfortable` | Density |
+| `app.uiScale` | real | `1` | 0.85 to 1.5 | Interface Scale. Scale cmux chrome and built-in pages together. Terminal text keeps its own size. |
 | `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
 | `appearance.metrics.columnGap` | real |  | 0 to 24 | Column Gap |

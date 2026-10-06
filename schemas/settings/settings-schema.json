@@ -299,7 +299,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "agent",
+      "default" : "page",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -3793,6 +3793,62 @@
       "title" : {
         "key" : "settings.appearance.density",
         "text" : "Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.85,
+        1.5,
+        1.175
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.uiScale.help",
+        "text" : "Scale cmux chrome and built-in pages together. Terminal text keeps its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.uiScale",
+      "keywords" : [
+        "scale",
+        "zoom",
+        "size",
+        "chrome",
+        "web",
+        "bigger",
+        "smaller"
+      ],
+      "kind" : "number",
+      "path" : [
+        "app",
+        "uiScale"
+      ],
+      "range" : {
+        "max" : 1.5,
+        "min" : 0.85,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.15000000000000002,
+        2.5,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.uiScale",
+        "text" : "Interface Scale"
       },
       "validation" : "portable"
     },
@@ -11169,7 +11225,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "3c73f6df3f3187d5be3a3d546fdfc6bb7d8306fd07bacedc317f5551dc421c6a",
+  "schema_hash" : "01f95b4a07b34ed62c87707ca5feb05659456d54a6db5d4b2fdca5981ca3b332",
   "sections" : [
     {
       "id" : "general",
