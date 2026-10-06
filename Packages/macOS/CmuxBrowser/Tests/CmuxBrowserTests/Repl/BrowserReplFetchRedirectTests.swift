@@ -40,6 +40,7 @@ struct BrowserReplFetchRedirectTests {
                 ["X-Api-Key", "k3y"],
                 ["X-Auth-Token", "t0ken"],
                 ["Cookie", "sid=agent"],
+                ["Cookie2", "$Version=1"],
                 ["Accept", "application/json"],
                 ["Content-Language", "en"],
                 ["X-Client-Ref", "opaque-ref-1"],
@@ -64,6 +65,16 @@ struct BrowserReplFetchRedirectTests {
             #expect(headers[name] == nil, "\(name) reached the other origin: \(headers)")
         }
         #expect(headers["accept"] == "application/json", "\(headers)")
+    }
+
+    /// `credentials: "omit"` sends no cookies: a Cookie header the caller
+    /// set is dropped on the first request too, not only on redirect hops.
+    @Test("A fetch with credentials omit sends no caller Cookie or Cookie2 header")
+    func omittedCredentialsDropCallerCookies() async throws {
+        let headers = try await landingHeaders(redirectingFrom: "/echo")
+        #expect(headers["cookie"] == nil, "\(headers)")
+        #expect(headers["cookie2"] == nil, "\(headers)")
+        #expect(headers["x-client-ref"] == "opaque-ref-1", "\(headers)")
     }
 
     /// A header's name need not say it carries a credential: a redirect to
