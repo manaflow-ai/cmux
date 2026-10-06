@@ -160,7 +160,11 @@ public final class HomeNativeTranscriptView: NSView {
         let width = max(0, bounds.width - 32)
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
-        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
+        // The field's real frame: MessagesLab's `fieldTop` is in its design
+        // space, which put the notice below the window.
+        let input = transcript.primaryInput
+        let fieldTop = input === transcript ? transcript.fieldTop : input.convert(input.bounds, to: self).minY
+        noticeLabel.frame = CGRect(x: 16, y: fieldTop - height - 16, width: width, height: height)
     }
 
     /// Shows (or with nil clears) the notice; VoiceOver hears it.

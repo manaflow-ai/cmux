@@ -59,6 +59,7 @@ enum DebugHome {
             "cache": home.homeStore.cache.map { .string($0.url.path) } ?? .null,
         ])
         return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
-                        "conversations": .array(conversations), "page": page(services: services)])
+                        "conversations": .array(conversations), "page": page(services: services),
+                        "migration_notice": home.migrationNotice.map { .string($0) } ?? .null])
     }
 }
