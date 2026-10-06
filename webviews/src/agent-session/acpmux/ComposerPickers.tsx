@@ -1,5 +1,12 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
+import {
+  isDefaultChoice,
+  loadResolvedDefaults,
+  modelIdName,
+  rememberResolvedDefault,
+  resolvedModel,
+} from "./defaultChoice";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
@@ -108,7 +115,10 @@ export function ComposerPickers({
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
-  const models: Choice[] = sessionModels(snapshot.catalog, summary);
+  // An agent's own default reads "Default", never its "(Claude Code's choice)" phrasing.
+  const models: Choice[] = sessionModels(snapshot.catalog, summary).map((choice) =>
+    isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice,
+  );
   const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
@@ -126,10 +136,10 @@ export function ComposerPickers({
   const effort = summary?.configOptions?.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
-  const efforts: Choice[] = (effort?.options ?? []).map((option) => ({
-    id: option.value,
-    name: option.name || option.value,
-  }));
+  const efforts: Choice[] = (effort?.options ?? []).map((option) => {
+    const choice = { id: option.value, name: option.name || option.value };
+    return isDefaultChoice(choice) ? { ...choice, name: t("picker.default") } : choice;
+  });
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -193,6 +203,19 @@ export function ComposerPickers({
     )
       onEffort(effort.id, pickedEffort);
   };
+  // A default model draws as the model it resolves to: the running session's, else the one this
+  // harness's default last resolved to, else "Default".
+  const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
+  // A harness still starting draws its last session's options, which name no model this chat runs.
+  const resolvedNow = switching ? undefined : resolvedModel(summary);
+  useEffect(() => {
+    if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
+  }, [harness, resolvedNow]);
+  const resolvedId = defaulted ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined)) : undefined;
+  const resolvedName =
+    resolvedId &&
+    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
+  const modelName = defaulted ? (resolvedName ?? t("picker.default")) : (model?.name ?? summary?.model);
   const usage = summary?.usage;
 
   return (
@@ -232,7 +255,8 @@ export function ComposerPickers({
           catalog={snapshot.catalog}
           harness={harness}
           model={shown}
-          label={model?.name ?? summary?.model ?? t(PICKER_LABELS.model)}
+          label={modelName ?? t(PICKER_LABELS.model)}
+          resolvedDefault={resolvedName}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
@@ -256,7 +280,7 @@ export function ComposerPickers({
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
           current={effort.currentValue}
-          model={model?.name ?? summary?.model}
+          model={modelName}
           chevron={<ChevronIcon />}
           onPick={(value) => {
             // An effort picked by hand wins over one a combo is still waiting to send.
