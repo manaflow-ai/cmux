@@ -296,12 +296,19 @@ rest. Measurements: [performance.md](performance.md).
   the budget; one past it prints
   `[not read: the snapshot's node budget is used up]`, or `size budget`),
   and a frame's walk stops after 8 s. The string that passes the size
-  budget is cut with `…`. A name or value reads text the walk may not
+  budget is cut with `…`, and a page string is cut there before it is
+  normalized or parsed (generated `::before`/`::after` content, a
+  placeholder, an option's label or text; also in `page.extract`,
+  `page.dropdownOptions` and `page.searchText`, which read element text
+  through the same bounded readers, never a whole `innerText`). A name or
+  value reads text the walk may not
   visit (an `aria-labelledby` target, a label, an editable element's
   text), and the name computation reads it whole and recursively, so
   that text is counted first (text outside the element against the node
-  budget): past 2,000 nodes, 20,000 characters or 100 levels the name
-  is read directly from the same sources, at most 20,000 characters.
+  budget; also generated content, an embedded field's value and a slot's
+  assigned nodes): past 2,000 nodes, 20,000 characters or 100 levels the
+  name is read directly from the same sources, at most 20,000 characters.
+  `page.elementAt` names its element the same way.
   Labels come from an index of the read's `<label>` elements, each one
   counted and read one at a time (a document's from its live `<label>`
   collection, a shadow root's by a walk of at most 250,000 elements),
