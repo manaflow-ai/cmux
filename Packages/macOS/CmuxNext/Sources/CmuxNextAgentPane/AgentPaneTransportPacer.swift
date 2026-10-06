@@ -36,9 +36,12 @@ public extension AgentPaneTransportPacer {
         guard !scheduled else { return }
         scheduled = true
         // task-owner: one next-turn flush; a capped flush schedules the next one itself
-        Task { @MainActor [weak self] in
-            self?.scheduled = false
-            if flush().more { self?.schedule(flush) }
+        // Keep the pacer alive until its queued turn finishes. Replacing a pane's transport can
+        // release the old pacer from a synchronous AppKit callback while this task is still queued;
+        // a weak capture lets its isolated deinit run outside the main-actor executor.
+        Task { @MainActor [self] in
+            scheduled = false
+            if flush().more { schedule(flush) }
         }
     }
 }
