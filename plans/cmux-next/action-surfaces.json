@@ -5310,7 +5310,6 @@
       "default_shortcut" : {
         "key" : "=",
         "modifiers" : [
-          "ctrl",
           "cmd"
         ]
       },
@@ -5342,7 +5341,6 @@
       "default_shortcut" : {
         "key" : "-",
         "modifiers" : [
-          "ctrl",
           "cmd"
         ]
       },
@@ -5374,7 +5372,6 @@
       "default_shortcut" : {
         "key" : "0",
         "modifiers" : [
-          "ctrl",
           "cmd"
         ]
       },
@@ -19348,6 +19345,102 @@
       },
       "title" : "Reset Interface Size",
       "title_key" : "action.appearance.interfaceSize.reset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "settings increase-interface-scale",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "=",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "appearance.uiScale.increase",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Increase Interface Scale",
+      "title_key" : "action.appearance.uiScale.increase",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "settings decrease-interface-scale",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "-",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "appearance.uiScale.decrease",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Decrease Interface Scale",
+      "title_key" : "action.appearance.uiScale.decrease",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "stepAdjust",
+      "cli_name" : "settings reset-interface-scale",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "0",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "appearance.uiScale.reset",
+      "mcp" : "stepAdjust",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Reset Interface Scale",
+      "title_key" : "action.appearance.uiScale.reset",
       "title_table" : "ActionCatalog"
     },
     {
