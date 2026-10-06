@@ -352,7 +352,13 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust").await;
     let mut cb = client(b.clone()).await;
-    let s = cb.call(method::SESSION_NEW, json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"name": "t1"}}})).await.unwrap();
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"name": "t1"}}}),
+        )
+        .await
+        .unwrap();
     let remote_id = s["sessionId"].as_str().unwrap().to_owned();
     let a = hub(config(PermissionPolicy::ApproveAll)).await;
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
