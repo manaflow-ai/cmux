@@ -2530,6 +2530,9 @@ pub struct Mux {
     next_in_process_resize_owner: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
     provider_workspace: Mutex<ProviderWorkspaceState>,
+    /// `provider_workspace.managed`, readable under the registry and state
+    /// locks (the provider lock orders before them; the flag is one-way).
+    provider_managed: AtomicBool,
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
@@ -3017,6 +3020,7 @@ impl Mux {
             next_active_at: AtomicU64::new(1),
             next_in_process_resize_owner: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
+            provider_managed: AtomicBool::new(provider_workspace.managed),
             provider_workspace: Mutex::new(provider_workspace),
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
@@ -4507,6 +4511,7 @@ impl Mux {
     /// one-way so a stale frontend cannot reopen ordinary mutation paths.
     pub fn mark_workspaces_provider_managed_internal(&self) {
         self.provider_workspace.lock().unwrap().managed = true;
+        self.provider_managed.store(true, Ordering::Release);
     }
 
     pub fn workspaces_are_provider_managed(&self) -> bool {
@@ -14504,9 +14509,13 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// `workspace` None: the request's workspace (`workspace_key`) is gone.
+    /// A retry of a create whose process ended and closed that workspace
+    /// (LAST-TAB-CLOSES-WORKSPACE) still replays from its receipt.
     pub(crate) fn create_raw_terminal_in_workspace_with_mutation(
         self: &Arc<Self>,
-        workspace: WorkspaceId,
+        workspace: Option<WorkspaceId>,
+        workspace_key: &str,
         argv: Option<Vec<String>>,
         cwd: Option<String>,
         name: Option<String>,
@@ -14519,6 +14528,25 @@ impl Mux {
     ) -> anyhow::Result<TerminalPlacementResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_execution = self.resource_creation_execution.lock().unwrap();
+        let Some(workspace) = workspace else {
+            let fingerprint = terminal_create_fingerprint(
+                workspace_key,
+                requested_terminal_id,
+                argv.as_deref(),
+                cwd.as_deref(),
+                name.as_deref(),
+                size,
+                None,
+            )?;
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let replay = registry.replay_terminal(mutation, &fingerprint)?;
+            drop(registry);
+            let terminal_id = replay
+                .as_ref()
+                .and_then(|replay| replay.result["terminal_id"].as_str())
+                .ok_or_else(|| anyhow::anyhow!("unknown workspace key {workspace_key}"))?;
+            return self.replayed_terminal_placement(terminal_id);
+        };
         self.create_terminal_in_workspace_with_mutation_env(
             workspace,
             argv,
@@ -15363,8 +15391,8 @@ impl Mux {
     }
 
     /// Close one tab. When it was the pane's last tab, the pane collapses
-    /// out of its split tree. Empty workspace containers remain durable;
-    /// only an explicit close-workspace mutation removes a workspace.
+    /// out of its split tree; when it was the workspace's last tab, the
+    /// workspace closes in the same commit (LAST-TAB-CLOSES-WORKSPACE).
     pub fn close_surface(self: &Arc<Self>, target: SurfaceId) -> anyhow::Result<bool> {
         let Some(selectors) = self.ordinary_tab_selectors(target) else { return Ok(false) };
         let commit = self
@@ -19684,8 +19712,8 @@ fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[PaneId]) {
 }
 
 /// Remove one surface from the state: detach it from its
-/// pane, and collapse emptied panes/screens. Empty workspaces remain as
-/// canonical registry entries. Returns the removed surface and whether
+/// pane, and collapse emptied panes/screens. An emptied workspace stays
+/// here; the close plan closes it (`close_emptied_workspaces_locked`). Returns the removed surface and whether
 /// split ownership or positional indexes changed. Runs under the state lock.
 fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Arc<Surface>>, bool) {
     let previous_active = state.active_pane();
@@ -28504,10 +28532,10 @@ mod tests {
         mux.close_pane(p1).unwrap();
         mux.close_pane(p3).unwrap();
         assert_eq!(mux.surface_count(), 0);
+        // The last pane's close closes the emptied workspace in its commit.
         mux.with_state(|s| {
-            assert_eq!(s.workspaces.len(), 1);
-            assert!(s.workspaces[0].screens.is_empty());
-            assert_eq!(s.workspace_revision, 1);
+            assert!(s.workspaces.is_empty());
+            assert_eq!(s.workspace_revision, 2);
         });
     }
 
@@ -30408,13 +30436,12 @@ mod tests {
             assert_eq!(s.workspaces.len(), 1);
         });
 
-        // Closing the last tab collapses the pane and screen, while the
-        // canonical workspace remains until an explicit close-workspace.
+        // Closing the last tab collapses the pane and screen and closes the
+        // workspace in the same commit (LAST-TAB-CLOSES-WORKSPACE).
         mux.close_surface(s1.id).unwrap();
         mux.with_state(|s| {
-            assert_eq!(s.workspaces.len(), 1);
-            assert!(s.workspaces[0].screens.is_empty());
-            assert_eq!(s.workspace_revision, 1);
+            assert!(s.workspaces.is_empty());
+            assert_eq!(s.workspace_revision, 2);
         });
     }
 
@@ -31047,8 +31074,9 @@ mod tests {
     }
 
     #[test]
-    fn reaped_surface_close_preserves_durable_empty_workspace() {
+    fn reaped_surface_close_closes_its_emptied_workspace() {
         let mux = test_mux();
+        let keep = mux.new_workspace(None, Some((80, 24))).unwrap();
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         let events = mux.subscribe();
         let previous_revision = mux.with_state(|state| state.workspace_revision);
@@ -31057,32 +31085,34 @@ mod tests {
         assert!(reaped.is_some(), "surface must exist before simulating the early-exit race");
         assert!(mux.close_surface(surface.id).unwrap());
 
+        // LAST-TAB-CLOSES-WORKSPACE: the workspace closes in the same commit.
         mux.with_state(|state| {
             assert_eq!(state.workspaces.len(), 1);
-            assert!(state.workspaces[0].screens.is_empty());
-            assert_eq!(state.workspace_revision, previous_revision);
+            assert_eq!(state.workspace_revision, previous_revision + 1);
         });
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            match events.recv_timeout(remaining).expect("screen-close event arrives") {
+            match events.recv_timeout(remaining).expect("workspace-close event arrives") {
                 MuxEvent::TreeDelta(TreeDelta {
-                    kind: TreeDeltaKind::ScreenClosed,
-                    workspace_revision: None,
+                    kind: TreeDeltaKind::WorkspaceClosed,
+                    workspace_revision: Some(_),
                     ..
                 }) => break,
-                MuxEvent::Empty => panic!("closing a reaped surface emptied its workspace"),
+                MuxEvent::Empty => panic!("closing a reaped surface emptied the session"),
                 _ => {}
             }
         }
         assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::Empty)));
         surface.kill();
+        keep.kill();
     }
 
     #[test]
-    fn reaped_surface_tree_target_close_preserves_durable_empty_workspace() {
+    fn reaped_surface_tree_target_close_closes_its_emptied_workspace() {
         for close_screen in [false, true] {
             let mux = test_mux();
+            let keep = mux.new_workspace(None, Some((80, 24))).unwrap();
             let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
             let (pane, screen, previous_revision) = mux.with_state(|state| {
                 let pane = state.pane_of(surface.id).unwrap();
@@ -31101,24 +31131,24 @@ mod tests {
 
             mux.with_state(|state| {
                 assert_eq!(state.workspaces.len(), 1);
-                assert!(state.workspaces[0].screens.is_empty());
-                assert_eq!(state.workspace_revision, previous_revision);
+                assert_eq!(state.workspace_revision, previous_revision + 1);
             });
             let deadline = Instant::now() + Duration::from_secs(1);
             loop {
                 let remaining = deadline.saturating_duration_since(Instant::now());
-                match events.recv_timeout(remaining).expect("screen-close event arrives") {
+                match events.recv_timeout(remaining).expect("workspace-close event arrives") {
                     MuxEvent::TreeDelta(TreeDelta {
-                        kind: TreeDeltaKind::ScreenClosed,
-                        workspace_revision: None,
+                        kind: TreeDeltaKind::WorkspaceClosed,
+                        workspace_revision: Some(_),
                         ..
                     }) => break,
-                    MuxEvent::Empty => panic!("closing a reaped tree target emptied its workspace"),
+                    MuxEvent::Empty => panic!("closing a reaped tree target emptied the session"),
                     _ => {}
                 }
             }
             assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::Empty)));
             surface.kill();
+            keep.kill();
         }
     }
 
@@ -31863,7 +31893,8 @@ mod tests {
         );
         mux.with_state(|state| {
             assert!(!state.surfaces.contains_key(&surface));
-            assert!(state.workspaces[0].screens.is_empty());
+            // The exit detached the last tab, so its workspace closed too.
+            assert!(state.workspaces.is_empty());
             assert_eq!(state.active_pane(), None);
         });
     }
@@ -33144,10 +33175,9 @@ mod tests {
             assert_eq!(placement.workspace, workspace);
             assert!(close_done_rx.recv().unwrap().unwrap());
             close.join().unwrap();
+            // The close took the created tab too, so the emptied workspace closed.
             mux.with_state(|state| {
-                assert_eq!(state.workspaces.len(), 1);
-                assert_eq!(state.workspaces[0].id, workspace);
-                assert!(state.workspaces[0].screens.is_empty());
+                assert!(state.workspaces.iter().all(|item| item.id != workspace));
             });
             mux.set_resource_terminal_reservation_hook_for_test(None);
             initial.kill();

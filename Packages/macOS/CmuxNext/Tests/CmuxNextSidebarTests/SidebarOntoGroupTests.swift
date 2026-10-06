@@ -31,8 +31,8 @@ import Testing
         let y = list.frame(for: try #require(list.displayed.row(for: .workspace(id("y")))))
         let press = NSPoint(x: y.minX + 40, y: y.midY)
         list.beginDrag(SidebarListView.Press(key: .workspace(id("y")), point: press))
-        // Up until the card's leading (top) edge is at x's middle.
-        let goal = x.midY + (press.y - y.minY)
+        // Up until the card's centre is at x's middle (spec 1780d02 centre band).
+        let goal = x.midY
         for step in 1...12 {
             let py = press.y + (goal - press.y) * CGFloat(step) / 12
             list.updateDrag(windowPoint: list.convert(NSPoint(x: press.x, y: py), to: nil))
