@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -55,6 +56,8 @@ MAX_PRS = 12
 MAX_CULPRITS = 3
 POLL_SECONDS = 90
 SERVE_POLL_SECONDS = 60
+CLOSE_BURST = 3
+CLOSE_WINDOW_SECONDS = 600
 
 # Authors whose PRs the queue lands without asking (the agent lanes post as
 # Leo). Anyone else opts a PR in with the OPT_IN label. Override the list with
@@ -445,6 +448,97 @@ class Debouncer:
 
     def ran(self, heads: tuple) -> None:
         self.done, self.first = heads, None
+
+
+# --- close watch --------------------------------------------------------------
+
+
+CLOSED_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      state merged closedAt author { login }
+      timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) {
+        nodes { ... on ClosedEvent { actor { login } createdAt } }
+      }
+    }
+  }
+}
+"""
+
+
+def closed_info(gh: GitHub, number: int) -> dict:
+    owner, name = gh.repo.split("/")
+    node = gh.graphql(CLOSED_QUERY, owner=owner, name=name, number=number)["repository"]["pullRequest"]
+    event = (node["timelineItems"]["nodes"] or [{}])[-1]
+    return {"state": node["state"], "merged": node["merged"], "author": (node.get("author") or {}).get("login", ""),
+            "actor": (event.get("actor") or {}).get("login", "?"),
+            "closed_at": event.get("createdAt") or node.get("closedAt") or "?"}
+
+
+class CloseWatch:
+    """Notices a batch author's PR that left the open set closed, unmerged,
+    by someone else, from the open-PR poll serve already makes. One lookup
+    per PR that left; it reports and never reopens anything.
+
+    Each close is reported on its own until `burst` of them fall within
+    `window` seconds; then one alert lists them, and later closes in that
+    burst wait for one summary when it is over.
+    """
+
+    def __init__(self, lookup: Callable[[int], dict], notify: Callable[[str], None], authors: frozenset[str],
+                 burst: int = CLOSE_BURST, window: int = CLOSE_WINDOW_SECONDS) -> None:
+        self.lookup, self.notify, self.authors = lookup, notify, authors
+        self.burst, self.window = burst, window
+        self.open: set[int] | None = None
+        self.pending: set[int] = set()
+        self.recent: list[tuple[dt.datetime, str]] = []
+        self.alerted = False
+        self.held: list[str] = []
+
+    def observe(self, prs: list[PullRequest], at: dt.datetime) -> None:
+        current = {pr.number for pr in prs if pr.author in self.authors}
+        if self.open is not None:
+            self.pending |= self.open - current
+        self.open = current
+        found = []
+        for number in sorted(self.pending):
+            try:
+                info = self.lookup(number)
+            except Exception as error:  # the next poll retries it
+                log(f"close watch: #{number}: {error}")
+                continue
+            self.pending.discard(number)
+            if info["state"] == "CLOSED" and not info["merged"] and info["actor"] != info["author"]:
+                found.append(f"#{number} closed unmerged by {info['actor']} at {info['closed_at']}")
+        self.recent = [(when, text) for when, text in self.recent
+                       if (at - when).total_seconds() < self.window]
+        if self.alerted and not self.recent and not found:
+            if self.held:
+                self.notify("cmux-next close burst over; also closed: " + "; ".join(self.held))
+            self.alerted, self.held = False, []
+        for text in found:
+            self.recent.append((at, text))
+        if not found:
+            return
+        if self.alerted:
+            self.held += found
+        elif len(self.recent) >= self.burst:
+            self.alerted = True
+            self.notify(f"ALERT: {len(self.recent)} {'/'.join(sorted(self.authors))} PRs to {BASE} closed by "
+                        f"others within {self.window // 60} min: " + "; ".join(text for _, text in self.recent))
+        else:
+            for text in found:
+                self.notify(f"{'/'.join(sorted(self.authors))} PR {text} (PR to {BASE})")
+
+
+def notify_coordinator(text: str) -> None:
+    command = os.environ.get("CMUX_NEXT_BATCH_NOTIFY", "tell-coordinator")
+    if not shutil.which(command):
+        log(f"no {command}; would notify: {text}")
+        return
+    completed = subprocess.run([command, text], capture_output=True, text=True)
+    log(f"notified: {text}" if completed.returncode == 0 else f"{command} failed: {completed.stderr.strip()[-200:]}")
 
 
 # --- stacking -----------------------------------------------------------------
@@ -1325,18 +1419,38 @@ def cmd_serve(args: argparse.Namespace) -> int:
     use_local_login()
     gh = GitHub(args.repo)
     debouncer = Debouncer()
+    watch = CloseWatch(lambda number: closed_info(gh, number), notify_coordinator, batch_authors())
+    latest: list = [None]  # (prs, polled at), replaced whole by the poller
+
+    def poll() -> None:
+        """The one open-PR query a minute. It runs while a batch blocks the
+        main loop too, so the close watch never waits for a batch."""
+        while True:
+            try:
+                prs = open_prs(gh)
+                latest[0] = (prs, now())
+                watch.observe(prs, now())
+            except Exception as error:  # keep polling
+                log(f"serve poll: {type(error).__name__}: {error}")
+            time.sleep(SERVE_POLL_SECONDS)
+
+    threading.Thread(target=poll, name="poll", daemon=True).start()
     log(f"serving {args.repo} {BASE}; mini jobs on {args.ref}")
+    seen = None
     while True:
-        try:
-            eligible, _ = select(open_prs(gh), now())
-            heads = tuple((pr.number, pr.sha) for pr in eligible)
-            if debouncer.observe(heads, now()):
-                debouncer.ran(heads)
-                log("batch for " + " ".join(f"#{number}" for number, _ in heads))
-                Controller(args).run()
-        except Exception as error:  # keep serving; the next poll retries
-            log(f"serve: {type(error).__name__}: {error}")
-        time.sleep(SERVE_POLL_SECONDS)
+        snapshot = latest[0]
+        if snapshot is not None and snapshot is not seen:
+            seen = snapshot
+            try:
+                eligible, _ = select(snapshot[0], snapshot[1])
+                heads = tuple((pr.number, pr.sha) for pr in eligible)
+                if debouncer.observe(heads, snapshot[1]):
+                    debouncer.ran(heads)
+                    log("batch for " + " ".join(f"#{number}" for number, _ in heads))
+                    Controller(args).run()
+            except Exception as error:  # keep serving; the next poll retries
+                log(f"serve: {type(error).__name__}: {error}")
+        time.sleep(5)
 
 
 def main(argv: list[str] | None = None) -> int:

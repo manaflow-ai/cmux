@@ -50,6 +50,8 @@ By default `serve` merges nothing. It posts a receipt on each validated PR (the 
 
 `run --local` runs one batch the same way, receipts included.
 
+The same poll watches for closes. A batch author's PR that leaves the open set closed and unmerged by someone else goes to `tell-coordinator` (`CMUX_NEXT_BATCH_NOTIFY`), with its number, actor and time. Three or more within 10 minutes send one alert, and later closes in that burst arrive in one summary when it ends. It only reports; it never reopens. Each PR that leaves costs one lookup, and nothing else adds requests.
+
 ## Run it by hand
 
 ```bash
