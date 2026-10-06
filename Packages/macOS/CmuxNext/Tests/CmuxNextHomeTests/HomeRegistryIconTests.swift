@@ -24,11 +24,12 @@ import Testing
         #expect(row.glyph.image?.size == NSSize(width: CGFloat.iconRowSize(forLabelPointSize: 19.5), height: CGFloat.iconRowSize(forLabelPointSize: 19.5)))
     }
 
+    /// The add glyph fills a full icon box: the pack's plus at the header's
+    /// row size draws 7 px of ink where the SF plus it replaced drew 10.
     @Test func theAddButtonIsTheRegistryAdd() throws {
         let list = HomeConversationListView(frame: .zero)
         let image = try #require(list.addButtonImage)
         #expect(image.isTemplate)
-        let side = CGFloat.iconRowSize(forLabelPointSize: Typography.header.pointSize)
-        #expect(image.size == NSSize(width: side, height: side))
+        #expect(image.size == NSSize(width: Metrics.iconSize, height: Metrics.iconSize))
     }
 }
