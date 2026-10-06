@@ -16,7 +16,7 @@ optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as 
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?} (host stopped)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
-optchat-chief cloud enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
+optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
 optchat-chief memory export [--mux-home DIR] --out FILE [--seal] | memory import [--mux-home DIR] FILE   move the memory (host stopped)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-sr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),

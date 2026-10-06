@@ -125,7 +125,7 @@ pub enum Source {
     /// cloud-conversations-v1 proxy, as the chief principal (an always-on
     /// brain host; brains/DESIGN-cmux-lawrence.md).
     Cloud {
-        install: crate::cloud::auth::InstallFile,
+        install: Box<crate::cloud::auth::InstallFile>,
     },
 }
 
@@ -167,11 +167,13 @@ pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
             .collect();
             if !missing.is_empty() {
                 return Err(format!(
-                    "{path} has no {}: run `optchat-chief cloud register` and `optchat-chief cloud chief` first",
+                    "{path} has no {}: run `optchat-chief cloud pair` (or `cloud register` and `cloud chief`) first",
                     missing.join(", ")
                 ));
             }
-            Ok(Source::Cloud { install })
+            Ok(Source::Cloud {
+                install: Box::new(install),
+            })
         }
         other => Err(format!(
             "unknown --conversation-source {other} (local or cloud)"
@@ -565,7 +567,7 @@ fn start(
                     conversation,
                 },
                 Arc::new(crate::cloud::auth::InstallTokens::new(
-                    install,
+                    *install,
                     Arc::new(crate::cloud::auth::UreqHttp),
                 )),
                 sink,

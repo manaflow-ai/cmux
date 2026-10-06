@@ -10,10 +10,13 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::auth::{self, Http, InstallFile, InstallTokens, TokenSource, UreqHttp};
+use super::pair::{self, PairOptions};
 use crate::cli::{Flags, env};
 
-const USAGE: &str = "optchat-chief cloud enroll --install FILE --api-base URL   make the install key, print its install.register params
-optchat-chief cloud register --install FILE [--name N] [--device D]   register it (CMUX_CLOUD_SESSION_TOKEN: the user's session token, once)
+const USAGE: &str = "optchat-chief cloud pair --install FILE --api-base URL [--name N] [--chief default] [--wait-chief SECS]
+    pair with the user's account: prints a code to approve in the app (Server > Add Server…), then finds the chief placed here
+optchat-chief cloud enroll --install FILE --api-base URL   make the install key, print its install.register params
+optchat-chief cloud register --install FILE [--name N] [--device D]   fallback to pair: register it (CMUX_CLOUD_SESSION_TOKEN: the user's session token, once)
 optchat-chief cloud chief --install FILE [--create] [--name N]  pick the default chief (or create one) and its main conversation
 optchat-chief cloud status --install FILE                     what the file holds, and a test chief token";
 
@@ -33,6 +36,30 @@ pub fn run(flags: &Flags) -> Result<String, String> {
 pub fn run_with(flags: &Flags, http: Arc<dyn Http>) -> Result<String, String> {
     let path = install_path(flags)?;
     match flags.words.get(1).map(String::as_str) {
+        Some("pair") => {
+            let api = match flags.value("api-base") {
+                Some(api) => api.to_owned(),
+                None if path.exists() => InstallFile::load(&path)?.api_base_url,
+                None => return Err("pair needs --api-base URL".into()),
+            };
+            let default_fallback = match flags.value("chief") {
+                None => false,
+                Some("default") => true,
+                Some(other) => return Err(format!("--chief {other}: only `default`")),
+            };
+            let mut opts = PairOptions {
+                name: flags.value("name").map(str::to_owned),
+                default_fallback,
+                ..PairOptions::default()
+            };
+            if let Some(secs) = flags.value("wait-chief") {
+                let secs: u64 = secs
+                    .parse()
+                    .map_err(|_| format!("--wait-chief {secs}: seconds"))?;
+                opts.wait_chief = std::time::Duration::from_secs(secs);
+            }
+            pair::pair(http, &path, &api, &opts, &mut std::io::stdout())
+        }
         Some("enroll") => {
             if path.exists() {
                 return Err(format!(
@@ -154,10 +181,12 @@ pub fn run_with(flags: &Flags, http: Arc<dyn Http>) -> Result<String, String> {
         Some("status") => {
             let file = InstallFile::load(&path)?;
             let mut out = format!(
-                "api {}\ninstall {}\nuser {}\nchief {}\nconversation {}\n",
+                "api {}\ninstall {}\nuser {}\nhost {}\nteam {}\nchief {}\nconversation {}\n",
                 file.api_base_url,
                 file.install.as_deref().unwrap_or("-"),
                 file.user.as_deref().unwrap_or("-"),
+                file.host.as_deref().unwrap_or("-"),
+                file.team.as_deref().unwrap_or("-"),
                 file.chief.as_deref().unwrap_or("-"),
                 file.conversation.as_deref().unwrap_or("-"),
             );

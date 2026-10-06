@@ -4,6 +4,9 @@
 //! (WebSocket) until the user approves it in the app ("Server > Add
 //! Server…"), then finds the chief the app placed on its install.
 
+// tungstenite's handshake callback returns its own (large) error response type.
+#![allow(clippy::result_large_err)]
+
 use std::io::Write as _;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
@@ -51,11 +54,16 @@ fn the_begin_proof_is_the_message_the_worker_checks() {
 #[test]
 fn fingerprint_words_match_the_app() {
     // The app's PairingWords: SHA-256 of the 32 thumbprint bytes, 4 x 11 bits into BIP-39.
-    let words = fingerprint_words("cn-I_WNMClehiVp51i_0VpOENW1upEerA8sEam5hn-s").unwrap();
-    assert_eq!(words.len(), 4);
-    assert!(words.iter().all(|w| !w.is_empty()));
+    // The golden vector PairingWordsTests.swift shares with cmux-server-core.
+    assert_eq!(
+        fingerprint_words("11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo").unwrap(),
+        ["capable", "various", "jewel", "dress"]
+    );
     assert!(fingerprint_words("not base64url!").is_none());
-    assert!(fingerprint_words("AAAA").is_none(), "only 32-byte thumbprints");
+    assert!(
+        fingerprint_words("AAAA").is_none(),
+        "only 32-byte thumbprints"
+    );
 }
 
 #[test]
@@ -97,7 +105,10 @@ fn the_placed_chief_wins_and_default_is_only_a_fallback() {
     assert_eq!(placed_chief(&list, INSTALL, false).unwrap()["id"], CHIEF);
     assert_eq!(placed_chief(&list, INSTALL, true).unwrap()["id"], CHIEF);
     assert!(placed_chief(&list, "inst_other", false).is_none());
-    assert_eq!(placed_chief(&list, "inst_other", true).unwrap()["id"], OTHER);
+    assert_eq!(
+        placed_chief(&list, "inst_other", true).unwrap()["id"],
+        OTHER
+    );
     // An archived chief never counts, and a backend without brain_place falls back.
     let old = json!({"chiefs": [
         {"id": CHIEF, "is_default": false, "archived_at": "2026-10-01T00:00:00.000Z", "main_conversation": "conv_P",
@@ -159,9 +170,11 @@ impl Http for FakeApi {
             ) {
                 return Err("HTTP 403: proof of possession failed".into());
             }
-            Ok(json!({"code": "7KQ4M2XD", "display": "7KQ4-M2XD", "expires_at": now_ms() + 600_000,
+            Ok(
+                json!({"code": "7KQ4M2XD", "display": "7KQ4-M2XD", "expires_at": now_ms() + 600_000,
                 "collect_secret": "NONCE.MAC", "thumbprint": thumb,
-                "verification_uri": "http://localhost:3010/pair?c=7KQ4M2XD"}))
+                "verification_uri": "http://localhost:3010/pair?c=7KQ4M2XD"}),
+            )
         } else if url.ends_with("/v1/auth/challenge") {
             Ok(
                 json!({"nonce": "n", "message_prefix": format!("cmux-auth-v1\nstaging\n{}\n", body["install"].as_str().unwrap())}),
@@ -228,8 +241,7 @@ fn serve_wait(frames: Vec<Value>, close: Option<u16>) -> (String, std::thread::J
         } else {
             while ws.read().is_ok() {}
         }
-        let out = seen.lock().unwrap().clone();
-        out
+        seen.lock().unwrap().clone()
     });
     (api, handle)
 }
@@ -292,8 +304,10 @@ fn a_code_that_runs_out_is_expired() {
             Ok(resp)
         })
         .unwrap();
-        ws.send(Message::text(json!({"t": "pending", "expires_at": 1}).to_string()))
-            .unwrap();
+        ws.send(Message::text(
+            json!({"t": "pending", "expires_at": 1}).to_string(),
+        ))
+        .unwrap();
         while ws.read().is_ok() {}
     });
     let started = std::time::Instant::now();

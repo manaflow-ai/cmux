@@ -7,6 +7,7 @@ pub mod cli;
 pub mod events;
 pub mod idmap;
 pub mod link;
+pub mod pair;
 pub mod port;
 pub mod wire;
 
