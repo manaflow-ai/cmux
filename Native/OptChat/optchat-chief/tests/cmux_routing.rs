@@ -24,7 +24,10 @@ fn bundle() -> PathBuf {
 
 fn inherited(key: &str) -> Option<String> {
     let map: BTreeMap<&str, &str> = [
-        ("PATH", "/Users/u/bin:/Users/u/.local/bin:/opt/homebrew/bin:/usr/bin:/bin"),
+        (
+            "PATH",
+            "/Users/u/bin:/Users/u/.local/bin:/opt/homebrew/bin:/usr/bin:/bin",
+        ),
         ("CMUX_SOCKET_PATH", "/tmp/cmux-debug-hmchief7.sock"),
     ]
     .into_iter()
@@ -72,7 +75,9 @@ fn the_bundled_cli_leads_path_once() {
     let dirs: Vec<&str> = path.split(':').collect();
     assert_eq!(dirs[0], bin.display().to_string(), "PATH {path}");
     assert_eq!(
-        dirs.iter().filter(|d| **d == bin.display().to_string()).count(),
+        dirs.iter()
+            .filter(|d| **d == bin.display().to_string())
+            .count(),
         1,
         "PATH {path}"
     );
@@ -109,7 +114,9 @@ fn claude_settings_and_the_launcher_carry_the_pinned_socket() {
     assert_eq!(dirs[1], bin.display().to_string(), "PATH {path}");
     let script = launcher(&setup);
     assert!(
-        script.contains(&format!("CMUX_TUI_SOCKET={DAEMON}; export CMUX_TUI_SOCKET\n")),
+        script.contains(&format!(
+            "CMUX_TUI_SOCKET={DAEMON}; export CMUX_TUI_SOCKET\n"
+        )),
         "{script}"
     );
 }
@@ -141,4 +148,15 @@ fn cmux_app_daemon_socket_wins_over_the_daemon_socket() {
         env.get("CMUX_DAEMON_SOCKET").map(String::as_str),
         Some("/T/cmux-chief-owner.sock")
     );
+}
+
+#[test]
+fn a_childs_preset_is_per_home_and_harness() {
+    use optchat_chief::agents::child_preset_name;
+    assert_eq!(
+        child_preset_name("1a2b3c4d", "claude-sr").as_deref(),
+        Some("chief-child-1a2b3c4d-claude-sr")
+    );
+    assert_eq!(child_preset_name("1a2b3c4d", "a b"), None);
+    assert_eq!(child_preset_name("1a2b3c4d", ""), None);
 }
