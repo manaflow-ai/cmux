@@ -79,22 +79,27 @@
   // user: the user is the one X's HttpOnly session cookie authenticates.
   const WEB_BEARER = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 
-  // Runs in an x.com page: the screen name of the account X authenticates
-  // this browser as, from the account settings endpoint X's web client
-  // calls (the session cookie, the bearer token and the ct0 CSRF value);
-  // null when X does not answer with one. Not the twid cookie, which names
-  // a user id but which any page script, another session's too, can write.
+  // Runs in an x.com page: the account X authenticates this browser as,
+  // { screenName, id }, from the verify_credentials endpoint of X's web
+  // API (the session cookie, the bearer token and the ct0 CSRF value), in
+  // one response so the pair is consistent; null when X does not answer
+  // with both. The id (id_str, the account's rest_id) is immutable; the
+  // screen name is reusable once its account gives it up. Not the twid
+  // cookie, which names a user id but which any page script, another
+  // session's too, can write.
   async function authenticatedUser(arg) {
     const csrf = /(?:^|;\s*)ct0=([^;]+)/.exec(document.cookie);
     if (!csrf) return null;
     try {
-      const r = await fetch("/i/api/1.1/account/settings.json", {
+      const r = await fetch("/i/api/1.1/account/verify_credentials.json?include_entities=false&skip_status=true", {
         credentials: "include",
         headers: { authorization: "Bearer " + arg.bearer, "x-csrf-token": decodeURIComponent(csrf[1]), "x-twitter-auth-type": "OAuth2Session", "x-twitter-active-user": "yes" },
       });
       if (!r.ok) return null;
       const body = await r.json();
-      return body && typeof body.screen_name === "string" && /^\w{1,15}$/.test(body.screen_name) ? body.screen_name : null;
+      if (!body || typeof body.screen_name !== "string" || !/^\w{1,15}$/.test(body.screen_name)) return null;
+      if (typeof body.id_str !== "string" || !/^[1-9]\d{0,24}$/.test(body.id_str)) return null;
+      return { screenName: body.screen_name, id: body.id_str };
     } catch (e) {
       return null;
     }
@@ -156,15 +161,17 @@
             const spec = typeof p === "string" ? { text: p } : p || {};
             if (typeof spec.text !== "string" || !spec.text.trim()) throw new S.SiteError("invalid", "x.post: expected the post text");
             const replyTo = spec.replyTo ? statusId(spec.replyTo) : null;
-            // The draft pins the account X authenticates (its screen name);
-            // X switches accounts in the shared profile, so another session
-            // can.
-            const account = await t.inOrigin(ORIGIN, authenticatedUser, { bearer: WEB_BEARER });
-            if (!account) throw new S.SiteError("account_unknown", "x.post: X did not say which X account the cmux browser is signed in as; nothing was drafted. If it is signed out, open https://x.com with tabs.open() and ask the user to sign in");
+            // The draft pins the account X authenticates (its immutable id
+            // and its screen name); X switches accounts in the shared
+            // profile, so another session can, and a screen name can pass
+            // to another account.
+            const user = await t.inOrigin(ORIGIN, authenticatedUser, { bearer: WEB_BEARER });
+            const account = user && user.screenName;
+            if (!user) throw new S.SiteError("account_unknown", "x.post: X did not say which X account the cmux browser is signed in as; nothing was drafted. If it is signed out, open https://x.com with tabs.open() and ask the user to sign in");
             return {
               category: "[9] representational communication (public post)",
               summary: replyTo ? `Reply on X to post ${replyTo} as @${account}` : `Publish a post on X as @${account}`,
-              account: { account },
+              account: { account, accountId: user.id },
               target: { replyTo },
               content: { text: spec.text },
               canon: { text: t.normText, account: (v) => String(v).toLowerCase() },
@@ -181,7 +188,7 @@
                   // account once more as the last read before the click.
                   const accountNow = async () => {
                     const now = await t.readBack(page, authenticatedUser, { bearer: WEB_BEARER });
-                    return now ? { account: now } : {};
+                    return now ? { account: now.screenName, accountId: now.id } : {};
                   };
                   return c.write(
                     async () => {

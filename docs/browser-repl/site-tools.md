@@ -40,14 +40,16 @@ rules neither reference enforces together:
    redirects it. The draft records a typed intent, which is its preview:
    the **account** that acts, by stable ids (Google's account id from
    ListAccounts and the email at the `/u/` index, the Slack workspace and
-   member ids, the LinkedIn member id, the Notion user id, the X screen
-   name X's account settings endpoint authenticates, never the
-   page-writable `twid` cookie); the **target**, by stable ids (Slack
+   member ids, the LinkedIn member id, the Notion user id, the X account id
+   (`id_str`, immutable) and screen name (reusable) that X's
+   `verify_credentials` endpoint authenticates, never the page-writable
+   `twid` cookie); the **target**, by stable ids (Slack
    channel id and name, the Gmail thread and its message ids and the To,
    Cc and Bcc Gmail's Reply (all) addresses, the Google file id with its
    title and sharing, a Slides object id with its title and position, the
-   Notion page, the WebMCP tool's descriptor, the name a LinkedIn post
-   goes out as, the member's and never a company page's, and its
+   Notion page, the WebMCP tool's descriptor, the author a LinkedIn post
+   goes out as, by URN and type (the member's profile, never a company
+   page, which can carry the member's very name) and by name, and its
    audience); and every other field the
    preview shows (**content**). The confirmation prepares the write (opens
    the composer, fills it) and then, right before the click or request
@@ -206,9 +208,9 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues`, `getSpaces` once more, and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user, every call in the agent's isolated world | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
-| `linkedin.post({ text, audience })` | draft naming the member id and public identifier (account), and the member's name the composer posts as and the audience, `"anyone"` (shown as `Anyone`) or `"connections"` (`Connections only`), which the call must name: a public post is an explicit choice, and a draft without it fails with `invalid` (target); confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), the composer's header (`<name> Post to <audience>`, which keeps LinkedIn's last choice of identity and audience) checked, so a post as a company page or to another audience fails with `target_mismatch` and a header it cannot read with `target_unverified`, then Post (the button itself, never the header) | write [9] |
+| `linkedin.post({ text, audience })` | draft naming the member id and public identifier (account), and the member's profile URN (type `person`) and name the composer posts as and the audience, `"anyone"` (shown as `Anyone`) or `"connections"` (`Connections only`), which the call must name: a public post is an explicit choice, and a draft without it fails with `invalid` (target); confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), the composer's header (`<name> Post to <audience>`, which keeps LinkedIn's last choice of identity and audience) checked, with the author URN on its actor (exactly one `fsd_profile`/`fs_miniProfile`/`fs_profile` URN, compared by id with the member's profile URN from `/me`, type `person`; company URNs map to type `organization`), so a post as a company page (even one with the member's name) or another member, or to another audience, fails with `target_mismatch`, and a header it cannot read, or without exactly one author URN, with `target_unverified`, then Post (the button itself, never the header) | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
-| `x.post(text \| { text, replyTo })` | draft naming the account X authenticates (its account settings endpoint, with X's public web bearer token and the `ct0` CSRF value); confirmed: Web Intent `/intent/post`, the whole text checked, the account asked again from that page, Post | write [9] |
+| `x.post(text \| { text, replyTo })` | draft naming the account X authenticates, by its immutable id (`id_str`) and its screen name, both from one `/i/api/1.1/account/verify_credentials.json` response (X's public web bearer token and the `ct0` CSRF value; no draft, `account_unknown`, without both); confirmed: Web Intent `/intent/post`, the whole text checked, the id and screen name asked again from that page and once more right before Post, so another account that took the screen name fails with `account_mismatch`, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
 | `github.assigned({ issues, pulls, state, limit })` | GitHub's own search (`/search?type=issues`, `assignee:@me`) answering JSON in the session, 10 per page | read |
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
@@ -240,7 +242,7 @@ the file back to verify.
 | `googleSheets.read(url, { gid, sheet, range })` | CSV export: values | read |
 | `googleSheets.cells(url, { sheet, gid, range })` | xlsx export unzipped in a docs.google.com page (`DecompressionStream`): `{ cell, value, formula }` | read |
 | `googleSheets.find(url, text)` | the same, every tab | read |
-| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, then one Meta+V of the rows as TSV from the tab's clipboard (a trusted `paste` whose `clipboardData` Sheets reads; `=` makes a formula); if the export does not show the values within about 5 s, each value is typed with real keys (Tab between cells, Enter after a row). Verified through the xlsx export | write |
+| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, then one Meta+V of the rows as TSV from the tab's clipboard (a trusted `paste` whose `clipboardData` Sheets reads; `=` makes a formula); if the export does not show the values within about 5 s, each value is typed with real keys (Tab between cells, Enter after a row). A value with a tab, LF or CR fails with `invalid` before any draft (Sheets' paste parser ends a cell at a tab and a row at LF, CR or CRLF). Verified through the xlsx export of the range plus one more row and column: a cell outside the confirmed range that changed after the write fails with `commit_unverified` (naming the cells) and nothing more is typed | write |
 | `googleSheets.append(url, rows)` | the same after the last non-empty row; right before the paste the CSV export is read again and the write fails (`content_mismatch`: the range) when the last row moved since the target was chosen, so rows added meanwhile are never overwritten (the web editor has no insert-at-end the session can call; a row added between that read and the paste is the remaining window) | write |
 | `googleSheets.clear(url, range)` | name box selects the range, Delete, verified | write |
 | `googleDocs.structure(url)` | HTML export parsed in a blank tab: headings with levels, paragraphs, lists, tables | read |

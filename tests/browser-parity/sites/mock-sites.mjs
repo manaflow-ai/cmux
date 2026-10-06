@@ -75,7 +75,7 @@ export function createState() {
   // slackSwitchOnInfo: the member id another session's sign-in makes the
   // Acme workspace's session act as once conversations.info has answered
   // (slackMemberNow holds it from then on).
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xAccountId: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, googleSwitchAfterListAccounts: null, slackSwitchOnInfo: null, slackMemberNow: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -726,11 +726,13 @@ function linkedin(req, url, body, state) {
     if (url.searchParams.get("shareActive") === "true") {
       // Another session signs in as someone else while the composer loads.
       if (state.linkedinSwitchOnCompose) (state.linkedinViewer = state.linkedinSwitchOnCompose), (state.linkedinSwitchOnCompose = null);
-      const composer = { postAs: "Ada Lovelace", audience: "Anyone", ...(state.linkedinComposer || {}) };
+      // actorUrn: the author the composer posts as, on its header's avatar
+      // (false: the header carries none).
+      const composer = { postAs: "Ada Lovelace", audience: "Anyone", actorUrn: "urn:li:fsd_profile:ACo1", ...(state.linkedinComposer || {}) };
       return {
         // As live, the composer's header names who it posts as (the member
         // or a company page they admin) and its audience ("Post to …").
-        html: html(`<div role="dialog">${composer.settings === false ? "" : `<button class="share-unified-settings-entry-button"><span>${esc(composer.postAs)}</span><span>Post to ${esc(composer.audience)}</span></button>`}<div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
+        html: html(`<div role="dialog">${composer.settings === false ? "" : `<button class="share-unified-settings-entry-button">${composer.actorUrn === false ? "" : `<img alt="" data-entity-urn="${esc(composer.actorUrn)}">`}<span>${esc(composer.postAs)}</span><span>Post to ${esc(composer.audience)}</span></button>`}<div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
         <script>
           document.querySelector('[role="textbox"]').innerText = (new URLSearchParams(location.search).get("text") || "") + ${JSON.stringify(state.composerSuffix || "")};
           document.querySelector(".share-actions__primary-action").addEventListener("click", async () => { const s = document.querySelector(".share-unified-settings-entry-button"); await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[role="textbox"]').innerText, settings: s ? s.textContent : null }) }); document.querySelector('[role="dialog"]').remove(); });
@@ -759,6 +761,13 @@ function x(req, url, body, state) {
   if (url.pathname === "/i/api/1.1/account/settings.json") {
     if (state.xAccountUnknown || !/^Bearer \S+$/.test(req.headers.authorization || "") || req.headers["x-csrf-token"] !== cookieOf(req, "ct0")) return { status: 403, json: { errors: [{ code: 353 }] } };
     return { json: { screen_name: state.xAccount || "ada", language: "en" } };
+  }
+  // The authenticated account with its immutable id (id_str). xAccountId:
+  // another account that now holds the same screen name.
+  if (url.pathname === "/i/api/1.1/account/verify_credentials.json") {
+    if (state.xAccountUnknown || !/^Bearer \S+$/.test(req.headers.authorization || "") || req.headers["x-csrf-token"] !== cookieOf(req, "ct0")) return { status: 403, json: { errors: [{ code: 353 }] } };
+    const screen = state.xAccount || "ada";
+    return { json: { id: 0, id_str: state.xAccountId || { ada: "1001", mallory: "666" }[screen] || "9999", screen_name: screen } };
   }
   if (url.pathname === "/intent/post" && state.xSwitchOnCompose) (state.xAccount = state.xSwitchOnCompose), (state.xSwitchOnCompose = null);
   if (url.pathname === "/intent/post")

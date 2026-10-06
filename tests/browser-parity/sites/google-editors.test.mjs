@@ -44,6 +44,38 @@ test("googleSheets.write types the cells when the editor drops the paste", async
   await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
 });
 
+// Sheets' paste parser ends a row at CR as at LF: a value with a CR would
+// write rows below the confirmed range. Such a value is refused before
+// any draft, as a tab or LF is.
+test("googleSheets.write and append refuse a value with a carriage return; nothing outside the confirmed range changes", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL CR")');
+  try {
+    for (const v of ["a\rb", "a\r\nb", "a\r"]) {
+      assert.match(await s.error(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [[${JSON.stringify(v)}]])`), /invalid|line break/, `${JSON.stringify(v)} was drafted`);
+      assert.match(await s.error(`sites.googleSheets.append(${JSON.stringify(f.url)}, [[${JSON.stringify(v)}]])`), /invalid|line break/, `${JSON.stringify(v)} was drafted for append`);
+    }
+    assert.deepEqual([...files.get(f.id).sheets[0].cells.keys()], [], "a cell changed");
+  } finally {
+    await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+  }
+});
+
+// After the write, the confirmed range and one row and one column beyond
+// it are read back: a paste that changed a cell outside the range fails
+// the confirmation instead of reporting a verified write (and does not
+// type the cells again on top of it).
+test("googleSheets.write: a paste that changes a cell next to the confirmed range fails the confirmation", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL spill")');
+  try {
+    files.get(f.id).pasteSpill = "spilled";
+    const err = await s.error(`(async () => { const d = await sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [["a", "b"]]); return sites.googleSheets.write(d.id, { confirm: true }); })()`);
+    assert.match(err, /outside the confirmed range|A2/);
+    assert.deepEqual(files.get(f.id).edits, ["paste"], "the cells were typed again after the spill");
+  } finally {
+    await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+  }
+});
+
 test("googleSheets.append, write and clear on a private sheet are drafts too; confirmed, they write and verify", async () => {
   const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL test")');
   assert.match(f.url, /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]+\/edit$/);

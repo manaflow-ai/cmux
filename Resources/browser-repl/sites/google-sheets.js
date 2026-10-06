@@ -53,7 +53,17 @@
         const r0 = Number(m[2]);
         const width = Math.max(...values.map((row) => row.length));
         const target = `${start}:${ed.colName(c0 + width - 1)}${r0 + values.length - 1}`;
-        if (values.some((row) => row.some((v) => /[\n\t]/.test(String(v === null || v === undefined ? "" : v))))) throw new S.SiteError("invalid", `${name}: a value contains a tab or a line break; Sheets cells are typed and cannot hold one this way`);
+        // Sheets' paste parser ends a row at CR, LF or CRLF and a cell at
+        // a tab: any of them in a value would write cells the draft does
+        // not show.
+        if (values.some((row) => row.some((v) => /[\n\r\t]/.test(String(v === null || v === undefined ? "" : v))))) throw new S.SiteError("invalid", `${name}: a value contains a tab, a line break or a carriage return; Sheets cells are typed and cannot hold one this way`);
+        // The confirmed range and one more row and column: after the
+        // write, the cells outside the range must be as they were.
+        const wide = `${start}:${ed.colName(c0 + width)}${r0 + values.length}`;
+        const outside = (cell) => {
+          const p = /^([A-Z]+)(\d+)$/.exec(cell);
+          return ed.colIndex(p[1]) >= c0 + width || Number(p[2]) >= r0 + values.length;
+        };
         const rowOps = [];
         const tab = r.gid === undefined || r.gid === null ? null : String(r.gid);
         return ed.edit("googleSheets", action, name, r, { range: target }, options, () => ({
@@ -75,9 +85,21 @@
           act: async (page, press) => {
             const want = new Map();
             values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
+            // The cells next to the range, read before the first input.
+            const border = async () => new Map((await api.cells(sheet, { ...(options || {}), range: wide })).cells.map((c) => [c.cell, c]));
+            const before = await border();
+            const shownCell = (c) => (c ? JSON.stringify(c.formula || c.value) : "empty");
+            let spilled = [];
             const check = async () => {
-              const got = new Map((await api.cells(sheet, { ...(options || {}), range: target })).cells.map((c) => [c.cell, c]));
-              return [...want].every(([cell, v]) => v === "" || (got.has(cell) && (v.startsWith("=") ? got.get(cell).formula === v : got.get(cell).value === v)));
+              const got = await border();
+              spilled = [...new Set([...before.keys(), ...got.keys()])].filter((cell) => outside(cell) && shownCell(before.get(cell)) !== shownCell(got.get(cell))).map((cell) => `${cell} is ${shownCell(got.get(cell))}, was ${shownCell(before.get(cell))}`);
+              return !spilled.length && [...want].every(([cell, v]) => v === "" || (got.has(cell) && (v.startsWith("=") ? got.get(cell).formula === v : got.get(cell).value === v)));
+            };
+            // A write that changed a cell outside the confirmed range fails
+            // and types nothing more (another editor of the sheet can also
+            // have changed it; either way the draft did not show it).
+            const contained = () => {
+              if (spilled.length) throw new S.SiteError("commit_unverified", `${name}: cells outside the confirmed range ${target} changed after the write (${spilled.join("; ")}); check the sheet and its version history`);
             };
             // One paste of the rows as TSV at the top-left cell, as a person
             // pastes a range: Sheets reads the paste event's clipboardData.
@@ -87,7 +109,9 @@
               await page.keyboard.press("ControlOrMeta+v");
             });
             await ed.saved(page);
-            if (await ed.verify(check, [800, 1500, 2500])) return { status: "written", range: target, verified: true };
+            const pasted = await ed.verify(check, [800, 1500, 2500]);
+            contained();
+            if (pasted) return { status: "written", range: target, verified: true };
             // An editor that dropped the paste gets typed keys, cell by cell
             // (Tab moves right, Enter starts the next row).
             await selectRange(page, start);
@@ -104,7 +128,9 @@
               });
             }
             await ed.saved(page);
-            return { status: "written", range: target, verified: await ed.verify(check) };
+            const typed = await ed.verify(check);
+            contained();
+            return { status: "written", range: target, verified: typed };
           },
         }));
       }
