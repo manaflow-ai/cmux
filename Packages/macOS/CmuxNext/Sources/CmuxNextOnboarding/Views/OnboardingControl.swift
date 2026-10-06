@@ -1,9 +1,10 @@
 import AppKit
 import CmuxNextDesign
 
-/// System controls in theme neutrals: no accent color anywhere.
+/// Shared controls for onboarding actions and choices.
 enum OnboardingControl {
-    static func button(_ title: String, prominent: Bool = false, target: AnyObject?, action: Selector) -> NSButton {
+    static func button(_ title: String, prominent: Bool = false, accent: Bool = false, target: AnyObject?, action: Selector) -> NSButton {
+        if accent { return OnboardingAccentButton(title: title, target: target, action: action) }
         let button = NSButton(title: title, target: target, action: action)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.bezelStyle = prominent ? .glass : .push

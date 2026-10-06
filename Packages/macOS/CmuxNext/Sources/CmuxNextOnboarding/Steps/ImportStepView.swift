@@ -12,7 +12,6 @@ final class ImportStepView: NSView {
     private let list = NSStackView()
     private let kinds = NSStackView()
     private let status = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textTertiary, lines: 2)
-    private let access = NSStackView()
     private var rows: [String: ImportProfileRow] = [:]
     private var kindBoxes: [ImportDataKind: NSButton] = [:]
     private var shownKinds: [ImportDataKind] = []
@@ -39,15 +38,11 @@ final class ImportStepView: NSView {
         scroll.documentView = document
         scroll.translatesAutoresizingMaskIntoConstraints = false
         kinds.spacing = 20
-        let open = OnboardingControl.button(OnboardingStrings.openSystemSettings, target: self, action: #selector(openSettings))
-        let recheck = OnboardingControl.plainButton(OnboardingStrings.checkAgain, target: self, action: #selector(recheck))
-        access.setViews([OnboardingLabel.make(OnboardingStrings.fullDiskAccessTitle, color: Palette.textSecondary), open, recheck], in: .leading)
-        access.spacing = 12
         let separator = ThemedView()
         separator.fill = { Palette.separator }
         listViews = [scroll, separator, kinds]
         consent.isHidden = true
-        let stack = NSStackView(views: [scroll, separator, kinds, consent, status, access])
+        let stack = NSStackView(views: [scroll, separator, kinds, consent, status])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
@@ -72,9 +67,6 @@ final class ImportStepView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func kindToggled(_ sender: NSButton) { model.toggle(shownKinds[sender.tag]) }
-    @objc private func openSettings() { model.openFullDiskAccessSettings() }
-    @objc private func recheck() { model.redetect() }
-
     private func render() {
         let confirming = model.isConfirmingPasswords
         listViews.forEach { $0.isHidden = confirming }
@@ -86,8 +78,11 @@ final class ImportStepView: NSView {
             list.arrangedSubviews.forEach { $0.removeFromSuperview() }
             rows = [:]
             let apps = Dictionary(model.sources.map { ($0.browser, $0.appURL) }, uniquingKeysWith: { first, _ in first })
+            let blockedBrowsers = Set(model.sources.filter(\.needsFullDiskAccess).map(\.browser))
             for profile in profiles {
-                let row = ImportProfileRow(profile: profile, appURL: apps[profile.browser] ?? nil) { [weak model] in model?.toggle(profile) }
+                let row = ImportProfileRow(profile: profile, appURL: apps[profile.browser] ?? nil,
+                                           needsFullDiskAccess: blockedBrowsers.contains(profile.browser),
+                                           onAccess: { [weak model] in model?.openFullDiskAccessSettings() }) { [weak model] in model?.toggle(profile) }
                 rows[profile.id] = row
                 list.addArrangedSubview(row)
                 row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
@@ -112,7 +107,6 @@ final class ImportStepView: NSView {
             box.state = model.kinds.contains(kind) ? .on : .off
             box.isEnabled = editable
         }
-        access.isHidden = !model.needsFullDiskAccess || model.isImporting
         status.stringValue = statusText(profiles)
     }
 
