@@ -303,7 +303,9 @@ rest. Measurements: [performance.md](performance.md).
   budget): past 2,000 nodes, 20,000 characters or 100 levels the name
   is read directly from the same sources, at most 20,000 characters.
   Labels come from an index of the read's `<label>` elements, each one
-  counted; once a read's budget is spent, controls have no labels in it,
+  counted and read one at a time (a document's from its live `<label>`
+  collection, a shadow root's by a walk of at most 250,000 elements),
+  never listed whole first; once a read's budget is spent, controls have no labels in it,
   never WebKit's getter, which scans the whole document per control. The
   walk descends at most 1,000 elements deep (script can nest elements
   deeper than the stack), counted over the whole snapshot: an iframe's
@@ -331,6 +333,11 @@ rest. Measurements: [performance.md](performance.md).
   passes one reply budget (`reply` in `page-agent.js`, applied to every
   agent-world call by the runtime): past 10,000,000 characters the call
   fails with the same note, and `queryAll` makes at most 250,000 handles.
+  Accepted residual: a locator query itself runs in the vendored,
+  unmodified Playwright selector engine, which lists the scope's elements
+  natively (`querySelectorAll("*")` per scope and shadow root) before
+  any cap; that list costs at most a few bytes per element the page
+  itself built, so it is bounded by the page's own DOM.
   A DOM getter (`textContent`, `innerText`, `outerHTML`) builds its whole
   string before anything can cut it, so the page agent first counts the
   nodes and the lengths it would join, within what the budget has left,

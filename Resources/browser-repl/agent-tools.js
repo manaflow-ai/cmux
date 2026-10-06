@@ -463,12 +463,27 @@
       }
       return out;
     };
+    // What a slot shows: assignedNodes({ flatten: true }), else its own
+    // children. The assigned nodes come one at a time from the page
+    // agent's slotAssigned, each host child read charged, never listed
+    // whole; a slot assigned to a slot shows what that one shows
+    // (flattened), at most 64 levels.
+    const slotted = (slot, out, depth) => {
+      const place = (c) => {
+        if (depth < 64 && c.nodeType === 1 && tag(c) === "SLOT" && c.getRootNode().host) slotted(c, out, depth + 1);
+        else out.push(c);
+      };
+      let found = false;
+      for (const c of A.slotAssigned(slot, () => B.spend(1))) {
+        found = true;
+        place(c);
+      }
+      if (!found) for (const c of take(slot.childNodes)) place(c);
+      return out;
+    };
     const ownKids = (el) => {
       if (el.shadowRoot) return take(el.shadowRoot.childNodes);
-      if (tag(el) === "SLOT") {
-        const assigned = el.assignedNodes({ flatten: true });
-        return take(assigned.length ? assigned : el.childNodes);
-      }
+      if (tag(el) === "SLOT") return slotted(el, [], 0);
       if (tag(el) === "DETAILS" && !el.open) return take(el.children).filter((c) => tag(c) === "SUMMARY");
       return take(el.childNodes);
     };
@@ -667,11 +682,24 @@
         return false;
       };
       const visible = (e) => e && style(e).display !== "none" && showsText(e);
-      const mainEl = take(document.querySelectorAll("main, [role=main]")).find(visible);
-      // Only whether exactly one article shows text matters.
+      // The first shown <main>, else whether exactly one article shows
+      // text. The candidates are found by a walk of the document in order,
+      // one element at a time (at most 250,000), never listed whole, and
+      // each candidate is charged to the budget.
+      let mainEl = null;
       const articles = [];
-      for (const a of take(document.querySelectorAll("article, [role=article]"))) {
-        if (visible(a) && articles.push(a) > 1) break;
+      let left = 250000;
+      const walker = document.createTreeWalker(document, 1 /* NodeFilter.SHOW_ELEMENT */);
+      for (let e = walker.nextNode(); e && --left >= 0; e = walker.nextNode()) {
+        const isMain = e.matches("main, [role=main]");
+        const isArticle = articles.length < 2 && e.matches("article, [role=article]");
+        if (!isMain && !isArticle) continue;
+        if (!B.spend(1)) break;
+        if (isMain && visible(e)) {
+          mainEl = e;
+          break;
+        }
+        if (isArticle && visible(e)) articles.push(e);
       }
       if (mainEl) rootEl = mainEl;
       else if (articles.length === 1) rootEl = articles[0];
@@ -868,8 +896,9 @@
     return { total, matches, report: B.truncated ? B.report() : R.truncated ? R.report() : null };
   }
 
-  // Options are read within the page-read budget (A.budget): each option
-  // and its label and value are charged; `report` says where it stopped.
+  // Options are read within the page-read budget (A.budget): each element
+  // of an ARIA popup walked, each <select> option, and their labels and
+  // values are charged; `report` says where it stopped.
   function dropdownInFrame(handle) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
     const B = A.budget();
@@ -897,10 +926,13 @@
       if (!popup) popup = el.querySelector("[role=listbox], [role=menu], [role=tree]");
     }
     if (!popup) return { kind: "none", options: [] };
-    const found = popup.querySelectorAll("[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [role=radio]");
+    // The popup's elements are walked one at a time, each one charged, so
+    // the read stops at the budget before it lists a page-sized match list.
+    const OPTION = "[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [role=radio]";
     const options = [];
-    for (let i = 0; i < found.length && B.spend(1); i++) {
-      const o = found[i];
+    const walker = document.createTreeWalker(popup, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let o = walker.nextNode(); o && B.spend(1); o = walker.nextNode()) {
+      if (!o.matches(OPTION)) continue;
       if (typeof o.checkVisibility === "function" && !o.checkVisibility({ visibilityProperty: true })) continue;
       options.push({
         index: options.length,

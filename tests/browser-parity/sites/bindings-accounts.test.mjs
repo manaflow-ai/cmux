@@ -14,12 +14,12 @@ const s = env.session("bindings-accounts");
 
 test("linkedin.post: the member is read again in the share composer right before Post; a switch while it loads posts nothing", async () => {
   try {
-    await s.run('var lnD = await sites.linkedin.post("Bound to my account.")');
+    await s.run('var lnD = await sites.linkedin.post({ text: "Bound to my account.", audience: "anyone" })');
     env.state.linkedinSwitchOnCompose = "mallory";
     const before = env.state.linkedinPosts.length;
     assert.match(await s.error("sites.linkedin.post(lnD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
     assert.equal(env.state.linkedinPosts.length, before, "nothing was posted as mallory");
-    assert.deepEqual(await s.value("lnD.preview"), { account: "ada-lovelace", memberId: 424242, text: "Bound to my account." });
+    assert.deepEqual(await s.value("lnD.preview"), { account: "ada-lovelace", memberId: 424242, postAs: "Ada Lovelace", audience: "Anyone", text: "Bound to my account." });
   } finally {
     env.state.linkedinViewer = null;
     env.state.linkedinSwitchOnCompose = null;
@@ -150,7 +150,7 @@ test("x.post and linkedin.post: a page that rewrites its own world's results can
     assert.match(await s.error("sites.x.post(fxD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
     assert.equal(env.state.xPosts.length, x, "the post went out as mallory");
     s.intercept(null);
-    await s.run('var flD = await sites.linkedin.post("Forged member read-back.")');
+    await s.run('var flD = await sites.linkedin.post({ text: "Forged member read-back.", audience: "anyone" })');
     env.state.linkedinSwitchOnCompose = "mallory";
     s.intercept(forge(['"mallory"', "666001"], ['"ada-lovelace"', "424242"]));
     const li = env.state.linkedinPosts.length;
@@ -293,7 +293,7 @@ test("x.post, linkedin.post and gmail.send: an account switch during the press's
     assert.equal(env.state.xPosts.length, xBefore, "posted as the switched X account");
     s.intercept(null);
 
-    await s.run('var lnS = await sites.linkedin.post("Bound at the click.")');
+    await s.run('var lnS = await sites.linkedin.post({ text: "Bound at the click.", audience: "anyone" })');
     const lnBefore = env.state.linkedinPosts.length;
     s.intercept(switchAtPressRead(() => (env.state.linkedinViewer = "mallory")));
     assert.match(await s.error("sites.linkedin.post(lnS.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);

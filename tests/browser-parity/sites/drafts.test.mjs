@@ -159,10 +159,49 @@ test("gmail.send reply: a new message in the thread after the preview fails the 
   }
 });
 
+test("linkedin.post: the draft names who it posts as and its audience; a composer that posts as a page, to another audience, or does not say, posts nothing", async () => {
+  try {
+    await run(`
+      const laD = await sites.linkedin.post({ text: "Audience bound.", audience: "anyone" });
+      const lcD = await sites.linkedin.post({ text: "Connections only.", audience: "connections" });`);
+    const d = await s.value("laD.preview");
+    assert.equal(d.postAs, "Ada Lovelace");
+    assert.equal(d.audience, "Anyone");
+    assert.equal((await s.value("lcD.preview")).audience, "Connections only");
+    const before = env.state.linkedinPosts.length;
+    // The composer now posts as a company page the member admins.
+    env.state.linkedinComposer = { postAs: "Acme Corp" };
+    assert.match(await s.error("sites.linkedin.post(laD.id, { confirm: true })"), /target_mismatch|postAs is "Acme Corp"/);
+    await run('var laD2 = await sites.linkedin.post({ text: "Audience bound.", audience: "anyone" })');
+    // LinkedIn remembers another audience than the draft's.
+    env.state.linkedinComposer = { audience: "Connections only" };
+    assert.match(await s.error("sites.linkedin.post(laD2.id, { confirm: true })"), /target_mismatch|audience is "Connections only"/);
+    await run('var laD3 = await sites.linkedin.post({ text: "Audience bound.", audience: "anyone" })');
+    // A composer whose header cannot be read fails closed.
+    env.state.linkedinComposer = { settings: false };
+    assert.match(await s.error("sites.linkedin.post(laD3.id, { confirm: true })"), /target_unverified|could not read postAs, audience back/);
+    assert.equal(env.state.linkedinPosts.length, before, "a post went out to an audience or as an identity the draft did not show");
+    // The composer matches the connections-only draft: it posts.
+    env.state.linkedinComposer = { audience: "Connections only" };
+    await s.value("sites.linkedin.post(lcD.id, { confirm: true })");
+    assert.deepEqual(env.state.linkedinPosts.at(-1), { text: "Connections only.", settings: "Ada LovelacePost to Connections only" });
+    assert.match(await s.error('sites.linkedin.post({ text: "x", audience: "everyone" })'), /invalid|audience/);
+    // A public post is an explicit choice: a draft without an audience fails and names both.
+    for (const call of ['sites.linkedin.post("No audience.")', 'sites.linkedin.post({ text: "No audience." })']) {
+      const err = await s.error(call);
+      assert.match(err, /audience/, `${call} drafted without an audience`);
+      assert.match(err, /"anyone"/);
+      assert.match(err, /"connections"/);
+    }
+  } finally {
+    env.state.linkedinComposer = null;
+  }
+});
+
 test("linkedin.post and x.post: the draft pins the signed-in account; another account at confirmation fails and posts nothing", async () => {
   try {
     await run(`
-      const lD = await sites.linkedin.post("Pinned post.");
+      const lD = await sites.linkedin.post({ text: "Pinned post.", audience: "anyone" });
       const xD2 = await sites.x.post("Pinned post.");`);
     env.state.linkedinViewer = "mallory";
     // X's session cookie now authenticates another account.

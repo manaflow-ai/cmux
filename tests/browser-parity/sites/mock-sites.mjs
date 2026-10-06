@@ -58,6 +58,8 @@ export function createState() {
   // gmailThreadExtra: messages added to every thread; linkedinViewer: the
   // signed-in member's public identifier; linkedinSwitchOnCompose: the
   // member another session signs in as when the share composer loads;
+  // linkedinComposer: the share composer's header, { postAs, audience }
+  // (who it posts as and "Post to <audience>"), settings: false for none;
   // googleSwitchOnLoad: ListAccounts rows another session's sign-in makes
   // current when a Gmail, Calendar or editor page loads; notionUser: the Notion user
   // the session holds; notionSwitchOnSync: the user another session signs
@@ -67,7 +69,7 @@ export function createState() {
   // post composer loads, while the page's twid cookie still names the
   // drafted user; xAccountUnknown: X's account endpoint fails;
   // googlePageAccount: see pageAccountRow.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, linkedinComposer: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, slackClientRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, googlePageAccount: null, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, gmailReplyRecipients: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -715,11 +717,14 @@ function linkedin(req, url, body, state) {
     if (url.searchParams.get("shareActive") === "true") {
       // Another session signs in as someone else while the composer loads.
       if (state.linkedinSwitchOnCompose) (state.linkedinViewer = state.linkedinSwitchOnCompose), (state.linkedinSwitchOnCompose = null);
+      const composer = { postAs: "Ada Lovelace", audience: "Anyone", ...(state.linkedinComposer || {}) };
       return {
-        html: html(`<div role="dialog"><div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
+        // As live, the composer's header names who it posts as (the member
+        // or a company page they admin) and its audience ("Post to …").
+        html: html(`<div role="dialog">${composer.settings === false ? "" : `<button class="share-unified-settings-entry-button"><span>${esc(composer.postAs)}</span><span>Post to ${esc(composer.audience)}</span></button>`}<div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
         <script>
           document.querySelector('[role="textbox"]').innerText = (new URLSearchParams(location.search).get("text") || "") + ${JSON.stringify(state.composerSuffix || "")};
-          document.querySelector("button").addEventListener("click", async () => { await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[role="textbox"]').innerText }) }); document.querySelector('[role="dialog"]').remove(); });
+          document.querySelector(".share-actions__primary-action").addEventListener("click", async () => { const s = document.querySelector(".share-unified-settings-entry-button"); await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[role="textbox"]').innerText, settings: s ? s.textContent : null }) }); document.querySelector('[role="dialog"]').remove(); });
         </script>`, "Feed | LinkedIn"),
       };
     }

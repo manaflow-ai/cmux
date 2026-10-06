@@ -64,7 +64,7 @@ const WRITES = {
   "googleCalendar.create": { draft: 'sites.googleCalendar.create({ title: "Protocol", start: "2026-10-08T17:00:00Z", guests: ["bob@example.com"] })', sent: ["timeZone"] },
   "slack.post": { draft: 'sites.slack.post({ team: "T01ACME", channel: "#eng", text: "Read back before posting" })', sent: ["threadTs", "text"] },
   "notion.append": { draft: `sites.notion.append(${JSON.stringify(NOTION_PAGE_URL)}, "Read back before writing.")`, sent: ["blocks", "markdown"] },
-  "linkedin.post": { draft: 'sites.linkedin.post("Read back before posting.")', sent: [] },
+  "linkedin.post": { draft: 'sites.linkedin.post({ text: "Read back before posting.", audience: "anyone" })', sent: [] },
   "x.post": { draft: 'sites.x.post("Read back before posting.")', sent: [] },
   "webmcp.call": { draft: '(async () => { await page.goto("https://tools.example/"); return sites.webmcp.call("add_to_cart", { sku: "P-1" }); })()', sent: ["input"] },
 };

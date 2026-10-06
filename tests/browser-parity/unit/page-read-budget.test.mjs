@@ -184,6 +184,46 @@ test("locators: past the page-read budget, labels are not read by a whole-docume
   }
 });
 
+test("label index: <label>s are read one at a time within the budget, never listed whole (document and shadow root)", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest <label> list the read asks for
+  // (in the app the agent world is the session's own; this only observes
+  // what the index lists). Each tree holds 5,000 labels; the snapshot's
+  // budget is 1,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<input id="a"><div id="host"></div><div id="hidden" style="display:none"></div>';
+          document.getElementById("hidden").innerHTML = '<label for="a">L</label>'.repeat(5000);
+          document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<input id="b"><div style="display:none">' + '<label for="b">S</label>'.repeat(5000) + '</div>';
+          window.__labels = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (String(selector).trim().toLowerCase() === "label") window.__labels = Math.max(window.__labels, list.length);
+              return list;
+            };
+          }
+        });`);
+      const cut = await run(`await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__labels)));`);
+      assert.ok(Number(cut.value) <= 1000, `the label index listed ${cut.value} <label>s at once with a budget of 1,000 nodes`);
+      // Below the budget, labels still name their controls in both trees.
+      const named = await run(`await page.evaluate(() => {
+          document.getElementById("hidden").innerHTML = '<label for="a">Doc label</label>';
+          document.getElementById("host").shadowRoot.innerHTML = '<input id="b"><label for="b">Shadow label</label>';
+        });
+        const s = await snapshot({ maxChars: Infinity });
+        console.log("@@" + JSON.stringify({ doc: s.tree.includes('textbox "Doc label"'), shadow: s.tree.includes('textbox "Shadow label"') }));`);
+      assert.deepEqual(JSON.parse(named.value), { doc: true, shadow: true }, "a label below the budget no longer names its control");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("composer text: a composer past the page-read budget is refused before its text leaves the page", async () => {
   const servers = await startFixtureServers();
   try {
@@ -231,6 +271,159 @@ test("dropdownOptions and extract: page-controlled lists stop at the page-read b
       assert.ok(Number(text.value) <= READ_SIZE + 10, `extract returned ${text.value} characters`);
       assert.ok(largestRead(text.log) < READ_SIZE + 100000, `the page agent returned ${largestRead(text.log)} characters`);
       assert.match(text.output, /# page\.extract: the page is too large to read whole: it stopped after 2,000,000 characters/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("dropdownOptions: ARIA options are read one at a time within the node budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest option list the read asks for.
+  // The listbox holds one shown option and 260,000 hidden ones (not
+  // returned); the budget is 250,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<div role="listbox" id="l" aria-label="Many"><div role="option">First</div><div style="display:none">' + '<div role="option">o</div>'.repeat(260000) + '</div></div>';
+          window.__options = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (String(selector).includes("role=option")) window.__options = Math.max(window.__options, list.length);
+              return list;
+            };
+          }
+        });`);
+      const r = await run(`const o = await page.dropdownOptions("#l"); console.log("@@" + JSON.stringify({ listed: await page.evaluate(() => window.__options), options: o.length }));`);
+      const v = JSON.parse(r.value);
+      assert.ok(v.listed <= 250000, `dropdownOptions listed ${v.listed} options at once with a budget of 250,000 nodes`);
+      assert.equal(v.options, 1);
+      assert.match(r.output, /# page\.dropdownOptions: the page is too large to read whole: it stopped after 250,000 nodes/);
+      // Below the budget, the options are still read.
+      const small = await run(`await page.evaluate(() => { document.body.innerHTML = '<div role="listbox" id="l" aria-label="Few"><div role="option">One</div><span><div role="option" aria-selected="true">Two</div></span></div>'; });
+        const o = await page.dropdownOptions("#l"); console.log("@@" + JSON.stringify(o.map((x) => [x.label, x.selected])));`);
+      assert.deepEqual(JSON.parse(small.value), [["One", false], ["Two", true]]);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("markdown { main: true }: <main> and <article> candidates are read one at a time within the budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest candidate list the read asks
+  // for. The page holds 260,000 empty <article>s; the budget is 250,000
+  // nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<p>Outside</p>' + '<article></article>'.repeat(260000);
+          window.__candidates = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (/(main|article)/.test(String(selector))) window.__candidates = Math.max(window.__candidates, list.length);
+              return list;
+            };
+          }
+        });`);
+      const r = await run(`await page.markdown({ main: true }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__candidates)));`);
+      assert.ok(Number(r.value) <= 250000, `the main-content lookup listed ${r.value} candidates at once with a budget of 250,000 nodes`);
+      // Below the budget it still finds the main content.
+      const pick = async (body) => (await run(`await page.evaluate((b) => { document.body.innerHTML = b; }, ${JSON.stringify(body)}); console.log("@@" + JSON.stringify(await page.markdown({ main: true })));`)).value;
+      const main = JSON.parse(await pick('<nav>Menu</nav><main style="display:none">Hidden</main><div role="main">Shown main</div>'));
+      assert.match(main, /Shown main/);
+      assert.doesNotMatch(main, /Menu/);
+      const one = JSON.parse(await pick("<nav>Menu</nav><article>Only article</article>"));
+      assert.match(one, /Only article/);
+      assert.doesNotMatch(one, /Menu/);
+      const two = JSON.parse(await pick("<p>Intro</p><article>One</article><article>Two</article>"));
+      assert.match(two, /Intro/);
+      assert.match(two, /Two/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("markdown: a slot's assigned nodes are read one at a time within the budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so an assignedNodes
+  // the page installs records the largest list the read asks for. The
+  // host holds 260,000 slotted children; the budget is 250,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          window.__assigned = 0;
+          const native = HTMLSlotElement.prototype.assignedNodes;
+          HTMLSlotElement.prototype.assignedNodes = function (o) { const list = native.call(this, o); window.__assigned = Math.max(window.__assigned, list.length); return list; };
+          document.body.innerHTML = '<div id="host"></div>';
+          const host = document.getElementById("host");
+          host.innerHTML = '<i>x</i>'.repeat(260000);
+          host.attachShadow({ mode: "open" }).innerHTML = '<p><slot></slot></p>';
+        });`);
+      const r = await run(`await page.markdown(); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__assigned)));`);
+      assert.ok(Number(r.value) <= 250000, `the Markdown read listed ${r.value} assigned nodes at once with a budget of 250,000 nodes`);
+      // Below the budget, slots still show what is assigned to them, in
+      // order, flattened through a nested slot, with fallback content
+      // where nothing is assigned, in open and closed shadow roots.
+      const md = await run(`await page.evaluate(() => {
+          document.body.innerHTML = '<div id="open"><span slot="b">Bee one</span> Text default <span>Elem default</span><span slot="b">Bee two</span><span slot="zz">Unplaced</span></div><div id="closed"><span slot="c">Closed bee</span></div>';
+          const open = document.getElementById("open").attachShadow({ mode: "open" });
+          open.innerHTML = '<p>A[<slot name="a">Fallback a</slot>]</p><p>B[<slot name="b"></slot>]</p><p>D[<slot></slot>]</p><p>B2[<slot name="b">never</slot>]</p><div id="inner"><span slot="n"><slot name="b2"></slot></span></div>';
+          const inner = open.getElementById("inner").attachShadow({ mode: "open" });
+          inner.innerHTML = '<p>N[<slot name="n"></slot>]</p>';
+          document.getElementById("open").insertAdjacentHTML("beforeend", '<span slot="b2">Nested bee</span>');
+          document.getElementById("closed").attachShadow({ mode: "closed" }).innerHTML = '<p>C[<slot name="c"></slot>]</p>';
+        });
+        console.log("@@" + JSON.stringify(await page.markdown()));`);
+      const text = JSON.parse(md.value).replace(/\s+/g, " ");
+      assert.match(text, /A\[Fallback a\]/);
+      assert.match(text, /B\[Bee one ?Bee two\]/);
+      assert.match(text, /D\[ ?Text default Elem default ?\]/);
+      assert.match(text, /B2\[never\]/);
+      assert.match(text, /N\[Nested bee\]/);
+      assert.match(text, /C\[Closed bee\]/);
+      assert.doesNotMatch(text, /Unplaced/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("snapshot: a slot's assigned nodes are read one at a time within the walk's budget, never listed whole", async () => {
+  // As the Markdown test above, for the snapshot walk: 5,000 slotted
+  // children and a budget of 1,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          window.__assigned = 0;
+          const native = HTMLSlotElement.prototype.assignedNodes;
+          HTMLSlotElement.prototype.assignedNodes = function (o) { const list = native.call(this, o); window.__assigned = Math.max(window.__assigned, list.length); return list; };
+          document.body.innerHTML = '<div id="host"></div>';
+          const host = document.getElementById("host");
+          host.innerHTML = '<button>b</button>'.repeat(5000);
+          host.attachShadow({ mode: "open" }).innerHTML = '<p><slot></slot></p>';
+        });`);
+      const r = await run(`await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__assigned)));`);
+      assert.ok(Number(r.value) <= 1000, `the snapshot listed ${r.value} assigned nodes at once with a budget of 1,000 nodes`);
+      const named = await run(`await page.evaluate(() => {
+          document.body.innerHTML = '<div id="h"><button slot="b">Bee one</button><button>Default one</button><button slot="b">Bee two</button><button slot="zz">Unplaced</button></div>';
+          document.getElementById("h").attachShadow({ mode: "open" }).innerHTML = '<div role="group" aria-label="A"><slot name="a"><button>Fallback a</button></slot></div><div role="group" aria-label="B"><slot name="b"></slot></div><div role="group" aria-label="D"><slot></slot></div>';
+        });
+        const s = await snapshot({ maxChars: Infinity });
+        console.log("@@" + JSON.stringify(s.tree.split("\\n").map((l) => l.trim()).filter((l) => /^- (group|button)/.test(l)).map((l) => l.replace(/ \\[ref=\\w+\\]/, "").replace(/:$/, ""))));`);
+      assert.deepEqual(JSON.parse(named.value), ['- group "A"', '- button "Fallback a"', '- group "B"', '- button "Bee one"', '- button "Bee two"', '- group "D"', '- button "Default one"']);
     });
   } finally {
     await servers.close();
