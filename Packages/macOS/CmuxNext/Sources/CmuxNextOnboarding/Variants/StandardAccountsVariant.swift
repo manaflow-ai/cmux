@@ -9,7 +9,7 @@ struct StandardAccounts: OnboardingScreenVariant {
     static let surface = OnboardingSurface.fullGlass
     static let transition = OnboardingTransition.crossfade
     static func makeContent(_ context: OnboardingStepContext) -> NSView {
-        OnboardingScaffold.make(title: OnboardingStrings.accountsTitle, subtitle: OnboardingStrings.accountsSubtitle,
+        OnboardingScaffold.make(title: OnboardingStrings.accountsTitle, subtitle: nil,
                                 body: context.services.makeAccountsStepView() ?? NSView(), context: context)
     }
 }
