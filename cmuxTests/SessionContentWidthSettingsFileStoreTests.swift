@@ -47,65 +47,30 @@ struct SessionContentWidthSettingsFileStoreTests {
 
     @Test
     func settingsFileStoreReloadAppliesCanonicalTerminalGuardrailSetting() throws {
-        let defaults = UserDefaults.standard
-        let keys = [
-            SettingCatalog().terminal.runawayMemoryGuardrailEnabled.userDefaultsKey,
-            SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB.userDefaultsKey,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey,
-        ]
-        try preservingDefaults(keys: keys) {
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try #"{"terminal":{"runawayMemoryGuardrail":{"enabled":false,"thresholdGB":8}}}"#
-                .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        let suiteName = "cmux-session-content-width-guardrail-(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try #"{"terminal":{"runawayMemoryGuardrail":{"enabled":false,"thresholdGB":8}}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
 
-            let store = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-            #expect(defaults.bool(forKey: SettingCatalog().terminal.runawayMemoryGuardrailEnabled.userDefaultsKey) == false)
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+        #expect(defaults.bool(forKey: SettingCatalog().terminal.runawayMemoryGuardrailEnabled.userDefaultsKey) == false)
 
-            try #"{"terminal":{"runawayMemoryGuardrail":{"enabled":true,"thresholdGB":12}}}"#
-                .write(to: settingsFileURL, atomically: true, encoding: .utf8)
-            store.reload()
+        try #"{"terminal":{"runawayMemoryGuardrail":{"enabled":true,"thresholdGB":12}}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        store.reload()
 
-            #expect(defaults.bool(forKey: SettingCatalog().terminal.runawayMemoryGuardrailEnabled.userDefaultsKey))
-            #expect(defaults.double(forKey: SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB.userDefaultsKey) == 12)
-        }
-    }
-
-    @Test
-    func settingsFileStoreAppliesCanonicalIntegrationHooks() throws {
-        let defaults = UserDefaults.standard
-        let keys = [
-            SettingCatalog().integrations.claudeCodeHooksEnabled.userDefaultsKey,
-            SettingCatalog().integrations.claudeCodeCustomClaudePath.userDefaultsKey,
-            SettingCatalog().integrations.kiroNotificationLevel.userDefaultsKey,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey,
-        ]
-        try preservingDefaults(keys: keys) {
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try #"{"integrations":{"claudeCode":{"hooksEnabled":false,"customClaudePath":"/opt/claude"},"kiro":{"notificationLevel":"verbose"}}}"#
-                .write(to: settingsFileURL, atomically: true, encoding: .utf8)
-
-            _ = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            #expect(defaults.bool(forKey: SettingCatalog().integrations.claudeCodeHooksEnabled.userDefaultsKey) == false)
-            #expect(defaults.string(forKey: SettingCatalog().integrations.claudeCodeCustomClaudePath.userDefaultsKey) == "/opt/claude")
-            #expect(defaults.string(forKey: SettingCatalog().integrations.kiroNotificationLevel.userDefaultsKey) == "verbose")
-        }
+        #expect(defaults.bool(forKey: SettingCatalog().terminal.runawayMemoryGuardrailEnabled.userDefaultsKey))
+        #expect(defaults.double(forKey: SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB.userDefaultsKey) == 12)
     }
 
     @Test

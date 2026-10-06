@@ -526,6 +526,29 @@ enum CmuxEmbeddedConfigSchema {
       "type": "string",
       "description": "Legacy name of a workspace command to run when creating a new workspace. Prefer ui.newWorkspace.action for new configs."
     },
+    "sleepyMode": {
+      "type": "object",
+      "title": "sleepyMode",
+      "description": "Sleepy Mode appearance and scene preferences.",
+      "additionalProperties": false,
+      "properties": {
+        "theme": { "type": "string", "enum": ["cmux", "blossom", "mint", "mono", "custom"], "default": "cmux" },
+        "mascot": { "type": "string", "enum": ["cmux", "cat", "ghost", "logoFace"], "default": "cmux" },
+        "glow": { "type": "string", "enum": ["black", "midnight", "cmux", "aurora", "sunset", "ocean", "custom"], "default": "black" },
+        "showMoon": { "type": "boolean", "default": true },
+        "showStars": { "type": "boolean", "default": true },
+        "showZs": { "type": "boolean", "default": true },
+        "showClock": { "type": "boolean", "default": true },
+        "showStatus": { "type": "boolean", "default": true },
+        "showPets": { "type": "boolean", "default": true },
+        "customFace": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "E0EDFF" },
+        "customCap": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "5CD6FF" },
+        "customBlush": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "FF99B5" },
+        "customInk": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "333D6B" },
+        "customLogo": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "6BDEFF" },
+        "customBackground": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$", "default": "060812" }
+      }
+    },
     "workspaceGroups": {
       "type": "object",
       "title": "workspaceGroups",

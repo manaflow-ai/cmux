@@ -1496,6 +1496,7 @@
 		CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
 		0025785C0AAC45F3A9C5A8C5 /* CmuxSettingsFileStore+AppSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95EC0379B5EE4AA18652FF31 /* CmuxSettingsFileStore+AppSection.swift */; };
 		A7984AC10000000000000001 /* CmuxSettingsFileStore+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AC10000000000000002 /* CmuxSettingsFileStore+Live.swift */; };
+		114F3214E95588E7F6681312 /* CmuxSettingsFileStore+SleepyModeSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36FABB797A3D46B70F073485 /* CmuxSettingsFileStore+SleepyModeSection.swift */; };
 		4A12A7AFA23E42DE80018D2E /* CmuxSettingsFileStore+SupportedPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E82BCF86114ACFBCB1B225 /* CmuxSettingsFileStore+SupportedPaths.swift */; };
 		D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */; };
 		CD0CFE5600000000CD0CFE56 /* CmuxSettingsUI in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */; };
@@ -5961,6 +5962,7 @@
 		C5A7E0A2 /* CmuxSettingActionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingActionRunner.swift; sourceTree = "<group>"; };
 		95EC0379B5EE4AA18652FF31 /* CmuxSettingsFileStore+AppSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+AppSection.swift"; sourceTree = "<group>"; };
 		A7984AC10000000000000002 /* CmuxSettingsFileStore+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+Live.swift"; sourceTree = "<group>"; };
+		36FABB797A3D46B70F073485 /* CmuxSettingsFileStore+SleepyModeSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+SleepyModeSection.swift"; sourceTree = "<group>"; };
 		33E82BCF86114ACFBCB1B225 /* CmuxSettingsFileStore+SupportedPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+SupportedPaths.swift"; sourceTree = "<group>"; };
 		D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsJSONPathSupport.swift; sourceTree = "<group>"; };
 		DC5DC5DC0000000000000002 /* CmuxSidebarActionDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSidebarActionDispatch.swift; sourceTree = "<group>"; };
@@ -11920,6 +11922,7 @@
 				9F63189EE1BF0052D9BDC241 /* WebKitBrowserReplDriver.swift */,
 				AC616BEADB26FE7A9AD00228 /* TerminalController+BrowserRepl.swift */,
 				A6C719FAEB13BCC9380A04CD /* Workspace+RestoredAgentNotifications.swift */,
+				36FABB797A3D46B70F073485 /* CmuxSettingsFileStore+SleepyModeSection.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14888,6 +14891,7 @@
 				C5A7E0A1 /* CmuxSettingActionRunner.swift in Sources */,
 				0025785C0AAC45F3A9C5A8C5 /* CmuxSettingsFileStore+AppSection.swift in Sources */,
 				A7984AC10000000000000001 /* CmuxSettingsFileStore+Live.swift in Sources */,
+				114F3214E95588E7F6681312 /* CmuxSettingsFileStore+SleepyModeSection.swift in Sources */,
 				4A12A7AFA23E42DE80018D2E /* CmuxSettingsFileStore+SupportedPaths.swift in Sources */,
 				D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */,
 				DC5DC5DC0000000000000001 /* CmuxSidebarActionDispatch.swift in Sources */,
