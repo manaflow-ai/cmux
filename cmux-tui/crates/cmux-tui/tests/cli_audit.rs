@@ -252,3 +252,38 @@ fn scope_help_shows_required_flags_and_selector_forms() {
     assert!(tab.contains("move --workspace"), "{tab}");
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+fn rename_takes_the_new_name_as_a_word_or_a_flag() {
+    let daemon = Daemon::start("rename");
+    let created = daemon.json(&["workspace", "create", "--name", "before"]);
+    let id = created["value"]["workspace_id"].as_str().unwrap().to_owned();
+    daemon.ok(&["workspace", &id, "rename", "after"]);
+    assert_eq!(daemon.json(&["workspace", &id, "show"])["name"], "after");
+    daemon.ok(&["workspace", "rename", "current-name"]);
+    assert_eq!(daemon.json(&["workspace", &id, "show"])["name"], "current-name");
+    daemon.ok(&["pane", "current", "rename", "left"]);
+    assert_eq!(daemon.json(&["pane", "current", "show"])["name"], "left");
+    daemon.ok(&["tab", "current", "rename", "shell"]);
+    assert_eq!(daemon.json(&["tab", "current", "show"])["name"], "shell");
+    let both = daemon.run(&["workspace", &id, "rename", "x", "--name", "y"]);
+    assert_eq!(both.status.code(), Some(2), "{}", text(&both.stderr));
+}
+
+#[test]
+fn rename_has_its_own_help() {
+    let dir = temp_dir("renamehelp");
+    for args in [
+        vec!["workspace", "rename", "--help"],
+        vec!["workspace", "ws_00000000000000000000000000000000", "rename", "--help"],
+        vec!["pane", "current", "rename", "--help"],
+    ] {
+        let output = cmux(&dir, &args);
+        assert!(output.status.success(), "{args:?}: {}", text(&output.stderr));
+        let help = text(&output.stdout);
+        assert!(help.contains("rename <name>"), "{args:?}: {help}");
+        assert!(help.contains("--name <name>"), "{args:?}: {help}");
+        assert!(!help.contains("layout apply"), "{args:?} printed the whole scope help: {help}");
+    }
+    let _ = fs::remove_dir_all(dir);
+}
