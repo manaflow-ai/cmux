@@ -6,12 +6,16 @@ extension AgentTabStore {
     /// content once shown; the reveal deadline). A tab's first web view
     /// (`WKProcessPool`, `AgentPaneView.init`) costs about 150 ms on the main
     /// thread and would delay the focused pane's terminal, so a tab outside
-    /// the focused pane waits; a focused tab, or a launch whose focus is not
-    /// known yet, makes its view at once. `show` runs once, when the content
-    /// arrives; the pane keeps what it shows (the launch snapshot) meanwhile.
+    /// the focused pane waits while that pane shows a terminal that will
+    /// draw (`focusedDraws`); a focused tab, a focused terminal whose host
+    /// ended, or a launch whose focus is not known yet makes its view at
+    /// once. `show` runs once, when the content arrives; the pane keeps what
+    /// it shows (the launch snapshot) meanwhile.
     func deferAtLaunch(_ key: String, reveal: LaunchReveal, focusedPane: String?, pane: String, focusedDraws: Bool,
                        show: @escaping @MainActor () -> Void) -> Bool {
-        guard !reveal.isReady(.pane), views[resolve(key)] == nil, let focusedPane, focusedPane != pane else { return false }
+        guard focusedDraws, !reveal.isReady(.pane), views[resolve(key)] == nil, let focusedPane, focusedPane != pane else {
+            return false
+        }
         guard launchDeferred.insert(key).inserted else { return true }
         reveal.whenReady(.pane) { [weak self] in
             self?.launchDeferred.remove(key)
