@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 class NamespaceLintTests(unittest.TestCase):
-    def lint(self, source, ratchet=None, update=False, fix=False):
+    def lint(self, source, ratchet=None, update=False, fix=False, files_from=None):
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as temporary:
             checkout = Path(temporary)
@@ -27,8 +27,15 @@ class NamespaceLintTests(unittest.TestCase):
             env.pop('NAMESPACE_RATCHET_UPDATE', None)
             if update:
                 env['NAMESPACE_RATCHET_UPDATE'] = '1'
+            args = ['bash', str(scripts / 'lint-ios-package-conventions.sh')]
+            if fix:
+                args.append('--namespace-fix')
+            if files_from is not None:
+                files_list = checkout / 'changed-files.txt'
+                files_list.write_text(''.join(f'{entry}\n' for entry in files_from))
+                args.extend(['--files-from', str(files_list)])
             result = subprocess.run(
-                ['bash', str(scripts / 'lint-ios-package-conventions.sh')] + (['--namespace-fix'] if fix else []),
+                args,
                 text=True, capture_output=True, timeout=30, env=env,
             )
             result.ratchet = ratchet_path.read_text() if ratchet_path.exists() else None
@@ -151,6 +158,17 @@ public struct Value {
         result = self.lint(source, fix=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('package init() {}', result.fixed_source)
+
+    def test_files_from_limits_the_namespace_fix_to_edited_files(self):
+        source = '''public enum Policy {
+    public static let enabled = true
+}
+'''
+        result = self.lint(source, fix=True, files_from=[
+            'Packages/iOS/CmuxMobileFixture/Sources/Fixture/Fixture.swift',
+        ])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('public struct Policy {', result.fixed_source)
 
 
 if __name__ == '__main__':

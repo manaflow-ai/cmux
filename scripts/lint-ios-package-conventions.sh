@@ -17,11 +17,17 @@
 set -uo pipefail
 
 NAMESPACE_FIX=()
+FILES_FROM=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --namespace-fix) NAMESPACE_FIX=(--fix); shift ;;
+    --files-from)
+      [ "$#" -ge 2 ] || { echo "error: --files-from needs a path" >&2; exit 2; }
+      FILES_FROM="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "usage: $0 [--namespace-fix]"
+      echo "usage: $0 [--namespace-fix] [--files-from PATH]"
       exit 0
       ;;
     *) echo "error: unknown option: $1" >&2; exit 2 ;;
@@ -30,6 +36,20 @@ done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+TARGET_FILES=()
+if [ -n "$FILES_FROM" ]; then
+  [ -f "$FILES_FROM" ] || { echo "error: files-from list does not exist: $FILES_FROM" >&2; exit 2; }
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      Packages/*.swift) [ -f "$path" ] || { echo "error: file does not exist: $path" >&2; exit 2; } ;;
+      *) echo "error: scoped lint only accepts Packages/*.swift: $path" >&2; exit 2 ;;
+    esac
+    TARGET_FILES+=("$path")
+  done < "$FILES_FROM"
+  [ "${#TARGET_FILES[@]}" -gt 0 ] || exit 0
+fi
 
 BASELINE_FILE="scripts/lint-ios-package-conventions-baseline.txt"
 SCOPES=()
@@ -65,6 +85,8 @@ carveout_ok() { # file lineno — carve-out classes may also justify inline
 
 scan() { # rule severity pattern carveout(0/1) pathspec...
   local rule="$1" sev="$2" pat="$3" carve="$4"; shift 4
+  local paths=("$@")
+  if [ -n "$FILES_FROM" ]; then paths=("${TARGET_FILES[@]}"); fi
   while IFS=: read -r f n text; do
     [ -z "$f" ] && continue
     case "$f" in */Tests/*|*Tests.swift|*/.build/*) continue ;; esac
@@ -75,7 +97,7 @@ scan() { # rule severity pattern carveout(0/1) pathspec...
     if report "$rule" "$sev" "$f" "$n" "$(echo "$text" | sed 's/^[[:space:]]*//' | cut -c1-90)"; then
       [ "$sev" = ERROR ] && fail=1
     fi
-  done < <(grep -rnE "$pat" "$@" --include='*.swift' --exclude-dir=.build 2>/dev/null)
+  done < <(grep -nHE "$pat" "${paths[@]}" 2>/dev/null)
 }
 
 echo "== singletons (no shared-singleton accessors) =="
@@ -108,12 +130,17 @@ NS_TYPE_ROOTS=()
 for d in Packages/*/*/Sources ios/cmux; do
   [ -d "$d" ] && NS_TYPE_ROOTS+=("$d")
 done
+NAMESPACE_FILES=()
+if [ -n "$FILES_FROM" ]; then
+  NAMESPACE_FILES=(--files-from "$FILES_FROM")
+fi
 if ! python3 scripts/lint_swift_namespaces.py \
   --baseline scripts/lint-namespace-types-baseline.txt \
   --general-baseline "$BASELINE_FILE" \
   --ratchet scripts/lint-namespace-types-ratchet.txt \
   ${NAMESPACE_RATCHET_UPDATE:+--update-ratchet} \
   "${NAMESPACE_FIX[@]}" \
+  "${NAMESPACE_FILES[@]}" \
   --enum-roots "${SCOPES[@]}" \
   --type-roots "${NS_TYPE_ROOTS[@]}"; then
   fail=1
