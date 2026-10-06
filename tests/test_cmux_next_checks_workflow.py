@@ -246,6 +246,20 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn("git apply \"$patch\"", run)
         self.assertIn("git add", run)
 
+    def test_the_tree_gate_pins_an_unpublished_tree_itself(self):
+        """Publisher run 37505519359 failed and its retry was replaced by a newer push; lanes
+        pushed cmux-tui-pin-* branches by hand until the gate does it (pin-cmux-tui.sh)."""
+        gate = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["same-tree-cmux-tui"]
+        self.assertEqual(gate["permissions"], {"actions": "write", "contents": "write"})
+        wait = next(step for step in gate["steps"] if step.get("id") == "wait")
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", wait["env"]["CMUX_TUI_TREE_AUTOPIN"])
+        self.assertEqual(wait["env"]["CMUX_TUI_TREE_RUN_CHECK_SECONDS"], "120")
+        # A pull request watches its base commit, the merge's first parent.
+        self.assertIn('CMUX_TUI_TREE_PUBLISHER_SHA="$(git rev-parse HEAD^1)"', wait["run"])
+        self.assertIn("scripts/cmux-next/pin-cmux-tui.sh wait", wait["run"])
+        checkout = gate["steps"][0]
+        self.assertGreaterEqual(checkout["with"]["fetch-depth"], 2)
+
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         attribution = jobs["push-attribution"]
