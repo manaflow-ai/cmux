@@ -617,3 +617,30 @@ test("download.path waits for the download.finished event, so state read after i
   assert.equal(await path, "/downloads/report.txt");
   assert.equal(download._outcome.path, "/downloads/report.txt");
 });
+
+// The wait for download.finished in Download.path() is bounded (owner,
+// 2026-10-06): a finished event that never comes fails the call with
+// `timeout` and names the download, never a hang.
+test("download.path fails with timeout, naming the download, when download.finished never comes", async () => {
+  const listeners = new Map();
+  const timers = [];
+  const host = { setTimeout: (fn) => (timers.push(fn), timers.length), clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method) => (method === "download.path" ? { path: "/downloads/report.txt" } : null),
+    on: (event, handler) => (listeners.set(event, handler), () => {}),
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  let download = null;
+  page.on("download", (d) => (download = d));
+  listeners.get("download.started")({ targetId: "t1", downloadId: "g1", url: "https://example.com/r", suggestedFilename: "report.txt" });
+  const path = download.path();
+  path.catch(() => {});
+  assert.equal(await settledState(path), "pending");
+  timers.splice(0).forEach((fn) => fn());
+  const state = await settledState(path);
+  assert.match(state, /^failed: .*report\.txt/, state);
+  const error = await path.then(() => null, (e) => e);
+  assert.equal(error.code, "timeout");
+});

@@ -5,9 +5,9 @@ import Foundation
 /// writes the Chief home's through the store, never its database file.
 protocol ChiefMemoryTool: Sendable {
     /// `memory export --text DIR`: the memory as JSONL day files (main/, tree/).
-    nonisolated func exportText(muxHome: URL, to directory: URL) throws
+    nonisolated func exportText(muxHome: URL, to directory: URL) async throws
     /// `memory import DIR`: JSONL day files into an empty memory (host stopped).
-    nonisolated func importText(muxHome: URL, from directory: URL) throws
+    nonisolated func importText(muxHome: URL, from directory: URL) async throws
 }
 
 /// The `optchat-chief` this build bundles (Contents/Resources/bin).
@@ -21,25 +21,35 @@ nonisolated struct BundledChiefMemoryTool: ChiefMemoryTool {
         return BundledChiefMemoryTool(executable: path)
     }
 
-    func exportText(muxHome: URL, to directory: URL) throws {
-        try run(["memory", "export", "--text", directory.path, "--mux-home", muxHome.path])
+    func exportText(muxHome: URL, to directory: URL) async throws {
+        try await run(["memory", "export", "--text", directory.path, "--mux-home", muxHome.path])
     }
 
-    func importText(muxHome: URL, from directory: URL) throws {
-        try run(["memory", "import", "--mux-home", muxHome.path, directory.path])
+    func importText(muxHome: URL, from directory: URL) async throws {
+        try await run(["memory", "import", "--mux-home", muxHome.path, directory.path])
     }
 
-    private func run(_ arguments: [String]) throws {
+    /// Runs the tool to its exit without blocking a thread: the exit
+    /// resumes the caller; its error output goes to a scratch file.
+    @concurrent private func run(_ arguments: [String]) async throws {
+        let errors = FileManager.default.temporaryDirectory.appendingPathComponent("optchat-chief-\(UUID().uuidString).err")
+        FileManager.default.createFile(atPath: errors.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: errors) }
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
-        let errors = Pipe()
-        process.standardError = errors
         process.standardOutput = FileHandle.nullDevice
-        try process.run()
-        process.waitUntilExit()
+        process.standardError = try FileHandle(forWritingTo: errors)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            process.terminationHandler = { _ in continuation.resume() }
+            do { try process.run() } catch {
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
+        }
         guard process.terminationStatus == 0 else {
-            let text = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            // concurrency-allow: @concurrent: runs on the global executor, never the main actor
+            let text = (try? String(contentsOf: errors, encoding: .utf8)) ?? ""
             throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: "optchat-chief \(arguments.prefix(2).joined(separator: " ")): \(text)"])
         }
     }
