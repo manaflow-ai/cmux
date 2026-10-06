@@ -118,6 +118,7 @@ const OBSERVE_METHODS: &[&str] = &[
     "frame.contentFrame",
     "frame.contentFrames",
     "frame.ownerBox",
+    "frame.focused",
 ];
 
 fn lease_refusal(method: &str, error: LeaseError) -> DriverError {

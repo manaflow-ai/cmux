@@ -214,6 +214,7 @@ impl Driver for CdpDriver {
             "frame.contentFrame" => inner.content_frame(params),
             "frame.contentFrames" => inner.content_frames(params),
             "frame.ownerBox" => inner.owner_box(params),
+            "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.mouse(params),
             "input.key" => inner.key(params),
             "input.insertText" => inner.insert_text(params),
