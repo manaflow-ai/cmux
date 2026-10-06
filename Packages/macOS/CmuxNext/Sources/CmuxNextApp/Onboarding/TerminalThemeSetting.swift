@@ -33,6 +33,8 @@ final class TerminalThemeSetting {
     }
 
     private var applied: State?
+    /// Reloads the Ghostty config with the overrides (tests count it).
+    var reload: () -> Void = { GhosttyRuntime.shared.reloadConfig() }
     private var observation: Task<Void, Never>?
 
     /// Applies the loaded settings at once (launch loads them before the
@@ -57,6 +59,10 @@ final class TerminalThemeSetting {
                     terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal))
     }
 
+    /// Puts `snapshot`'s appearance on the Ghostty overrides before the
+    /// runtime starts, so its first config load already has them.
+    static func prime(_ snapshot: CmuxConfigSnapshot) {}
+
     /// The review tool's light/dark preview: Ghostty's Apple System Colors
     /// (dark) or Apple System Colors Light, in memory only (nil: back to the
     /// configured theme). Never writes cmux.json.
@@ -76,6 +82,6 @@ final class TerminalThemeSetting {
         GhosttyRuntime.backgroundOverride = state.background
         GhosttyRuntime.terminalBackgroundOverridden = state.terminalOverridden
         // At launch with no overrides the config already loaded as is.
-        if !(first && state == State(theme: nil, font: .init(), background: .init())) { GhosttyRuntime.shared.reloadConfig() }
+        if !(first && state == State(theme: nil, font: .init(), background: .init())) { reload() }
     }
 }
