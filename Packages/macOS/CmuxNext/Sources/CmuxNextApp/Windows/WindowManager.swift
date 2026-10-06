@@ -187,7 +187,7 @@ final class WindowManager {
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        if services.daemon.store.workspaces.contains(where: { !leftover.contains($0.id) && !$0.ephemeral }) == false {
+        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
             _ = await createWorkspace()
         }
         let restoredRegistry = WindowRegistry(records: document.windows)

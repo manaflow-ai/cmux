@@ -74,7 +74,11 @@ impl Inner {
         deadline: Instant,
     ) -> Result<Context, DriverError> {
         let key = (frame_id.to_owned(), world);
-        let grace = (Instant::now() + CONTEXT_GRACE).min(deadline);
+        // A fetch shell never reports the host world (nothing creates it
+        // but the host): look once, then create it, without the grace.
+        let shell_host = world == World::Host && self.lock().is_hidden(&session.target_id);
+        let grace = if shell_host { Instant::now() } else { Instant::now() + CONTEXT_GRACE };
+        let grace = grace.min(deadline);
         let known = self.wait_for(&session.target_id, grace, "the frame's script context", |tab| {
             tab.contexts
                 .get(&key)
