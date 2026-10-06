@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextServer
 
 /// The Mac server's menu bar item (plans/cmux-next/server.md 3 and 14).
