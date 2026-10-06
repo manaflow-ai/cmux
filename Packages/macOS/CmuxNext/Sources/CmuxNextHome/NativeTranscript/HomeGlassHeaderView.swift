@@ -1,16 +1,20 @@
 import AppKit
 import CmuxHomeCore
 
-/// The conversation header over the transcript: one flat bar in the page
-/// colour with the other participant's avatar (a true circle) beside the
-/// name. Rows scroll under it (`HomeController.topInset`) and end at its
-/// edge; it draws no border, glass or pill, so it reads as part of the page
-/// rather than a strip laid over it. The Chief's avatar is a glyph on the
+/// The conversation header over the transcript: the other participant's
+/// avatar (a true circle) beside the name, on the page's own fill. Rows
+/// scroll under it (`HomeController.topInset`) and end at its edge. Over a
+/// see-through page (window backdrop art) the fill is a fade from the page
+/// colour to clear instead, so no hard-edged bar sits on the art. It draws
+/// no border, glass or pill, so it reads as part of the page rather than a
+/// strip laid over it. The Chief's avatar is a glyph on the
 /// theme highlight (its ANSI blue), not a letter; other participants show their initials.
 /// The name opens nothing, so it is plain text, not a button.
 final class HomeGlassHeaderView: NSView {
-    /// The opaque page-coloured fill (rows under it never show through).
+    /// The page-coloured fill: solid on an opaque page, else `fade`.
     let backdrop = NSView()
+    /// Page colour at the top to clear at the bottom (see-through pages).
+    let fade = CAGradientLayer()
     let avatar = NSTextField(labelWithString: "")
     /// The Chief's glyph, shown instead of the initials.
     let avatarGlyph = NSImageView()
@@ -26,10 +30,16 @@ final class HomeGlassHeaderView: NSView {
     static let avatarSize: CGFloat = 26
     static let avatarGap: CGFloat = 8
     static let chiefSymbol = "sparkle"
+    /// The fade's opacity at the top edge over a see-through page.
+    static let fadeTopAlpha: CGFloat = 0.85
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         backdrop.wantsLayer = true
+        fade.startPoint = CGPoint(x: 0.5, y: 0)
+        fade.endPoint = CGPoint(x: 0.5, y: 1)
+        fade.actions = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull()]
+        backdrop.layer?.addSublayer(fade)
         addSubview(backdrop)
         avatarDisc.wantsLayer = true
         avatarDisc.layer?.cornerRadius = Self.avatarSize / 2
@@ -66,10 +76,14 @@ final class HomeGlassHeaderView: NSView {
     }
 
     /// Colours from the theme (caller runs inside `performWithTheme`): the
-    /// page fill, the name and initials in `text`, and the Chief's glyph in
-    /// `accent` on a faint disc of it (a person's disc is `disc`).
-    func applyColors(disc: NSColor, text: NSColor, page: NSColor, accent: NSColor) { // theme-scoped
-        backdrop.layer?.backgroundColor = page.withAlphaComponent(1).cgColor
+    /// page fill (a fade of it when the page is `seeThrough`), the name and
+    /// initials in `text`, and the Chief's glyph in `accent` on a faint disc
+    /// of it (a person's disc is `disc`).
+    func applyColors(disc: NSColor, text: NSColor, page: NSColor, seeThrough: Bool, accent: NSColor) { // theme-scoped
+        let solid = page.withAlphaComponent(1)
+        backdrop.layer?.backgroundColor = seeThrough ? nil : solid.cgColor
+        fade.isHidden = !seeThrough
+        fade.colors = [solid.withAlphaComponent(Self.fadeTopAlpha).cgColor, solid.withAlphaComponent(0).cgColor]
         personDisc = disc
         accentDisc = accent.withAlphaComponent(0.2)
         paintDisc()
@@ -85,8 +99,14 @@ final class HomeGlassHeaderView: NSView {
     override func layout() {
         super.layout()
         backdrop.frame = bounds
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fade.frame = backdrop.bounds
+        CATransaction.commit()
         let s = Self.avatarSize
-        let nameWidth = min(ceil(name.intrinsicContentSize.width), max(0, bounds.width - 32 - s - Self.avatarGap))
+        // Measured from the text: a truncating label reports no intrinsic width.
+        let textWidth = ceil(name.attributedStringValue.size().width) + 4
+        let nameWidth = min(textWidth, max(0, bounds.width - 32 - s - Self.avatarGap))
         let rowWidth = s + (nameWidth > 0 ? Self.avatarGap + nameWidth : 0)
         let disc = CGRect(x: ((bounds.width - rowWidth) / 2).rounded(), y: ((bounds.height - s) / 2).rounded(), width: s, height: s)
         avatarDisc.frame = disc

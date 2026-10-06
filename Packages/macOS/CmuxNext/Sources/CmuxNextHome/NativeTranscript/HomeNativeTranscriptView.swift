@@ -237,11 +237,13 @@ public final class HomeNativeTranscriptView: NSView {
         controller.palette = performWithTheme { HomeThemePalette.resolveInScope(active: active, accentOverride: accent) }
         performWithTheme {
             // The header takes the transcript's own fill, so the two read as
-            // one page; a see-through fill (window backdrop art) falls back
-            // to the opaque page colour so rows never show under the name.
+            // one page; over a see-through fill (window backdrop art) it fades
+            // from the opaque page colour so no bar edge sits on the art.
             let home = Palette.fill(for: .home, default: Palette.paneFill)
+            let seeThrough = home.alphaComponent < 1
             header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary,
-                               page: home.alphaComponent >= 1 ? home : Palette.pageBackground, accent: Palette.highlight)
+                               page: seeThrough ? Palette.pageBackground : home, seeThrough: seeThrough,
+                               accent: Palette.highlight)
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
             field.applyColors(fill: Palette.elevatedBackground, border: Palette.separator,
                               text: Palette.textPrimary, secondary: Palette.textTertiary)
