@@ -6,6 +6,108 @@
 
 namespace cmux::raw {
 
+Result<Json> Codec<ActivitySnapshot>::encode(const ActivitySnapshot& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_attached_clients = encode_value(value.attached_clients);
+    if (!encoded_attached_clients) return std::move(encoded_attached_clients).error();
+    object.emplace("attached_clients", std::move(encoded_attached_clients).value());
+    if (value.last_agent_action_at_ms) {
+        auto encoded = encode_value(*value.last_agent_action_at_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_agent_action_at_ms", std::move(encoded).value());
+    } else {
+        object.emplace("last_agent_action_at_ms", Json(nullptr));
+    }
+    if (value.last_user_input_at_ms) {
+        auto encoded = encode_value(*value.last_user_input_at_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_user_input_at_ms", std::move(encoded).value());
+    } else {
+        object.emplace("last_user_input_at_ms", Json(nullptr));
+    }
+    auto encoded_live_agents = encode_value(value.live_agents);
+    if (!encoded_live_agents) return std::move(encoded_live_agents).error();
+    object.emplace("live_agents", std::move(encoded_live_agents).value());
+    return Json(std::move(object));
+}
+
+Result<ActivitySnapshot> Codec<ActivitySnapshot>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ActivitySnapshot result{};
+    const Json* field_attached_clients = value.find("attached_clients");
+    if (!field_attached_clients) {
+        return make_error(ErrorCode::decode, "missing required field 'attached_clients'");
+    }
+    if (field_attached_clients) {
+        auto decoded = decode_value<std::uint32_t>(*field_attached_clients);
+        if (!decoded) return std::move(decoded).error();
+        result.attached_clients = std::move(decoded).value();
+    }
+    const Json* field_last_agent_action_at_ms = value.find("last_agent_action_at_ms");
+    if (!field_last_agent_action_at_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'last_agent_action_at_ms'");
+    }
+    if (field_last_agent_action_at_ms) {
+        if (field_last_agent_action_at_ms->is_null()) {
+            result.last_agent_action_at_ms.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_last_agent_action_at_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.last_agent_action_at_ms = std::move(decoded).value();
+        }
+    }
+    const Json* field_last_user_input_at_ms = value.find("last_user_input_at_ms");
+    if (!field_last_user_input_at_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'last_user_input_at_ms'");
+    }
+    if (field_last_user_input_at_ms) {
+        if (field_last_user_input_at_ms->is_null()) {
+            result.last_user_input_at_ms.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_last_user_input_at_ms);
+            if (!decoded) return std::move(decoded).error();
+            result.last_user_input_at_ms = std::move(decoded).value();
+        }
+    }
+    const Json* field_live_agents = value.find("live_agents");
+    if (!field_live_agents) {
+        return make_error(ErrorCode::decode, "missing required field 'live_agents'");
+    }
+    if (field_live_agents) {
+        auto decoded = decode_value<std::uint32_t>(*field_live_agents);
+        if (!decoded) return std::move(decoded).error();
+        result.live_agents = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ActivitySubscribeResult>::encode(const ActivitySubscribeResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_activity = encode_value(value.activity);
+    if (!encoded_activity) return std::move(encoded_activity).error();
+    object.emplace("activity", std::move(encoded_activity).value());
+    return Json(std::move(object));
+}
+
+Result<ActivitySubscribeResult> Codec<ActivitySubscribeResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ActivitySubscribeResult result{};
+    const Json* field_activity = value.find("activity");
+    if (!field_activity) {
+        return make_error(ErrorCode::decode, "missing required field 'activity'");
+    }
+    if (field_activity) {
+        auto decoded = decode_value<ActivitySnapshot>(*field_activity);
+        if (!decoded) return std::move(decoded).error();
+        result.activity = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<AgentRecord>::encode(const AgentRecord& value) {
     (void)value;
     Json::Object object;
@@ -24649,6 +24751,19 @@ Result<SubscribeRequest> Codec<SubscribeRequest>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<SubscribeActivityRequest>::encode(const SubscribeActivityRequest& value) {
+    (void)value;
+    Json::Object object;
+    return Json(std::move(object));
+}
+
+Result<SubscribeActivityRequest> Codec<SubscribeActivityRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SubscribeActivityRequest result{};
+    return result;
+}
+
 Result<Json> Codec<SwapPaneRequest>::encode(const SwapPaneRequest& value) {
     (void)value;
     Json::Object object;
@@ -26197,6 +26312,41 @@ Result<ZoomPaneRequest> Codec<ZoomPaneRequest>::decode(const Json& value) {
             auto decoded = decode_value<Id>(*field_pane);
             if (!decoded) return std::move(decoded).error();
             result.pane = Field<Id>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<ActivityChangedEvent>::encode(const ActivityChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("activity-changed")));
+    auto encoded_activity = encode_value(value.activity);
+    if (!encoded_activity) return std::move(encoded_activity).error();
+    object.emplace("activity", std::move(encoded_activity).value());
+    return Json(std::move(object));
+}
+
+Result<ActivityChangedEvent> Codec<ActivityChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ActivityChangedEvent result{};
+    const Json* field_activity = value.find("activity");
+    if (!field_activity) {
+        return make_error(ErrorCode::decode, "missing required field 'activity'");
+    }
+    if (field_activity) {
+        auto decoded = decode_value<ActivitySnapshot>(*field_activity);
+        if (!decoded) return std::move(decoded).error();
+        result.activity = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("activity-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
         }
     }
     return result;
@@ -32243,6 +32393,11 @@ Result<Json> Codec<Event>::encode(const Event& value) {
 Result<Event> Codec<Event>::decode(const Json& value) {
     auto name = require_string(value, "event");
     if (!name) return std::move(name).error();
+    if (name.value() == "activity-changed") {
+        auto decoded = decode_value<ActivityChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "agent-changed") {
         auto decoded = decode_value<AgentChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -32751,7 +32906,7 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand198FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandMetadata, 228> kCommands{{
+constexpr std::array<CommandMetadata, 229> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -32951,6 +33106,7 @@ constexpr std::array<CommandMetadata, 228> kCommands{{
     {"snapshot-request", "frontend", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand197FieldRequirements)},
     {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand198FieldRequirements)},
+    {"subscribe-activity", "local-admin", 12U, "vm-activity-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-clipboard-reply", "frontend", 12U, "terminal-clipboard-read-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-clipboard-subscribe", "frontend", 12U, "terminal-clipboard-read-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
@@ -32981,7 +33137,8 @@ constexpr std::array<CommandMetadata, 228> kCommands{{
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 66> kEvents{{
+constexpr std::array<EventMetadata, 67> kEvents{{
+    {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},
@@ -35253,6 +35410,15 @@ Result<EventStream> Client::subscribe(
     auto parameters = encoded.value().as_object();
     if (!parameters) return std::move(parameters).error();
     return open_event_stream("subscribe", *parameters.value(), "", options);
+}
+
+Result<EventStream> Client::subscribe_activity(
+    const SubscribeActivityRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    return open_event_stream("subscribe-activity", *parameters.value(), "", options);
 }
 
 Result<EmptyResult> Client::swap_pane(

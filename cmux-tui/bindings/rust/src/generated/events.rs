@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326.
+// cmux-tui mux protocol 12, IR 6a8683d848449d95fc36bb1e5c5391547842520c0e3104bb8c7b82fe24b5b935.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -8,6 +8,12 @@ use crate::{EventMetadata, Nullable, Optional};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ActivityChangedEvent {
+    pub activity: T::ActivitySnapshot,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -718,6 +724,7 @@ pub struct UnknownEvent {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
+    ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
@@ -791,6 +798,7 @@ pub enum Event {
 impl Event {
     pub fn wire_name(&self) -> Option<&str> {
         match self {
+            Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
@@ -863,6 +871,7 @@ impl Event {
 
     pub fn metadata(&self) -> Option<&'static EventMetadata> {
         match self {
+            Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
@@ -938,6 +947,14 @@ impl Event {
 pub fn decode_event(raw: Value) -> Event {
     let name = raw.get("event").and_then(Value::as_str).map(str::to_owned);
     match name.as_deref() {
+        Some("activity-changed") => match serde_json::from_value::<ActivityChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ActivityChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
