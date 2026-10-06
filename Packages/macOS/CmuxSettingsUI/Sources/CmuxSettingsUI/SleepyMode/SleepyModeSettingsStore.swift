@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import CmuxSettings
 
 /// Persisted, observable Sleepy Mode preferences. The renderer reads
@@ -53,6 +54,10 @@ public final class SleepyModeSettingsStore {
 
     private let defaults: UserDefaults
     private let configStore: JSONConfigStore?
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "SleepyModeSettingsStore",
+        category: "SleepyModeSettingsStore"
+    )
     private var applyingDefaults = false
     private var defaultsObserver: NSObjectProtocol?
 
@@ -149,13 +154,25 @@ public final class SleepyModeSettingsStore {
         defaults.set(value, forKey: key)
         guard !applyingDefaults, let configStore else { return }
         let jsonKey = JSONKey<String>(id: key, defaultValue: "")
-        Task { try? await configStore.set(value, for: jsonKey) }
+        Task {
+            do {
+                try await configStore.set(value, for: jsonKey)
+            } catch {
+                logger.error("Failed to persist Sleepy Mode setting \(key, privacy: .public): \(error.localizedDescription, privacy: .private)")
+            }
+        }
     }
 
     private func persist(_ value: Bool, _ key: String) {
         defaults.set(value, forKey: key)
         guard !applyingDefaults, let configStore else { return }
         let jsonKey = JSONKey<Bool>(id: key, defaultValue: false)
-        Task { try? await configStore.set(value, for: jsonKey) }
+        Task {
+            do {
+                try await configStore.set(value, for: jsonKey)
+            } catch {
+                logger.error("Failed to persist Sleepy Mode setting \(key, privacy: .public): \(error.localizedDescription, privacy: .private)")
+            }
+        }
     }
 }

@@ -1879,6 +1879,38 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         _ = store
     }
 
+    func testSleepyModeMalformedSectionPreservesLastGoodValues() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cmux-sleepy-invalid-\(UUID().uuidString)"))
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("cmux.json")
+        try writeSettingsFile(
+            "{ \"sleepyMode\": { \"theme\": \"mint\" } }",
+            to: url
+        )
+        let invalid = expectation(description: "malformed sleepy mode is reported")
+        var didReport = false
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: url.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: true,
+            onConfigurationIssue: { messages in
+                if !didReport, messages.contains(where: { $0.contains("sleepyMode") }) {
+                    didReport = true
+                    invalid.fulfill()
+                }
+            }
+        )
+        XCTAssertEqual(defaults.string(forKey: "sleepyMode.theme"), "mint")
+
+        try writeSettingsFile("{ \"sleepyMode\": null }", to: url)
+        wait(for: [invalid], timeout: 3)
+        XCTAssertEqual(defaults.string(forKey: "sleepyMode.theme"), "mint")
+        _ = store
+    }
+
     func testWatcherPreservesLastGoodSettingsAcrossInvalidEditAndRecoversAfterDeleteRecreate() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
