@@ -207,6 +207,14 @@ impl HeadlessSource {
             && let Some(target) = event.payload.get("targetId").and_then(Value::as_str)
         {
             self.driven.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
+            // A closed tab takes its automation lease with it (as the app's
+            // tab.gone does): the table stays bounded.
+            let gone = LeaseOp::TargetGone { target: target.to_owned() };
+            let _ = self.leases.lock().unwrap_or_else(PoisonError::into_inner).apply(
+                &gone,
+                &LeaseCaller::default(),
+                0,
+            );
         }
         let route = self.routes().route(&event, &attached);
         match route {
