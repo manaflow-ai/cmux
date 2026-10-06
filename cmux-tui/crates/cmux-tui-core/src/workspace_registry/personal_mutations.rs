@@ -762,6 +762,8 @@ impl WorkspaceRegistry {
             )?;
         }
         if let Some(index) = update.index {
+            // Groups keep their slot among the other workspaces (mixed order).
+            let slots = mixed_order::group_slots(tx, Some((session, key)))?;
             let rows = read_workspaces(tx)?;
             let mut order = rows
                 .iter()
@@ -777,6 +779,7 @@ impl WorkspaceRegistry {
                     params![s, k, i64::try_from(position)?],
                 )?;
             }
+            mixed_order::restore_group_slots(tx, &slots, Some((session, key)))?;
         }
         crate::state::home_store::require_home_first(tx)?;
         let after = find(&read_workspaces(tx)?)

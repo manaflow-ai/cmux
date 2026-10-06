@@ -89,6 +89,21 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
            PRIMARY KEY(session_id, terminal_key)
          );",
     )?;
+    add_group_top_position(transaction)?;
+    Ok(())
+}
+
+/// `personal_groups.top_position` (`personal-mixed-order-v1`): a group's
+/// slot in the personal workspace order; NULL is after every loose
+/// workspace. Added in place to older registries (additive, no schema
+/// version bump).
+fn add_group_top_position(connection: &Connection) -> anyhow::Result<()> {
+    let present = connection
+        .prepare("SELECT 1 FROM pragma_table_info('personal_groups') WHERE name = 'top_position'")?
+        .exists([])?;
+    if !present {
+        connection.execute_batch("ALTER TABLE personal_groups ADD COLUMN top_position INTEGER")?;
+    }
     Ok(())
 }
 
@@ -501,8 +516,13 @@ pub(crate) fn read_pins(connection: &Connection) -> anyhow::Result<Vec<PersonalP
 }
 
 pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<PersonalGroup>> {
+    // A slot is the index of the first personal workspace at or after it
+    // (tie rule: a group before a workspace on the same position).
     let mut statement = connection.prepare(
-        "SELECT group_id, profile_id, name, color, collapsed FROM personal_groups
+        "SELECT group_id, profile_id, name, color, collapsed,
+                CASE WHEN top_position IS NULL THEN NULL ELSE
+                  (SELECT COUNT(*) FROM personal_workspaces AS w WHERE w.position < g.top_position) END
+         FROM personal_groups AS g
          ORDER BY position ASC, group_id ASC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -512,11 +532,13 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
             row.get::<_, String>(2)?,
             row.get::<_, Option<String>>(3)?,
             row.get::<_, i64>(4)?,
+            row.get::<_, Option<i64>>(5)?,
         ))
     })?;
     let mut groups = Vec::new();
     for (index, row) in rows.enumerate() {
-        let (id, profile, name, color, collapsed) = row?;
+        let (id, profile, name, color, collapsed, top) = row?;
+        let top_index = top.map(usize::try_from).transpose()?;
         groups.push(PersonalGroup {
             id,
             profile,
@@ -524,7 +546,7 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
             color,
             collapsed: collapsed != 0,
             index,
-            top_index: None,
+            top_index,
         });
     }
     Ok(groups)

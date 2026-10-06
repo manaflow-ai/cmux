@@ -258,7 +258,11 @@ pub(crate) fn require_home_first(connection: &Connection) -> anyhow::Result<()> 
         return Ok(());
     };
     let first_ungrouped = rows.iter().position(|row| row.group.is_none());
-    if rows[home].group.is_none() && first_ungrouped == Some(home) {
+    // Mixed order: no group slot before Home either.
+    let group_before = crate::workspace_registry::personal_store::read_groups(connection)?
+        .iter()
+        .any(|group| group.top_index.is_some_and(|top| top <= home));
+    if rows[home].group.is_none() && first_ungrouped == Some(home) && !group_before {
         Ok(())
     } else {
         Err(HomeRule::new(HomeRuleKind::PinnedFirst, workspace).into())
