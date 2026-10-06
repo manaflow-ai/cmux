@@ -183,10 +183,7 @@ fn a_full_store_evicts_the_oldest_unsent_upload_then_refuses_with_storage_full()
     let error =
         store.attachment_begin(1, "user_local", &conversation, &declaration(d)).unwrap_err();
     assert_eq!(error.to_string(), "storage_full");
-    assert_eq!(
-        error.downcast_ref::<AttachmentRejected>().map(|r| r.0),
-        Some("storage_full")
-    );
+    assert_eq!(error.downcast_ref::<AttachmentRejected>().map(|r| r.0), Some("storage_full"));
 }
 
 #[test]
