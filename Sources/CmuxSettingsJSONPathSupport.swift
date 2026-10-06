@@ -8,6 +8,17 @@ import Foundation
 // viewer paths when the generated all-keys reference is unavailable.
 private enum SettingsJSONPathFallbackCatalog {
     static let viewerPaths = [
+        "account.piiDisplayMode",
+        "devices.discovery.enabled",
+        "devices.incomingAccess.enabled",
+        "devices.sidebar.hiddenMacIDs",
+        "mobile.phonePush.forwardingEnabled",
+        "mobile.phonePush.mode",
+        "mobile.phonePush.hideContent",
+        "mobile.iOSPairingHost.enabled",
+        "mobile.iOSPairingHost.port",
+        "mobile.iOSPairingHost.displayName",
+        "workspaceGroups.anchorCloseSuppressed",
         "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
         "app.preferredEditor",

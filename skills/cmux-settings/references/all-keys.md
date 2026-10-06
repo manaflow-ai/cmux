@@ -4,6 +4,24 @@ Hand-maintained from `web/data/cmux.schema.json` and known to lag it. The schema
 authoritative; `cmux-settings list-supported` enumerates what the helper accepts. For the
 rendered docs, see `https://cmux.com/docs/configuration`.
 
+## account
+
+Local account privacy preferences.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `account.piiDisplayMode` | `"visible"` or `"hidden"` | `"visible"` | Show or redact personally identifying account metadata in cmux. |
+
+## devices
+
+Device discovery and My Devices sidebar preferences.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `devices.discovery.enabled` | boolean | `false` | Discover other Macs signed in to the account. |
+| `devices.incomingAccess.enabled` | boolean | `false` | Allow this Mac to advertise and accept incoming device sessions. |
+| `devices.sidebar.hiddenMacIDs` | array<string> | `[]` | Physical Mac identifiers hidden from My Devices on this installation. |
+
 ## app
 
 General app preferences from Settings > App.
@@ -45,6 +63,11 @@ General app preferences from Settings > App.
 | `app.warnBeforeClosingWindow` | boolean | `true` | Show a confirmation before closing a window with a running process, or all of a window's workspaces at once. |
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 | `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
+| `app.fileDropDefaultBehavior` | `"text"` or `"preview"` | `"text"` | Default action when files are dropped onto a terminal or editor. |
+| `app.titlebarControlsStyle` | integer (0–4) | `0` | Titlebar control layout style. |
+| `app.workspaceButtonFade` | `"enabled"` or `"disabled"` | `"disabled"` | Fade workspace controls until the pointer enters the workspace chrome. |
+| `app.workspaceTitlebarVisibility` | boolean | `true` | Show the workspace titlebar. |
+| `app.systemWideHotkeyEnabled` | boolean | `false` | Enable the system-wide cmux show or hide hotkey. |
 
 ## surfaceTabBar
 
@@ -182,6 +205,12 @@ Sidebar tint settings from Settings > Sidebar Appearance.
 | `sidebarAppearance.lightModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for light appearance. |
 | `sidebarAppearance.darkModeTintColor` | colorHexOrNull | `null` | Sidebar tint override for dark appearance. |
 | `sidebarAppearance.tintOpacity` | number | `0.18` | Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`. |
+| `sidebarAppearance.blurOpacity` | number (0–1) | `1.0` | Sidebar blur opacity from 0 to 1. |
+| `sidebarAppearance.cornerRadius` | number (0–20) | `0.0` | Sidebar corner radius in points. |
+| `sidebarAppearance.preset` | string | `"nativeSidebar"` | Sidebar appearance preset. |
+| `sidebarAppearance.material` | string | `"sidebar"` | AppKit material used for the sidebar backdrop. |
+| `sidebarAppearance.blendMode` | `"behindWindow"` or `"withinWindow"` | `"withinWindow"` | Whether the sidebar backdrop blends behind or within the window. |
+| `sidebarAppearance.state` | `"active"` or `"inactive"` or `"followsWindowActiveState"` | `"followsWindowActiveState"` | Sidebar backdrop active-state behavior. |
 
 ## automation
 
@@ -244,6 +273,29 @@ Embedded browser settings from Settings > Browser.
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.showLinkHoverURL` | boolean | `true` | Show a link's destination at the bottom-left of a browser pane while the pointer is over the link or the link has keyboard focus. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
+| `browser.disabled` | boolean | `false` | Disable the embedded cmux browser for user-level browser actions. |
+| `browser.importHintVariant` | `"inlineStrip"` or `"floatingCard"` or `"toolbarChip"` or `"settingsOnly"` | `"toolbarChip"` | Presentation used for the browser import hint. |
+
+## mobile
+
+Mac-side settings for cmux on iOS.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `mobile.phonePush.forwardingEnabled` | boolean | `true` | Forward agent notifications to cmux on iPhone and iPad. |
+| `mobile.phonePush.mode` | `"always"` or `"onlyWhenAway"` | `"always"` | When enabled, forward notifications always or only while away from this Mac. |
+| `mobile.phonePush.hideContent` | boolean | `false` | Hide agent and terminal content in forwarded notifications. |
+| `mobile.iOSPairingHost.enabled` | boolean | `false` | Allow iPhone and iPad devices to pair with this Mac. |
+| `mobile.iOSPairingHost.port` | integer (1–65535) | `58465` | Preferred TCP and UDP pairing port. |
+| `mobile.iOSPairingHost.displayName` | string | `""` | Optional name shown for this Mac during iOS pairing. |
+
+## workspaceGroups
+
+Per-cwd customization for sidebar workspace groups.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `workspaceGroups.anchorCloseSuppressed` | boolean | `false` | Suppress the confirmation shown when closing a workspace-group anchor. |
 
 ## markdown
 

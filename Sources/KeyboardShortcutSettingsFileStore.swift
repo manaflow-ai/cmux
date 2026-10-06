@@ -456,24 +456,46 @@ final class CmuxSettingsFileStore {
         var snapshot = ResolvedSettingsSnapshot(path: sourcePath)
 
         parsePaneChromeSettings(root, sourcePath: sourcePath, snapshot: &snapshot)
+        if let accountSection = root["account"] as? [String: Any] {
+            parseAccountSection(accountSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("account") {
+            logInvalid("account", sourcePath: sourcePath)
+        }
+        if let devicesSection = root["devices"] as? [String: Any] {
+            parseDevicesSection(devicesSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("devices") {
+            logInvalid("devices", sourcePath: sourcePath)
+        }
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("app") {
+            logInvalid("app", sourcePath: sourcePath)
         }
         if let terminalSection = root["terminal"] as? [String: Any] {
             parseTerminalSection(terminalSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("terminal") {
+            logInvalid("terminal", sourcePath: sourcePath)
         }
         if let notificationsSection = root["notifications"] as? [String: Any] {
             parseNotificationsSection(notificationsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("notifications") {
+            logInvalid("notifications", sourcePath: sourcePath)
         }
         if let workspaceColorsSection = root["workspaceColors"] as? [String: Any] {
             parseWorkspaceColorsSection(workspaceColorsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("workspaceColors") {
+            logInvalid("workspaceColors", sourcePath: sourcePath)
         }
         if let sidebarSection = root["sidebar"] as? [String: Any] {
             parseSidebarSection(sidebarSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("sidebar") {
+            logInvalid("sidebar", sourcePath: sourcePath)
         }
         parseFontSections(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let sidebarAppearanceSection = root["sidebarAppearance"] as? [String: Any] {
             parseSidebarAppearanceSection(sidebarAppearanceSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("sidebarAppearance") {
+            logInvalid("sidebarAppearance", sourcePath: sourcePath)
         }
         if let automationSection = root["automation"] as? [String: Any] {
             parseAutomationSection(automationSection, sourcePath: sourcePath, snapshot: &snapshot)
@@ -481,20 +503,30 @@ final class CmuxSettingsFileStore {
         parseClassicCatalogSections(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("browser") {
+            logInvalid("browser", sourcePath: sourcePath)
         }
         if let mobileSection = root["mobile"] as? [String: Any] {
             parseMobileSection(mobileSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("mobile") {
+            logInvalid("mobile", sourcePath: sourcePath)
         }
         if let markdownSection = root["markdown"] as? [String: Any] {
             parseMarkdownSection(markdownSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("markdown") {
+            logInvalid("markdown", sourcePath: sourcePath)
         }
-        if let fileEditorSection = root["fileEditor"] as? [String: Any] { parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot) }
+        if let fileEditorSection = root["fileEditor"] as? [String: Any] { parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot) } else if root.keys.contains("fileEditor") { logInvalid("fileEditor", sourcePath: sourcePath) }
         if let fileExplorerSection = root["fileExplorer"] as? [String: Any] {
             parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("fileExplorer") {
+            logInvalid("fileExplorer", sourcePath: sourcePath)
         }
-        if let section = root["agentMessages"] as? [String: Any] { parseAgentMessagesSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
+        if let section = root["agentMessages"] as? [String: Any] { parseAgentMessagesSection(section, sourcePath: sourcePath, snapshot: &snapshot) } else if root.keys.contains("agentMessages") { logInvalid("agentMessages", sourcePath: sourcePath) }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("workspaceGroups") {
+            logInvalid("workspaceGroups", sourcePath: sourcePath)
         }
         if let sleepyModeSection = root["sleepyMode"] as? [String: Any] {
             parseSleepyModeSection(sleepyModeSection, sourcePath: sourcePath, snapshot: &snapshot)
@@ -909,6 +941,7 @@ final class CmuxSettingsFileStore {
             let clamped = min(max(value, 0), 1)
             snapshot.managedUserDefaults["sidebarTintOpacity"] = .double(clamped)
         }
+        parseClassicSidebarAppearanceCatalogCoverage(section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 
     private func parseAutomationSection(
@@ -966,6 +999,7 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        parseClassicBrowserCatalogCoverage(section, sourcePath: sourcePath, snapshot: &snapshot)
         let browserSearchSettings = BrowserSearchSettingsStore()
 
         if section.keys.contains("defaultZoomLevel") {
@@ -1023,6 +1057,7 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().workspaceGroups.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        parseClassicWorkspaceGroupsCatalogCoverage(section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 
     private func parseShortcutsSection(

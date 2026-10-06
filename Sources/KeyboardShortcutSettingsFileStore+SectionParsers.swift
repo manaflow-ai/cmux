@@ -483,6 +483,7 @@ extension CmuxSettingsFileStore {
                 logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
             }
         }
+        parseClassicMobileCatalogCoverage(section, sourcePath: sourcePath, snapshot: &snapshot)
         if section.keys.contains("browserTunnel") {
             guard let tunnel = section["browserTunnel"] as? [String: Any] else {
                 logInvalid("mobile.browserTunnel", sourcePath: sourcePath)

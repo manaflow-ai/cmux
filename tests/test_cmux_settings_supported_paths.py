@@ -106,6 +106,19 @@ class SupportedPathsTests(unittest.TestCase):
             for section in SETTINGS_SECTIONS
             for key in schema["properties"][section]["properties"]
         }
+        expected.update({
+            "account.piiDisplayMode",
+            "devices.discovery.enabled",
+            "devices.incomingAccess.enabled",
+            "devices.sidebar.hiddenMacIDs",
+            "mobile.phonePush.forwardingEnabled",
+            "mobile.phonePush.mode",
+            "mobile.phonePush.hideContent",
+            "mobile.iOSPairingHost.enabled",
+            "mobile.iOSPairingHost.port",
+            "mobile.iOSPairingHost.displayName",
+            "workspaceGroups.anchorCloseSuppressed",
+        })
         result = self.run_helper(self.helper("installed"), "list-supported")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         actual = set(result.stdout.splitlines())
