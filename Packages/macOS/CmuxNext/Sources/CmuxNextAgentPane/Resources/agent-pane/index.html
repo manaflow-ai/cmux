@@ -3417,6 +3417,109 @@ pre.cv-math-source {
   border-radius: 8px;
 }
 
+/* A shell mode command's block (shell/ShellRow.tsx): the command in mono after a `!` in the
+   theme's magenta, one status slot (Stop while it runs, then exit status and time), "Open in
+   terminal" always there, and the end of the output. Small radius, no pills. */
+.acpmux-shell-block {
+  margin: 4px 0 8px;
+  border-radius: 6px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+  font: 13px/20px var(--cv-font);
+}
+.acpmux-shell-block-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 6px 0 10px;
+}
+.acpmux-shell-block-glyph {
+  flex: none;
+  font: 600 12.5px/20px var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--agent-ansi-5, #d670d6);
+}
+.acpmux-shell-block-command {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12.5px/20px var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--agent-text);
+}
+.acpmux-shell-block-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-shell-block-ok {
+  display: inline-flex;
+  color: var(--cv-text-muted);
+}
+.acpmux-shell-block-failed {
+  color: var(--agent-danger);
+}
+.acpmux-shell-block button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--cv-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.acpmux-shell-block button:hover {
+  background: var(--agent-control-hover);
+  color: var(--agent-text);
+}
+.acpmux-shell-block button:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+.acpmux-shell-block kbd {
+  font: 11px/16px var(--cv-font);
+  color: var(--cv-text-muted);
+}
+.acpmux-shell-block-output {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 2px 12px 8px 26px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/18px var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--agent-soft, var(--agent-text));
+}
+.acpmux-shell-block-cut {
+  color: var(--cv-text-muted);
+  font: italic 11.5px/18px var(--cv-font);
+}
+.acpmux-shell-block-error {
+  color: var(--agent-danger);
+  font-family: var(--cv-font);
+}
+.acpmux-shell-block-more {
+  margin: 0 0 6px 20px;
+}
+.acpmux-shell-block .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* The preview card before the reader loads its frame (PreviewCard.tsx): the same height as the
    frame, so loading it does not move the transcript. */
 .acpmux-turn-preview-unloaded {
@@ -3912,6 +4015,51 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
   .acpmux-slash-menu {
     animation: acpmux-menu-in var(--agent-motion-in) var(--agent-ease-out);
   }
+}
+
+/* Shell mode (`!` first, Composer.tsx): the prompt becomes a plain monospace field behind a `!`
+   glyph in the theme's magenta (ANSI 5), and the box takes a quiet edge of it. Same padding and
+   line height as the markdown prompt, so entering or leaving moves nothing. */
+.acpmux-composer {
+  --acpmux-shell-accent: var(--agent-ansi-5, #d670d6);
+}
+.acpmux-composer-prompt.is-hidden {
+  display: none;
+}
+.acpmux-shell-prompt {
+  position: relative;
+}
+.acpmux-shell-glyph {
+  position: absolute;
+  left: 16px;
+  top: 15px;
+  font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--acpmux-shell-accent);
+  pointer-events: none;
+}
+.acpmux-shell-field {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 45px;
+  max-height: 40vh;
+  margin: 0;
+  padding: 15px 16px 8px 32px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  resize: none;
+  overflow-y: auto;
+  font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--agent-text);
+  caret-color: var(--acpmux-shell-accent);
+}
+.acpmux-shell-field::placeholder {
+  color: var(--acpmux-composer-placeholder, var(--agent-muted));
+  opacity: 1;
+}
+.acpmux-composer[data-shell] .acpmux-composer-box {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
 }
 /* The location row above the composer (ComposerContext.tsx): "This Mac ⌄ · <folder> ⌄", one quiet
    row of text menu buttons that all look alike. A control is a plain text button (no native bezel,
@@ -4523,14 +4671,18 @@ fieldset.acpmux-permission-card {
 .nt-card[data-state=error] .nt-card-message{color:var(--agent-danger)}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card{transition:background-color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover,.08s) var(--agent-ease-out,ease-out)}}
-/* R81: the "!" placeholder terminal. The page background is the terminal's (one backdrop), so the swap to the real terminal shows no change; the field stays focused under it, invisible. */
-.nt-screen[data-converting]{padding:0}
-.nt-screen[data-converting] .nt-box{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none}
-.nt-terminal{position:absolute;inset:0;padding:6px 8px;box-sizing:border-box;font:13px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--agent-text);white-space:pre-wrap;overflow:hidden}
-.nt-cursor{display:inline-block;width:.6em;height:1.2em;vertical-align:text-bottom;background:var(--agent-text);opacity:.7}
-.nt-terminal-starting{display:block;margin-top:6px;color:var(--acpmux-composer-dim);font:12px system-ui;opacity:0;animation:nt-starting .2s ease-out 1s forwards}
-@keyframes nt-starting{to{opacity:1}}
-@media (prefers-reduced-motion:reduce){.nt-terminal-starting{animation-duration:0s}}
+/* Shell mode on the new tab field (`!` first): a `!` glyph in the theme's magenta before a
+   monospace command, inside the same box. */
+.nt-shell-glyph {
+  flex: none;
+  font: 600 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--agent-ansi-5, #d670d6);
+}
+.nt-screen[data-shell] .nt-field {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  caret-color: var(--agent-ansi-5, #d670d6);
+}
 
 </style>
 </head>
