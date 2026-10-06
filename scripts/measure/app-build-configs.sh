@@ -42,5 +42,5 @@ for configuration in Debug Release; do
   results+=("$configuration cold=${cold}s incremental=${incremental}s app=${size}MB")
   echo "MEASURE $configuration cold=${cold}s incremental(touch $touched)=${incremental}s app=${size}MB"
 done
-echo "MEASURE host=$(hostname -s | sed 's/./x/g') cpus=$(sysctl -n hw.ncpu) xcode=$(xcodebuild -version | head -n 1)"
+echo "MEASURE cpus=$(sysctl -n hw.ncpu) xcode=$(xcodebuild -version | head -n 1)"
 printf 'MEASURE %s\n' "${results[@]}"
