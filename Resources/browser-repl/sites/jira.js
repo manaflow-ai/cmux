@@ -83,7 +83,7 @@
       // Atlassian's own site list (home.atlassian.com): [{ url, name, products }].
       async function listSites(name = "jira.sites") {
         const blocked = homeBlocked();
-        if (blocked) throw new S.SiteError("blocked", `${name}: the account's site list is on ${HOME}, which the domain policy blocks (${blocked}); add "${HOME}" to session.allowedDomains, or pass { site } to the other jira tools, which then check the site on its own origin`);
+        if (blocked) throw new S.SiteError("blocked", `${name}: the account's site list is on ${HOME}, which the domain policy blocks (${blocked}); add "${HOME}" to session.allowedDomains; jira calls go only to a site on that list`);
         const r = await t.inOrigin(HOME, async () => {
           const res = await fetch("/gateway/api/available-sites", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ products: ["jira-software.ondemand", "jira-core.ondemand", "jira-servicedesk.ondemand", "jira-product-discovery"] }) });
           let json = null;
@@ -99,33 +99,14 @@
           .filter((x) => /^https:\/\/[\w-]+\.atlassian\.net\/?$/.test(x.url || "") && JSON.stringify(x.products).includes("jira"));
       }
       // Calls go only to an exact origin from the account's own site list
-      // (any *.atlassian.net tenant can be created by anyone). The list is
-      // kept for the session and read again once when an origin is missing.
+      // (any *.atlassian.net tenant can be created by anyone, and its own
+      // /myself proves nothing about the account's sites). The list is
+      // kept for the session and read again once when an origin is
+      // missing. Without the list (the domain policy blocks
+      // home.atlassian.com) every call fails closed before any request.
       let known = null;
-      // Sites checked on their own origin while home.atlassian.com is blocked.
-      const verified = new Set();
-      // The signed-in account can use `origin` when its Jira API answers
-      // /myself with an account there (anonymous access gets 401).
-      async function verifyOnTenant(tgt, name, blocked) {
-        if (verified.has(tgt.origin)) return tgt;
-        const allow = `; ${HOME}, where cmux reads the account's site list, is blocked by the domain policy (${blocked}), so the site was checked on its own origin. Add "${HOME}" to session.allowedDomains to check it against the account's site list`;
-        let r = null;
-        try {
-          [r] = await t.inOrigin(tgt.origin, rest, { paths: ["/rest/api/3/myself"] });
-        } catch (e) {
-          throw new S.SiteError("invalid", `${name}: ${tgt.origin} is not a Jira site the signed-in account can use (${(e && e.message) || e})${allow}`);
-        }
-        if (r.status === 401) throw new S.SiteError("not_signed_in", `${name}: the cmux browser is not signed in to ${tgt.origin}; open it with tabs.open() and ask the user to sign in${allow}`);
-        if (r.status !== 200 || !r.json || !r.json.accountId) {
-          throw new S.SiteError("invalid", `${name}: ${tgt.origin} is not a Jira site the signed-in account can use (HTTP ${r.status} from /rest/api/3/myself)${allow}`);
-        }
-        verified.add(tgt.origin);
-        return tgt;
-      }
       async function site(input, options, name) {
         const tgt = target(input, options, name);
-        const blocked = homeBlocked();
-        if (blocked) return verifyOnTenant(tgt, name, blocked);
         for (const fresh of known ? [false, true] : [true]) {
           if (fresh) known = (await listSites(name)).map((x) => new URL(x.url).origin);
           if (known.includes(tgt.origin)) return tgt;
