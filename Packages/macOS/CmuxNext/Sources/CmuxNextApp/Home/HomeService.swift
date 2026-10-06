@@ -45,7 +45,10 @@ final class HomeService {
             guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
             return try await feed.call(path, body)
         },
-        me: { [weak self] in self?.services.cloud.auth.user?.id })
+        me: { [weak self] in
+            guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
+            return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
+        })
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?

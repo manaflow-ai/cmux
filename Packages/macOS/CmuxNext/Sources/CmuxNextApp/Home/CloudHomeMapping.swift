@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CryptoKit
 import Foundation
 
 /// The signed-in account as a Home participant on the cloud owners, and the
@@ -7,24 +8,27 @@ import Foundation
 ///
 /// One `HomeStore` holds local and cloud conversations and has one `me`
 /// (home-mac.md 1: the view takes `HomeStore.me` at creation). The local
-/// owner's user is `user_local`; the cloud owners know the same person as
-/// `user_<stack id>`. The cloud mapping writes the cloud id as `localID` on
+/// owner's user is `user_local`; the cloud owners know the same person by the
+/// Worker's user id (`participantID`). The cloud mapping writes that id as `localID` on
 /// the way in and back on the way out, so every conversation in the store
 /// names its user with one id. No other id is rewritten.
 nonisolated struct CloudIdentity: Hashable, Sendable {
-    /// `user_<stack id>`: the cloud owners' participant id of this account.
+    /// `user_<stack id>`: the account as the daemon's lease and sockets name it.
     let cloudID: String
     /// The id the Home store uses for its user.
     let localID: ParticipantID
     let displayName: String
 
     /// The Worker's participant id for a Stack user id (`user_` prefix once).
-    /// Red stub: the participant id is still the account id.
+    /// The Worker's user id of this account in conversations (backend
+    /// domains/user.ts `userIdFor`): `user_` + the first 20 hex digits of
+    /// sha256("stack:<project>:<stack user id>"). Without a project (tests)
+    /// it is `cloudID`.
     let participantID: String
 
     init(stackUserID: String, displayName: String, localID: ParticipantID, stackProjectID: String? = nil) {
         cloudID = Self.cloudID(stackUserID: stackUserID)
-        participantID = cloudID
+        participantID = stackProjectID.map { Self.workerUserID(stackProjectID: $0, stackUserID: stackUserID) } ?? cloudID
         self.localID = localID
         self.displayName = displayName
     }
@@ -34,10 +38,16 @@ nonisolated struct CloudIdentity: Hashable, Sendable {
         stackUserID.hasPrefix("user_") ? stackUserID : "user_" + stackUserID
     }
 
-    func toHome(_ id: String) -> ParticipantID { id == cloudID ? localID : ParticipantID(id) }
-    func toCloud(_ id: ParticipantID) -> String { id == localID ? cloudID : id.rawValue }
+    /// The Worker's user id for a Stack user of a Stack project.
+    static func workerUserID(stackProjectID: String, stackUserID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack:\(stackProjectID):\(stackUserID)".utf8))
+        return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    }
+
+    func toHome(_ id: String) -> ParticipantID { id == participantID || id == cloudID ? localID : ParticipantID(id) }
+    func toCloud(_ id: ParticipantID) -> String { id == localID ? participantID : id.rawValue }
     /// This account as a cloud participant (the creator of a new conversation).
-    var participant: ConversationParticipant { ConversationParticipant(id: cloudID, kind: .human, displayName: displayName) }
+    var participant: ConversationParticipant { ConversationParticipant(id: participantID, kind: .human, displayName: displayName) }
 }
 
 /// The cloud owners' wire types (through the daemon) as Home core types.

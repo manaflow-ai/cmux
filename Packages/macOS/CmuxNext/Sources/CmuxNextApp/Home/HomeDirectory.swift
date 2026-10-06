@@ -29,7 +29,7 @@ final class HomeDirectory {
     /// My archived Chiefs' agent ids: the page hides their conversations.
     private(set) var archivedChiefs: Set<String> = []
     @ObservationIgnored private let call: Call
-    /// The signed-in account's Worker id (`user_<stack id>`), left out of the contacts.
+    /// The signed-in account's Worker user id (`CloudIdentity.workerUserID`), left out of the contacts.
     @ObservationIgnored private let me: @MainActor () -> String?
 
     init(call: @escaping Call, me: @escaping @MainActor () -> String?) {
@@ -60,7 +60,7 @@ final class HomeDirectory {
     func createChief(named name: String) async throws -> HomeChiefRecord {
         let body: [String: Any] = ["op": "chief.create", "params": ["display_name": name],
                                    "idempotency_key": "chief-create-" + UUID().uuidString.lowercased(), "origin": "user"]
-        let value = try Self.value(try await call("v1/ops", body))
+        let value = try await ensuringUser { try Self.value(try await self.call("v1/ops", body)) }
         guard let record = Self.chief(value) else { throw FeedServiceError.badReply }
         chiefs.removeAll { $0.id == record.id }
         chiefs.append(record)
@@ -75,6 +75,20 @@ final class HomeDirectory {
         _ = try Self.value(try await call("v1/ops", body))
         chiefs.removeAll { $0.id == id }
         archivedChiefs.insert(id)
+    }
+
+    /// Runs `op`; UserDO refuses user ops of an account that never ran
+    /// `user.ensure` ("call user.ensure first", seen on staging): then
+    /// ensures the user (idempotent) and runs `op` once more.
+    private func ensuringUser<T>(_ op: @MainActor () async throws -> T) async throws -> T {
+        do {
+            return try await op()
+        } catch FeedServiceError.owner(let code, let message) where code == "validation.invalid" && message.contains("user.ensure") {
+            let ensure: [String: Any] = ["op": "user.ensure", "params": [String: Any](),
+                                         "idempotency_key": "home-user-ensure-" + UUID().uuidString.lowercased(), "origin": "user"]
+            _ = try Self.value(try await call("v1/ops", ensure))
+            return try await op()
+        }
     }
 
     /// The Chief whose agent id is `participant`, when it is one of mine.
