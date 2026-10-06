@@ -195,7 +195,7 @@ final class ExtensionActionToolbar {
         guard view.window != nil else { return }
         let previous = presentedMenu
         presentedMenu = menu
-        menu.popUp(positioning: nil, at: CGPoint(x: 0, y: view.isFlipped ? view.bounds.maxY + 4 : -4), in: view)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 4), in: view)
         presentedMenu = previous
     }
 

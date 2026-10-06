@@ -65,7 +65,7 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         pop.delegate = self
         view.onDismiss = { [weak pop] in pop?.close() }
         popover = pop
-        pop.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        pop.show(relativeTo: CmuxPopoverAnchor.rect(in: button), of: button, preferredEdge: .minY)
     }
 
     @objc private func togglePanel(_ sender: Any?) {
