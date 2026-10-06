@@ -128,4 +128,60 @@ extension JSONSerialization {
     public static func browserReplObject(_ text: String) -> [String: Any] {
         browserReplValue(text) as? [String: Any] ?? [:]
     }
+
+    /// The most structural elements (each `[`, `{` and `,` outside a
+    /// string) the JSON of one driver or host call may hold: its byte
+    /// limits admit tens of millions, which take the session's thread about
+    /// a second and a gigabyte to parse, and no timeout interrupts a parse.
+    static let browserReplMaximumCallElements = 2_000_000
+
+    /// The deepest nesting the JSON of one call may have; Foundation's
+    /// parser takes about this much and fails past it.
+    static let browserReplMaximumCallDepth = 512
+
+    /// Why the JSON `text` of one driver or host call is past the structure
+    /// one call may pass (``browserReplMaximumCallElements``,
+    /// ``browserReplMaximumCallDepth``), or nil. One scan of its bytes that
+    /// builds nothing, so the caller refuses the call before parsing it.
+    static func browserReplCallStructureRefusal(_ text: String) -> String? {
+        var text = text
+        return text.withUTF8 { bytes -> String? in
+            var elements = 0
+            var depth = 0
+            var inString = false
+            var escaped = false
+            for byte in bytes {
+                if inString {
+                    if escaped {
+                        escaped = false
+                    } else if byte == UInt8(ascii: "\\") {
+                        escaped = true
+                    } else if byte == UInt8(ascii: "\"") {
+                        inString = false
+                    }
+                    continue
+                }
+                switch byte {
+                case UInt8(ascii: "\""):
+                    inString = true
+                case UInt8(ascii: "["), UInt8(ascii: "{"):
+                    depth += 1
+                    elements += 1
+                    if depth > browserReplMaximumCallDepth {
+                        return "the call's JSON nests deeper than \(browserReplMaximumCallDepth) levels, the most one call may pass"
+                    }
+                case UInt8(ascii: "]"), UInt8(ascii: "}"):
+                    depth -= 1
+                case UInt8(ascii: ","):
+                    elements += 1
+                default:
+                    continue
+                }
+                if elements > browserReplMaximumCallElements {
+                    return "the call's JSON holds more than \(browserReplMaximumCallElements) elements (arrays, objects and the values they separate), the most one call may pass; pass less at once"
+                }
+            }
+            return nil
+        }
+    }
 }

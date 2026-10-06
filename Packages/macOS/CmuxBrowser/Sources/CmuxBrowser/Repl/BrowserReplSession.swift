@@ -1749,6 +1749,12 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self.refuseCall(Int(callID), refusal.driverError(methodName), method: methodName)
                 return
             }
+            // So is one whose JSON no call may hold, which the parse below
+            // and the driver's could not stop.
+            if let reason = JSONSerialization.browserReplCallStructureRefusal(raw) {
+                self.refuseCall(Int(callID), BrowserReplDriverError(code: "invalid", message: "\(methodName): \(reason)"), method: methodName)
+                return
+            }
             let boundary = self.boundary
             let paramsJSON: String
             switch boundary.prepare(method: methodName, paramsJSON: raw) {
@@ -1911,7 +1917,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// before they are copied out of JavaScript, parsed or decoded, and
     /// released when it returns; one past its limit
     /// (``hostCallLimit(isFileSystem:)``) or the session's memory is
-    /// refused with nothing parsed.
+    /// refused with nothing parsed, and so are arguments whose JSON holds
+    /// more elements or nests deeper than one call may
+    /// (``JSONSerialization/browserReplCallStructureRefusal(_:)``).
     private func hostFunction(
         _ name: String,
         isFileSystem: Bool = false,
@@ -1942,6 +1950,14 @@ public final class BrowserReplSession: @unchecked Sendable {
             let bytes = op.utf8.count + raw.utf8.count
             if let refusal = self.ledger.reserve(bytes, of: .hostCallBytes, each: limit) { return refuse(refusal) }
             defer { self.ledger.release(bytes, of: .hostCallBytes) }
+            // Arguments whose JSON no call may hold are refused before the
+            // parse, which no timeout interrupts.
+            if let reason = JSONSerialization.browserReplCallStructureRefusal(raw) {
+                if isFileSystem {
+                    return self.boundary.egress(.fs(op: "", .failure(BrowserReplFileSystemError(code: "E2BIG", message: "E2BIG: \(reason)")))).text
+                }
+                return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "\(name): \(reason)")))).text
+            }
             return body(op, raw)?.text ?? #"{"error":{"code":"closed","message":"closed"}}"#
         }
     }
