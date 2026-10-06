@@ -47,7 +47,7 @@ struct SessionContentWidthSettingsFileStoreTests {
 
     @Test
     func settingsFileStoreReloadAppliesCanonicalTerminalGuardrailSetting() throws {
-        let suiteName = "cmux-session-content-width-guardrail-(UUID().uuidString)"
+        let suiteName = "cmux-session-content-width-guardrail-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let directoryURL = try makeTemporaryDirectory()
@@ -63,14 +63,43 @@ struct SessionContentWidthSettingsFileStoreTests {
             userDefaults: defaults,
             startWatching: false
         )
-        #expect(defaults.bool(forKey: SettingCatalog().terminal.runawayMemoryGuardrailEnabled.userDefaultsKey) == false)
+        let terminal = TerminalCatalogSection()
+        #expect(defaults.bool(forKey: terminal.runawayMemoryGuardrailEnabled.userDefaultsKey) == false)
 
         try #"{"terminal":{"runawayMemoryGuardrail":{"enabled":true,"thresholdGB":12}}}"#
             .write(to: settingsFileURL, atomically: true, encoding: .utf8)
         store.reload()
 
-        #expect(defaults.bool(forKey: SettingCatalog().terminal.runawayMemoryGuardrailEnabled.userDefaultsKey))
-        #expect(defaults.double(forKey: SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB.userDefaultsKey) == 12)
+        #expect(defaults.bool(forKey: terminal.runawayMemoryGuardrailEnabled.userDefaultsKey))
+        #expect(defaults.double(forKey: terminal.runawayMemoryGuardrailThresholdGB.userDefaultsKey) == 12)
+    }
+
+    /// Runs off the main actor on purpose: Swift Testing's cooperative threads
+    /// have 512 KB stacks, which the integrations parser overflowed in -Onone
+    /// builds while it built a `SettingCatalog()` per key (#17446).
+    @Test
+    func settingsFileStoreAppliesCanonicalIntegrationHooks() throws {
+        let suiteName = "cmux-session-content-width-integrations-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try #"{"integrations":{"claudeCode":{"hooksEnabled":false,"customClaudePath":"/opt/claude"},"kiro":{"notificationLevel":"verbose"}}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+
+        let integrations = IntegrationsCatalogSection()
+        #expect(defaults.bool(forKey: integrations.claudeCodeHooksEnabled.userDefaultsKey) == false)
+        #expect(defaults.string(forKey: integrations.claudeCodeCustomClaudePath.userDefaultsKey) == "/opt/claude")
+        #expect(defaults.string(forKey: integrations.kiroNotificationLevel.userDefaultsKey) == "verbose")
     }
 
     @Test
