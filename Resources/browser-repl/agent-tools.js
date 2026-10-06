@@ -667,11 +667,24 @@
         return false;
       };
       const visible = (e) => e && style(e).display !== "none" && showsText(e);
-      const mainEl = take(document.querySelectorAll("main, [role=main]")).find(visible);
-      // Only whether exactly one article shows text matters.
+      // The first shown <main>, else whether exactly one article shows
+      // text. The candidates are found by a walk of the document in order,
+      // one element at a time (at most 250,000), never listed whole, and
+      // each candidate is charged to the budget.
+      let mainEl = null;
       const articles = [];
-      for (const a of take(document.querySelectorAll("article, [role=article]"))) {
-        if (visible(a) && articles.push(a) > 1) break;
+      let left = 250000;
+      const walker = document.createTreeWalker(document, 1 /* NodeFilter.SHOW_ELEMENT */);
+      for (let e = walker.nextNode(); e && --left >= 0; e = walker.nextNode()) {
+        const isMain = e.matches("main, [role=main]");
+        const isArticle = articles.length < 2 && e.matches("article, [role=article]");
+        if (!isMain && !isArticle) continue;
+        if (!B.spend(1)) break;
+        if (isMain && visible(e)) {
+          mainEl = e;
+          break;
+        }
+        if (isArticle && visible(e)) articles.push(e);
       }
       if (mainEl) rootEl = mainEl;
       else if (articles.length === 1) rootEl = articles[0];
