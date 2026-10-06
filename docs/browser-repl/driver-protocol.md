@@ -101,8 +101,12 @@ runtime's own agent-world reads hold nothing), its `tab.navigate`,
 wakes the tab,
 is sent to that session too, also in a user's tab (the call caused it, so
 cmux's own dialog or Open panel must not come up in front of the user, and
-the call must not wait for an answer only the user can give); downloads
-keep the user's location.
+the call must not wait for an answer only the user can give). A download
+the call starts keeps the user's location unless the session has a
+`download` handler in its last `tab.handleEvents` for the tab and its
+domain policy and directories allow where the download came from (above):
+the session's own input asked for that file, and it could read the same
+URL with `fetch` and the tab's cookies.
 
 Each such event goes to one session, never to every session driving the
 tab: a session with a handler for it in its last `tab.handleEvents` (the
