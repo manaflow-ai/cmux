@@ -133,7 +133,10 @@ describe("acpmux composer pickers", () => {
     const row = [...doc.querySelectorAll<HTMLElement>(".acpmux-mp-row")].find(
       (candidate) => candidate.querySelector(".acpmux-menu-label")?.textContent === "Reasoning",
     )!;
-    await act(async () => row.click());
+    // Menu rows act on mousedown, so the chip keeps focus.
+    await act(async () => {
+      row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
     return doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
   };
   /// Moves a slider through React's change handler: react-dom may load before the DOM exists (see typeInto).
@@ -184,7 +187,9 @@ describe("acpmux composer pickers", () => {
 
   test("the chip shows no effort for the agent's default level", async () => {
     await render(
-      snapshot({ configOptions: [{ ...effort, currentValue: "default", options: [{ value: "default", name: "Default" }] }] }),
+      snapshot({
+        configOptions: [{ ...effort, currentValue: "default", options: [{ value: "default", name: "Default" }] }],
+      }),
     );
     expect(button("Model")!.textContent).toBe("6 Astra");
     expect(doc.querySelector(".acpmux-model-effort")).toBeNull();

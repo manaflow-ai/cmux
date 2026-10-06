@@ -22,13 +22,15 @@
 .acpmux-composer-box button{font:inherit;cursor:pointer}
 .acpmux-composer-field{display:block;box-sizing:border-box;width:100%;min-height:0;max-height:40vh;margin:0;padding:15px 16px 8px;border:0;outline:0;background:transparent;resize:none;field-sizing:content;font-family:inherit;font-size:15px;line-height:22px;color:var(--agent-text);caret-color:var(--agent-text)}
 .acpmux-composer-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
-.acpmux-composer-bar{display:flex;align-items:center;gap:4px;height:48px;padding:0 8px;font-size:14px}
-.acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:32px;padding:0;color:var(--agent-muted)}
+/* The bar is one 28px line on an 8px rhythm: every control (+, the chips, the ring, the mic, Send) is 28px tall, 8px apart,
+   and 10px from the box edge, so (48 - 28) / 2 is the same inset on every side. */
+.acpmux-composer-bar{display:flex;align-items:center;gap:8px;height:48px;padding:0 10px;font-size:14px;line-height:18px}
+.acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:28px;padding:0;color:var(--agent-muted)}
 .acpmux-composer-plus .acpmux-picker-button:hover{color:var(--agent-text)}
-.acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:4px;margin-left:auto}
+.acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:8px;margin-left:auto}
 /* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls; while listening it
    takes the theme's red (--agent-danger, ANSI 1) and shows the input level in the same circle. Hover and press are in composerStates.css. */
-.acpmux-mic{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:default}
+.acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .acpmux-mic[data-state=starting]{color:var(--agent-text)}
 .acpmux-mic[data-state=listening],.acpmux-mic[data-state=finalizing]{color:var(--agent-danger);background:color-mix(in srgb,var(--agent-danger) 16%,transparent)}
@@ -42,29 +44,48 @@
 .acpmux-dictation-settings,.acpmux-dictation-dismiss{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit;cursor:default}
 .acpmux-dictation-dismiss{width:24px;padding:0;background:none;color:var(--acpmux-composer-dim)}
 .acpmux-dictation-settings:focus-visible,.acpmux-dictation-dismiss:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:4px}
+.acpmux-chips{flex:1;min-width:0;display:flex;align-items:center;gap:8px}
 .acpmux-chips-spacer{flex:1}
 /* A registry composerChips override that still draws native selects. */
-.acpmux-composer-bar select{height:32px;padding:0 10px;border:0;border-radius:16px;background:none;color:var(--agent-muted);font:inherit}
+.acpmux-composer-bar select{height:28px;padding:0 8px;border:0;border-radius:14px;background:none;color:var(--agent-muted);font:inherit}
 .acpmux-icon{flex:none;display:block}
 .acpmux-picker{display:flex;min-width:0}
-.acpmux-picker-button{display:flex;align-items:center;gap:6px;min-width:0;height:32px;padding:0 10px;border:0;border-radius:16px;background:none;color:var(--agent-text);white-space:nowrap}
+.acpmux-picker-button{display:flex;align-items:center;gap:4px;min-width:0;height:28px;padding:0 8px;border:0;border-radius:14px;background:none;color:var(--agent-text);white-space:nowrap}
 .acpmux-picker-button>span{overflow:hidden;text-overflow:ellipsis}
 .acpmux-picker-button:hover,.acpmux-picker-button[aria-expanded=true]{background:var(--acpmux-composer-hover)}
 .acpmux-picker-button:focus-visible,.acpmux-plan:focus-visible,.acpmux-send:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.acpmux-mode .acpmux-picker-button{padding:0 10px 0 8px;color:var(--agent-muted)}
-.acpmux-plan{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px 0 8px;border:0;border-radius:16px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
+.acpmux-mode .acpmux-picker-button{gap:6px;padding:0 8px 0 6px;color:var(--agent-muted)}
+.acpmux-plan{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border:0;border-radius:14px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
 .acpmux-plan:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-plan[aria-pressed=true]{background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 16%,transparent);color:var(--agent-highlight,var(--agent-text))}
 .acpmux-separator{flex:none;width:1px;height:18px;margin:0 4px;background:var(--acpmux-composer-edge)}
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
 .acpmux-mode.acpmux-unrestricted .acpmux-picker-button{color:var(--acpmux-warning)}
-.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 8px 0 10px}
+.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
+/* One chip for model and effort (Codex composer): the model in primary text, the effort after it in secondary, one chevron. */
 .acpmux-model-name{color:var(--agent-text)}
+.acpmux-model-effort{flex:none;margin-left:2px;color:var(--agent-muted)}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
-.acpmux-context-ring{flex:none;display:grid;place-items:center;width:32px;height:32px;color:var(--agent-muted)}
-.acpmux-context-ring.acpmux-context-full{color:var(--acpmux-warning)}
-.acpmux-send{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:var(--agent-highlight,var(--agent-text));color:var(--agent-highlight-text,var(--acpmux-base))}
+/* The context ring is a button the size of the mic; a click opens the usage details above the bar. */
+.acpmux-context{flex:none}
+.acpmux-context-ring{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
+.acpmux-context-ring:hover,.acpmux-context-ring[aria-expanded=true]{background:var(--acpmux-composer-hover);color:var(--agent-text)}
+.acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
+.acpmux-menu.acpmux-context-pop{width:240px;padding:12px}
+.acpmux-context-title{font-size:12px;color:var(--agent-muted)}
+.acpmux-context-percent{margin-top:2px;font-size:14px;font-weight:500}
+.acpmux-context-bar{height:4px;margin-top:8px;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 14%,transparent);overflow:hidden}
+.acpmux-context-bar span{display:block;height:100%;border-radius:2px;background:color-mix(in srgb,var(--agent-text) 55%,transparent)}
+.acpmux-context-full .acpmux-context-bar span{background:var(--acpmux-warning)}
+.acpmux-context-tokens{margin-top:8px;font-size:12px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-context-compact{width:100%;height:28px;margin-top:12px;border:0;border-radius:8px;background:var(--acpmux-menu-hover);color:var(--agent-text);font:inherit}
+.acpmux-context-compact:hover:not(:disabled){background:var(--acpmux-menu-press)}
+.acpmux-context-compact:disabled{opacity:.5}
+.acpmux-context-compact:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* Send is the row's height, not taller: a 28px circle with a 16px arrow. */
+.acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-highlight,var(--agent-text));color:var(--agent-highlight-text,var(--acpmux-base))}
+.acpmux-send .acpmux-icon{width:16px;height:16px}
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 72%,var(--acpmux-base))}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu{font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;min-width:min(220px,100%);max-width:min(420px,100%);max-height:min(360px,50vh);overflow:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
