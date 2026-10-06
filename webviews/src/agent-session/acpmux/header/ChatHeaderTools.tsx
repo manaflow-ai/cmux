@@ -2,13 +2,12 @@
 // opens the changes view beside the transcript; Terminal and Browser, which split the pane in the
 // chat's folder; and the "..." chat menu. Every control renders from the first frame at its final
 // size; data fills in place.
-import React, { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
-import { usePopover } from "../summary/usePopover";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
-import { useUiAnchor } from "../../../ui/anchor";
+import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
 export const HEADER_ACTIONS = {
@@ -114,18 +113,17 @@ function ChatMenu({
   onExpanded?: () => void;
 }) {
   const t = useT();
-  const { open, setOpen, button, popover } = usePopover();
+  const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ChatMenuItem[]>([]);
-  const [expanded, setExpanded] = useState<string>();
+  // Set when the palette asks for one row's children (Continue in…): the menu lists only those.
+  const [only, setOnly] = useState<string>();
   const opening = useRef(0);
-  const popoverStyle = useUiAnchor(button, popover, open, { side: "below", align: "end" });
   const show = (row?: string) => {
-    if (open && !row) return setOpen(false);
     const generation = ++opening.current;
     const ready = () => {
       if (generation !== opening.current) return;
       setRows(items());
-      setExpanded(row);
+      setOnly(row);
       setOpen(true);
     };
     if (!onOpen) return ready();
@@ -140,120 +138,64 @@ function ChatMenu({
     showRef.current(expand);
     onExpanded?.();
   }, [expand, onExpanded]);
-  const choose = (onSelect?: () => void) => {
+  const onOpenChange = (next: boolean) => {
+    if (next) return show();
+    opening.current++;
     setOpen(false);
-    button.current?.focus();
-    onSelect?.();
   };
-  useLayoutEffect(() => {
-    if (!open) return;
-    const menu = popover.current;
-    (
-      menu?.querySelector<HTMLElement>("[aria-expanded=true] + [role=menuitem]") ??
-      menu?.querySelector<HTMLElement>("[role=menuitem]:not([aria-disabled=true])")
-    )?.focus();
-  }, [open, expanded, popover]);
+  const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
+  const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
-    <span className="acpmux-chat-menu">
-      <button
-        ref={button}
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={t("chatMenu.open")}
-        title={t("chatMenu.open")}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => show()}
-      >
+    <Menu open={open} onOpenChange={onOpenChange}>
+      <MenuButton className="acpmux-header-tool" label={t("chatMenu.open")}>
         <Icon name="action.more" size={15} />
-      </button>
-      {open && (
-        <dialog
-          ref={popover}
-          open
-          className="acpmux-chat-menu-popover"
-          aria-label={t("chatMenu.open")}
-          style={popoverStyle}
-        >
-          <div
-            role="menu"
-            tabIndex={-1}
-            aria-label={t("chatMenu.open")}
-            onKeyDown={(event) => {
-              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-              event.preventDefault();
-              const all = [
-                ...(popover.current?.querySelectorAll<HTMLElement>("[role=menuitem]:not([aria-disabled=true])") ?? []),
-              ];
-              const index = all.indexOf(document.activeElement as HTMLElement);
-              all[(index + (event.key === "ArrowDown" ? 1 : -1) + all.length) % all.length]?.focus();
-            }}
-          >
-            {rows.map((row, index) =>
+      </MenuButton>
+      <MenuPopup className="acpmux-chat-menu-popover" align="end">
+        {children
+          ? children.map((child) => (
+              <MenuItem key={child.key} className="acpmux-chat-menu-item" onSelect={child.onSelect}>
+                <span className="acpmux-chat-menu-label">{child.label}</span>
+              </MenuItem>
+            ))
+          : rows.map((row, index) =>
               row === "separator" ? (
                 // oxlint-disable-next-line react/no-array-index-key
-                <hr key={`separator-${index}`} className="acpmux-chat-menu-separator" />
+                <MenuSeparator key={`separator-${index}`} />
+              ) : row.children ? (
+                <Submenu
+                  key={row.key}
+                  className="acpmux-chat-menu-item"
+                  popupClassName="acpmux-chat-menu-popover"
+                  disabled={row.disabled}
+                  label={
+                    <>
+                      <Icon name={row.icon} size={15} />
+                      <span className="acpmux-chat-menu-label">{row.label}</span>
+                    </>
+                  }
+                >
+                  {row.children.map((child) => (
+                    <MenuItem key={child.key} className="acpmux-chat-menu-item" onSelect={child.onSelect}>
+                      <span className="acpmux-chat-menu-label">{child.label}</span>
+                    </MenuItem>
+                  ))}
+                </Submenu>
               ) : (
-                <React.Fragment key={row.key}>
-                  <MenuItem
-                    item={row}
-                    expanded={expanded === row.key}
-                    onSelect={() =>
-                      row.children
-                        ? setExpanded((current) => (current === row.key ? undefined : row.key))
-                        : choose(row.onSelect)
-                    }
-                  />
-                  {expanded === row.key &&
-                    row.children?.map((child) => (
-                      <button
-                        key={child.key}
-                        type="button"
-                        role="menuitem"
-                        tabIndex={-1}
-                        className="acpmux-chat-menu-item acpmux-chat-menu-child"
-                        onClick={() => choose(child.onSelect)}
-                      >
-                        <span className="acpmux-chat-menu-label">{child.label}</span>
-                      </button>
-                    ))}
-                </React.Fragment>
+                <ChatMenuRow key={row.key} item={row} />
               ),
             )}
-          </div>
-        </dialog>
-      )}
-    </span>
+      </MenuPopup>
+    </Menu>
   );
 }
 
-function MenuItem({
-  item,
-  expanded,
-  onSelect,
-}: {
-  item: Exclude<ChatMenuItem, "separator">;
-  expanded: boolean;
-  onSelect: () => void;
-}) {
+function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const shortcut = useShortcut(item.shortcutAction ?? "");
   return (
-    <button
-      type="button"
-      role="menuitem"
-      tabIndex={-1}
-      className="acpmux-chat-menu-item"
-      aria-disabled={item.disabled || undefined}
-      aria-haspopup={item.children ? "menu" : undefined}
-      aria-expanded={item.children ? expanded : undefined}
-      onClick={() => {
-        if (!item.disabled) onSelect();
-      }}
-    >
+    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
       <Icon name={item.icon} size={15} />
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
-      {item.children && <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />}
-    </button>
+    </MenuItem>
   );
 }

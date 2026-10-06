@@ -7,16 +7,39 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Node",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  Node: dom.window.Node,
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+// The menu is the shared Base UI menu (src/ui), which reaches for DOM classes by name.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) =>
+    /^(HTML|SVG|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|Resize|getComputedStyle)/.test(
+      key,
+    ) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -100,23 +123,34 @@ test("Changes shows the last turn's counts and toggles the changes view", async 
   await unmount();
 });
 
-test("the chat menu lists its rows with their keys, opens submenus in place and skips disabled rows", async () => {
+const doc = dom.window.document;
+const rows = () => [...doc.querySelectorAll<HTMLElement>(".acpmux-chat-menu-popover [role=menuitem]")];
+const visibleRows = () => [
+  ...doc.querySelectorAll<HTMLElement>(".acpmux-chat-menu-popover:not([hidden]) [role=menuitem]"),
+];
+
+test("the chat menu lists its rows with their keys, and skips disabled rows", async () => {
   const ran: string[] = [];
   const { container, unmount } = await render({}, ran);
-  const more = container.querySelector<HTMLButtonElement>(".acpmux-chat-menu > button")!;
+  const more = container.querySelector<HTMLButtonElement>('[aria-label="Chat actions"]')!;
   await act(async () => more.click());
-  const rows = () => [...container.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
   expect(rows().map((row) => row.textContent)).toEqual(["Rename⌘R", "Continue in", "Close"]);
-  expect(container.querySelectorAll(".acpmux-chat-menu-separator").length).toBe(1);
-  await act(async () => rows()[1]!.click());
-  expect(rows().map((row) => row.textContent)).toEqual(["Rename⌘R", "Continue in", "Codex", "Close"]);
-  await act(async () => rows()[3]!.click());
-  expect(ran).toEqual([]);
+  expect(doc.querySelectorAll(".acpmux-chat-menu-popover [role=separator]").length).toBe(1);
+  expect(rows()[1]!.getAttribute("aria-haspopup")).toBe("menu");
   await act(async () => rows()[2]!.click());
-  expect(ran).toEqual(["continue:codex"]);
-  expect(container.querySelector("[role=menu]")).toBeNull();
-  await act(async () => more.click());
+  expect(ran).toEqual([]);
   await act(async () => rows()[0]!.click());
-  expect(ran).toEqual(["continue:codex", "rename"]);
+  expect(ran).toEqual(["rename"]);
+  await unmount();
+});
+
+test("the palette's Continue in opens the menu on the harness list", async () => {
+  const ran: string[] = [];
+  let expanded = 0;
+  const { unmount } = await render({ expand: "continue", onExpanded: () => expanded++ }, ran);
+  expect(expanded).toBe(1);
+  expect(visibleRows().map((row) => row.textContent)).toEqual(["Codex"]);
+  await act(async () => visibleRows()[0]!.click());
+  expect(ran).toEqual(["continue:codex"]);
   await unmount();
 });
