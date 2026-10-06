@@ -141,7 +141,7 @@ final class TitlebarBandButton: NSButton {
             if next.type == .leftMouseUp { sendAction(action, to: target); return }
         }
         if let menu = menuProvider?() {
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + Metrics.space1), in: self)
+            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: Metrics.space1), in: self)
         }
     }
 }

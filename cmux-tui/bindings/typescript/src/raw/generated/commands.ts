@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30. */
+/* cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326. */
 
 
 import type * as T from "./types.js";
@@ -1189,6 +1189,7 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
   "owner"?: (string) | null;
+  "page"?: (string) | null;
   "pane"?: (T.Id) | null;
   "rows"?: (number) | null;
   /** Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result. */

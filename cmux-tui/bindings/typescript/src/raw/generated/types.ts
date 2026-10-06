@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30. */
+/* cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -286,12 +286,14 @@ export type ConversationSummary = {
 };
 
 export type ConversationTabRecord = {
-  /** Agent session source (agent-session-tabs-v1); exclusive with conversation and owner. */
+  /** Agent session source (agent-session-tabs-v1); exclusive with the other sources. */
   "agent_session"?: AgentSessionSource;
   /** Conversation source: a conv_ id, with owner. */
   "conversation"?: string;
   /** Conversation source: local or cloud. */
   "owner"?: string;
+  /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
+  "page"?: string;
 };
 
 export type ConversationTextRun = {
