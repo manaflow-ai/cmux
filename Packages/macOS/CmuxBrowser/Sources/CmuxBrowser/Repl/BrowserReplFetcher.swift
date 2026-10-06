@@ -25,13 +25,19 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     /// The largest request body a fetch sends, 64 MiB.
     public static let maxRequestBodyBytes = 64 << 20
 
-    /// Why `requestJSON` (the host contract's fetch request) is refused for
-    /// its size before it is parsed, or nil: its body could not decode to
-    /// at most ``maxRequestBodyBytes`` bytes (Base64 is 4 characters per 3
-    /// bytes; 1 MiB is left for the URL and headers).
+    /// Why `requestJSON` (the host contract's fetch request) is refused
+    /// before it is parsed, or nil: its body could not decode to at most
+    /// ``maxRequestBodyBytes`` bytes (Base64 is 4 characters per 3 bytes;
+    /// 1 MiB is left for the URL and headers), or its JSON is past the
+    /// structure one driver or host call may pass
+    /// (``JSONSerialization/browserReplCallStructureRefusal(_:)``), which
+    /// no timeout could interrupt the parse of.
     public static func oversizedRequest(_ requestJSON: String) -> BrowserReplDriverError? {
-        guard requestJSON.utf8.count > maxRequestBodyBytes / 3 * 4 + (1 << 20) else { return nil }
-        return requestBodyTooLarge(atLeast: (requestJSON.utf8.count - (1 << 20)) / 4 * 3)
+        if requestJSON.utf8.count > maxRequestBodyBytes / 3 * 4 + (1 << 20) {
+            return requestBodyTooLarge(atLeast: (requestJSON.utf8.count - (1 << 20)) / 4 * 3)
+        }
+        guard let reason = JSONSerialization.browserReplCallStructureRefusal(requestJSON) else { return nil }
+        return BrowserReplDriverError(code: "invalid", message: "fetch: \(reason)")
     }
 
     private static func requestBodyTooLarge(atLeast count: Int) -> BrowserReplDriverError {

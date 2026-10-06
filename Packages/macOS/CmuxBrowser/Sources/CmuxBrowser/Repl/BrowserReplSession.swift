@@ -1860,7 +1860,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
             let requestJSON = request?.toString() ?? "{}"
-            // An oversized body is refused before it waits in the queue.
+            // An oversized body, or JSON past the structure one call may
+            // pass, is refused before it waits in the queue or is parsed.
             if let refusal = BrowserReplFetcher.oversizedRequest(requestJSON) {
                 self.refuseCall(Int(callID), refusal, method: "fetch")
                 return
