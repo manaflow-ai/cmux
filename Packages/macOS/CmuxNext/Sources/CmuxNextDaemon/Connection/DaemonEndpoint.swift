@@ -143,6 +143,9 @@ public struct DaemonCapabilities: Sendable {
     public let conversationTabs = "conversation-tabs-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
+    /// `attachment` parts and their bytes on the local conversation owner:
+    /// `conversation-attachment-upload` and `conversation-attachment-read`.
+    public let localAttachments = "local-attachments-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
@@ -188,7 +191,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, conversationSearch,
+                                            workspaceKind, conversationTabs, conversationSearch, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory] }
 
     /// App code waiting for a daemon half that no branch has yet. Each

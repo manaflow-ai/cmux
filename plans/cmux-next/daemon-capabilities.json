@@ -15,6 +15,7 @@
     "frontend-browser-history-v1",
     "frontend-browser-tabs-v1",
     "launch-snapshot-v1",
+    "local-attachments-v1",
     "local-conversations-v1",
     "loopback-forward-v1",
     "notification-ack-v1",
