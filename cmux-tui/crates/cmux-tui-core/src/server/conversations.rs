@@ -334,3 +334,7 @@ pub(super) fn agent_token(
 #[cfg(test)]
 #[path = "conversation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "conversation_attachment_tests.rs"]
+mod attachment_tests;
