@@ -41,6 +41,8 @@ public final class MockOnboardingServices: OnboardingServices {
     /// Each `openProjects` call's folders.
     public private(set) var openedProjects: [[URL]] = []
     public var agentChats: [AgentChat] = []
+    /// The chat ids classic cmux had open.
+    public var classicOpenChats: Set<String> = []
     public private(set) var resumedChats: [[AgentChat]] = []
 
     public private(set) var appliedAppearance: [(String?, Density)] = []
