@@ -104,10 +104,12 @@ extension AgentTabStore {
                 return (text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed, nil)
             }
         }
-        // task-owner: one read of this Mac's name, shown to Macs that see its tabs
-        Task { [weak tabs] in
+        // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
+        // pane's location row (a pane's handshake awaits it)
+        AgentPaneModel.localMachineName = Task { [weak tabs] in
             let name = await MacName.computerName()
             tabs?.localHostName = name
+            return AgentTabStore.displayName(name) ?? name
         }
         services.madeAgentTabs = tabs
         return tabs
