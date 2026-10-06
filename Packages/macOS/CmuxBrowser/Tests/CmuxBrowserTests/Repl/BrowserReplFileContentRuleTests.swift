@@ -60,6 +60,54 @@ struct BrowserReplFileContentRuleTests {
         #expect(widths?.last == 8, "an image inside the root did not load")
     }
 
+    /// r23 native#1: the root exception let a local page inside the root
+    /// load a file `secrets.load` protects as a subresource (an image, a
+    /// script, a fetch), by its own name, after a rename, through a link
+    /// or spelled another way. The navigation checks judge the file by
+    /// its identity; the content rules judge only the URL.
+    @Test("A file secrets.load protects does not load as a subresource under any name")
+    func aProtectedSecretsFileDoesNotLoadAsASubresource() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let manager = FileManager.default
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>"#
+        try manager.createDirectory(atPath: scratch.root + "/sub", withIntermediateDirectories: true)
+        try Data(svg.utf8).write(to: URL(fileURLWithPath: scratch.root + "/secret.svg"))
+        try Data("window.leaked = 'secret bytes';".utf8).write(to: URL(fileURLWithPath: scratch.root + "/loaded.js"))
+        for path in ["/secret.svg", "/loaded.js"] {
+            let identity = try #require(BrowserReplFileIdentity(path: scratch.root + path))
+            try BrowserReplFileSandbox.pathChangeLock.withLock { try BrowserReplSecretSources.shared.protect(identity) }
+        }
+        // After the load: a rename, and a link to the protected file.
+        try manager.moveItem(atPath: scratch.root + "/loaded.js", toPath: scratch.root + "/sub/moved.js")
+        try manager.createSymbolicLink(atPath: scratch.root + "/link.svg", withDestinationPath: scratch.root + "/secret.svg")
+        let caseInsensitive = manager.fileExists(atPath: scratch.root + "/SECRET.svg")
+        try Data("""
+            <p>main</p>
+            <img id=name src="secret.svg"><img id=link src="link.svg"><img id=spelled src="SECRET.svg">
+            <img id=dotted src="sub/../secret.svg">
+            <script src="sub/moved.js"></script>
+            """.utf8).write(to: URL(fileURLWithPath: scratch.root + "/page.html"))
+
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.add(try await Self.compile(BrowserReplFileSandbox.contentRules(roots: [scratch.root])))
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        let waiter = FileLoadWaiter()
+        webView.navigationDelegate = waiter
+        webView.loadFileURL(URL(fileURLWithPath: scratch.root + "/page.html"), allowingReadAccessTo: URL(fileURLWithPath: scratch.root))
+        await waiter.wait()
+
+        let widths = try await webView.evaluateJavaScript(
+            "['name', 'link', 'spelled', 'dotted'].map((id) => document.getElementById(id).naturalWidth)"
+        ) as? [Int]
+        #expect(widths?[0] == 0, "the protected file loaded as an image by its own name")
+        #expect(widths?[1] == 0, "the protected file loaded as an image through a link to it")
+        if caseInsensitive { #expect(widths?[2] == 0, "the protected file loaded as an image spelled in other case") }
+        #expect(widths?[3] == 0, "the protected file loaded as an image through a `..` spelling")
+        let leaked = try await webView.evaluateJavaScript("String(window.leaked)") as? String
+        #expect(leaked != "secret bytes", "a protected file, renamed after the load, ran as a script")
+    }
+
     static func compile(_ rules: [[String: Any]]) async throws -> WKContentRuleList {
         // An empty list stands for no rules.
         let list = rules.isEmpty ? [["trigger": ["url-filter": "^cmux-never:"], "action": ["type": "block"]]] : rules
