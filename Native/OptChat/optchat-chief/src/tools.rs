@@ -46,6 +46,45 @@ pub trait Orchestrator: Send + Sync {
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
 }
 
+/// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
+/// asked for (`--help`, `-h`), or its usage for words that do not fit.
+#[derive(Debug, PartialEq)]
+pub enum Command {
+    Call(Call),
+    Help(String),
+    Usage(String),
+}
+
+/// The command line form of the memory and subagent tools.
+pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
+    let call = match (tool, args) {
+        ("zoom", [id, n]) => Call::parse("zoom", &serde_json::json!({"id": id, "n": n})),
+        ("date", [id]) => Call::parse("date", &serde_json::json!({"id": id})),
+        ("spawn", tasks) if !tasks.is_empty() => {
+            Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
+        }
+        ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
+            "tell",
+            &serde_json::json!({"id": id, "message": message.join(" ")}),
+        ),
+        _ => return Ok(Command::Usage(usage(tool))),
+    };
+    call.map(Command::Call)
+}
+
+/// `usage: optchat-chief TOOL ARGS`.
+pub fn usage(tool: &str) -> String {
+    format!(
+        "usage: optchat-chief {tool} {}",
+        match tool {
+            "zoom" => "ID N",
+            "date" => "ID",
+            "spawn" => "\"task\" [\"task\" ...]",
+            _ => "ID \"message\"",
+        }
+    )
+}
+
 /// One tool call.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Call {

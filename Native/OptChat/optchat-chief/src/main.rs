@@ -67,32 +67,14 @@ fn main() -> std::process::ExitCode {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| Paths::new(&home(&flags)).tools_socket);
             let args: Vec<&str> = flags.words.iter().skip(1).map(String::as_str).collect();
-            let call = match (tool, args.as_slice()) {
-                ("zoom", [id, n]) => optchat_chief::tools::Call::parse(
-                    "zoom",
-                    &serde_json::json!({"id": id, "n": n}),
-                ),
-                ("date", [id]) => {
-                    optchat_chief::tools::Call::parse("date", &serde_json::json!({"id": id}))
+            let call = match optchat_chief::tools::command(tool, &args) {
+                Ok(optchat_chief::tools::Command::Call(call)) => Ok(call),
+                Ok(optchat_chief::tools::Command::Help(usage)) => {
+                    println!("{usage}");
+                    return std::process::ExitCode::SUCCESS;
                 }
-                ("spawn", tasks) if !tasks.is_empty() => {
-                    optchat_chief::tools::Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
-                }
-                ("tell", [id, message @ ..]) if !message.is_empty() => {
-                    optchat_chief::tools::Call::parse(
-                        "tell",
-                        &serde_json::json!({"id": id, "message": message.join(" ")}),
-                    )
-                }
-                _ => Err(format!(
-                    "usage: optchat-chief {tool} {}",
-                    match tool {
-                        "zoom" => "ID N",
-                        "date" => "ID",
-                        "spawn" => "\"task\" [\"task\" ...]",
-                        _ => "ID \"message\"",
-                    }
-                )),
+                Ok(optchat_chief::tools::Command::Usage(usage)) => Err(usage),
+                Err(e) => Err(e),
             };
             // A subagent's tools (OPTCHAT_SUBAGENT=1) have no spawn or tell.
             let subagent =
