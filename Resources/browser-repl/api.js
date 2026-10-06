@@ -155,7 +155,11 @@
       rmdirSync: (p, o) => void op("rm", { path: abs(p), recursive: !!(o && o.recursive) }),
       unlinkSync: (p) => void op("rm", { path: abs(p) }),
       renameSync: (from, to) => void op("rename", { from: abs(from), to: abs(to) }),
-      copyFileSync: (from, to) => void op("copyFile", { from: abs(from), to: abs(to) }),
+      copyFileSync(from, to) {
+        // The app leaves out an extended attribute past 1 MiB and says so.
+        const r = op("copyFile", { from: abs(from), to: abs(to) });
+        for (const warning of (r && Array.isArray(r.warnings) ? r.warnings : [])) host.print("warn", String(warning));
+      },
       realpathSync: (p) => op("resolve", { path: abs(p) }),
       mkdtempSync(prefix) {
         const chars = "abcdefghijklmnopqrstuvwxyz0123456789";

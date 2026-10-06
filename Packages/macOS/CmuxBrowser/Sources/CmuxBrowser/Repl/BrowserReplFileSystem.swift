@@ -340,6 +340,7 @@ public struct BrowserReplFileSystem: Sendable {
             }
             guard descriptor >= 0 else { throw Self.posixError(number, syscall: "copyfile", display: pair) }
             let copy = BrowserReplDescriptor(descriptor)
+            var skipped: [(name: String, size: Int)] = []
             do {
                 if let contents {
                     try writeAll(contents, to: copy, display: pair)
@@ -348,7 +349,7 @@ public struct BrowserReplFileSystem: Sendable {
                 }
                 // Extended attributes through the write budget, then mode
                 // and times as fcopyfile's own copy.
-                try copyExtendedAttributes(from: source, to: copy, callBytes: contents?.count ?? size, display: pair)
+                skipped = try copyExtendedAttributes(from: source, to: copy, callBytes: contents?.count ?? size, display: pair)
                 guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT)) == 0 else {
                     throw Self.posixError(errno, syscall: "copyfile", display: pair)
                 }
@@ -358,7 +359,11 @@ public struct BrowserReplFileSystem: Sendable {
                 _ = try? destination.withinRoot(syscall: "copyfile", display: pair) { unlinkat($0, staging, 0) }
                 throw error
             }
-            return NSNull()
+            guard !skipped.isEmpty else { return NSNull() }
+            // The runtime prints each as a warning line in the cell's output.
+            return ["warnings": skipped.map { attribute in
+                "fs.copyFile: left out the extended attribute \(attribute.name) (\(attribute.size) bytes), larger than the 1 MiB fs.copyFile copies, copyfile '\(pair)'"
+            }]
         default:
             throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: unsupported fs operation '\(operation)'")
         }
@@ -861,21 +866,24 @@ public struct BrowserReplFileSystem: Sendable {
     /// `COPYFILE_XATTR` does, but each one's bytes are taken from the write
     /// budget as part of the call (`callBytes` already written) and the
     /// copy stops with `ECANCELED` between attributes when the call is
-    /// cancelled. One past ``maxExtendedAttributeBytes`` fails with `EFBIG`.
-    /// Attributes the destination refuses (protected system ones) are left
-    /// out, as `copyfile` leaves them.
+    /// cancelled. One past ``maxExtendedAttributeBytes`` is left out, not
+    /// read, and returned, so the caller can say so. Attributes the
+    /// destination refuses (protected system ones) are left out silently,
+    /// as `copyfile` leaves them.
+    /// - Returns: The attributes left out for their size.
     private func copyExtendedAttributes(
         from source: BrowserReplDescriptor,
         to destination: BrowserReplDescriptor,
         callBytes: Int,
         display: String
-    ) throws {
+    ) throws -> [(name: String, size: Int)] {
+        var skipped: [(name: String, size: Int)] = []
         let listSize = flistxattr(source.fd, nil, 0, 0)
         if listSize < 0 {
-            if errno == ENOTSUP { return }
+            if errno == ENOTSUP { return skipped }
             throw Self.posixError(errno, syscall: "copyfile", display: display)
         }
-        guard listSize > 0 else { return }
+        guard listSize > 0 else { return skipped }
         var list = [CChar](repeating: 0, count: listSize)
         let listed = flistxattr(source.fd, &list, listSize, 0)
         guard listed >= 0 else { throw Self.posixError(errno, syscall: "copyfile", display: display) }
@@ -889,10 +897,8 @@ public struct BrowserReplFileSystem: Sendable {
                 throw Self.posixError(errno, syscall: "copyfile", display: display)
             }
             guard size <= Self.maxExtendedAttributeBytes else {
-                throw BrowserReplFileSystemError(
-                    code: "EFBIG",
-                    message: "EFBIG: an extended attribute of \(size) bytes is larger than the 1 MiB fs.copyFile copies, copyfile '\(display)'"
-                )
+                skipped.append((name, size))
+                continue
             }
             written += size
             try writeBudget.take(size, syscall: "copyfile", display: display, callBytes: written)
@@ -909,6 +915,7 @@ public struct BrowserReplFileSystem: Sendable {
                 }
             }
         }
+        return skipped
     }
 
     /// Why a call stopped part way; `display` is the path, or empty when
