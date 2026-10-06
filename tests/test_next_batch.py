@@ -501,6 +501,13 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("next-batch-build", WORKFLOW.read_text())
         self.assertIn("kinds", inputs)
 
+    def test_swift_generator_script_comes_from_the_workflow_ref(self):
+        steps = self.jobs["regen"]["steps"]
+        tools = next(step for step in steps if step.get("with", {}).get("path") == ".next-batch-tools")
+        self.assertEqual(tools["with"]["ref"], "${{ github.sha }}")
+        regen = next(step for step in steps if step.get("id") == "regen")
+        self.assertIn(".next-batch-tools/scripts/cmux-next/regenerate-swift-exports.sh", regen["run"])
+
     def test_regeneration_jobs_return_a_patch_and_never_push(self):
         for job in ("regen", "regen-linux"):
             with self.subTest(job=job):
