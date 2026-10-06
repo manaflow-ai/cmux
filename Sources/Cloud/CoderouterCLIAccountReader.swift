@@ -104,17 +104,19 @@ enum CoderouterCLIAccountReader {
     private static func matchingOrganizationID(for cmuxTeamID: String?, name cmuxTeamName: String, run: Run) async throws -> String? {
         let output = try await run(["org", "list"])
         let wanted = normalized(cmuxTeamName)
-        for rawLine in String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline) {
+        let organizations = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { rawLine -> (id: String, name: String)? in
             let tokens = rawLine.split(whereSeparator: { $0 == " " || $0 == "\t" })
             guard let candidateID = tokens.last,
-                  UUID(uuidString: String(candidateID)) != nil else { continue }
-            if String(candidateID) == cmuxTeamID { return String(candidateID) }
+                  UUID(uuidString: String(candidateID)) != nil else { return nil }
             let candidateName = tokens.dropLast().joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: "*"))
-            if normalized(candidateName) == wanted {
-                return String(candidateID)
-            }
+            return (String(candidateID), normalized(candidateName))
         }
-        return nil
+        if let exact = organizations.first(where: { $0.id == cmuxTeamID }) { return exact.id }
+        let matches = organizations.filter { $0.name == wanted }
+        guard matches.count <= 1 else {
+            throw accountError("More than one CodeRouter organization matches the selected team.")
+        }
+        return matches.first?.id
     }
 
     private static func normalized(_ value: String) -> String {

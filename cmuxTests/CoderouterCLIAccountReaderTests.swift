@@ -269,12 +269,13 @@ struct CoderouterSidebarSectionTests {
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
     }
 
-    @Test("Team-scoped add preserves the parent shell and shared config",
-          arguments: ["/bin/zsh", "/bin/bash"], ["codex", "claude", "opencode-go"])
-    func teamScopedAddCommandIsContained(shell: String, providerID: String) throws {
+    @Test("Team-scoped add preserves the parent shell and shared config")
+    func teamScopedAddCommandIsContained() throws {
         let organizationID = "team's-id"
-        for switchResult in [0, 7] {
-            let root = FileManager.default.temporaryDirectory
+        for shell in ["/bin/zsh", "/bin/bash"] {
+            for providerID in ["codex", "claude", "opencode-go"] {
+                for switchResult in [0, 7] {
+                    let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-coderouter-add-\(UUID().uuidString)")
             let configDirectory = root.appendingPathComponent("coderouter")
             let binDirectory = root.appendingPathComponent("bin")
@@ -332,8 +333,10 @@ struct CoderouterSidebarSectionTests {
                 #expect(lines[0] == lines[2])
             }
             #expect(lines[0] != root.path)
-            #expect(!FileManager.default.fileExists(atPath: lines[0]))
-            #expect(try String(contentsOf: configDirectory.appendingPathComponent("config.json"), encoding: .utf8) == "{}\n")
+                    #expect(!FileManager.default.fileExists(atPath: lines[0]))
+                    #expect(try String(contentsOf: configDirectory.appendingPathComponent("config.json"), encoding: .utf8) == "{}\n")
+                }
+            }
         }
     }
 
