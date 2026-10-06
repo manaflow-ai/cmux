@@ -20,6 +20,8 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case newWorkspace = "new_workspace"
     /// The import menu: classic cmux sessions, agent chats, browser data.
     case importSync = "import_sync"
+    /// Search Chats: a palette page over the agent chats.
+    case searchChats = "search_chats"
 }
 
 /// What an item points at: a kind and a string value. Kinds this client

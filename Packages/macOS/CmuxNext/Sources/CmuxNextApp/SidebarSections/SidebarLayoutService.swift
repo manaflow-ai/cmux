@@ -36,19 +36,21 @@ final class SidebarLayoutService {
     /// The sections migration went out this session (at most once, so an
     /// owner that refuses it is not asked again on every fetch).
     @ObservationIgnored private var migrationSent = false
-    /// This Mac added Recents to the layout, or saw it there, once.
-    @ObservationIgnored private let recentsOffered: UserDefaults
+    /// This Mac added Recents (or New chat and Search Chats) to the layout,
+    /// or saw them there, once.
+    @ObservationIgnored private let offered: UserDefaults
     static let recentsOfferedKey = "cmux.next.sidebar.recentsOffered"
+    static let chatItemsOfferedKey = "cmux.next.sidebar.chatItemsOffered"
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar-layout")
 
     init(remote: (any SidebarLayoutRemote)? = nil, onRefused: @escaping @MainActor (String) -> Void = { _ in },
          prototypeEnabled: @escaping @MainActor () -> Bool = {
              DevTools.isEnabled && SidebarSectionTunables.localPrototype.override == true
-         }, recentsOffered: UserDefaults = .standard) {
+         }, offered: UserDefaults = .standard) {
         self.remote = remote
         self.onRefused = onRefused
         self.prototypeEnabled = prototypeEnabled
-        self.recentsOffered = recentsOffered
+        self.offered = offered
     }
 
     isolated deinit {
@@ -161,15 +163,13 @@ final class SidebarLayoutService {
     /// flight.
     private func migrateIfNeeded() {
         guard !migrationSent, pending.isEmpty else { return }
-        // Recents is added once per Mac: a layout without it after that is one the user removed it from.
-        let offered = recentsOffered.bool(forKey: Self.recentsOfferedKey)
-        let ops = mirror.layoutMigrationOps(offeringRecents: !offered)
-        let addsRecents = ops.contains { op in
-            if case .sectionAdd(let section, _) = op { section.id == SidebarLayoutDocument.recentsSectionID } else { false }
-        }
-        if !offered, addsRecents || mirror.section(SidebarLayoutDocument.recentsSectionID) != nil {
-            recentsOffered.set(true, forKey: Self.recentsOfferedKey)
-        }
+        // Recents and the chat items are added once per Mac: a layout
+        // without them after that is one the user removed them from.
+        let ops = mirror.layoutMigrationOps(offeringRecents: !offered.bool(forKey: Self.recentsOfferedKey),
+                                            offeringChatItems: !offered.bool(forKey: Self.chatItemsOfferedKey))
+        let migrated = mirror.applying(ops)
+        if migrated.section(SidebarLayoutDocument.recentsSectionID) != nil { offered.set(true, forKey: Self.recentsOfferedKey) }
+        if migrated.item(SidebarLayoutDocument.newChatItemID) != nil { offered.set(true, forKey: Self.chatItemsOfferedKey) }
         guard !ops.isEmpty else { return }
         migrationSent = true
         for op in ops {

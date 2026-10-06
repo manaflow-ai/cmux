@@ -60,6 +60,7 @@ extension SidebarBuiltIn {
         case .customize: "paintbrush"
         case .newWorkspace: "plus"
         case .importSync: "square.and.arrow.down"
+        case .searchChats: "magnifyingglass"
         }
     }
 
@@ -79,6 +80,7 @@ extension SidebarBuiltIn {
         case .customize: .theme
         case .newWorkspace: .workspaceNew
         case .importSync: .actionDownload
+        case .searchChats: .search
         }
     }
 
@@ -103,6 +105,7 @@ extension SidebarBuiltIn {
         case .customize: SectionStrings.customize
         case .newWorkspace: SectionStrings.newWorkspace
         case .importSync: SectionStrings.importSync
+        case .searchChats: SectionStrings.searchChats
         }
     }
 

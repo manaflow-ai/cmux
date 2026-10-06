@@ -94,7 +94,8 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
-    /// The default layout (plans/cmux-next/sidebar-sections.md): the
+    /// The default layout (plans/cmux-next/sidebar-sections.md): New chat
+    /// and Search Chats, then the
     /// first-party apps Home and the App Store as plain rows on top (app
     /// items, R63/R64: apps like any other, from their manifests; Lawrence
     /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, the
@@ -106,8 +107,8 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// (`sectionsMigrationOps`).
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
-                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
-                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
+                      items: chatItems + [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
+                                          LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
         // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         recentsSection,

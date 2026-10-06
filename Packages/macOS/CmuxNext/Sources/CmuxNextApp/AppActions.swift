@@ -18,6 +18,7 @@ enum AppActions {
         WindowHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
         TabSearchHandlers.bind(into: registry, context: context)
+        AgentChatSearchHandlers.bind(into: registry, context: context)
         PaletteScopeHandlers.bind(into: registry, context: context)
         BookmarkHandlers.bind(into: registry, context: context)
         AppStoreHandlers.bind(into: registry, context: context)

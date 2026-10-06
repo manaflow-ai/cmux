@@ -30,6 +30,7 @@ extension SidebarBridge {
         // both the classic-session and agent-chat scans.
         .importSync: "importAndSync.show",
         .customize: "appearance.customize",
+        .searchChats: "agentChats.search",
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
