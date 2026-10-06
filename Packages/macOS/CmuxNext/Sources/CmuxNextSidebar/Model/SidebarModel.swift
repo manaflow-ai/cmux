@@ -16,6 +16,8 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
+    /// RED stub.
+    public var selectedItem: SidebarItem?
     /// The workspace shown in the window.
     public var activeWorkspaceID: WorkspaceID?
     /// Profiles in order (the bar at the bottom center). The bar hides
