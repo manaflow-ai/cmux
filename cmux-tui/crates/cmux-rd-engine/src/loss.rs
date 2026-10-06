@@ -4,7 +4,7 @@
 
 use std::collections::{HashSet, VecDeque};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct LossMeter {
     order: VecDeque<u16>,
     arrived: HashSet<u16>,

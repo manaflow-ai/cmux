@@ -10,7 +10,10 @@ use cmux_rd_proto::{
 };
 
 fn engine() -> MediaEngine {
-    MediaEngine::new(EngineConfig { width: 640, height: 480, max_fps: 60, ..EngineConfig::default() }, 0)
+    MediaEngine::new(
+        EngineConfig { width: 640, height: 480, max_fps: 60, ..EngineConfig::default() },
+        0,
+    )
 }
 
 fn au(len: usize) -> Vec<u8> {
@@ -18,9 +21,18 @@ fn au(len: usize) -> Vec<u8> {
 }
 
 fn header(kind: DatagramKind) -> Vec<u8> {
-    DatagramHeader { flags: 0, kind, stream: 0, frame: 0, index: 0, count: 0, fec_count: 0, transport_seq: 0 }
-        .encode()
-        .to_vec()
+    DatagramHeader {
+        flags: 0,
+        kind,
+        stream: 0,
+        frame: 0,
+        index: 0,
+        count: 0,
+        fec_count: 0,
+        transport_seq: 0,
+    }
+    .encode()
+    .to_vec()
 }
 
 fn feedback(fb: &Feedback) -> Vec<u8> {
@@ -36,7 +48,9 @@ fn input(packet: &InputPacket) -> Vec<u8> {
 }
 
 fn send(e: &mut MediaEngine, req: &EncodeRequest, idr: bool, len: usize, now: u64) -> Vec<Vec<u8>> {
-    e.encoded(req, Some(Encoded { access_unit: au(len), idr, t_capture_us: now }), now).expect("encoded").datagrams
+    e.encoded(req, Some(Encoded { access_unit: au(len), idr, t_capture_us: now }), now)
+        .expect("encoded")
+        .datagrams
 }
 
 #[test]
@@ -59,7 +73,11 @@ fn one_frame_in_flight_until_the_viewer_acknowledges() {
     send(&mut e, &first, true, 1_000, 0);
     let small = Rect { x: 1, y: 1, width: 10, height: 10 };
     assert!(e.damage(small, 20_000).is_none(), "a second frame waits for the ack");
-    let out = e.on_datagram(&feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }), true, 30_000);
+    let out = e.on_datagram(
+        &feedback(&Feedback { acked_frame: first.frame, ..Feedback::default() }),
+        true,
+        30_000,
+    );
     let next = out.encode.expect("the ack releases the coalesced damage");
     assert!(!next.force_idr);
     assert!(next.frame > first.frame);
@@ -70,7 +88,10 @@ fn nacked_shards_are_resent_from_history() {
     let mut e = engine();
     let first = e.start(0).expect("first");
     let sent = send(&mut e, &first, true, 6_000, 0);
-    let fb = Feedback { nacks: vec![Nack { frame: first.frame, indexes: vec![1, 3] }], ..Feedback::default() };
+    let fb = Feedback {
+        nacks: vec![Nack { frame: first.frame, indexes: vec![1, 3] }],
+        ..Feedback::default()
+    };
     let out = e.on_datagram(&feedback(&fb), true, 10_000);
     assert_eq!(out.datagrams, vec![sent[1].clone(), sent[3].clone()]);
 }
@@ -80,12 +101,17 @@ fn a_recovery_request_forces_a_keyframe_at_most_every_250_ms() {
     let mut e = engine();
     let first = e.start(0).expect("first");
     send(&mut e, &first, true, 500, 0);
-    let ask = feedback(&Feedback { acked_frame: first.frame, need_recovery: true, ..Feedback::default() });
+    let ask = feedback(&Feedback {
+        acked_frame: first.frame,
+        need_recovery: true,
+        ..Feedback::default()
+    });
     let out = e.on_datagram(&ask, true, 300_000);
     let idr = out.encode.expect("recovery encode");
     assert!(idr.force_idr);
     send(&mut e, &idr, true, 500, 300_000);
-    let again = feedback(&Feedback { acked_frame: idr.frame, need_recovery: true, ..Feedback::default() });
+    let again =
+        feedback(&Feedback { acked_frame: idr.frame, need_recovery: true, ..Feedback::default() });
     let out = e.on_datagram(&again, true, 400_000);
     assert!(out.encode.is_none_or(|r| !r.force_idr), "a second forced keyframe within 250 ms");
 }
@@ -95,7 +121,10 @@ fn input_is_applied_once_and_acknowledged_and_refused_input_is_acknowledged_too(
     let mut e = engine();
     let packet = InputPacket {
         first_seq: 1,
-        events: vec![InputEvent::Key { usage: 4, down: true }, InputEvent::Key { usage: 4, down: false }],
+        events: vec![
+            InputEvent::Key { usage: 4, down: true },
+            InputEvent::Key { usage: 4, down: false },
+        ],
     };
     let out = e.on_datagram(&input(&packet), true, 0);
     assert_eq!(out.inject, packet.events);
@@ -122,7 +151,9 @@ fn a_frame_too_large_halves_the_bitrate_and_restarts_from_a_keyframe() {
     );
     let first = e.start(0).expect("first");
     // 4096 shards of 48 bytes is the limit at this datagram size.
-    let out = e.encoded(&first, Some(Encoded { access_unit: au(300_000), idr: true, t_capture_us: 0 }), 0).expect("ok");
+    let out = e
+        .encoded(&first, Some(Encoded { access_unit: au(300_000), idr: true, t_capture_us: 0 }), 0)
+        .expect("ok");
     assert!(out.datagrams.is_empty());
     assert!(out.halve_bitrate);
     let next = e.damage(Rect { x: 0, y: 0, width: 1, height: 1 }, 20_000).expect("gate open again");
