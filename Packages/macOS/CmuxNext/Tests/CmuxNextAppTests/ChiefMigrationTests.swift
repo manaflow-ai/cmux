@@ -149,12 +149,12 @@ import Testing
         let lock = NSLock()
         init(exports: [String: URL]) { self.exports = exports }
 
-        func exportText(muxHome: URL, to directory: URL) throws {
+        func exportText(muxHome: URL, to directory: URL) async throws {
             lock.withLock { exported.append(muxHome) }
             try FileManager.default.copyItem(at: try #require(exports[muxHome.lastPathComponent]), to: directory)
         }
 
-        func importText(muxHome: URL, from directory: URL) throws {
+        func importText(muxHome: URL, from directory: URL) async throws {
             lock.withLock { imported.append(directory) }
             let chat = muxHome.appendingPathComponent("optchat/chat", isDirectory: true)
             try FileManager.default.createDirectory(at: chat.deletingLastPathComponent(), withIntermediateDirectories: true)

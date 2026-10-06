@@ -763,7 +763,7 @@ pub use crate::prompt::CachedPrompt;
 /// the session's system prompt, then the rest of the context with one
 /// marker at the last mark, then the step.
 pub fn cached_prompt(request: &CompactRequest, marker: bool) -> CachedPrompt {
-    crate::prompt::cached_layout(&request.system, &request.context, &request.step, marker)
+    crate::prompt::cached_layout_at_marks(&request.system, &request.context, &request.step, marker)
 }
 
 /// Whether a failed turn's error is the API's limit of four cache

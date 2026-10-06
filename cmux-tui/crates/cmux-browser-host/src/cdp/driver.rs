@@ -51,6 +51,9 @@ pub(super) struct Inner {
     /// The browser's own user agent (`Browser.getVersion`), what a tab
     /// without a `session.configure` user agent goes back to.
     pub(super) default_ua: std::sync::OnceLock<String>,
+    /// Browser contexts this driver created (proxy stores); every other tab
+    /// is in the default context, which `Storage.*` names by omission.
+    pub(super) proxy_contexts: Mutex<std::collections::HashSet<String>>,
 }
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
@@ -133,6 +136,7 @@ impl Inner {
             hidden_viewport,
             shells: Mutex::default(),
             default_ua: std::sync::OnceLock::new(),
+            proxy_contexts: Mutex::default(),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -215,6 +219,11 @@ impl CdpDriver {
         self.inner.tabs_open_in(params, context, overrides)
     }
 
+    /// The browser context (cookie jar) a tab is in.
+    pub fn tab_context(&self, target_id: &str) -> Option<String> {
+        self.inner.lock().tabs.get(target_id).and_then(|tab| tab.context.clone())
+    }
+
     /// A private store for a session's `session.configure {proxy}`.
     pub fn create_proxy_context(
         &self,
@@ -227,15 +236,21 @@ impl CdpDriver {
         }
         let created =
             self.inner.conn.call(None, "Target.createBrowserContext", params, INTERNAL_TIMEOUT)?;
-        created
-            .get("browserContextId")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| DriverError::invalid("Target.createBrowserContext returned no id"))
+        let context =
+            created.get("browserContextId").and_then(Value::as_str).map(str::to_owned).ok_or_else(
+                || DriverError::invalid("Target.createBrowserContext returned no id"),
+            )?;
+        self.inner
+            .proxy_contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(context.clone());
+        Ok(context)
     }
 
     /// Closes a proxy store and every tab in it.
     pub fn dispose_context(&self, context: &str) -> Result<(), DriverError> {
+        self.inner.proxy_contexts.lock().unwrap_or_else(PoisonError::into_inner).remove(context);
         self.inner
             .conn
             .call(
@@ -789,7 +804,12 @@ impl Inner {
     }
 
     fn cookies_get(&self, params: &Value) -> Result<Value, DriverError> {
-        let cookies = self.conn.call(None, "Storage.getCookies", json!({}), INTERNAL_TIMEOUT)?;
+        let cookies = self.conn.call(
+            None,
+            "Storage.getCookies",
+            self.cookie_store(params),
+            INTERNAL_TIMEOUT,
+        )?;
         let all = cookies["cookies"].as_array().cloned().unwrap_or_default();
         let urls: Vec<url::Url> = params
             .get("urls")
@@ -811,12 +831,9 @@ impl Inner {
 
     fn cookies_set(&self, params: &Value) -> Result<Value, DriverError> {
         let cookies = params.get("cookies").cloned().unwrap_or_else(|| json!([]));
-        self.conn.call(
-            None,
-            "Storage.setCookies",
-            json!({"cookies": cookies}),
-            INTERNAL_TIMEOUT,
-        )?;
+        let mut args = self.cookie_store(params);
+        args["cookies"] = cookies;
+        self.conn.call(None, "Storage.setCookies", args, INTERNAL_TIMEOUT)?;
         Ok(Value::Null)
     }
 

@@ -29,8 +29,17 @@ fn serve_once_then_shut_down(listener: UnixListener, socket: std::path::PathBuf)
                 let Ok(line) = line else { break };
                 let req: Value = serde_json::from_str(&line).unwrap();
                 let id = req["id"].clone();
-                let result = if req["method"] == "_acpmux/sessions" { json!({"sessions": []}) } else { json!({}) };
-                writeln!(out, "{}", json!({"jsonrpc": "2.0", "id": id, "result": result})).unwrap();
+                let result = if req["method"] == "_acpmux/sessions" {
+                    json!({"sessions": []})
+                } else {
+                    json!({})
+                };
+                writeln!(
+                    out,
+                    "{}",
+                    json!({"jsonrpc": "2.0", "id": id, "result": result})
+                )
+                .unwrap();
                 if req["method"] == "_acpmux/sessions" {
                     // Up is reported after the session list; then the daemon ends.
                     std::thread::sleep(std::time::Duration::from_millis(200));
@@ -49,7 +58,11 @@ fn after_its_acpmux_daemon_shuts_down_the_host_starts_no_other() {
     let socket = dir.path().join("acpmux.sock");
     let marker = dir.path().join("respawned");
     let bin = dir.path().join("acpmux");
-    std::fs::write(&bin, format!("#!/bin/sh\ntouch '{}'\nsleep 30\n", marker.display())).unwrap();
+    std::fs::write(
+        &bin,
+        format!("#!/bin/sh\ntouch '{}'\nsleep 30\n", marker.display()),
+    )
+    .unwrap();
     std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
     // SAFETY: this test binary runs this one test; nothing else reads the env meanwhile.
     unsafe {
@@ -62,8 +75,12 @@ fn after_its_acpmux_daemon_shuts_down_the_host_starts_no_other() {
     let sink = Mutex::new(tx);
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
     let logged = lines.clone();
-    acpmux.spawn_link(Arc::new(move |e| { let _ = sink.lock().unwrap().send(e); }),
-                      Arc::new(move |line: &str| logged.lock().unwrap().push(line.to_owned())));
+    acpmux.spawn_link(
+        Arc::new(move |e| {
+            let _ = sink.lock().unwrap().send(e);
+        }),
+        Arc::new(move |line: &str| logged.lock().unwrap().push(line.to_owned())),
+    );
     let mut seen = Vec::new();
     let ended = loop {
         match rx.recv_timeout(common::WAIT) {
@@ -72,7 +89,11 @@ fn after_its_acpmux_daemon_shuts_down_the_host_starts_no_other() {
             Err(_) => break false,
         }
     };
-    assert!(ended, "the link reports the daemon's end; saw {seen:?}; log {:?}", lines.lock().unwrap());
+    assert!(
+        ended,
+        "the link reports the daemon's end; saw {seen:?}; log {:?}",
+        lines.lock().unwrap()
+    );
     std::thread::sleep(std::time::Duration::from_millis(1500));
     assert!(!marker.exists(), "no acpmux daemon was started again");
 }

@@ -8,9 +8,11 @@
 //!   driver sets them before the first navigation; a popup starts with its
 //!   opener's).
 //! - `proxy`: a private browser context (its own cookie jar) for the tabs
-//!   the session opens afterwards; their popups stay in it. Closed at the
-//!   session's end unless a tab in it was kept (then at host exit).
-//!   Credentials are not supported yet (they need `Fetch.authRequired`).
+//!   the session opens afterwards; their popups stay in it. Its tabs list
+//!   the dataStore `<profile>/proxy-<n>`, and the session's `cookies.*`
+//!   without a `targetId` use it. Closed at the session's end unless a tab
+//!   in it (a popup too) was kept, then at host exit. Known gap: proxy
+//!   credentials answer `unsupported` (they need `Fetch.authRequired`).
 //! - `permissions`: not supported yet (CDP grants per browser context or
 //!   origin, not per tab; owner decision pending).
 
@@ -26,10 +28,24 @@ pub struct SessionConfig {
     overrides: TabOverrides,
     /// The proxy store for tabs opened from now on.
     proxy: Option<String>,
-    /// Every proxy store the session made, and whether a kept tab is in it.
-    contexts: Vec<(String, bool)>,
-    /// Tabs the session opened in a proxy store.
-    tab_contexts: HashMap<String, String>,
+}
+
+/// A proxy store (a browser context): the session that made it, its
+/// `tabs.list` dataStore name, and whether a tab in it was kept (then it
+/// stays open until the host exits; otherwise it closes with the session).
+#[derive(Debug)]
+struct ProxyStore {
+    owner: u64,
+    name: String,
+    kept: bool,
+}
+
+/// The sessions' options and the proxy stores of one shared browser.
+#[derive(Debug, Default)]
+pub struct Configs {
+    sessions: HashMap<u64, SessionConfig>,
+    stores: HashMap<String, ProxyStore>,
+    next_store: u64,
 }
 
 impl SessionConfig {
@@ -43,8 +59,20 @@ fn unsupported(message: &str) -> DriverError {
 }
 
 impl HeadlessSource {
-    fn configs(&self) -> std::sync::MutexGuard<'_, HashMap<u64, SessionConfig>> {
+    fn configs(&self) -> std::sync::MutexGuard<'_, Configs> {
         self.configs.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The `tabs.list` dataStore of a tab in a proxy store (None: the
+    /// profile's).
+    pub(crate) fn data_store_of(&self, target: &str) -> Option<String> {
+        let context = self.driver.tab_context(target)?;
+        self.configs().stores.get(&context).map(|store| store.name.clone())
+    }
+
+    /// The session's proxy store, for its tab-less `cookies.*`.
+    pub(crate) fn proxy_of(&self, session: u64) -> Option<String> {
+        self.configs().sessions.get(&session).and_then(|c| c.proxy.clone())
     }
 
     /// `session.configure`: each key given replaces its value (`null` clears).
@@ -70,7 +98,14 @@ impl HeadlessSource {
         };
         let (overrides, tabs, answer) = {
             let mut configs = self.configs();
-            let config = configs.entry(session).or_default();
+            if let Some(Some(context)) = &proxy {
+                configs.next_store += 1;
+                let name = format!("{}/proxy-{}", self.profile, configs.next_store);
+                configs
+                    .stores
+                    .insert(context.clone(), ProxyStore { owner: session, name, kept: false });
+            }
+            let config = configs.sessions.entry(session).or_default();
             if let Some(ua) = params.get("userAgent") {
                 config.overrides.user_agent = ua.as_str().map(str::to_owned);
             }
@@ -78,9 +113,6 @@ impl HeadlessSource {
                 config.overrides.headers = headers.as_object().cloned();
             }
             if let Some(proxy) = proxy {
-                if let Some(context) = &proxy {
-                    config.contexts.push((context.clone(), false));
-                }
                 config.proxy = proxy;
             }
             let answer = json!({"proxy": config.proxy.is_some()});
@@ -102,31 +134,23 @@ impl HeadlessSource {
     ) -> Result<Value, DriverError> {
         let (context, overrides) = {
             let configs = self.configs();
-            let config = configs.get(&session);
+            let config = configs.sessions.get(&session);
             (config.and_then(|c| c.proxy.clone()), config.and_then(SessionConfig::overrides))
         };
-        let opened = self.driver.open_tab(params, context.as_deref(), overrides)?;
-        if let (Some(context), Some(target)) =
-            (context, opened.get("targetId").and_then(Value::as_str))
-            && let Some(config) = self.configs().get_mut(&session)
-        {
-            config.tab_contexts.insert(target.to_owned(), context);
-        }
-        Ok(opened)
+        self.driver.open_tab(params, context.as_deref(), overrides)
     }
 
-    /// A kept tab is the person's: the session's options leave it, and its
-    /// proxy store stays until the host exits.
-    pub(crate) fn configure_kept(&self, session: u64, target: &str) {
+    /// A kept tab is the person's: the creating session's options leave it,
+    /// and the proxy store it is in (any tab, a popup too) stays open until
+    /// the host exits.
+    pub(crate) fn configure_kept(&self, session: u64, target: &str, created: bool) {
+        let context = self.driver.tab_context(target);
         let had = {
             let mut configs = self.configs();
-            let Some(config) = configs.get_mut(&session) else { return };
-            if let Some(context) = config.tab_contexts.remove(target) {
-                for entry in config.contexts.iter_mut().filter(|(c, _)| *c == context) {
-                    entry.1 = true;
-                }
+            if let Some(store) = context.and_then(|c| configs.stores.get_mut(&c)) {
+                store.kept = true;
             }
-            config.overrides().is_some()
+            created && configs.sessions.get(&session).is_some_and(|c| c.overrides().is_some())
         };
         if had {
             let _ = self.driver.set_tab_overrides(target, None);
@@ -136,16 +160,27 @@ impl HeadlessSource {
     /// The session ended: its options leave its tabs, its proxy stores
     /// without a kept tab close.
     pub(crate) fn configure_ended(&self, session: u64) {
-        let Some(config) = self.configs().remove(&session) else { return };
-        if config.overrides().is_some() {
+        let (config, closing) = {
+            let mut configs = self.configs();
+            let config = configs.sessions.remove(&session);
+            let closing: Vec<String> = configs
+                .stores
+                .iter()
+                .filter(|(_, store)| store.owner == session && !store.kept)
+                .map(|(context, _)| context.clone())
+                .collect();
+            for context in &closing {
+                configs.stores.remove(context);
+            }
+            (config, closing)
+        };
+        if config.is_some_and(|c| c.overrides().is_some()) {
             for target in self.routes_tabs_of(session) {
                 let _ = self.driver.set_tab_overrides(&target, None);
             }
         }
-        for (context, kept) in config.contexts {
-            if !kept {
-                let _ = self.driver.dispose_context(&context);
-            }
+        for context in closing {
+            let _ = self.driver.dispose_context(&context);
         }
     }
 }

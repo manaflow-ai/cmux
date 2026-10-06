@@ -51,7 +51,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 ## Counts (845 actions)
 
-Palette 812, CLI verbs 461, right-click 445, MCP tools 406.
+Palette 812, CLI verbs 462, right-click 445, MCP tools 406.
 
 ## Menus
 
@@ -116,7 +116,7 @@ Palette 812, CLI verbs 461, right-click 445, MCP tools 406.
 
 **unimplemented** (8): `palette.openFilesPane`, `palette.openFindPane`, `palette.openVaultPane`, `palette.openCloudPane`, `toggleTabAudioMute`, `disconnectRemoteTab`, `palette.enableBrowser`, `palette.disableBrowser`
 
-**ownerVerb** (10): `newTab`, `closeWorkspace`, `space.new`, `closeTab`, `screen.new`, `screen.close`, `browserBack`, `browserForward`, `closePane`, `server.addServer`
+**ownerVerb** (9): `newTab`, `closeWorkspace`, `space.new`, `closeTab`, `screen.new`, `screen.close`, `browserBack`, `browserForward`, `closePane`
 
 ## Exemptions: contextMenu
 
@@ -148,7 +148,7 @@ Palette 812, CLI verbs 461, right-click 445, MCP tools 406.
 
 ## Exemptions: mcp
 
-**credentials** (5): `palette.auth.signIn`, `palette.auth.signOut`, `accounts.reauthenticate`, `accounts.connect`, `accounts.remove`
+**credentials** (6): `palette.auth.signIn`, `palette.auth.signOut`, `accounts.reauthenticate`, `accounts.connect`, `accounts.remove`, `server.addServer`
 
 **endsApp** (4): `quit`, `quitKeepSessions`, `quitEndSessions`, `quitEndEverything`
 

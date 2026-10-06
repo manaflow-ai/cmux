@@ -103,10 +103,13 @@ agent and extra headers are set per tab before its first request (a popup
 starts with its opener's) on the tabs the session created and did not keep;
 `tab.keep` and the session's end restore the browser's own. `proxy` opens a
 private browser context (its own cookie jar) for the tabs the session opens
-afterwards, popups included; it closes at the session's end unless a tab in
-it was kept (then at host exit). Not yet: proxy credentials and
-`permissions` (both answer `unsupported`); `cookies.*` without `targetId`
-still use the profile's store, not the proxy store.
+afterwards, popups included. Its tabs list the dataStore
+`<profile>/proxy-<n>` (stable while the store is open); the session's
+`cookies.*` without `targetId` use it, and with `targetId` the tab's own
+store. It closes at the session's end unless a tab in it (a popup too) was
+kept, then at host exit. Known gap: proxy credentials answer `unsupported`
+(they need `Fetch.authRequired`). Not yet: `permissions` (`unsupported`,
+owner decision pending).
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each

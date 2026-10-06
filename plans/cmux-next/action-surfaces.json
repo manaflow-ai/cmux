@@ -22567,8 +22567,8 @@
       "title_table" : "ServerActions"
     },
     {
-      "cli" : "ownerVerb",
-      "cli_name" : "action server-add-server",
+      "cli" : "offered",
+      "cli_name" : "servers add",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -22579,7 +22579,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "server.addServer",
-      "mcp" : "ownerVerb",
+      "mcp" : "credentials",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",
