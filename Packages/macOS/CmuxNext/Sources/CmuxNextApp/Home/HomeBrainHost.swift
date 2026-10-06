@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import Foundation
 import os
@@ -10,10 +11,12 @@ import os
 ///
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
 /// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
-/// builds bundle as Contents/Resources/bin/optchat-chief
+/// and NIGHTLY builds bundle as Contents/Resources/bin/optchat-chief
 /// (scripts/cmux-next/bundle-optchat-chief.sh; cmux-tui/crates/optchat-chief,
-/// chief-done.md check 7: every Chief turn follows OptChat). Release builds
-/// carry neither: Home works and the Chief does not answer. Both keep the
+/// chief-done.md check 7: every Chief turn follows OptChat). The bundled
+/// Chief starts only on DEV and NIGHTLY (`bundledChiefAllowed`, the
+/// DevTools channel rule); Release and RC never bundle or start it: Home
+/// works and the Chief does not answer. Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
 /// Tagged builds use `~/.cmux/mux/tags/<tag>` so a test never touches the
 /// real mux memory.
@@ -28,11 +31,20 @@ nonisolated struct HomeBrainHost: Sendable {
     /// The OptChat Chief's file name in the app's Contents/Resources/bin.
     static let bundledChiefName = "optchat-chief"
 
+    /// DEV (a Debug compile) and NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`)
+    /// start the bundled Chief; Release and RC do not (NIGHTLY compiles as
+    /// Release, so the bundle id decides, as for DevTools).
+    static func bundledChiefAllowed(bundleID: String?, isDebugBuild: Bool) -> Bool {
+        DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
+    }
+
     static func resolve(daemonSocket: String, controlSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                         userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
-                        bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) -> HomeBrainHost? {
+                        bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
+                        bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
+                                                                                      isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
-        let bundled = bundledBinDirectory?.appendingPathComponent(bundledChiefName).path
+        let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
         guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
