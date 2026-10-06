@@ -85,8 +85,13 @@ public nonisolated struct IconPixelGrid {
         layer.op.strokes && !pixels(layer.width).isMultiple(of: 2) ? 0.5 : 0
     }
 
+    /// The nearest point on the `phase` grid. Centered geometry often sits
+    /// exactly between two pixels, so the offset is quantized first (grid 12
+    /// at 16 pt is 7.9999… for one path and 8.0000… for another) and ties
+    /// always go up.
     static func snap(_ value: CGFloat, phase: CGFloat) -> CGFloat {
-        (value - phase).rounded() + phase
+        let offset = ((value - phase) * 1024).rounded() / 1024
+        return (offset + 0.5).rounded(.down) + phase
     }
 
     /// A piecewise-linear remap of one axis through its snapped stems.
