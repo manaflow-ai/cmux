@@ -630,7 +630,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   an opaque origin, `blob:null/...`, is blocked) and `session.configure`
   content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
-  policy's content rules to the tabs the session created, refuses reads and input (`frame.evaluate`, `auth.request`,
+  policy's content rules to the tabs the session created. WebKit compiles
+  them asynchronously while those tabs' pages keep running, so from the
+  main actor's next turn after a policy or directory change until the new
+  list is on a tab (and after WebKit refused it, until a policy compiles),
+  the tab carries a fail-closed list that blocks every load: no live page
+  loads, under the previous rules, what the new ones forbid. The driver refuses reads and input (`frame.evaluate`, `auth.request`,
   `frame.contentFrame(s)`, `input.*`, captures, clipboard, file chooser
   answers) on a tab that shows a blocked page, cancels main-frame
   navigations to blocked URLs in tabs the session created

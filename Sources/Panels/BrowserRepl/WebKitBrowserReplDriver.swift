@@ -137,6 +137,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let generation = BrowserReplPolicyBoard.shared.publish(policy, sessionID: sessionID)
             policyRunner.submit(PolicyUpdate(policy: policy, generation: generation))
         }
+        failClosedUntilRulesInstall()
+    }
+
+    /// Puts the session's tabs under the fail-closed list on the main
+    /// actor's next turn, ahead of the compile the policy runner starts:
+    /// their live pages load nothing under the previous rules until the
+    /// new list is on them (``BrowserReplTabAttachments/rulesInForce(forSession:)``).
+    private func failClosedUntilRulesInstall() {
+        let sessionID = sessionID
+        Task { @MainActor in BrowserReplTabAttachments.shared.applyRules(forSession: sessionID) }
     }
 
     /// Puts the policy's content rules on the tabs the session created, then
@@ -165,10 +175,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "the domain policy could not be applied: WebKit refused its content rules (\(reason)); set a policy that compiles (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses), or reset the session if the policy is locked"
             )
             BrowserReplPolicyBoard.shared.rulesFailed(sessionID: sessionID, generation: generation, reason: reason)
+            // The tabs stay under the fail-closed list until a policy compiles.
+            BrowserReplTabAttachments.shared.applyRules(forSession: sessionID)
             return
         }
         contextOptions = options
-        BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID)
+        // The list goes on the tabs only when it is the latest policy's;
+        // a newer one keeps them under the fail-closed list.
+        BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID, rulesGeneration: generation)
         BrowserReplPolicyBoard.shared.rulesInstalled(sessionID: sessionID, generation: generation)
     }
 
@@ -192,6 +206,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let generation = BrowserReplPolicyBoard.shared.publish(domainPolicy, sessionID: sessionID)
             policyRunner.submit(PolicyUpdate(policy: domainPolicy, generation: generation))
         }
+        failClosedUntilRulesInstall()
     }
 
     private var currentFileRoots: [String] { lock.withLock { fileRoots.map(\.path) } }
@@ -378,6 +393,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func dispatchAttached(method name: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         await lock.withLock({ policyRunner }).idle()
+        // Ready before any tab of the session exists to need it.
+        await BrowserReplTabAttachments.shared.prepareFailClosedRules()
         if let policyFailure { return .failure(policyFailure) }
         // Default deny: a method outside the guard table runs nothing.
         guard let method = BrowserReplDriverMethod(rawValue: name) else {

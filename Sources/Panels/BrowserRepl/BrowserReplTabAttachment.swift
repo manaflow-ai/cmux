@@ -23,6 +23,13 @@ final class BrowserReplTabAttachments {
     /// list. A tab carries those of the session that created it
     /// (``BrowserReplTabAttachment/contextOptions``).
     private var sessionContexts: [String: BrowserReplContextOptions] = [:]
+    /// The policy generation whose compiled rule list each session's
+    /// context carries (``setContext(_:forSession:rulesGeneration:)``).
+    private var contextRuleGenerations: [String: Int] = [:]
+    /// ``BrowserReplContentRuleLists/failClosedRules`` compiled, once
+    /// (``prepareFailClosedRules()``).
+    private(set) var failClosedRuleList: WKContentRuleList?
+    private var failClosedCompile: Task<WKContentRuleList?, Never>?
     /// Secrets sessions typed into tabs, by tab, masked for every other
     /// session's reads until the tab closes (``BrowserReplTypedSecrets``).
     /// Sessions read it off the main thread (their fetch responses, files
@@ -54,9 +61,44 @@ final class BrowserReplTabAttachments {
 
     /// Sets `sessionID`'s browser-context options and puts them on the
     /// tabs that carry them: the tabs that session created.
-    func setContext(_ options: BrowserReplContextOptions, forSession sessionID: String) {
+    /// `rulesGeneration` is the policy generation (``BrowserReplPolicyBoard``)
+    /// whose rules `options.ruleList` holds, when it is a new list.
+    func setContext(_ options: BrowserReplContextOptions, forSession sessionID: String, rulesGeneration: Int? = nil) {
         sessionContexts[sessionID] = options
+        if let rulesGeneration { contextRuleGenerations[sessionID] = rulesGeneration }
         for attachment in attachments(forSession: sessionID) { attachment.applyContextToWebView() }
+    }
+
+    /// Puts each tab `sessionID` created under its current rules again: the
+    /// fail-closed list while its rules for a new policy or new directories
+    /// compile (``rulesInForce(forSession:)``).
+    func applyRules(forSession sessionID: String) {
+        for attachment in attachments(forSession: sessionID) { attachment.applyContextToWebView() }
+    }
+
+    /// Whether the rule list in `sessionID`'s context is the one for its
+    /// latest policy and directories: they compiled, or the list is already
+    /// that generation's. Otherwise its tabs carry the fail-closed list, so
+    /// no page loads anything under the previous rules meanwhile.
+    func rulesInForce(forSession sessionID: String) -> Bool {
+        let board = BrowserReplPolicyBoard.shared
+        if board.ruleState(for: sessionID) == .installed { return true }
+        guard let latest = board.generation(for: sessionID) else { return true }
+        return contextRuleGenerations[sessionID] == latest && board.ruleState(for: sessionID) == .pending
+    }
+
+    /// Compiles the fail-closed list once, before any session's tab can
+    /// need it (the driver awaits this before each call, and a session's
+    /// tabs exist only through its calls).
+    func prepareFailClosedRules() async {
+        if failClosedRuleList != nil { return }
+        let compile = failClosedCompile ?? Task { @MainActor in
+            guard let store = WKContentRuleListStore.default() else { return nil }
+            return try? await BrowserReplContentRuleLists.failClosedList(in: store)
+        }
+        failClosedCompile = compile
+        failClosedRuleList = await compile.value
+        if failClosedRuleList == nil { failClosedCompile = nil }
     }
 
     /// `sessionID`'s browser-context options, if it set any.
@@ -67,6 +109,7 @@ final class BrowserReplTabAttachments {
     /// Detaches `sessionID` from every tab.
     func detach(sessionID: String) {
         sessionContexts.removeValue(forKey: sessionID)
+        contextRuleGenerations.removeValue(forKey: sessionID)
         Self.typedSecrets.sessionLeft(sessionID)
         for (panelID, attachment) in attachments {
             attachment.removeSink(sessionID: sessionID)
@@ -701,7 +744,16 @@ final class BrowserReplTabAttachment {
             webView.automationUserAgentOverride = contextOptions.userAgent
         }
         webView.automationExtraHTTPHeaders = contextOptions.extraHTTPHeaders
-        let wanted = contextOptions.ruleList
+        // While the creating session's rules for its latest policy or
+        // directories compile (or after WebKit refused them), the tab
+        // carries the fail-closed list: its live page loads nothing under
+        // the previous rules.
+        var wanted = contextOptions.ruleList
+        if appliesSessionPolicies, let creator = ownership.creatorSessionID,
+           !BrowserReplTabAttachments.shared.rulesInForce(forSession: creator),
+           let failClosed = BrowserReplTabAttachments.shared.failClosedRuleList {
+            wanted = failClosed
+        }
         if let installed = installedRuleList, let owner = ruleListWebView,
            installed !== wanted || owner !== webView {
             owner.configuration.userContentController.remove(installed)
