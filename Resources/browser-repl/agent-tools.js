@@ -868,8 +868,9 @@
     return { total, matches, report: B.truncated ? B.report() : R.truncated ? R.report() : null };
   }
 
-  // Options are read within the page-read budget (A.budget): each option
-  // and its label and value are charged; `report` says where it stopped.
+  // Options are read within the page-read budget (A.budget): each element
+  // of an ARIA popup walked, each <select> option, and their labels and
+  // values are charged; `report` says where it stopped.
   function dropdownInFrame(handle) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
     const B = A.budget();
@@ -897,10 +898,13 @@
       if (!popup) popup = el.querySelector("[role=listbox], [role=menu], [role=tree]");
     }
     if (!popup) return { kind: "none", options: [] };
-    const found = popup.querySelectorAll("[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [role=radio]");
+    // The popup's elements are walked one at a time, each one charged, so
+    // the read stops at the budget before it lists a page-sized match list.
+    const OPTION = "[role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=treeitem], [role=radio]";
     const options = [];
-    for (let i = 0; i < found.length && B.spend(1); i++) {
-      const o = found[i];
+    const walker = document.createTreeWalker(popup, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let o = walker.nextNode(); o && B.spend(1); o = walker.nextNode()) {
+      if (!o.matches(OPTION)) continue;
       if (typeof o.checkVisibility === "function" && !o.checkVisibility({ visibilityProperty: true })) continue;
       options.push({
         index: options.length,
