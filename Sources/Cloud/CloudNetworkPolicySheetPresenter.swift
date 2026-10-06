@@ -34,9 +34,8 @@ final class CloudNetworkPolicySheetPresenter {
             }
         )
         model.onFinished = { [weak self] _ in self?.dismiss() }
-        let controller = NSHostingController(rootView: CloudNetworkPolicySheet(model: model))
-        controller.sizingOptions = [.preferredContentSize]
-        let window = NSWindow(contentViewController: controller)
+        let sheet = CloudSheetWindow(rootView: CloudNetworkPolicySheet(model: model))
+        let window = sheet.window
         window.styleMask = [.titled]
         window.title = String(localized: "cloud.network.section.label", defaultValue: "Network")
         window.isReleasedWhenClosed = false
@@ -47,11 +46,10 @@ final class CloudNetworkPolicySheetPresenter {
         let host = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow)
         if let host, host.attachedSheet == nil {
             hostWindow = host
-            host.beginSheet(window) { _ in }
+            sheet.beginSheet(on: host)
         } else {
             hostWindow = nil
-            window.center()
-            window.makeKeyAndOrderFront(nil)
+            sheet.orderFrontFloating()
         }
     }
 

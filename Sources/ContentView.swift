@@ -7302,7 +7302,7 @@ struct ContentView: View {
             // publishes authoritative server capabilities.
             snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsFork,
-                cloudCapabilities?.fork ?? true
+                cloudCapabilities?.canFork ?? true
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.cloudVMSupportsSnapshot,
@@ -7889,16 +7889,6 @@ struct ContentView: View {
                 keywords: ["update", "upgrade", "release"]
             )
         )
-        if let target = AppChannelSwitchTarget.counterpart(ofBundleIdentifier: Bundle.main.bundleIdentifier) {
-            contributions.append(
-                CommandPaletteCommandContribution(
-                    commandId: "palette.switchAppChannel",
-                    title: constant(AppChannelSwitchPresenter.actionTitle(for: target)),
-                    subtitle: constant(String(localized: "command.checkForUpdates.subtitle", defaultValue: "Global")),
-                    keywords: ["nightly", "stable", "channel", "switch", "install"]
-                )
-            )
-        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.applyUpdateIfAvailable",
@@ -9165,9 +9155,6 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
-        }
-        registry.register(commandId: "palette.switchAppChannel") {
-            AppDelegate.shared?.switchAppChannel(nil)
         }
         registry.register(commandId: "palette.applyUpdateIfAvailable") {
             AppDelegate.shared?.applyUpdateIfAvailable(nil)
@@ -12718,6 +12705,7 @@ struct VerticalTabsSidebar: View, Equatable {
             contextMenuPinState: rowSnapshot.contextMenu.pinState,
             workspaceGroupMenuSnapshot: rowSnapshot.contextMenu.groupMenuSnapshot,
             colorScheme: environment.colorScheme,
+            brightenInDarkMode: input.settings.brightenInDarkMode,
             refreshSnapshot: { [workspaceId = tab.id] in
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             },
@@ -16777,6 +16765,7 @@ struct TabItemView: View, Equatable {
             colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
+            brightenInDarkMode: settings.brightenInDarkMode,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor
@@ -16806,7 +16795,8 @@ struct TabItemView: View, Equatable {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle == .leftRail,
+            brightenInDarkMode: settings.brightenInDarkMode
         ) ?? NSColor(hex: hex) ?? .gray
     }
 

@@ -232,6 +232,7 @@ struct RightSidebarPanelView: View {
                             isSelected: item.isSelected(
                                 mode: fileExplorerState.mode
                             ),
+                            isDragged: modeBarDrag.isLifted(item.mode),
                             badgeCount: item.mode == .feed ? feedPendingCount : 0,
                             shortcutHint: shortcut,
                             showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
@@ -254,7 +255,12 @@ struct RightSidebarPanelView: View {
                             mode: item.mode, displayedModes: displayedModes,
                             barHeight: titlebarHeight, controller: modeBarDrag
                         ))
-                        .layoutValue(key: RightSidebarModeBarTabSelectedKey.self, value: item.isSelected(mode: fileExplorerState.mode))
+                        .layoutValue(
+                            key: RightSidebarModeBarTabSelectedKey.self,
+                            // Give the dragged tab the same full-label slot as
+                            // the focused tab, even when it started unfocused.
+                            value: item.isSelected(mode: fileExplorerState.mode) || modeBarDrag.isLifted(item.mode)
+                        )
                     }
                 }
                 .animation(reduceMotion ? nil : ModeBarButton.switchAnimation, value: fileExplorerState.mode)

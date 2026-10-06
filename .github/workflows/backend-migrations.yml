@@ -37,7 +37,9 @@ concurrency:
 
 jobs:
   plan:
-    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target runs with trusted tokens
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -143,7 +145,9 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target runs with trusted tokens
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    # Real migrations: generous so a slow apply is never cut off mid-migration.
+    timeout-minutes: 30
     environment: cmux-next-staging
     steps:
       - name: Consume the apply label
@@ -175,7 +179,9 @@ jobs:
 
   apply-production:
     needs: apply-staging
-    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target runs with trusted tokens
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    # Real migrations: generous so a slow apply is never cut off mid-migration.
+    timeout-minutes: 30
     environment: cmux-next-production
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -208,7 +214,9 @@ jobs:
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
-    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target runs with trusted tokens
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    # Under 10s without migration changes; with them, bun install and a verify.
+    timeout-minutes: 15
     # The environment's deployment-branch policy (main, feat-cmux-next, their merge-queue
     # refs) keeps these secrets away from PR-controlled workflows; no environment (and no
     # deployment record) when nothing changed.

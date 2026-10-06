@@ -33,6 +33,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    var coderouter = CloudTreeCoderouterSection()
     var showsCloudVPNWarning = false
     /// The Cloud Machines header's New Machine "+" and its plan count (nil until the plan loads).
     var canCreateCloudMachine: Bool = false
@@ -74,6 +75,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             unreadTerminalIDs: unreadTerminalIDs,
             source: source,
             devicesSection: devicesSection,
+            coderouter: coderouter,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage, cloudMachinesRefresh: cloudMachinesRefresh
@@ -87,18 +89,25 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let portsDemand = CloudPortsDiscoveryDemand()
+        let displaysDemand = CloudDisplaysDiscoveryDemand()
         let expansionStore: CloudTreeExpansionStore
         let nodeCache: CloudTreeNodeCache
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         private var organizationObserver: NSObjectProtocol?
         weak var outlineView: CloudTreeNSOutlineView?
+        /// The Coderouter guide, kept so a second "?" replaces it instead of stacking.
+        var guidePopover: NSPopover?
         var nodes: [CloudTreeNode] = []
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         /// The selected row's stable node id, restored across in-place reloads.
         var selectedNodeID: String?
+        /// The last focused local Cloud workspace/remote row pair reconciled
+        /// into the native outline selection. A stable pair lets user clicks
+        /// on other rows survive unrelated catalog refreshes.
+        var lastFocusedCloudWorkspace: CloudTreeFocusedWorkspaceSelection?
         /// Workspaces the catalog has admitted for deletion but not confirmed.
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         var pendingMachineDeletions: Set<String> = []
@@ -285,6 +294,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             deferredNodes = nil
             apply(nodes: nodes, allowDuringNativeDrag: true)
         }
+        /// Applies a tree snapshot immediately or retains it until a native drag ends.
         private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
             if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
@@ -324,6 +334,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             contentSignature = nextContent
             if structureUnchanged, !self.nodes.isEmpty {
                 portsDemand.update(nodes: self.nodes)
+                displaysDemand.update(nodes: self.nodes, actions: nodeActions)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
                 guard !changedRows.isEmpty else { return }
@@ -335,6 +346,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             self.nodes = nodes
             portsDemand.update(nodes: nodes)
+            displaysDemand.update(nodes: nodes, actions: nodeActions)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
@@ -344,6 +356,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         /// Ends a native drag and drains the latest deferred snapshot exactly once.
+        /// Tracks native drag state and drains the latest deferred snapshot on completion.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
             isDragging = dragging
@@ -361,6 +374,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     outlineView?.indentationPerLevel = style.indentPerLevel
                 }
                 apply(nodes: deferred)
+                if let selectedNodeID {
+                    selectFocusedCloudWorkspaceRow(selectedNodeID)
+                }
             } else if shouldReload, let outlineView {
                 outlineView.treeStyle = style
                 outlineView.indentationPerLevel = style.indentPerLevel
@@ -403,6 +419,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ?? CloudTreeCellView(frame: .zero)
             var rowActions = nodeActions
             rowActions.showRowMenu = { [weak self] nodeID in self?.popUpRowMenu(nodeID: nodeID) }
+            rowActions.showRowGuide = { [weak self] nodeID in self?.showCoderouterGuide(nodeID: nodeID) }
             rowActions.selectMachineDetailTab = { [weak self] machine, tab in self?.toggleMachineDetailTab(tab, machine: machine) }
             cell.configure(
                 node: node, machineActions: machineActions, nodeActions: rowActions, style: style,
@@ -518,9 +535,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection, .coderouterSection, .coderouterProviderGroup:
                 toggle(node)
-            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer:
+            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterAccount:
                 break
             case .createAction(let action):
                 action.perform(nodeActions)
@@ -779,13 +796,23 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     remoteView: row.remoteView
                 ) + renameRemoteViewMenuItems(resource: row.resource, remoteView: row.remoteView)
             case .display(let resource, let openIn, let remoteView):
-                return resourceMenuItems(
+                var items = resourceMenuItems(
                     resource,
                     isLocal: false,
                     openInLocalWorkspace: openIn,
                     openAction: { [weak self] in self?.open(node) },
                     remoteView: remoteView
-                ) + renameRemoteViewMenuItems(resource: resource, remoteView: remoteView)
+                )
+                // A display's name belongs to the display, not to one view of it.
+                items += [.separator(), item(String(localized: "cloudTree.menu.rename", defaultValue: "Rename\u{2026}")) { [nodeActions] in
+                    nodeActions.renameDisplay(resource)
+                }]
+                if let remoteView, remoteView.isCloudDisplayMembershipView {
+                    items.append(item(String(localized: "cloudTree.menu.removeDisplayFromWorkspace", defaultValue: "Remove from Workspace")) { [nodeActions] in
+                        nodeActions.removeDisplayFromWorkspace(resource, remoteView)
+                    })
+                }
+                return items
             case .port(let resource, let url, let openIn):
                 return resourceMenuItems(
                     resource,
@@ -809,6 +836,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .coderouterSection:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshCoderouter() }]
+            case .coderouterProviderGroup(let provider, _):
+                guard provider.canAdd else { return [] }
+                return [item(provider.newAccountTitle) { [nodeActions] in nodeActions.addCoderouterAccount(provider) }]
+            case .coderouterAccount(let account):
+                return [item(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) { [nodeActions] in nodeActions.removeCoderouterAccount(account) }]
             case .createAction, .machineEndSpacer: return []
             case .machineDetailTabs(let tabs):
                 var items: [NSMenuItem] = []

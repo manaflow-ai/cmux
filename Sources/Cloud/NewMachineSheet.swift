@@ -39,7 +39,7 @@ enum NewMachineSheetLayout: String, CaseIterable {
     }
 }
 
-/// The New Machine sheet: size, network, agent updates, and what the plan
+/// The New Machine sheet: base image, size, network, agent updates, and what the plan
 /// allows, as a few labeled controls. Every explanation is a tooltip or the
 /// security popover, so nothing wraps while the sheet opens. Presented by
 /// ``NewMachineSheetPresenter`` with its data already loaded; Create closes
@@ -145,7 +145,7 @@ struct NewMachineSheet: View {
     }
 
     private var hasSettingsRows: Bool {
-        showsSizeRow || model.supportsNetworkPolicy || model.supportsAgentUpdates
+        model.supportsBaseImage || showsSizeRow || model.supportsNetworkPolicy || model.supportsAgentUpdates
     }
 
     private var showsSizeRow: Bool { model.planIsLoading || model.supportsSize || model.hasNoAllowedMemoryOptions }
@@ -155,11 +155,19 @@ struct NewMachineSheet: View {
     private var agentsLabel: String { String(localized: "machines.new.row.agents.short", defaultValue: "Agents") }
     private var agentsTitle: String { String(localized: "machines.new.agentUpdates.label", defaultValue: "Keep coding agents up to date") }
     private var agentsHelp: String { CloudAgentUpdatesExplainer.text }
+    private var baseImageLabel: String { String(localized: "machines.new.row.baseImage", defaultValue: "Base") }
+    private var inheritedSettingsText: String { String(localized: "machines.new.baseImage.inheritedSettings", defaultValue: "Size, network, and agent settings are inherited from the base machine.") }
 
     // MARK: A. Grid
 
     private var gridLayout: some View {
         Grid(alignment: Alignment(horizontal: .leading, vertical: .firstTextBaseline), horizontalSpacing: 10, verticalSpacing: 12) {
+            if model.supportsBaseImage {
+                GridRow { gridLabel(baseImageLabel); baseImageMenu }
+            }
+            if model.isFork {
+                GridRow { Color.clear.gridCellUnsizedAxes([.horizontal, .vertical]); inheritedSettingsView }
+            }
             if showsSizeRow {
                 GridRow {
                     gridLabel(sizeLabel)
@@ -221,6 +229,8 @@ struct NewMachineSheet: View {
 
     private var stackedLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if model.supportsBaseImage { stackedRow(baseImageLabel) { baseImageMenu } }
+            if model.isFork { inheritedSettingsView }
             if showsSizeRow {
                 stackedRow(sizeLabel) { fittedSizeMenu }
             }
@@ -257,6 +267,10 @@ struct NewMachineSheet: View {
     private var sentenceLayout: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 4) {
+                if model.supportsBaseImage {
+                    baseImageMenu
+                    sentenceDot
+                }
                 if showsSizeRow {
                     makeSizeMenu(borderless: true)
                     sentenceDot
@@ -287,6 +301,14 @@ struct NewMachineSheet: View {
             .accessibilityHidden(true)
     }
 
+    private var inheritedSettingsView: some View {
+        Text(inheritedSettingsText)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("NewMachineSheet.inheritedSettings")
+    }
+
     /// The agent-update choice as a borderless menu whose one item is the
     /// checkmarked setting (a menu item, not a checkbox button).
     private var agentsMenu: some View {
@@ -310,13 +332,18 @@ struct NewMachineSheet: View {
         .help(agentsHelp)
         .accessibilityLabel(agentsTitle)
         .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+        .disabled(model.isFork)
     }
 
     // MARK: D. Grouped
 
     private var groupedLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if model.supportsBaseImage {
+                groupedRow(baseImageLabel) { baseImageMenu }
+            }
             if showsSizeRow {
+                if model.supportsBaseImage { groupedDivider }
                 groupedRow(sizeLabel) { fittedSizeMenu }
             }
             if model.supportsNetworkPolicy {
@@ -346,6 +373,7 @@ struct NewMachineSheet: View {
                             .fixedSize()
                             .accessibilityLabel(agentsTitle)
                             .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+                            .disabled(model.isFork)
                     }
                 }
                 .help(agentsHelp)
@@ -381,13 +409,37 @@ struct NewMachineSheet: View {
 
     // MARK: Shared controls
 
-    private var sizeMenu: some View { makeSizeMenu(borderless: false) }
+    private var sizeMenu: some View { makeSizeMenu(borderless: false).disabled(model.isFork) }
+
+    /// The pop-up's ideal width is its longest machine name, which can exceed
+    /// the sheet. It narrows like the size pop-up and truncates the selected
+    /// title instead of overflowing the fixed-width sheet.
+    private var baseImageMenu: some View {
+        Picker(selection: Binding(
+            get: { model.baseImage },
+            set: { model.selectBaseImage($0) }
+        )) {
+            Text(String(localized: "machines.new.baseImage.default", defaultValue: "Default image"))
+                .tag(NewMachineModel.BaseImage.defaultImage)
+            if !model.sourceMachines.isEmpty { Divider() }
+            ForEach(model.sourceMachines, id: \.id) { machine in
+                Text(machine.displayName ?? machine.slug ?? machine.id)
+                    .tag(NewMachineModel.BaseImage.machine(machine))
+            }
+        } label: {
+            EmptyView()
+        }
+        .pickerStyle(.menu)
+        .modifier(OwnWidthWithinColumn())
+        .accessibilityLabel(baseImageLabel)
+        .accessibilityIdentifier("NewMachineSheet.baseImage")
+    }
 
     /// The pop-up's ideal width is its widest row (a locked "… · Requires
     /// Max" row), which can exceed the sheet. It may narrow to the space the
     /// row labels leave; the selected title is short and still fits.
     private var fittedSizeMenu: some View {
-        sizeMenu.fixedSize(horizontal: false, vertical: true)
+        sizeMenu.modifier(OwnWidthWithinColumn())
     }
 
     /// The size pop-up: allowed sizes, then the locked ones with the plan
@@ -396,8 +448,7 @@ struct NewMachineSheet: View {
     private func makeSizeMenu(borderless: Bool) -> some View {
         if model.planIsLoading {
             HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
+                ProgressView().controlSize(.small)
                 Text(String(localized: "machines.new.size.loading", defaultValue: "Loading sizes…"))
                     .foregroundStyle(.secondary)
             }
@@ -445,6 +496,7 @@ struct NewMachineSheet: View {
             .help(String(localized: "machines.new.size.help", defaultValue: "Choose the memory and disk profile for this machine."))
             .accessibilityIdentifier("NewMachineSheet.size")
             .accessibilityValue(selectedSize.menuTitle)
+            .disabled(model.isFork)
         } else if let selectedSize = model.selectedSize {
             // The sentence layout's token: a borderless menu with checkmarks.
             Menu {
@@ -480,10 +532,11 @@ struct NewMachineSheet: View {
             .accessibilityValue(selectedSize.menuTitle)
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .disabled(model.isFork)
         }
     }
 
-    private var networkMenu: some View { makeNetworkMenu(borderless: false) }
+    private var networkMenu: some View { makeNetworkMenu(borderless: false).disabled(model.isFork) }
 
     /// The mode menu once the catalog is known; a spinner or a warning icon
     /// with its explanation as the tooltip otherwise. The cache normally has
@@ -512,9 +565,11 @@ struct NewMachineSheet: View {
         case .available:
             if borderless {
                 CloudNetworkModeMenu(model: model.network)
+                    .disabled(model.isFork)
                     .accessibilityIdentifier("NewMachineSheet.network")
             } else {
                 CloudNetworkModePicker(model: model.network)
+                    .disabled(model.isFork)
                     .accessibilityIdentifier("NewMachineSheet.network")
             }
         }
@@ -580,6 +635,7 @@ struct NewMachineSheet: View {
             )
             .help(agentsHelp)
             .accessibilityIdentifier("NewMachineSheet.agentUpdates")
+            .disabled(model.isFork)
             CloudAgentUpdatesExplainer()
             agentsNetworkWarning
         }
@@ -703,5 +759,47 @@ struct NewMachineSheet: View {
         return model.isBaseSetup
             ? String(localized: "machines.new.create.base", defaultValue: "Set Up Base")
             : String(localized: "machines.new.create", defaultValue: "Create")
+    }
+}
+
+/// A pop-up at its own width, narrowed only when that would overflow its
+/// column. A flexible pop-up fills the whole column and a fixed one can push
+/// past the sheet; this keeps the grid's pop-ups lined up on the leading edge
+/// like the Network pop-up, and truncates a long title instead of overflowing.
+private struct OwnWidthWithinColumn: ViewModifier {
+    func body(content: Content) -> some View {
+        OwnWidthWithinProposalLayout { content }
+    }
+}
+
+private struct OwnWidthWithinProposalLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let own = subview.sizeThatFits(.unspecified)
+        let width = min(own.width, proposal.width ?? own.width)
+        return subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let subview = subviews.first else { return }
+        subview.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: bounds.height)
+        )
+    }
+
+    /// Passes the pop-up's baselines through, so the grid's first-baseline
+    /// rows still line its title up with the row label.
+    func explicitAlignment(
+        of guide: VerticalAlignment,
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGFloat? {
+        guard let subview = subviews.first else { return nil }
+        let dimensions = subview.dimensions(in: ProposedViewSize(width: bounds.width, height: bounds.height))
+        return bounds.minY + dimensions[guide]
     }
 }

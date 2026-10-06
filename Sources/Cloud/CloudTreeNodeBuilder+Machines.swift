@@ -16,6 +16,7 @@ extension CloudTreeNodeBuilder {
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         source: CloudTreeMachineSource = .cloud,
         devicesSection: CloudTreeDevicesSection = .init(),
+        coderouter: CloudTreeCoderouterSection = .init(),
         showsCloudVPNWarning: Bool = false,
         canCreateCloudMachine: Bool = false,
         cloudMachinesUsage: CloudMachinesUsage? = nil,
@@ -138,6 +139,37 @@ extension CloudTreeNodeBuilder {
                 section: devicesSection
             ))
         }
+        // Keep CodeRouter immediately below My Devices so account management
+        // stays alongside the two account-scoped machine sections.
+        nodes.append(coderouterNode(coderouter))
         return nodes
+    }
+
+    /// One group per account type: every type CodeRouter can add, then any
+    /// other type the team already has. Each addable group gets its New Account
+    /// row from `CloudTreeCreateActionBuilder`. Account rows are snapshots;
+    /// credentials never enter the tree.
+    static func coderouterNode(_ section: CloudTreeCoderouterSection) -> CloudTreeNode {
+        let byProvider = Dictionary(grouping: section.accounts, by: \.provider)
+        let others = byProvider.keys.filter { !$0.canAdd }.sorted { $0.id < $1.id }
+        let groups = (CoderouterProvider.addable + others).map { provider in
+            let accounts = byProvider[provider] ?? []
+            let groupID = "coderouter-section/\(provider.id)"
+            return CloudTreeNode(
+                id: groupID,
+                kind: .coderouterProviderGroup(provider, count: accounts.count),
+                children: accounts.map { account in
+                    CloudTreeNode(id: "\(groupID)/account/\(account.id)", kind: .coderouterAccount(account))
+                }
+            )
+        }
+        return CloudTreeNode(
+            id: "coderouter-section",
+            kind: .coderouterSection(
+                count: section.accounts.count,
+                refresh: CloudTreeSectionRefresh(isRefreshing: section.isRefreshing)
+            ),
+            children: groups
+        )
     }
 }

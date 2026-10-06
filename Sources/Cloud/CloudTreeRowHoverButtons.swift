@@ -16,6 +16,26 @@ struct CloudTreeRowHoverButtons: View {
         // (`CloudTreeSectionRefreshHeader`), not with these buttons.
         case .devicesSection(let section):
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
+        case .coderouterSection:
+            MachinesChromeIconButton(
+                symbolName: "questionmark.circle",
+                accessibilityLabel: String(localized: "coderouter.guide.open", defaultValue: "What Is coderouter?"),
+                isBusy: false
+            ) {
+                nodeActions.showRowGuide(nodeID)
+            }
+            .help(CoderouterGuideView.summary)
+            .accessibilityIdentifier("CoderouterGuideButton")
+        case .coderouterAccount(let account):
+            xmark(String(localized: "coderouter.removeAccount", defaultValue: "Remove Account\u{2026}")) {
+                nodeActions.removeCoderouterAccount(account)
+            }
+        case .coderouterProviderGroup(let provider, _):
+            if provider.canAdd {
+                plus(provider.newAccountTitle) {
+                    nodeActions.addCoderouterAccount(provider)
+                }
+            }
         case .cloudMachinesSection(let canCreateMachine, _, _):
             if canCreateMachine {
                 plus(String(localized: "machines.new", defaultValue: "New Machine")) {
@@ -116,6 +136,12 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }
+        case .display(let resource, _, let remoteView):
+            if let remoteView, remoteView.isCloudDisplayMembershipView {
+                xmark(String(localized: "cloudTree.menu.removeDisplayFromWorkspace", defaultValue: "Remove from Workspace")) {
+                    nodeActions.removeDisplayFromWorkspace(resource, remoteView)
+                }
+            }
         default:
             EmptyView()
         }
@@ -126,6 +152,10 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
+        case .coderouterProviderGroup(let provider, _):
+            return provider.canAdd
+        case .coderouterSection, .coderouterAccount:
+            return true
         case .cloudMachinesSection(let canCreateMachine, _, _):
             return canCreateMachine
         case .pendingMachine:
@@ -134,6 +164,8 @@ struct CloudTreeRowHoverButtons: View {
             return row.canCreateWorkspacesAndTerminals
         case .terminal(let row):
             return !row.resource.machine.isLocal
+        case .display(_, _, let remoteView):
+            return remoteView?.isCloudDisplayMembershipView == true
         default:
             return false
         }

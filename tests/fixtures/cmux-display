@@ -44,21 +44,72 @@ def listening(port):
         return False
 
 
+# Xvnc black-lists a peer after a few unauthenticated connections, and every
+# client of an additional display is websockify on 127.0.0.1. One burst of
+# aborted handshakes (health checks, page reloads during restore) answered
+# every viewer with "Too many security failures" for a timeout that doubles
+# each time. The private network is the gate and SecurityTypes is None, so
+# the black list protects nothing here. Xvnc rejects changing it at runtime.
+XVNC_BLACKLIST_ARGS = ["-UseBlacklist=0"]
+
+
+def recv_exact(connection, size):
+    data = b""
+    while len(data) < size:
+        part = connection.recv(size - len(data))
+        if not part:
+            raise ConnectionError("RFB peer closed")
+        data += part
+    return data
+
+
 def rfb_ready(number):
-    """A bound HTTP port alone does not prove that an X/RFB server exists."""
+    """A bound HTTP port alone does not prove that an X/RFB server exists.
+
+    With RFB 3.8 and security type None the probe completes authentication,
+    which clears this peer's black marks instead of adding one. A server that
+    rejects the probe (for example while black-listing) is still alive: the
+    desktop session must not be restarted for it."""
     try:
         with socket.create_connection(("127.0.0.1", 5900 + number), timeout=0.5) as rfb:
-            version = b""
-            while len(version) < 12:
-                part = rfb.recv(12 - len(version))
-                if not part:
-                    return False
-                version += part
+            try:
+                version = recv_exact(rfb, 12)
+            except ConnectionError:
+                return False
             if not version.startswith(b"RFB "):
                 return False
+            if version != b"RFB 003.008\n":
+                return True
+            try:
+                rfb.sendall(version)
+                count = recv_exact(rfb, 1)[0]
+                if count and 1 in recv_exact(rfb, count):
+                    rfb.sendall(b"\x01")
+                    recv_exact(rfb, 4)
+            except (OSError, ConnectionError):
+                pass
     except (OSError, http.client.HTTPException):
         return False
     return True
+
+
+def matching_pids(predicate, proc=Path("/proc")):
+    """This user's processes whose argv satisfies `predicate`. Exact argv
+    matching replaces pgrep, whose regex dialect rejected these patterns."""
+    pids = []
+    for entry in proc.iterdir():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if entry.stat().st_uid != os.getuid():
+                continue
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        args = [part.decode(errors="replace") for part in argv if part]
+        if args and predicate(args):
+            pids.append(int(entry.name))
+    return sorted(pids)
 
 
 def novnc_ready(number):
@@ -108,7 +159,18 @@ class DisplayCatalog:
         with self.lock:
             return sorted(record["number"] for record in self.records)
 
-    def allocate(self, request):
+    def free_number(self, reserved=()):
+        """The lowest number neither recorded, reserved nor in use on the guest."""
+        with self.lock:
+            used = set(self.numbers()) | set(reserved)
+            return next((n for n in range(2, MAX_DISPLAYS + 1)
+                         if n not in used and not self.occupied(n)), None)
+
+    def allocate(self, request, preferred=None, reserved=()):
+        """Records `request`. `preferred` is the warm standby display, which is
+        already running (so `occupied`) but not yet owned by any request.
+        `reserved` numbers are never chosen otherwise: a standby that is still
+        launching has no X socket yet, so `occupied` cannot see it."""
         if not isinstance(request, str) or str(uuid.UUID(request)) != request:
             raise ValueError("invalid request identity")
         with self.lock:
@@ -116,8 +178,11 @@ class DisplayCatalog:
                 if record["request"] == request:
                     return record["number"]
             used = set(self.numbers())
-            number = next((n for n in range(2, MAX_DISPLAYS + 1)
-                           if n not in used and not self.occupied(n)), None)
+            if preferred is not None and 2 <= preferred <= MAX_DISPLAYS and preferred not in used:
+                number = preferred
+            else:
+                number = next((n for n in range(2, MAX_DISPLAYS + 1)
+                               if n not in used and n not in reserved and not self.occupied(n)), None)
             if number is None:
                 raise ValueError("display capacity exhausted")
             records = self.records + [{"number": number, "request": request}]
@@ -171,6 +236,11 @@ class DisplayService:
         self.named_processes = {}
         self.websockify_processes = {}
         self.shutdown = threading.Event()
+        # One display kept running outside the catalog so New Display hands
+        # over a live desktop instead of starting Xvnc and a session (about
+        # 0.7s on the guest) while the user waits.
+        self.standby = None
+        self.stops = {}
 
     def start(self, number):
         with self.lock:
@@ -178,6 +248,7 @@ class DisplayService:
                 return self.jobs[number]
             finished = threading.Event()
             self.jobs[number] = finished
+            self.stops[number] = threading.Event()
             self.states[number] = "launching"
             threading.Thread(target=self.supervise, args=(number, finished), daemon=True).start()
             return finished
@@ -286,27 +357,21 @@ class DisplayService:
                 self.track_process(number, "dbus", dbus)
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             pass
-        uid = str(os.getuid())
         for name in ("openbox", "tint2", "vncconfig"):
             marker = str(Path(runtime) / "bin" / f"cmux-display-{number}-{name}")
-            try:
-                pattern = rf"^{re.escape(marker)}(?:[[:space:]]|$)"
-                output = subprocess.check_output(["pgrep", "-u", uid, "-f", pattern], text=True)
-                pid = int(output.splitlines()[0])
-            except (OSError, ValueError, IndexError, subprocess.CalledProcessError):
-                continue
-            self.track_process(number, name, OwnedProcess(pid))
-        try:
-            output = subprocess.check_output(
-                ["pgrep", "-u", uid, "-f",
-                 rf"^(?:.*\/)?(?:Xvnc|Xtigervnc).*:{number}.*-rfbport\s+{5900 + number}(?:\s|$)"],
-                text=True
-            )
-            pid = int(output.splitlines()[0])
-        except (OSError, ValueError, IndexError, subprocess.CalledProcessError):
-            pid = 0
-        if pid > 1:
-            self.track_process(number, "xvnc", OwnedProcess(pid))
+            pids = self.matching_pids(lambda args, marker=marker: args[0] == marker)
+            if pids:
+                self.track_process(number, name, OwnedProcess(pids[0]))
+        rfb_port = str(5900 + number)
+
+        def is_display_server(args):
+            if Path(args[0]).name not in ("Xvnc", "Xtigervnc") or f":{number}" not in args:
+                return False
+            return any(args[i] == "-rfbport" and args[i + 1] == rfb_port for i in range(len(args) - 1))
+
+        pids = self.matching_pids(is_display_server)
+        if pids:
+            self.track_process(number, "xvnc", OwnedProcess(pids[0]))
 
     def start_dbus(self, number, environment, runtime):
         bus = subprocess.run(["dbus-launch", "--sh-syntax"], env=environment,
@@ -365,27 +430,17 @@ class DisplayService:
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, check=False)
 
+    matching_pids = staticmethod(matching_pids)
+
     @staticmethod
     def untracked_websockify_pids(number, proc=Path("/proc")):
-        """This user's websockify processes proxying this display, matched on
-        exact argv (pgrep's regex dialect cannot express the address set)."""
+        """This user's websockify processes proxying this display."""
         listen = {f"{host}:{6900 + number}" for host in ("127.0.0.1", "[::]", "0.0.0.0")}
         target = f"127.0.0.1:{5900 + number}"
-        pids = []
-        for entry in proc.iterdir():
-            if not entry.name.isdigit() or int(entry.name) == os.getpid():
-                continue
-            try:
-                if entry.stat().st_uid != os.getuid():
-                    continue
-                argv = (entry / "cmdline").read_bytes().split(b"\0")
-            except OSError:
-                continue
-            args = [part.decode(errors="replace") for part in argv if part]
-            if any(Path(arg).name == "websockify" for arg in args[:2]) \
-                    and len(args) >= 2 and args[-1] == target and args[-2] in listen:
-                pids.append(int(entry.name))
-        return pids
+        return matching_pids(
+            lambda args: any(Path(arg).name == "websockify" for arg in args[:2])
+            and len(args) >= 2 and args[-1] == target and args[-2] in listen,
+            proc=proc)
 
     @classmethod
     def terminate_untracked_websockify(cls, number):
@@ -438,7 +493,7 @@ class DisplayService:
             self.track_process(number, "xvnc", subprocess.Popen(
                 [vnc, f":{number}", "-geometry", os.environ.get("CMUX_VNC_GEOMETRY", "1440x900"),
                  "-depth", "24", "-rfbport", str(rfb_port), "-localhost",
-                 "-SecurityTypes", "None", "-AlwaysShared"],
+                 "-SecurityTypes", "None", "-AlwaysShared"] + XVNC_BLACKLIST_ARGS,
                 env=environment, stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
             if not self.wait_for_port(rfb_port):
@@ -470,7 +525,7 @@ class DisplayService:
         for key in ("NOTIFY_SOCKET", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID",
                     "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"):
             environment.pop(key, None)
-        while not self.shutdown.is_set():
+        while not self.shutdown.is_set() and not self.stops.get(number, threading.Event()).is_set():
             try:
                 # The supervisor is a health check, not a timer-driven restart.
                 # Preserve an active RFB/noVNC session until its owned endpoints fail.
@@ -486,27 +541,97 @@ class DisplayService:
             with self.lock:
                 self.states[number] = state
             finished.set()
-            self.shutdown.wait(30)
+            stop = self.stops.get(number)
+            if stop is None or stop.wait(30):
+                break
         self.terminate(number)
+        with self.lock:
+            # A retired standby releases its number for later displays.
+            stop = self.stops.get(number)
+            if stop is not None and stop.is_set():
+                self.jobs.pop(number, None)
+                self.states.pop(number, None)
+                self.stops.pop(number, None)
+
+    def retire_standby_locked(self):
+        """Stops a standby whose start failed instead of retrying it forever
+        or handing it to a request. Caller holds self.lock."""
+        number = self.standby
+        if number is None or self.states.get(number) != "unavailable":
+            return
+        self.standby = None
+        stop = self.stops.get(number)
+        if stop is not None:
+            stop.set()
+
+    def ensure_standby(self):
+        """Starts the standby display when none is running and a slot remains
+        for it beyond the recorded displays. Returns without waiting."""
+        with self.lock:
+            self.retire_standby_locked()
+            if self.standby is not None or self.shutdown.is_set():
+                return
+            if len(self.catalog.numbers()) >= MAX_DISPLAYS - 1:
+                return
+            busy = set(self.jobs)
+        # Probing free numbers connects to ports; keep that outside the lock.
+        number = self.catalog.free_number(reserved=busy)
+        if number is None:
+            return
+        with self.lock:
+            # A concurrent create may have recorded this number since it was
+            # probed; it must never become both a display and the standby.
+            if self.standby is not None or number in self.jobs or number in self.catalog.numbers():
+                return
+            self.standby = number
+        self.start(number)
+
+    def adopt_standby(self, is_display_server=None):
+        """After a helper restart, reuse a running standby from the previous
+        service rather than leaking it and starting another."""
+        recorded = set(self.catalog.numbers())
+        for number in range(2, MAX_DISPLAYS + 1):
+            if number in recorded:
+                continue
+            owned = is_display_server(number) if is_display_server else bool(matching_pids(
+                lambda args, number=number: Path(args[0]).name in ("Xvnc", "Xtigervnc")
+                and f":{number}" in args))
+            if owned:
+                with self.lock:
+                    self.standby = number
+                self.start(number)
+                return
+        self.ensure_standby()
 
     def snapshot(self):
         primary_state = "running" if ready(1) else "unavailable"
         with self.lock:
-            return {"version": 1, "canCreate": len(self.jobs) < MAX_DISPLAYS - 1,
+            # The standby is not a display yet; capacity counts recorded ones.
+            return {"version": 1, "canCreate": len(self.catalog.numbers()) < MAX_DISPLAYS - 1,
                     "displays": [descriptor(1, primary_state)]
                     + [descriptor(n, self.states.get(n, "launching")) for n in self.catalog.numbers()]}
 
     def handle(self, request):
         if request.get("action") == "list":
+            self.ensure_standby()
             return self.snapshot()
         if request.get("action") != "create":
             raise ValueError("unsupported display action")
-        number = self.catalog.allocate(request.get("request"))
+        with self.lock:
+            # One lock from reading the standby to releasing it, so concurrent
+            # creates cannot both take it or record its number as a new display.
+            self.retire_standby_locked()
+            standby = self.standby
+            number = self.catalog.allocate(request.get("request"), preferred=standby,
+                                           reserved=set(self.jobs) - {standby})
+            if number == standby:
+                self.standby = None
         self.start(number).wait(55)
         result = self.snapshot()
         result["created"] = f"display:{number}"
         if self.states.get(number) != "running":
             result["error"] = "display_start_failed"
+        self.ensure_standby()
         return result
 
 
@@ -525,6 +650,7 @@ def serve(runtime):
         service = DisplayService(DisplayCatalog(Path.home() / ".cmux" / "displays"), runtime / "displays")
         for number in service.catalog.numbers():
             service.start(number)
+        service.adopt_standby()
         path = runtime / "display-control.sock"
         if path.exists():
             path.unlink()

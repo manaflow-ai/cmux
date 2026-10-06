@@ -33,6 +33,8 @@ struct MachineRowActions {
     var ordering: CloudMachineOrderingActions?
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
+    /// Starts a background fork with a pending row (``NewMachineSheetPresenter/startFork``).
+    var fork: @MainActor (MachineSnapshot) -> Void = { _ in }
 
     static func bound(
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
@@ -100,6 +102,15 @@ struct MachineRowActions {
                 let setting = CloudAgentUpdates(keepsAgentsUpdated: keepUpdated)
                 if !launch(arguments: ["vm", "agent-updates", id, setting.rawValue], onDidMutate: onDidMutate) {
                     onDidMutate()
+                }
+            },
+            fork: { machine in
+                if !NewMachineSheetPresenter.shared.startFork(
+                    sourceMachineID: machine.id,
+                    sourceName: machine.displayName,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) {
+                    NSSound.beep()
                 }
             }
         )
