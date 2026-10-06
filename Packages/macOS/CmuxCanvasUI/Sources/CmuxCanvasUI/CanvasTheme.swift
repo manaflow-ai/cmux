@@ -8,9 +8,19 @@ public struct CanvasTheme {
     public var canvasBackground: NSColor
     /// Fill of each pane behind its content.
     public var paneBackground: NSColor
+    /// True when the host window already paints a translucent terminal
+    /// backdrop behind the canvas, as split mode relies on. The canvas and
+    /// pane fills then stay clear so the backdrop shows through, and
+    /// ``paneBackground`` only seeds the tab fill colors.
+    public var showsWindowBackdrop: Bool
 
-    public init(canvasBackground: NSColor, paneBackground: NSColor) {
+    public init(
+        canvasBackground: NSColor,
+        paneBackground: NSColor,
+        showsWindowBackdrop: Bool = false
+    ) {
         self.canvasBackground = canvasBackground
         self.paneBackground = paneBackground
+        self.showsWindowBackdrop = showsWindowBackdrop
     }
 }
