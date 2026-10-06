@@ -218,25 +218,9 @@ final class WhatsNewCenter {
     /// The catalog, fetched once per process and then reused.
     private func loadCatalog() async throws -> WhatsNewCatalog {
         if let catalog { return catalog }
-        let loaded: WhatsNewCatalog
-        if let injected = Self.catalogForUITest() {
-            loaded = injected
-        } else {
-            loaded = try await loader()
-        }
+        let loaded = try await loader()
         catalog = loaded
         return loaded
-    }
-
-    /// A catalog handed in by a UI test instead of the network, so a screenshot
-    /// tour can show the recap with content of its own choosing and never
-    /// depends on the website being reachable. Same shape as the endpoint's
-    /// body, and the media host rule still applies to whatever it contains.
-    private static func catalogForUITest() -> WhatsNewCatalog? {
-        let raw = ProcessInfo.processInfo.environment["CMUX_UI_TEST_WHATS_NEW_CATALOG_JSON"]
-            ?? UserDefaults.standard.string(forKey: "CMUX_UI_TEST_WHATS_NEW_CATALOG_JSON")
-        guard let raw, let data = raw.data(using: .utf8) else { return nil }
-        return try? WhatsNewCatalog.decode(data)
     }
 
     // MARK: - Window

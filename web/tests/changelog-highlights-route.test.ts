@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { changelogMedia } from "../app/[locale]/(landing)/docs/changelog/changelog-media";
+import { buildHighlights, MAX_RELEASES } from "../app/api/changelog/highlights/highlights";
 
-const { GET, buildHighlights, MAX_RELEASES } = await import(
-  "../app/api/changelog/highlights/route"
-);
+const { GET } = await import("../app/api/changelog/highlights/route");
 
 describe("changelog highlights route", () => {
   test("serves the newest changelog-media versions, newest first", async () => {

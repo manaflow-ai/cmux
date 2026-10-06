@@ -28,13 +28,22 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     var canManageBilling: Bool { billingPlanState.canManageBilling }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
+    /// The team whose plan is known, or nil for a personal scope.
+    var billingPlanTeamID: String? { billingPlanState.teamID }
     /// The most recent plan request. Only it may write, so an older request
     /// that finishes late cannot overwrite a newer answer.
     @ObservationIgnored private var billingPlanRequestID: UUID?
+    @ObservationIgnored private var billingPlanScope: BillingPlanScope?
+
+    private struct BillingPlanScope: Equatable {
+        let accountID: String
+        let teamID: String?
+    }
     /// Whether `isProActive` is a real answer for the signed-in account.
     var hasLoadedBillingPlan: Bool {
         guard let billingPlanIdentityID else { return false }
         return billingPlanIdentityID == currentIdentity?.id
+            && billingPlanState.teamID == confirmedTeamID
     }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
@@ -197,6 +206,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
+        billingPlanRequestID = nil
+        billingPlanScope = nil
         billingPlanState = .unknown
     }
 
@@ -241,6 +252,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
         await browserSignIn.signOut(timeout: timeout)
+        billingPlanRequestID = nil
+        billingPlanScope = nil
         billingPlanState = .unknown
     }
 
@@ -255,28 +268,59 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     @discardableResult
-    func refreshBillingPlanAndReportSuccess() async -> Bool {
+    func refreshBillingPlanAndReportSuccess(
+        tokenProvider: (() async throws -> (accessToken: String, refreshToken: String))? = nil,
+        planFetcher: ((URL, String?, String?) async throws -> BillingPlanDetails)? = nil
+    ) async -> Bool {
         guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
+            billingPlanRequestID = nil
+            billingPlanScope = nil
             billingPlanState = .unknown
             return false
         }
+        invalidateBillingPlanIfScopeChanged()
+        let teamID = confirmedTeamID
+        let scope = BillingPlanScope(accountID: identityID, teamID: teamID)
         let requestID = UUID()
         billingPlanRequestID = requestID
-        // Do not project the previous team/account's entitlement while this
-        // request is in flight. Unknown keeps Cloud enabled until a verified
-        // response arrives and avoids a false Free/Upgrade state.
-        billingPlanState = .unknown
-        let tokens = try? await coordinator.currentTokens()
+        billingPlanScope = scope
+        // A previous account or team must not be projected into this request.
+        // A confirmed plan for this exact scope remains visible while the
+        // refresh is pending, so a transient failure cannot hide the upgrade
+        // affordance or turn Pro into Free.
+        if billingPlanState.accountID != identityID || billingPlanState.teamID != teamID {
+            billingPlanState = .unknown
+        }
+
+        let tokens: (accessToken: String, refreshToken: String)
+        do {
+            if let tokenProvider {
+                tokens = try await tokenProvider()
+            } else {
+                tokens = try await coordinator.currentTokens()
+            }
+        } catch {
+            guard isCurrentBillingRequest(requestID, scope: scope) else { return false }
+            billingPlanState = billingPlanState.applyingFailure(for: identityID, teamID: teamID)
+            return false
+        }
 
         do {
-            let details = try await BillingPlanClient().fetch(
-                from: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"),
-                accessToken: tokens?.accessToken,
-                refreshToken: tokens?.refreshToken
-            )
-            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            let url = AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan")
+            let details: BillingPlanDetails
+            if let planFetcher {
+                details = try await planFetcher(url, tokens.accessToken, tokens.refreshToken)
+            } else {
+                details = try await BillingPlanClient().fetch(
+                    from: url,
+                    accessToken: tokens.accessToken,
+                    refreshToken: tokens.refreshToken
+                )
+            }
+            guard isCurrentBillingRequest(requestID, scope: scope) else { return false }
             billingPlanState = billingPlanState.applyingSuccess(
                 for: identityID,
+                teamID: teamID,
                 isPro: details.isPro,
                 canManageBilling: details.canManageBilling
             )
@@ -284,10 +328,32 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         } catch {
             // A cancelled request (the panel went away) says nothing about the plan.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
-            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
-            billingPlanState = billingPlanState.applyingFailure(for: identityID)
+            guard isCurrentBillingRequest(requestID, scope: scope) else { return false }
+            billingPlanState = billingPlanState.applyingFailure(for: identityID, teamID: teamID)
             return false
         }
+    }
+
+    /// Drops a confirmed plan when the account or confirmed team scope changes.
+    /// Pending team selections intentionally keep the old confirmed scope until
+    /// the coordinator accepts the change.
+    func invalidateBillingPlanIfScopeChanged() {
+        guard let billingPlanScope else { return }
+        guard currentIdentity?.id == billingPlanScope.accountID,
+              confirmedTeamID == billingPlanScope.teamID else {
+            billingPlanRequestID = nil
+            self.billingPlanScope = nil
+            billingPlanState = .unknown
+            return
+        }
+    }
+
+    private func isCurrentBillingRequest(_ requestID: UUID, scope: BillingPlanScope) -> Bool {
+        !Task.isCancelled
+            && billingPlanRequestID == requestID
+            && billingPlanScope == scope
+            && currentIdentity?.id == scope.accountID
+            && confirmedTeamID == scope.teamID
     }
 
     // `AccountFlow` (CmuxSettingsUI) cannot see `ProUpgradeSource`; its
