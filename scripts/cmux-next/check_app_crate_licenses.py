@@ -8,7 +8,7 @@ the normal-dependency closure from `cargo metadata` and fail when:
     host), or OpenH264 built from source (Mac uses VideoToolbox; shipped
     OpenH264 is Cisco's prebuilt binary loaded at first use);
   - a crate's license is not on the allowlist (MIT, Apache-2.0, BSD,
-    ISC, Unicode, Zlib) and the crate is not one of the six named
+    ISC, Unicode, Zlib) and the crate is not one of the seven named
     first-party GPL crates.
 Build and dev dependencies are not linked into the app and are skipped.
 
@@ -39,9 +39,10 @@ ALLOWED = {
 }
 
 # First-party crates that still declare GPL-3.0-or-later. Named exactly, by
-# coordinator decision 2026-10-05: no relicense now; Lawrence's open license
-# question (are the app-linked first-party crates MIT?) decides, and the
-# license lane removes these entries in its push.
+# coordinator decisions 2026-10-05 (and LICENSE-RB for cmux-remote-browser):
+# no relicense now; Lawrence's open license question (are the app-linked and
+# remote browser first-party crates MIT?) decides, and the license lane
+# removes these entries in its push.
 FIRST_PARTY_GPL = {
     "cmux-rd-ffi",
     "cmux-app-ffi",
@@ -49,6 +50,7 @@ FIRST_PARTY_GPL = {
     "cmux-rd-proto",
     "cmux-layout-reducer",
     "cmux-layout-reducer-ffi",
+    "cmux-remote-browser",
 }
 
 BANNED = [
@@ -57,12 +59,9 @@ BANNED = [
     (re.compile(r"^openh264(-sys2)?$"), "OpenH264 from source is for tests and the bench only"),
 ]
 
-# cmux-remote-browser joins when its own license is decided: it declares
-# GPL-3.0-or-later today and is not one of the six named crates (D-RT-RD2
-# requires its dependencies to be MIT/Apache; pass it with --manifest/--root
-# to check that closure).
 DEFAULT_ROOTS = [
     ("cmux-tui/crates/cmux-app-ffi/Cargo.toml", "cmux-app-ffi"),
+    ("cmux-tui/crates/cmux-remote-browser/Cargo.toml", "cmux-remote-browser"),
 ]
 
 
