@@ -107,6 +107,7 @@ mod line_connection;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
+mod conversation_attachments;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -497,6 +498,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         BOOKMARKS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
+        crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -2072,6 +2074,10 @@ enum Command {
     ConversationTyping(conversations::TypingParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
+    /// Local conversation attachments (`local-attachments-v1`,
+    /// server/conversation_attachments.rs).
+    ConversationAttachmentUpload(conversation_attachments::UploadParams),
+    ConversationAttachmentRead(conversation_attachments::ReadParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -14560,6 +14566,12 @@ fn handle_command_with_cancellation(
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
         Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
+        Command::ConversationAttachmentUpload(params) => {
+            conversation_attachments::upload(mux, client, params)
+        }
+        Command::ConversationAttachmentRead(params) => {
+            conversation_attachments::read(mux, client, params)
+        }
         Command::CreateProfile {
             name,
             profile,

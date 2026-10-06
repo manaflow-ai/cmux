@@ -23,7 +23,7 @@ public final class ConversationPart implements WireValue {
     private final Field<String> status;
     /** type text. */
     private final Field<String> text;
-    /** Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties. */
+    /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
     private final String type;
     private final Map<String, Object> additionalProperties;
 

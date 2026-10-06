@@ -220,6 +220,9 @@ fn only_the_section_4_commands_pass_the_gate() {
         "conversation-agent-token",
         "conversation-bind",
         "conversation-create",
+        // Attachment bytes stay on the trusted local socket (no relay reads yet).
+        "conversation-attachment-upload",
+        "conversation-attachment-read",
         "ping",
     ] {
         assert_eq!(check_frame(&json!({"cmd": refused}).to_string()), Err(Denial::Command));
@@ -269,7 +272,7 @@ fn a_remote_identify_reveals_no_local_state() {
     keys.sort();
     assert_eq!(keys, ["app", "capabilities", "protocol"], "{reply}");
     assert_eq!(data["capabilities"], json!(["local-conversations-v1"]));
-    assert_eq!(data["protocol"], json!(crate::server::PROTOCOL_VERSION), "{reply}");
+    assert_eq!(data["protocol"], json!(PROTOCOL_VERSION), "{reply}");
 }
 
 #[test]

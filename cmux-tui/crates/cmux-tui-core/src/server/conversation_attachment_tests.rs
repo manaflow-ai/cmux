@@ -78,8 +78,14 @@ fn begin(conversation: &str, bytes: &[u8], preview: Option<&[u8]>) -> Value {
 }
 
 /// Uploads `bytes` (and its preview) in chunks of `chunk` bytes; returns the stored ref.
-fn upload(mux: &Arc<Mux>, client: u64, conversation: &str, bytes: &[u8], preview: Option<&[u8]>,
-          chunk: usize) -> Value {
+fn upload(
+    mux: &Arc<Mux>,
+    client: u64,
+    conversation: &str,
+    bytes: &[u8],
+    preview: Option<&[u8]>,
+    chunk: usize,
+) -> Value {
     let begun = run(mux, client, begin(conversation, bytes, preview)).unwrap();
     let Some(id) = begun["upload"].as_str().map(str::to_string) else {
         return begun["stored"].clone();
@@ -101,12 +107,9 @@ fn upload(mux: &Arc<Mux>, client: u64, conversation: &str, bytes: &[u8], preview
             assert_eq!(sent["received"], (index * chunk + slice.len()) as u64);
         }
     }
-    let committed = run(
-        mux,
-        client,
-        json!({"cmd":"conversation-attachment-upload","op":"commit","upload":id}),
-    )
-    .unwrap();
+    let committed =
+        run(mux, client, json!({"cmd":"conversation-attachment-upload","op":"commit","upload":id}))
+            .unwrap();
     committed["stored"].clone()
 }
 
@@ -125,8 +128,13 @@ fn send_parts(conversation: &str, key: &str, parts: Value) -> Value {
            "op":{"kind":"message.send","client_msg_id":key,"parts":parts}})
 }
 
-fn read_all(mux: &Arc<Mux>, client: u64, conversation: &str, hash: &str, variant: &str)
-    -> anyhow::Result<(Vec<u8>, Value)> {
+fn read_all(
+    mux: &Arc<Mux>,
+    client: u64,
+    conversation: &str,
+    hash: &str,
+    variant: &str,
+) -> anyhow::Result<(Vec<u8>, Value)> {
     let mut bytes = Vec::new();
     loop {
         let reply = run(
@@ -206,7 +214,10 @@ fn a_send_naming_bytes_never_uploaded_or_with_another_size_is_refused() {
         user,
         send_parts(&conversation, "c1", json!([attachment_part(IMAGE, None)])),
     );
-    assert_eq!((message.as_str(), code.as_deref()), ("unknown_attachment", Some("conversation_rejected")));
+    assert_eq!(
+        (message.as_str(), code.as_deref()),
+        ("unknown_attachment", Some("conversation_rejected"))
+    );
     upload(&mux, user, &conversation, IMAGE, None, 1024);
     let mut wrong = attachment_part(IMAGE, None);
     wrong["byte_count"] = json!(IMAGE.len() + 1);
@@ -234,10 +245,15 @@ fn bad_types_sizes_and_hashes_are_refused_before_any_bytes() {
             request[key] = value.clone();
         }
         let (message, code) = rejection(&mux, user, request);
-        assert_eq!((message.as_str(), code.as_deref()), (expected, Some("attachment_rejected")), "{over}");
+        assert_eq!(
+            (message.as_str(), code.as_deref()),
+            (expected, Some("attachment_rejected")),
+            "{over}"
+        );
     }
     let mut poster = begin(&conversation, IMAGE, None);
-    poster["poster"] = json!({"sha256":hex(PREVIEW),"byte_count":PREVIEW.len(),"mime_type":"image/jpeg"});
+    poster["poster"] =
+        json!({"sha256":hex(PREVIEW),"byte_count":PREVIEW.len(),"mime_type":"image/jpeg"});
     assert_eq!(rejection(&mux, user, poster).0, "poster_refused");
 }
 
@@ -329,9 +345,13 @@ fn a_non_participant_cannot_upload_or_read() {
     )
     .unwrap();
     let (message, code) = rejection(&mux, other, begin(&conversation, IMAGE, None));
-    assert_eq!((message.as_str(), code.as_deref()), ("not_participant", Some("conversation_rejected")));
+    assert_eq!(
+        (message.as_str(), code.as_deref()),
+        ("not_participant", Some("conversation_rejected"))
+    );
     upload(&mux, user, &conversation, IMAGE, None, 1024);
-    run(&mux, user, send_parts(&conversation, "c1", json!([attachment_part(IMAGE, None)]))).unwrap();
+    run(&mux, user, send_parts(&conversation, "c1", json!([attachment_part(IMAGE, None)])))
+        .unwrap();
     let (message, _) = rejection(
         &mux,
         other,

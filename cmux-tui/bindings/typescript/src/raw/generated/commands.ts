@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
+/* cmux-tui mux protocol 12, IR 5a0521f8364c30668fb58a51c30a0d277de09fdce3d5abaf4287630594a0f1eb. */
 
 
 import type * as T from "./types.js";
@@ -315,6 +315,64 @@ export interface ConversationAgentTokenRequest extends CmuxRequestBase {
 export type ConversationAgentTokenResult = {
   "participant": string;
   "token": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationAttachmentReadRequest extends CmuxRequestBase {
+  cmd: "conversation-attachment-read";
+  "conversation": string;
+  "hash": string;
+  "length"?: (bigint) | null;
+  "offset"?: (bigint) | null;
+  "variant"?: (string) | null;
+}
+export type ConversationAttachmentReadResult = {
+  "byte_count": bigint;
+  "data": string;
+  "eof": boolean;
+  "hash": string;
+  "mime_type": string;
+  "offset": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationAttachmentUploadRequest extends CmuxRequestBase {
+  cmd: "conversation-attachment-upload";
+  "byte_count"?: (bigint) | null;
+  "conversation"?: (string) | null;
+  "data"?: (string) | null;
+  "duration_ms"?: (bigint) | null;
+  "height"?: (number) | null;
+  "mime_type"?: (string) | null;
+  "name"?: (string) | null;
+  "offset"?: (bigint) | null;
+  "op": string;
+  "piece"?: (string) | null;
+  "poster"?: (T.JsonValue) | null;
+  "preview"?: (T.JsonValue) | null;
+  "sha256"?: (string) | null;
+  "upload"?: (string) | null;
+  "width"?: (number) | null;
+}
+export type ConversationAttachmentUploadResult = {
+  "needs"?: (Array<string>) | null;
+  "received"?: (bigint) | null;
+  "stored"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+  "poster"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+}) | null;
+  "preview"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+}) | null;
+}) | null;
+  "upload"?: (string) | null;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -2066,6 +2124,8 @@ export type CmuxRequest =
   | CloseTerminalRequest
   | CloseWorkspaceRequest
   | ConversationAgentTokenRequest
+  | ConversationAttachmentReadRequest
+  | ConversationAttachmentUploadRequest
   | ConversationBindRequest
   | ConversationCreateRequest
   | ConversationHistoryRequest
@@ -2497,6 +2557,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-attachment-read": {
+    request: ConversationAttachmentReadRequest;
+    result: ConversationAttachmentReadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-attachments-v1";
+    stream: null;
+  };
+  "conversation-attachment-upload": {
+    request: ConversationAttachmentUploadRequest;
+    result: ConversationAttachmentUploadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-attachments-v1";
     stream: null;
   };
   "conversation-bind": {
