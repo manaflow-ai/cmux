@@ -1387,14 +1387,18 @@ export class AcpmuxDirectClient {
       const refused = typeof code === "string" && code.startsWith("transport.");
       const row = this.rows.get(rowId);
       if (row) {
-        row.pending = false;
-        row.failed = true;
-        // The bubble says why it got no reply; a refusal for want of a gesture asks for Retry.
-        row.error =
-          code === "transport.gesture_required"
-            ? translate("prompt.notSentGesture")
-            : translate("prompt.notSent", { reason: errorMessage(error) });
-        row.version += 1;
+        // A new row object: the transcript's rows are memoized on identity and version. The
+        // bubble says why it got no reply; a refusal for want of a gesture asks for Retry.
+        this.rows.set(rowId, {
+          ...row,
+          pending: false,
+          failed: true,
+          error:
+            code === "transport.gesture_required"
+              ? translate("prompt.notSentGesture")
+              : translate("prompt.notSent", { reason: errorMessage(error) }),
+          version: row.version + 1,
+        });
         this.failedPrompts.set(rowId, { input, attachments });
       }
       this.optimisticPromptRows.delete(promptId);
