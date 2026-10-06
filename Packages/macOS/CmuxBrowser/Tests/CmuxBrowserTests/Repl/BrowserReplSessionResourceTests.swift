@@ -858,6 +858,30 @@ struct BrowserReplSessionResourceTests {
         #expect(outcomes.filter { $0 == "ok \(60 << 20)" }.count == 8, "\(outcomes.map { $0.prefix(200) })")
         #expect(outcomes.filter { $0.contains("512 MiB") }.count == 1, "\(outcomes.map { $0.prefix(200) })")
     }
+
+    /// The running cell's source is parsed and compiled (several times its
+    /// size) before the cell can measure its heap, so it is reserved in the
+    /// session's memory first: a cell whose parse cannot fit is refused
+    /// before it is parsed, and a small one still runs.
+    @Test("The running cell's source is reserved before it is parsed")
+    func runningCellSourceIsReservedBeforeParsing() async throws {
+        let session = BrowserReplSession(
+            id: "parse-\(UUID().uuidString)",
+            cwd: nil,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "parse.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.sessionMemoryBytes, 64 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let large = "console.log('ran');//" + String(repeating: "x", count: 2 << 20)
+        let refused = await browserReplWithDeadline(seconds: 60) { await session.evaluate(code: large, timeout: .seconds(50)) }
+        #expect(refused?.lines.isEmpty == true, "\(String(describing: refused?.lines))")
+        #expect(refused?.error?.contains("REPL session limit") == true, "\(String(describing: refused?.error))")
+        let small = await browserReplWithDeadline(seconds: 60) { await session.evaluate(code: "console.log('ran')", timeout: .seconds(50)) }
+        #expect(small?.lines.map(\.text) == ["ran"], "\(String(describing: small))")
+        #expect(session.ledger.held(.sessionMemoryBytes) == session.ledger.held(.scriptHeapBytes))
+    }
 }
 
 /// Answers `big` with a JSON string of `resultCharacters` characters once
