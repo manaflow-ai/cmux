@@ -37,7 +37,7 @@ extension WindowController {
     /// Pages in this window read the sidebar state (`data-app-sidebar`).
     private func pagesDidChangeChrome() {
         for pane in content?.panes.values.map({ $0 }) ?? [] {
-            for key in services.pages.tabIDs(in: pane.paneKey) {
+            for key in services.pages.tabIDs(in: pane.paneKey) + pane.pane.tabs.filter({ $0.page != nil }).map(\.id) {
                 (services.pages.existingView(key)?.content as? PageWebView)?.windowDidChangeChrome()
             }
         }
