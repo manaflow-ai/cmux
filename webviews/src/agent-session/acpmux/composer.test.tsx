@@ -244,7 +244,7 @@ describe("acpmux composer slash menu", () => {
     expect(sent).toEqual([]);
   });
 
-  test("keeps Mode and Plan out of the default bar while the + menu changes them", async () => {
+  test("the + menu holds no permission modes (the access chip owns them); Plan stays a toggle there", async () => {
     const modes = {
       currentModeId: "ask",
       availableModes: [
@@ -266,18 +266,18 @@ describe("acpmux composer slash menu", () => {
       ),
     );
     await ready();
-    expect(dom.window.document.querySelector(".acpmux-mode")).toBeNull();
     expect(dom.window.document.querySelector(".acpmux-plan")).toBeNull();
     await act(async () => plusButton().click());
     expect(
       [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
-    ).toEqual(["Ask for approval", "Full access", "Plan", "Mention a file or folder@"]);
+    ).toEqual(["Mention a file or folder@", "Plan"]);
+    expect(dom.window.document.querySelector(".acpmux-composer-plus [role=group][aria-label=Mode]")).toBeNull();
     await act(async () =>
       dom.window.document
-        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="mode:bypassPermissions"]')!
+        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="plan:plan"]')!
         .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
     );
-    expect(modeCalls).toEqual(["bypassPermissions"]);
+    expect(modeCalls).toEqual(["plan"]);
   });
 
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
