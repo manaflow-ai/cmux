@@ -14,6 +14,8 @@ import { ArxivMark, Check, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
+import { PathChip, UrlChip } from "../chips/LinkChips";
+import { codePath, linkPath } from "../chips/paths";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -316,12 +318,18 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
   for (const m of text.matchAll(INLINE_RE)) {
     if (m.index! > last) out.push(text.slice(last, m.index));
     const t = m[0];
-    if (m[1])
+    if (m[1]) {
+      const path = codePath(t.slice(1, -1));
       out.push(
-        <code key={k++} className="cv-code">
-          {t.slice(1, -1)}
-        </code>,
+        path ? (
+          <PathChip key={k++} path={path} written={t.slice(1, -1)} />
+        ) : (
+          <code key={k++} className="cv-code">
+            {t.slice(1, -1)}
+          </code>
+        ),
       );
+    }
     else if (m[2]) out.push(<strong key={k++}>{renderInline(t.slice(2, -2), opts)}</strong>);
     else if (m[3]) out.push(<del key={k++}>{renderInline(t.slice(2, -2), opts)}</del>);
     else if (m[4]) out.push(<em key={k++}>{renderInline(t.slice(1, -1), opts)}</em>);
@@ -329,8 +337,11 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
     else if (m[5]) {
       const lm = t.match(/^\[([^\]]+)\]\((.+)\)$/)!;
       const href = safeHref(lm[2]);
-      // A link the pane will not open draws as its text; a local path keeps its file mark.
-      if (linkKind(lm[2]) === "file")
+      // A local path is a path chip; a link the pane will not open draws as its text; a web
+      // link is a chip with its site's mark (chips/LinkChips.tsx).
+      const path = linkPath(lm[2]);
+      if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], opts)} />);
+      else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file" title={lm[2]}>
             {(opts.linkIcon ?? linkIcon)(lm[2])}
@@ -340,10 +351,9 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
       else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], opts)}</Fragment>);
       else
         out.push(
-          <a key={k++} className={`cv-link is-${linkKind(href)}`} href={href} rel="noreferrer">
-            {(opts.linkIcon ?? linkIcon)(href)}
+          <UrlChip key={k++} href={href} icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}>
             {renderInline(lm[1], opts)}
-          </a>,
+          </UrlChip>,
         );
     } else if (m[6]) out.push(<br key={k++} />);
     else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);

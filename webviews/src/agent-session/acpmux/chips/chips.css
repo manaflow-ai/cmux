@@ -1,0 +1,33 @@
+/* Link and path chips in replies (chips/LinkChips.tsx, decision D4). */
+.cv-chip {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--cv-text);
+  cursor: pointer;
+  text-align: inherit;
+}
+.cv-chip__icon {
+  vertical-align: -3px;
+  margin: 0 3px 0 0;
+  color: var(--cv-link);
+}
+.cv-chip__label {
+  font-weight: 600;
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
+  text-underline-offset: 3px;
+}
+.cv-chip.is-web .cv-chip__label {
+  font-weight: inherit;
+}
+.cv-chip:hover .cv-chip__label {
+  text-decoration-style: solid;
+}
+.cv-chip:focus-visible {
+  outline: 1px solid var(--cv-link);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
