@@ -167,28 +167,26 @@ permissions:
   contents: read
 
 env:
-  # The label attempt 1's macOS jobs take when macos-placement finds an idle
-  # owned runner for them: a glaeda-* label means a mini. Each macOS job's
-  # runs-on, and its own CMUX_NEXT_RUNNER, restate it with the placement.
+  # The label attempt 1's macOS jobs take: a glaeda-* label means a mini.
+  # Each macOS job's runs-on, and its own CMUX_NEXT_RUNNER, restate it.
   CMUX_NEXT_SIDE_ROUTE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
 
-concurrency:
-  # Pushes and dispatches get a group of their own, as in the other side
-  # lanes: when the owned-pool rescue re-runs an older push run, it must not
-  # join a group where it would replace (cancel) the newest pending run.
-  group: cmux-next-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# No workflow-level group: each job has its own (one group per job and pull
+# request), so a re-push cancels each superseded job as the new run reaches it.
+# A workflow-level group made the new run wait until every old job finished
+# cancelling, ~1.8 min on a pull request, mostly the minis' job-completed hook
+# (96 s on 2026-10-06). Pushes and dispatches key on the run, as in the other
+# side lanes: when the owned-pool rescue re-runs an older push run, it must not
+# join a group where it would replace (cancel) the newest pending run.
 
 # The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
 # Trusted runs (a same-repository pull request, a push or a dispatch) stay on
 # vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label, while owned pools
 # are on (CI_PR_POOL_OWNED is 1). Fork pull requests keep their fallback.
 # Manual reruns stay minis-first; the rescue's second attempt does too, and
-# only a later bot attempt is the measured Blacksmith overflow. macos-placement
-# records idle side runners with the main picker's idle_placement() but never
-# turns a busy mini into an instant fallback, so jobs queue while the fleet
-# drains. When a job takes the side label, macos-placement uploads the
-# owned-pool-watch marker:
+# only a later bot attempt is the measured Blacksmith overflow. Jobs queue on
+# the side label while the fleet drains. With vars.CMUX_NEXT_POOL_RESCUE set,
+# path_route uploads the owned-pool-watch marker:
 # ci-owned-pool-rescue.yml's sweeper on main adopts the run
 # (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves
 # queued or refuses. The second attempt stays on the side label; a later bot
@@ -200,6 +198,9 @@ jobs:
   # nightly-next promotion. Keep the run-id concurrency group below: rescue
   # reruns of an older push must not cancel the newest pending run.
   push-head-preflight:
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-push-head-preflight
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     name: cmux-next push head preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 2
@@ -242,6 +243,9 @@ jobs:
   # batch integration PR full-ci and re-running the workflow runs every tier.
   # Pushes and dispatches run every tier.
   path_route:
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-path_route
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     name: cmux-next path routing
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -287,76 +291,15 @@ jobs:
           python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
             --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
-  macos-placement:
-    needs: [path_route, push-head-preflight]
-    # Attempt 1's macOS jobs stay on the owned side label while the fleet
-    # drains. The placement step records idle runners but never falls back on
-    # an instantaneous busy result.
-    # Every step fails open: a skipped or failed placement leaves
-    # fallback_jobs empty, so the jobs keep the side label and the marker is
-    # still uploaded. It runs only where attempt 1's Mac jobs may
-    # take the side label (CMUX_NEXT_SIDE_ROUTE's owned branch): a fork, another
-    # owner, owned pools off or a re-run starts no Linux runner for it, and the
-    # Mac jobs (needs plus !cancelled()) take their route without it. A re-run
-    # needs no marker of its own: its Mac jobs take the fallback, and the
-    # rescue's watch of a side lane ends at attempt 2.
-    if: ${{ needs.path_route.outputs.macos == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 }}
-    name: cmux-next macOS placement
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 3
-    permissions:
-      contents: read
-    outputs:
-      fallback_jobs: ${{ steps.place.outputs.fallback_jobs }}
-    steps:
-      # The placement code from the base branch, as ci-macos.yml's admission-placement uses it.
-      - name: Check out the trusted placement
-        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-')
-        continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
-          sparse-checkout: scripts/ci
-          persist-credentials: false
-
-      - name: Mint the owned-pool routing token
-        id: route-token
-        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && vars.GLAEDA_ROUTE_APP_ID != ''
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          permission-administration: read
-          permission-organization-self-hosted-runners: read
-
-      # In priority order: the scheme compile keeps its DerivedData on a mini
-      # (cold on Blacksmith), and only a mini compiles the CEF shim.
-      - name: Place the macOS jobs
-        id: place
-        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-')
-        continue-on-error: true
-        timeout-minutes: 1
-        env:
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
-          SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
-          JOBS: cmux-scheme-compile release-compile swift-test daemon-test generated-files
-        run: python3 scripts/ci/side_lane_placement.py
-
-      # Fail-safe: without the marker the run is only not watched. Skipped
-      # only when every macOS job took its fallback.
-      # Opt-in (vars.CMUX_NEXT_POOL_RESCUE == '1'): the sweeper runs main's
-      # owned_pool_rescue.py, which lacks #17003's cmux-next rules. It judged
-      # these jobs on the 30 s CI_OWNED_POOL_RESCUE_SECONDS budget, cancelled
-      # the run, and re-ran its failed and cancelled jobs on attempt 2, which
-      # this workflow keeps on the same minis: 13 of 20 cmux-next PR runs
-      # (2026-10-06) lost their queue place, re-queued 2 to 13 minutes and
-      # re-ran jobs that had failed for real. Set the variable once main has
-      # the cmux-next rescue rules.
+      # The owned-pool watch marker, opt-in (vars.CMUX_NEXT_POOL_RESCUE == '1').
+      # The sweeper runs main's owned_pool_rescue.py: before main had #17003's
+      # cmux-next rules it judged these jobs on the 30 s CI budget, cancelled
+      # the run and re-ran its jobs on attempt 2 (13 of 20 cmux-next PR runs on
+      # 2026-10-06). Uploaded only where the Mac jobs take the minis' side label
+      # (attempt 1 of a trusted run) and the route schedules Mac work.
       - name: Mark a run on the minis
         id: marker
-        if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && steps.place.outputs.watch != 'false' && vars.CMUX_NEXT_POOL_RESCUE == '1'
+        if: ${{ startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && steps.route.outputs.macos == 'true' && vars.CMUX_NEXT_POOL_RESCUE == '1' }}
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -374,6 +317,9 @@ jobs:
           retention-days: 1
 
   checks:
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-checks
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -542,6 +488,9 @@ jobs:
   # jobs that need the binary end skipped, not failed. A failed publish or a
   # timeout fails the gate (pin-cmux-tui.sh --help, wait).
   same-tree-cmux-tui:
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-same-tree-cmux-tui
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && (needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.scheme == 'true') && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: wait for the same-tree cmux-tui
@@ -582,7 +531,10 @@ jobs:
   # cmux-tui wait: the live-daemon suites skip unless the same-tree binary is
   # already published, and daemon-test runs them against it.
   swift-test:
-    needs: [path_route, macos-placement, push-head-preflight]
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-swift-test
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next swift test
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -832,7 +784,10 @@ jobs:
   # which the gate above waits for on Linux. Only the daemon tier runs it:
   # daemon, Rust core, FFI and control paths, a full-ci PR and every push.
   daemon-test:
-    needs: [path_route, macos-placement, push-head-preflight, same-tree-cmux-tui]
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-daemon-test
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    needs: [path_route, push-head-preflight, same-tree-cmux-tui]
     if: ${{ !cancelled() && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.same-tree-cmux-tui.result == 'success' && needs.same-tree-cmux-tui.outputs.superseded != 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next daemon tests
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -937,7 +892,10 @@ jobs:
   # is stale, the job regenerates it and uploads the patch, and
   # generated-autofix commits it to a same-repository pull request.
   generated-files:
-    needs: [path_route, macos-placement, push-head-preflight]
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-generated-files
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    needs: [path_route, push-head-preflight]
     # Only when swift-test builds no package (no swift tier or no selected
     # target): otherwise swift-test runs these checks on its own build.
     if: ${{ !cancelled() && needs.path_route.outputs.generated == 'true' && !(needs.path_route.outputs.swift == 'true' && needs.path_route.outputs.swift_targets != '') && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
@@ -1066,6 +1024,9 @@ jobs:
   # commit that was checked (never to main). The App token's push starts a
   # new run.
   generated-autofix:
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-generated-autofix
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     needs: [generated-files, swift-test]
     if: ${{ always() && (needs.generated-files.outputs.patch == 'true' || needs.swift-test.outputs.patch == 'true') && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'main' && vars.GLAEDA_ROUTE_APP_ID != '' }}
     name: cmux-next generated autofix
@@ -1146,7 +1107,10 @@ jobs:
           echo "Pushed $(git rev-parse HEAD) to $BRANCH." | tee -a "$GITHUB_STEP_SUMMARY"
 
   release-compile:
-    needs: [path_route, macos-placement, push-head-preflight]
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-release-compile
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    needs: [path_route, push-head-preflight]
     if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux-next Release compile (Xcode 26)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -1224,6 +1188,9 @@ jobs:
   # holds the release App key and checks this push run's Release compile; this
   # job only needs actions: write to request it.
   request-nightly-next:
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-request-nightly-next
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -1241,7 +1208,10 @@ jobs:
         run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA" -f promote_nightly_next_debounce=true
 
   cmux-scheme-compile:
-    needs: [path_route, macos-placement, push-head-preflight, same-tree-cmux-tui]
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-cmux-scheme-compile
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    needs: [path_route, push-head-preflight, same-tree-cmux-tui]
     if: ${{ !cancelled() && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.same-tree-cmux-tui.result == 'success' && needs.same-tree-cmux-tui.outputs.superseded != 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next') }}
     name: cmux app scheme compile (Debug)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -1369,6 +1339,9 @@ jobs:
   # fixes forward (scripts/ci/cmux_next_push_attribution.py). It reads the
   # Actions and pulls APIs; no branch code runs.
   push-attribution:
+    concurrency:
+      group: cmux-next-${{ github.event.pull_request.number || github.run_id }}-push-attribution
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     needs: [checks, generated-files, swift-test, daemon-test, release-compile, cmux-scheme-compile]
     if: ${{ failure() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: cmux-next push attribution
