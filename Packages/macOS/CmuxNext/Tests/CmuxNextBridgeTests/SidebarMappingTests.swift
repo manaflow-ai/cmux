@@ -114,6 +114,23 @@ struct SidebarMappingTests {
         #expect(page.kind == chat.kind)
     }
 
+    /// A New Tab page tab is listed as "New Tab", like the tab strip, not by
+    /// its record's blank-page address.
+    @Test func aNewTabPageTabListsUnderTheNewTabTitle() throws {
+        let store = try BridgeFixture.store()
+        let beta = try #require(store.workspaces.first { $0.displayName == "beta" })
+        let front = try #require(beta.screens.flatMap(\.panes).max { $0.focusedAt < $1.focusedAt }?.tabs.first)
+        let line = """
+        {"surface":\(front.surface.rawValue),"kind":"conversation","browser_renderer":"frontend","title":"about:blank",
+         "conversation":{"agent_session":{"host":"install:mac-1","session":"s-1","harness":"claude"}}}
+        """
+        front.update(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
+        let page = SidebarMapping.shared.row(beta, machine: .local, newTabPages: [front.id], newTabTitle: "New Tab")
+        #expect(page.tabs.first { $0.id == TabID(front.id) }?.title == "New Tab")
+        let chat = SidebarMapping.shared.row(beta, machine: .local, newTabTitle: "New Tab")
+        #expect(chat.tabs.first { $0.id == TabID(front.id) }?.title == front.displayTitle)
+    }
+
     /// The window's own tab selection picks the tab, over the daemon's default.
     @Test func theWindowSelectionPicksTheRowTab() throws {
         let store = try BridgeFixture.store()
