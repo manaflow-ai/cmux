@@ -97,6 +97,10 @@ impl ProviderEngine {
         let popups = created.clone();
         let session_events = events.clone();
         let subscription = provider.subscribe(Arc::new(move |event: DriverEvent| {
+            // Only the source's policy log hook writes the policy log.
+            if event.name == crate::driver::POLICY_LOG_EVENT {
+                return;
+            }
             if event.name == "tab.created"
                 && let (Some(target), Some(opener)) = (
                     event.payload.get("targetId").and_then(Value::as_str),
@@ -110,6 +114,16 @@ impl ProviderEngine {
             }
             session_events(event);
         }));
+        let log_events = events.clone();
+        provider.policy_log(
+            subscription,
+            Arc::new(move |entry: Value| {
+                log_events(DriverEvent {
+                    name: crate::driver::POLICY_LOG_EVENT.to_owned(),
+                    payload: entry,
+                });
+            }),
+        );
         Ok(ProviderEngine {
             created,
             provider,
@@ -258,6 +272,7 @@ impl ProviderEngine {
             observe: observe.as_ref(),
             agent_source: &self.agent_source,
             raw,
+            origin: &self.lease.origin,
         });
         // A read is never blocked; only a read that succeeded is the fresh
         // observe after a hand back.

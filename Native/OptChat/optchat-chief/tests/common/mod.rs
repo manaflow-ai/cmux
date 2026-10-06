@@ -99,6 +99,9 @@ pub struct Owner {
     pub ledger: Option<BTreeMap<String, String>>,
     /// Rejections for the next `read_cursor.set` ops, in order (None: accept).
     pub cursor_rejects: VecDeque<Option<String>>,
+    /// Attachment bytes (base64) by (hash, variant), and every read: (hash, variant, bytes).
+    pub attachments: BTreeMap<(String, String), String>,
+    pub attachment_reads: Vec<(String, String, u64)>,
 }
 
 impl Owner {
@@ -130,6 +133,24 @@ impl Owner {
 pub struct FakeDaemon(pub Arc<Mutex<Owner>>);
 
 impl ConversationPort for FakeDaemon {
+    fn attachment(
+        &mut self,
+        _: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .attachment_reads
+            .push((hash.to_owned(), variant.to_owned(), bytes));
+        owner
+            .attachments
+            .get(&(hash.to_owned(), variant.to_owned()))
+            .cloned()
+            .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
+    }
+
     fn snapshot(&mut self, _: &str, tail: u32) -> Result<(Summary, Vec<Message>), OpError> {
         let owner = self.0.lock().unwrap();
         let messages = owner
@@ -563,6 +584,7 @@ pub fn settings(dir: &Path) -> Settings {
         harness: "claude-sr".into(),
         policy: "approve-all".into(),
         model: None,
+        effort: Some("medium".into()),
         parent: PARENT.into(),
         turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
@@ -656,6 +678,23 @@ impl Harness {
             conversation: summary,
             reconnect: Box::new(move || reconnects.lock().unwrap().reconnects += 1),
         }));
+    }
+
+    /// A new message with these parts, as the subscription delivers it.
+    pub fn say_parts(&mut self, author: &str, parts: Vec<Part>) -> Message {
+        let m = {
+            let mut owner = self.owner.lock().unwrap();
+            let seq = owner.messages.len() as u64 + 1;
+            let mut m = message(seq, author, "");
+            m.parts = parts;
+            owner.messages.push(m.clone());
+            m
+        };
+        self.brain.step(Input::from(DaemonEvent::Changed {
+            conversation: CONV.into(),
+            change: Change::Message { message: m.clone() },
+        }));
+        m
     }
 
     /// A new message in the conversation, as the subscription delivers it.

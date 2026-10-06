@@ -187,7 +187,7 @@ public nonisolated enum SidebarEdits {
             return false
         })
         let removed = removeWorkspaces(joining, from: &sections)
-        let group = SidebarGroup(id: id, name: name, color: color, workspaces: removed)
+        let group = SidebarGroup(id: id, name: SidebarGroup.named(name), color: color, workspaces: removed)
         sections[s].nodes.insert(.group(group), at: min(insertion, sections[s].nodes.count))
         pruneEmptyGroups(in: &sections, keeping: id)
         return true

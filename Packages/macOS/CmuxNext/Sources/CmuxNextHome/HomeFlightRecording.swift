@@ -4,7 +4,8 @@ import MessagesLabHome
 /// The app's switch for MessagesLab's flight recorder in the Home transcript
 /// (`HomeFlightRecorder`, `HomeTunables`): the policy is read live, so a
 /// Debug Settings toggle applies at the next send.
-public enum HomeFlightRecording {
+public struct HomeFlightRecording {
+    public init() {}
     /// `available`: this build offers developer tools (`DevTools.isEnabled`,
     /// DEV and NIGHTLY); Release and RC pass false and never record.
     /// `logFolder`: the folder under ~/Library/Logs (the app's name).

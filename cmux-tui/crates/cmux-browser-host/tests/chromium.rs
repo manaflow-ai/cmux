@@ -80,6 +80,10 @@ fn serve() -> u16 {
                         .to_owned(),
                     "/confirm" => "<!doctype html><title>Confirm</title><button id=c onclick=\"document.getElementById('r').textContent = String(confirm('go?'))\">Ask</button><p id=r>none</p>".to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
+                    "/held" => "<!doctype html><title>Held</title><p id=log></p><script>\
+                         for (const t of ['keyup', 'mouseup']) addEventListener(t, (e) => { \
+                           document.getElementById('log').textContent += t + ' ' + (t === 'mouseup' ? e.button : e.key) + ' ' + e.isTrusted + ';'; }, true);</script>"
+                        .to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
                     "/fields" => "<!doctype html><title>Fields</title>\
@@ -957,4 +961,191 @@ fn shared_browser_events_reach_one_session() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(a_click.contains("a-result:true held:false"), "b's handler answered, not a: {a_click}");
     assert!(a_late.contains("late-result:false held:false"), "dismissed, not held: {a_late}");
+}
+
+/// D2 log (ff, 2026-10-06): an event no session took is logged in the
+/// policy log of the session that created the tab while it is alive
+/// (`session.blockedNavigations()`, `blocked: "unrouted"`), never in
+/// another session's.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn an_unrouted_dialog_goes_to_the_creators_policy_log() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-unrouted-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |session: &str, code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--session", session, "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let origin = format!("http://127.0.0.1:{port}");
+    let other = eval("other", "console.log('other-ready');");
+    assert!(other.contains("other-ready"), "{other}");
+    let a = eval(
+        "a",
+        &format!(
+            "await page.goto('{origin}/confirm'); await page.keep(); \
+             await page.evaluate(() => {{ document.getElementById('r').textContent = 'wait'; \
+               setTimeout(() => {{ document.getElementById('r').textContent = String(confirm('late?')); }}, 50); }}); \
+             await page.waitForFunction(() => document.getElementById('r').textContent !== 'wait', null, {{ timeout: 5000 }}); \
+             const log = session.blockedNavigations().filter((b) => b.blocked === 'unrouted'); \
+             console.log('a-log:' + JSON.stringify(log.map((b) => [b.event, b.action, b.url.endsWith('/confirm'), typeof b.reason])));"
+        ),
+    );
+    let other_log = eval(
+        "other",
+        "console.log('other-log:' + JSON.stringify(session.blockedNavigations().filter((b) => b.blocked === 'unrouted').length));",
+    );
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(a.contains("a-log:[[\"dialog.opened\",\"dismissed\",true,\"string\"]]"), "{a}");
+    assert!(other_log.contains("other-log:0"), "{other_log}");
+}
+
+/// D2 log: the host keeps the newest unrouted events (64); only the
+/// person (user origin) reads them, through `tab.info` of a tab they may
+/// use (`unroutedEvents`, that tab's entries).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn only_the_person_reads_the_hosts_unrouted_log() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSession, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let open = |name: &str, origin: &str| {
+        let lease = cmux_browser_host::lease::LeaseCaller {
+            session: name.into(),
+            actor: "t".into(),
+            on_behalf_of: None,
+            origin: origin.into(),
+            label: String::new(),
+            implicit_session: false,
+            engine: "headless".into(),
+        };
+        HeadlessSession::new(source.clone(), &browsers, Arc::from(AGENT), Arc::new(|_| {}), lease)
+            .unwrap()
+    };
+    let agent = open("agent", "cli");
+    let person = open("person", "user");
+    let target = agent
+        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/confirm")}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    agent.call("tab.keep", &json!({"targetId": target})).unwrap();
+    // The tab is kept (no creator) and the call is over when the page asks:
+    // no session takes the dialog. (A user-origin session cannot act.)
+    agent
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "agent",
+                "source": "() => { setTimeout(() => confirm('late?'), 50); return 1; }"}),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let entries = loop {
+        let info = person.call("tab.info", &json!({"targetId": target})).unwrap();
+        if let Some(entries) = info["unroutedEvents"].as_array().filter(|e| !e.is_empty()) {
+            break entries.clone();
+        }
+        assert!(Instant::now() < deadline, "no unrouted entry for the person: {info}");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_eq!(entries[0]["event"], "dialog.opened");
+    assert_eq!(entries[0]["action"], "dismissed");
+    let reader = open("reader", "cli");
+    let info = reader.call("tab.info", &json!({"targetId": target})).unwrap();
+    assert!(info.get("unroutedEvents").is_none(), "an agent read the host log: {info}");
+}
+
+/// driver-protocol.md "Sessions and tabs": when the LAST session leaves a
+/// tab, the keys and mouse buttons the sessions left pressed are released
+/// (key-ups last pressed first, then button-ups at the last mouse
+/// position), as trusted events; not while another session still drives it.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn held_input_is_released_when_the_last_session_leaves() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSession, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let open = |name: &str| {
+        let lease = cmux_browser_host::lease::LeaseCaller {
+            session: name.into(),
+            actor: "t".into(),
+            on_behalf_of: None,
+            origin: "cli".into(),
+            label: String::new(),
+            implicit_session: false,
+            engine: "headless".into(),
+        };
+        HeadlessSession::new(source.clone(), &browsers, Arc::from(AGENT), Arc::new(|_| {}), lease)
+            .unwrap()
+    };
+    let read = |session: &HeadlessSession, target: &str| -> String {
+        session
+            .call(
+                "frame.evaluate",
+                &json!({"targetId": target, "world": "agent",
+                    "source": "() => document.getElementById('log').textContent"}),
+            )
+            .unwrap()
+            .as_str()
+            .unwrap_or("")
+            .to_owned()
+    };
+    let a = open("a");
+    let target = a
+        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/held")}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    a.call("tab.keep", &json!({"targetId": target})).unwrap();
+    for (key, code) in [("Shift", "ShiftLeft"), ("A", "KeyA")] {
+        a.call("input.key", &json!({"targetId": target, "type": "down", "key": key, "code": code}))
+            .unwrap();
+    }
+    a.call("input.mouse", &json!({"targetId": target, "type": "move", "x": 5, "y": 5})).unwrap();
+    a.call("input.mouse", &json!({"targetId": target, "type": "down", "button": "left"})).unwrap();
+    // b drives the tab too (a read): a's end releases nothing yet.
+    let b = open("b");
+    b.call("tab.info", &json!({"targetId": target})).unwrap();
+    a.end_session();
+    drop(a);
+    assert_eq!(read(&b, &target), "", "released while b still drives the tab");
+    b.end_session();
+    drop(b);
+    let c = open("c");
+    let log = read(&c, &target);
+    assert_eq!(log, "keyup A true;keyup Shift true;mouseup 0 true;", "{log}");
 }

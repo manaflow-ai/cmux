@@ -187,6 +187,13 @@ impl CdpDriver {
 }
 
 impl CdpDriver {
+    /// Releases the keys and mouse buttons left pressed in a tab; the
+    /// session engine's source calls it when the last session leaves the
+    /// tab. A gone tab has nothing to release.
+    pub fn release_held_input(&self, target_id: &str) -> Result<(), DriverError> {
+        self.inner.release_held_input(target_id)
+    }
+
     /// False once the connection closed (a relayed tab went away).
     pub fn is_open(&self) -> bool {
         self.inner.conn.closed_reason().is_none()

@@ -7,6 +7,12 @@
 //! them: D2 (ff, 2026-10-06), the host answers it (dialog dismissed, download
 //! cancelled) and logs it. Every other event goes to every session.
 //!
+//! The log (ff, 2026-10-06): each unrouted entry goes to the policy log of
+//! the session that opened the tab (also after it kept it; popups count as
+//! its tabs) while that session is attached, and to the host's own log of
+//! the newest [`LOG_KEPT`] entries, which only the person reads
+//! (`tab.info unroutedEvents`).
+//!
 //! Bounded: per-tab entries go with `tab.closed`, a session's with its end,
 //! a dialog's with its answer, a download's with `download.finished`.
 
@@ -30,6 +36,9 @@ pub struct Routes {
     /// Tab -> sessions with handlers, in registration order.
     handlers: HashMap<String, Vec<(u64, Vec<String>)>>,
     creator: HashMap<String, u64>,
+    /// Tab -> the session that opened it (or its opener), kept or not: the
+    /// session whose policy log gets the tab's unrouted events.
+    opened_by: HashMap<String, u64>,
     /// Tab -> the session whose call the page is handling now.
     in_call: HashMap<String, u64>,
     /// Dialog id -> the session it went to.
@@ -59,6 +68,12 @@ impl Routes {
 
     pub fn created(&mut self, session: u64, target: &str) {
         self.creator.insert(target.to_owned(), session);
+        self.opened_by.insert(target.to_owned(), session);
+    }
+
+    /// The session whose policy log gets the tab's unrouted events.
+    pub fn log_session(&self, target: &str) -> Option<u64> {
+        self.opened_by.get(target).copied()
     }
 
     /// A kept tab is the person's: it has no creating session any more.
@@ -93,6 +108,7 @@ impl Routes {
         }
         self.handlers.retain(|_, list| !list.is_empty());
         self.creator.retain(|_, s| *s != session);
+        self.opened_by.retain(|_, s| *s != session);
         self.in_call.retain(|_, s| *s != session);
         self.dialogs.retain(|_, s| *s != session);
         self.downloads.retain(|_, s| *s != session);
@@ -109,6 +125,11 @@ impl Routes {
         self.log.iter().cloned().collect()
     }
 
+    /// The host log's entries for one tab.
+    pub fn unrouted_for(&self, target: &str) -> Vec<Value> {
+        self.log.iter().filter(|entry| entry["targetId"] == target).cloned().collect()
+    }
+
     /// Where `event` goes; `attached` says whether a session is still there.
     pub fn route(&mut self, event: &DriverEvent, attached: &dyn Fn(u64) -> bool) -> Route {
         let payload = &event.payload;
@@ -117,6 +138,7 @@ impl Routes {
             "tab.closed" => {
                 self.handlers.remove(target);
                 self.creator.remove(target);
+                self.opened_by.remove(target);
                 self.in_call.remove(target);
                 return Route::Everyone;
             }
@@ -126,6 +148,11 @@ impl Routes {
                     && let Some(session) = self.creator.get(opener).copied()
                 {
                     self.creator.insert(target.to_owned(), session);
+                }
+                if let Some(opener) = payload.get("openerTargetId").and_then(Value::as_str)
+                    && let Some(session) = self.opened_by.get(opener).copied()
+                {
+                    self.opened_by.insert(target.to_owned(), session);
                 }
                 return Route::Everyone;
             }
@@ -176,9 +203,14 @@ impl Routes {
     }
 }
 
-/// A log entry for an event no session took.
-pub fn unrouted_entry(event: &DriverEvent, action: &str) -> Value {
+/// A log entry for an event no session took, in the policy log's shape
+/// (`{url, reason, at, blocked}`, `blocked: "unrouted"`); `url` is the
+/// tab's. The page's own text (a dialog message) stays out.
+pub fn unrouted_entry(event: &DriverEvent, action: &str, url: &str) -> Value {
     json!({
+        "url": url,
+        "reason": format!("{}: no session takes it; the host {action} it", event.name),
+        "blocked": "unrouted",
         "event": event.name,
         "targetId": event.payload.get("targetId").cloned().unwrap_or(Value::Null),
         "action": action,
@@ -215,6 +247,7 @@ mod tests {
         assert_eq!(routes.route(&dialog("T", "d3"), &all), Route::Session(1), "the creator");
         routes.kept(1, "T");
         assert_eq!(routes.route(&dialog("T", "d4"), &all), Route::Unrouted("dialog"));
+        assert_eq!(routes.log_session("T"), Some(1), "a kept tab still logs to its opener");
         routes.call_started(3, "T");
         assert_eq!(routes.route(&dialog("T", "d5"), &all), Route::Session(3), "the caller");
         routes.call_ended(3, "T");
@@ -234,7 +267,7 @@ mod tests {
             &DriverEvent { name: "tab.closed".into(), payload: json!({"targetId": "T"}) },
             &all,
         );
-        assert!(routes.creator.is_empty());
+        assert!(routes.creator.is_empty() && routes.opened_by.is_empty());
         for i in 0..LOG_KEPT + 5 {
             routes.log_unrouted(json!(i));
         }
