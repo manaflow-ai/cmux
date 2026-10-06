@@ -11,10 +11,10 @@ import Testing
     @Test func theAuthLaunchKeysAreKeptAndNothingElse() {
         let launch = CloudAuth.launchAuthKeys(from: [
             "CMUX_AUTH_CREDENTIALS_FILE": "/tmp/creds.env", "CMUX_DEV_AUTH_PROFILE": "personal",
-            "CMUX_DEV_AUTH_REPLACE_SESSION": "1", "CMUX_DOGFOOD_STACK_EMAIL": "e@x", "CMUX_DOGFOOD_STACK_PASSWORD": "p",
+            "CMUX_DEV_AUTH_REPLACE_SESSION": "1", "CMUX_DEV_AUTH_ACCOUNT": "e@x", "CMUX_DOGFOOD_STACK_EMAIL": "e@x", "CMUX_DOGFOOD_STACK_PASSWORD": "p",
             "CMUX_SOCKET_PATH": "/tmp/other.sock", "CMUX_TAG": "other", "HOME": "/h",
         ])
-        #expect(Set(launch.keys) == ["CMUX_AUTH_CREDENTIALS_FILE", "CMUX_DEV_AUTH_PROFILE", "CMUX_DEV_AUTH_REPLACE_SESSION",
+        #expect(Set(launch.keys) == ["CMUX_AUTH_CREDENTIALS_FILE", "CMUX_DEV_AUTH_PROFILE", "CMUX_DEV_AUTH_ACCOUNT", "CMUX_DEV_AUTH_REPLACE_SESSION",
                                       "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
     }
 

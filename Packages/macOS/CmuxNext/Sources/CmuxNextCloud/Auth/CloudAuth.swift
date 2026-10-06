@@ -46,7 +46,7 @@ public final class CloudAuth {
     /// inherited CMUX_* variables before anything reads them (LaunchIdentity),
     /// so these are captured first and reach CloudAuth only, never a child.
     nonisolated static let authLaunchKeyNames: Set<String> = [
-        "CMUX_AUTH_CREDENTIALS_FILE", "CMUX_DEV_AUTH_PROFILE", "CMUX_DEV_AUTH_REPLACE_SESSION",
+        "CMUX_AUTH_CREDENTIALS_FILE", "CMUX_DEV_AUTH_PROFILE", "CMUX_DEV_AUTH_ACCOUNT", "CMUX_DEV_AUTH_REPLACE_SESSION",
         "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD",
     ]
 
