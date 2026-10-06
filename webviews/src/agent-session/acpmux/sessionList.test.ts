@@ -142,6 +142,7 @@ describe("summary entries", () => {
       pendingPermissions: 2,
       unread: true,
       pinned: false,
+      archived: false,
       preview: "Last reply",
     });
   });
