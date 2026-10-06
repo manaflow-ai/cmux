@@ -1,3 +1,16 @@
+/// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
+/// ``AgentPaneModel/headerActions`` id on the chat's tab, a split in `cwd` when given,
+/// and reads the tab's state the "..." menu's labels show (`{pinned}`).
+public struct AgentPaneHeaderHooks {
+    public var run: @MainActor (String, String?) -> Void
+    public var tabState: @MainActor () -> [String: Any]
+
+    public init(run: @escaping @MainActor (String, String?) -> Void, tabState: @escaping @MainActor () -> [String: Any]) {
+        self.run = run
+        self.tabState = tabState
+    }
+}
+
 extension AgentPaneModel {
     /// The app actions the chat header runs on its tab (`pane.action`): the Terminal and Browser
     /// splits and the "..." menu's tab verbs.
@@ -11,16 +24,16 @@ extension AgentPaneModel {
     func respondToHeader(_ request: AgentPaneRequest) -> [String: Any] {
         switch request {
         case .paneAction(let id, let cwd):
-            guard newTab == nil, Self.headerActions.contains(id), let onPaneAction else {
+            guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
             }
-            onPaneAction(id, cwd)
+            header.run(id, cwd)
             return AgentPaneReply.success()
         case .tabState:
-            guard let onTabState else {
+            guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
-            return AgentPaneReply.success(onTabState())
+            return AgentPaneReply.success(header.tabState())
         default:
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request")
         }

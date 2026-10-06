@@ -23,7 +23,7 @@ import Testing
     @Test func onlyListedActionsRun() async {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var ran: [String] = []
-        model.onPaneAction = { id, cwd in ran.append("\(id)@\(cwd ?? "")") }
+        model.header = AgentPaneHeaderHooks(run: { id, cwd in ran.append("\(id)@\(cwd ?? "")") }, tabState: { [:] })
         var reply = await model.respond(to: .paneAction("splitRight", cwd: "/tmp/repo"))
         #expect(reply["ok"] as? Bool == true)
         reply = await model.respond(to: .paneAction("closeAllWindows"))
@@ -37,7 +37,7 @@ import Testing
         let model = AgentPaneModel(host: MockAgentPaneHost())
         var reply = await model.respond(to: .tabState)
         #expect(reply["ok"] as? Bool == false)
-        model.onTabState = { ["pinned": true] }
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { ["pinned": true] })
         reply = await model.respond(to: .tabState)
         #expect((reply["value"] as? [String: Any])?["pinned"] as? Bool == true)
     }
