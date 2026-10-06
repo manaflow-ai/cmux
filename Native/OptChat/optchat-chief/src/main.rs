@@ -14,7 +14,6 @@ optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9'
 optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
-optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)

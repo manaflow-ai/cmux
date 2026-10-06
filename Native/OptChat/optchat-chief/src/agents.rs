@@ -12,13 +12,13 @@ use cmux_chief::acp::SessionSummary;
 use cmux_chief::rules::PARENT_TAG;
 use serde_json::{Value, json};
 
-use crate::acpmux::{SessionSpec, new_session, sessions};
+use crate::acpmux::{SessionSpec, sessions};
 use crate::brain::parent_tag;
 use crate::cli::{Flags, env};
 use crate::rpc::{Notification, RpcClient};
 
-pub const USAGE: &str = "chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME";
+pub const USAGE: &str =
+    "chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME";
 
 type Notes = (Sender<Notification>, Receiver<Notification>);
 
@@ -167,13 +167,6 @@ pub fn apply_floor(requested: &str, floor: Option<&str>) -> String {
     floor.unwrap_or(requested).to_owned()
 }
 
-/// The live host's floor for a spawn now. No answer fails closed: `ask`.
-fn spawn_floor() -> Option<String> {
-    let socket = crate::paths::Paths::new(&crate::paths::mux_home()).tools_socket;
-    crate::tools::ask_spawn_policy(&socket)
-        .unwrap_or_else(|_| Some(crate::approval::ASK.to_owned()))
-}
-
 fn asks(s: &SessionSummary) -> bool {
     s.tags.get(crate::approval::POLICY_TAG).map(String::as_str) == Some(crate::approval::ASK)
 }
@@ -190,45 +183,12 @@ pub fn cli_may_answer(child: &SessionSummary) -> Result<(), String> {
     Ok(())
 }
 
-/// The preset a child starts with: its harness and this process's pinned
-/// cmux env (the `chief` launcher bakes it in), so the child's `cmux` calls
-/// reach the same app daemon as the Chief's, whoever started acpmux
-/// (cmux_env). None when this process has no pinned socket or acpmux refuses
-/// the preset (an older daemon): the child then runs with the daemon's env.
-fn child_preset(client: &RpcClient, harness: &str) -> Option<String> {
-    let current: BTreeMap<String, String> = std::env::vars().collect();
-    let env = crate::cmux_env::pinned_subset(&current);
-    let home = crate::paths::home_id(&crate::paths::mux_home());
-    let name = child_preset_name(&home, harness)?;
-    env.contains_key(crate::cmux_env::SOCKET_KEYS[0])
-        .then_some(())?;
-    client
-        .request(
-            "_acpmux/presets",
-            json!({"name": name, "set": {"harness": harness, "env": env}}),
-        )
-        .ok()
-        .map(|_| name)
-}
-
-/// `chief-child-<home id>-<harness>`, or None for a harness name that is not
-/// `[A-Za-z0-9._-]`.
-pub fn child_preset_name(home_id: &str, harness: &str) -> Option<String> {
-    let plain = |s: &str| {
-        !s.is_empty()
-            && s.chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-    };
-    plain(harness).then(|| format!("chief-child-{home_id}-{harness}"))
-}
-
 /// `agents spawn` is retired: its children got no workspace and no chat tab.
 pub const SPAWN_RETIRED: &str = "chief agents spawn is retired: use chief spawn \"task\" [\"task\" ...] (a workspace and chat per subagent, one combined report); chief tell ID \"message\" steers one";
 
 /// The refusal for a retired `agents` verb in `words` (`agents VERB ...`).
 pub fn retired(words: &[String]) -> Option<&'static str> {
-    let _ = words;
-    None
+    (words.get(1).map(String::as_str) == Some("spawn")).then_some(SPAWN_RETIRED)
 }
 
 /// Runs one `agents` verb; Ok carries what to print.
@@ -237,48 +197,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
     let verb = words.first().map(String::as_str).unwrap_or("");
     let args = &words[words.len().min(1)..];
     match verb {
-        "spawn" => {
-            let name = flags.value("name").ok_or("spawn needs --name")?;
-            let cwd = flags.value("cwd").ok_or("spawn needs --cwd")?;
-            let task = args.join(" ");
-            if task.trim().is_empty() {
-                return Err(format!("spawn needs a task\n{USAGE}"));
-            }
-            let floor = spawn_floor();
-            let (client, notes) = connect()?;
-            let parent = parent();
-            let list = sessions(&client)?;
-            let existing = spawn_target(&list, name, &parent)?;
-            if floor.is_some()
-                && let Some(id) = &existing
-                && !list.iter().any(|s| &s.session_id == id && asks(s))
-            {
-                return Err(format!(
-                    "an agent named {name} exists without approvals, and this spawn needs them; pick another --name"
-                ));
-            }
-            let id = match existing {
-                Some(id) => id,
-                None => {
-                    let mut spec = child_spec(flags, name, cwd);
-                    spec.policy = apply_floor(&spec.policy, floor.as_deref());
-                    let preset = child_preset(&client, &spec.harness);
-                    new_session(&client, &spec, preset.as_deref())?
-                }
-            };
-            let mut tags = json!({PARENT_TAG: parent});
-            if floor.is_some() {
-                tags[crate::approval::POLICY_TAG] = json!(crate::approval::ASK);
-            }
-            client
-                .request("_acpmux/tag", json!({"sessionId": id, "set": tags}))
-                .map_err(|e| format!("tag: {e}"))?;
-            prompt_accepted(&client, &notes, &id, &task)?;
-            client.close();
-            Ok(format!(
-                "started {name} ({id}) in {cwd}; its report comes back as a \"[{name}] ...\" message"
-            ))
-        }
+        "spawn" => Err(SPAWN_RETIRED.into()),
         "list" => {
             let (client, _) = connect()?;
             let rows: Vec<String> = mine(sessions(&client)?)
