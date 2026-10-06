@@ -277,7 +277,7 @@ fn a_link_that_goes_down_ends_its_frame_link() {
     let down = next_where(&mut host, "link down or end", |l| {
         l["event"] == "cloud.link.changed" || l["t"] == "end"
     });
-    assert_eq!(down["state"], "down", "the link line comes before the end: {down}");
+    assert_eq!(down["data"]["state"], "down", "the link line comes before the end: {down}");
     let end = frame(&mut host, "end");
     assert_eq!(end["channel"], "link-1");
     assert_eq!(end["lost"]["retryable"], true, "a reconnect may work: {end}");
