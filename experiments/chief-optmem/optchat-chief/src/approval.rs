@@ -22,7 +22,14 @@ pub struct Pending {
     pub permission_id: String,
     pub tool: String,
     pub request: Value,
+    /// The child agent that asked (its name), None for the turn itself.
+    pub child: Option<String>,
 }
+
+/// The tag `chief agents spawn` puts on a child that runs with policy `ask`
+/// (the host's spawn floor): its approvals go to the Chief chat.
+pub const POLICY_TAG: &str = "optchat.policy";
+pub const ASK: &str = "ask";
 
 /// The harness's tool name of a permission request (Claude Code's
 /// `_meta.claude.tool`), else its title.
@@ -97,10 +104,16 @@ pub fn question(pending: &Pending) -> String {
             format!("\n{text}")
         })
         .unwrap_or_default();
-    format!(
-        "Approval needed: this turn started from a paired device, so every local effect waits for you. {} wants to run:{input}\nReply allow or deny.",
-        pending.tool
-    )
+    match &pending.child {
+        None => format!(
+            "Approval needed: this turn started from a paired device, so every local effect waits for you. {} wants to run:{input}\nReply allow or deny.",
+            pending.tool
+        ),
+        Some(child) => format!(
+            "Approval needed: subagent {child} started from a turn that needs approvals, so its local effects wait for you too. {} wants to run:{input}\nReply allow or deny.",
+            pending.tool
+        ),
+    }
 }
 
 /// Appends one `approval` event to the trace in `dir`

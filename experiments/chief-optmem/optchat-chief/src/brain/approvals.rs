@@ -49,21 +49,70 @@ impl Brain {
             permission_id,
             tool,
             request,
+            child: None,
         };
-        let text = question(&pending);
         let key = format!(
             "approval:{}:{}",
             self.state.turn.as_ref().map_or("", |t| t.key.as_str()),
             pending.permission_id
         );
+        self.ask_person(pending, &key);
+    }
+
+    /// A permission request of a child that runs with policy `ask` (spawned
+    /// under the ask floor): asked in the Chief chat with the child's name,
+    /// never answered by the Chief itself.
+    pub(super) fn child_permission(
+        &mut self,
+        child: &cmux_chief::acp::SessionSummary,
+        permission_id: String,
+        request: Value,
+    ) {
+        let key = format!("approval:{}:{}", child.session_id, permission_id);
+        let pending = Pending {
+            session_id: child.session_id.clone(),
+            permission_id,
+            tool: tool_name(&request),
+            request,
+            child: Some(child.name.clone()),
+        };
+        self.ask_person(pending, &key);
+    }
+
+    fn ask_person(&mut self, pending: Pending, key: &str) {
+        let text = question(&pending);
         self.approvals.push_back(pending);
         if let Some(conversation) = self.state.conversation.clone() {
-            self.state
-                .outbox
-                .push(reply_entry(conversation, &key, &text));
+            self.state.outbox.push(reply_entry(conversation, key, &text));
             self.save();
             self.flush_outbox();
         }
+    }
+
+    /// Whether a child that runs with policy `ask` is still live: the spawn
+    /// floor stays `ask` while one is (anything it spawns asks too).
+    pub(super) fn ask_child_live(&self) -> bool {
+        use cmux_chief::acp::SessionStatus;
+        self.sessions.values().any(|s| {
+            s.tags.get(crate::approval::POLICY_TAG).map(String::as_str) == Some(crate::approval::ASK)
+                && !matches!(s.status, SessionStatus::Closed | SessionStatus::Disconnected)
+        })
+    }
+
+    /// The policy floor for a child spawned now (`chief agents spawn` asks
+    /// the host): `ask` during an ask turn or while an ask child is live,
+    /// unless the Mac turned on remote.autoApprove.
+    pub fn spawn_policy(&self) -> Option<&'static str> {
+        if self.chief.remote_auto_approve {
+            return None;
+        }
+        (self.turn_ask || self.ask_child_live()).then_some(crate::approval::ASK)
+    }
+
+    /// Drops the running turn's own pending approvals (its session ends);
+    /// children's stay.
+    pub(super) fn clear_turn_approvals(&mut self) {
+        self.approvals.retain(|p| p.child.is_some());
     }
 
     /// A person answered the oldest pending approval with `message`.
@@ -78,9 +127,13 @@ impl Brain {
         self.respond(&pending, answer, &message.author, install.as_deref());
     }
 
-    /// Denies every pending approval (`why` is the trace's approver).
+    /// Denies the running turn's pending approvals (`why` is the trace's
+    /// approver); children's stay for a person.
     pub(super) fn deny_pending(&mut self, why: &str) {
-        while let Some(pending) = self.approvals.pop_front() {
+        let (turn, children): (Vec<Pending>, Vec<Pending>) =
+            self.approvals.drain(..).partition(|p| p.child.is_none());
+        self.approvals.extend(children);
+        for pending in turn {
             self.respond(&pending, Answer::Deny, why, None);
         }
     }
@@ -114,6 +167,7 @@ impl Brain {
                 "session": pending.session_id,
                 "permission": pending.permission_id,
                 "tool": pending.tool,
+                "child": pending.child,
                 "decision": answer.as_str(),
                 "option": option,
                 "approver": approver,

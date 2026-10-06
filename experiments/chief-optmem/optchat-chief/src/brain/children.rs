@@ -74,7 +74,15 @@ impl Brain {
                         }
                     },
                 };
-                if self.is_child(&session) {
+                let ask = session
+                    .tags
+                    .get(crate::approval::POLICY_TAG)
+                    .map(String::as_str)
+                    == Some(crate::approval::ASK);
+                if self.is_child(&session) && ask {
+                    // Spawned under the ask floor: a person answers.
+                    self.child_permission(&session, permission_id, request);
+                } else if self.is_child(&session) {
                     let text = permission_text(&session.name, &request);
                     self.queue(text, Source::Note);
                 }

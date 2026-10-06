@@ -85,7 +85,18 @@ impl Call {
 /// `Some((key, value))` sets one, None shows them all. Not a model tool:
 /// the MCP server never offers it, and the host refuses turning
 /// `remote.autoApprove` on during remote-origin work.
-pub type Control = Arc<dyn Fn(Option<(String, String)>) -> Result<String, String> + Send + Sync>;
+pub type Control = Arc<dyn Fn(ControlRequest) -> Result<String, String> + Send + Sync>;
+
+/// What `optchat-chief settings` and `chief agents spawn` ask the host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ControlRequest {
+    /// The per-Chief settings as JSON.
+    Show,
+    /// Sets one setting.
+    Set(String, String),
+    /// The policy floor for a child spawned now: `ask`, or empty for none.
+    SpawnPolicy,
+}
 
 /// Serves the tools on `path` until the process ends. The host holds the
 /// host lock, so a socket file left by an earlier host is stale and replaced.
@@ -125,11 +136,15 @@ fn connection(conn: UnixStream, memory: &dyn Memory, control: Option<&Control>) 
             Ok(req) => {
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
                 // Not a model tool: the `browse` command asks the live host.
-                if tool == "settings" {
-                    let ask = req.get("key").and_then(Value::as_str).map(|k| {
-                        let v = req.get("value").and_then(Value::as_str).unwrap_or("");
-                        (k.to_owned(), v.to_owned())
-                    });
+                if tool == "settings" || tool == "spawn_policy" {
+                    let ask = match req.get("key").and_then(Value::as_str) {
+                        _ if tool == "spawn_policy" => ControlRequest::SpawnPolicy,
+                        Some(k) => {
+                            let v = req.get("value").and_then(Value::as_str).unwrap_or("");
+                            ControlRequest::Set(k.to_owned(), v.to_owned())
+                        }
+                        None => ControlRequest::Show,
+                    };
                     let answer = match control {
                         Some(control) => match control(ask) {
                             Ok(text) => json!({"text": text}),
@@ -174,6 +189,13 @@ pub fn ask_settings(path: &Path, set: Option<(&str, &str)>) -> Result<String, St
         None => json!({"tool": "settings"}),
     };
     ask_json(path, &request)
+}
+
+/// The live host's policy floor for a child spawned now (`Some("ask")`),
+/// or None. Err when no host answers: the caller fails closed.
+pub fn ask_spawn_policy(path: &Path) -> Result<Option<String>, String> {
+    let text = ask_json(path, &json!({"tool": "spawn_policy"}))?;
+    Ok((!text.is_empty()).then_some(text))
 }
 
 /// The browse page from the live host; Err when no host answers on `path`.

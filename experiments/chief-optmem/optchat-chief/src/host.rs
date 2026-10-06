@@ -371,23 +371,32 @@ fn start(
     );
     // `optchat-chief settings` reaches the brain, which owns the settings.
     let settings_tx = Mutex::new(tx.clone());
-    let control: crate::tools::Control = Arc::new(move |set: Option<(String, String)>| {
+    let control: crate::tools::Control = Arc::new(move |request: crate::tools::ControlRequest| {
+        use crate::tools::ControlRequest;
         let tx = settings_tx.lock().expect("settings tx").clone();
         let stopping = |_| "the host is stopping".to_owned();
+        let wait = Duration::from_secs(30);
         let late = |_| "the host did not answer".to_owned();
-        match set {
-            Some((key, value)) => {
+        match request {
+            ControlRequest::Set(key, value) => {
                 let (reply, answer) = channel();
-                tx.send(Input::Setting { key, value, reply })
-                    .map_err(stopping)?;
-                answer.recv_timeout(Duration::from_secs(30)).map_err(late)?
+                tx.send(Input::Setting { key, value, reply }).map_err(stopping)?;
+                answer.recv_timeout(wait).map_err(late)?
             }
-            None => {
+            ControlRequest::Show => {
                 let (reply, answer) = channel();
                 tx.send(Input::Settings { reply }).map_err(stopping)?;
                 answer
-                    .recv_timeout(Duration::from_secs(30))
+                    .recv_timeout(wait)
                     .map(|v| format!("{v:#}"))
+                    .map_err(late)
+            }
+            ControlRequest::SpawnPolicy => {
+                let (reply, answer) = channel();
+                tx.send(Input::SpawnPolicy { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(Option::unwrap_or_default)
                     .map_err(late)
             }
         }

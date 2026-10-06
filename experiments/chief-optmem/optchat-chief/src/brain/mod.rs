@@ -86,6 +86,8 @@ pub enum Input {
     Settings {
         reply: Sender<serde_json::Value>,
     },
+    /// The policy floor for a child spawned now (`Brain::spawn_policy`).
+    SpawnPolicy { reply: Sender<Option<String>> },
 }
 
 impl From<DaemonEvent> for Input {
@@ -397,6 +399,9 @@ impl Brain {
             Input::Settings { reply } => {
                 let _ = reply.send(self.chief.to_json());
             }
+            Input::SpawnPolicy { reply } => {
+                let _ = reply.send(self.spawn_policy().map(str::to_owned));
+            }
         }
     }
 
@@ -494,7 +499,7 @@ impl Brain {
                 }
             )
         });
-        if on && (self.turn_remote || self.remote_taint || remote_queued) {
+        if on && (self.turn_remote || self.remote_taint || remote_queued || self.ask_child_live()) {
             (self.log)("refused: remote.autoApprove on during remote-origin work");
             return Err(
                 "refused: remote.autoApprove can be turned on only from the Mac, outside a turn a paired device started"

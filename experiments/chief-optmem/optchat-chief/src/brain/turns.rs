@@ -214,7 +214,7 @@ impl Brain {
                 )
             });
         self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
-        self.approvals.clear();
+        self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
         let policy = if self.turn_ask {
             "ask".to_owned()
@@ -406,7 +406,7 @@ impl Brain {
         }
         self.turn_remote = false;
         self.turn_ask = false;
-        self.approvals.clear();
+        self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
