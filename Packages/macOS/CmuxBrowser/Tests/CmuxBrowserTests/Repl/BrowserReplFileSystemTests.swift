@@ -638,6 +638,22 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(fs.perform("readdir", arguments: ["path": "small"]).failureCode == "ok")
     }
 
+    /// A chain of empty directories has one entry per level, so counting
+    /// entries never reaches a cancellation check, yet removing it reopens
+    /// every ancestor at each level (work that grows with the depth's
+    /// square). A cancelled call stops on the directories it opens too.
+    @Test("A cancelled recursive rm of a deep chain of empty directories stops")
+    func cancelledDeepChainRemoveStops() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let chain = scratch.root + "/chain" + String(repeating: "/d", count: 200)
+        try FileManager.default.createDirectory(atPath: chain, withIntermediateDirectories: true)
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { true })
+
+        #expect(fs.perform("rm", arguments: ["path": "chain", "recursive": true]).failureCode == "ECANCELED")
+        #expect(FileManager.default.fileExists(atPath: scratch.root + "/chain"))
+    }
+
     /// A recursive `rm` runs on the session's thread and must not list a
     /// large directory whole, or list it again for each subdirectory it
     /// removes: work and memory stay proportional to the entries removed.
