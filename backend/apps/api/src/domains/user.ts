@@ -227,7 +227,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           created_at: ctx.now,
           revoked_at: null,
           ...(v.bound_team ? { bound_team: v.bound_team } : {}),
-          ...(v.bound_machine ? { bound_machine: v.bound_machine } : {})
+          ...(v.bound_machine ? { bound_machine: v.bound_machine } : {}),
+          ...(v.capabilities?.length ? { capabilities: [...v.capabilities] } : {})
         }
         return {
           ok: true,
