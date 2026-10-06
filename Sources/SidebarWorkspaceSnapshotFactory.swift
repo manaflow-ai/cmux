@@ -15,15 +15,30 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    /// Resolved per-host origin color (hex), or nil when the beta flag is off or
+    /// the workspace has no host. Resolved by the caller above the row boundary
+    /// and passed in as a plain value; a manual `workspace.customColor` still wins.
+    var originColorHex: String? = nil
+    /// Remote host to name after the title because another workspace shares it (beta), else nil.
+    /// Resolved by the caller over the whole workspace list, since it depends on the other titles.
+    var hostTitleSuffix: String? = nil
     let catalog: SurfaceCatalog
 
     /// Builds snapshots from the app's shared surface catalog.
     @MainActor
-    init(workspace: Workspace, settings: SidebarTabItemSettingsSnapshot, showsAgentActivity: Bool) {
+    init(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool,
+        originColorHex: String? = nil,
+        hostTitleSuffix: String? = nil
+    ) {
         self.init(
             workspace: workspace,
             settings: settings,
             showsAgentActivity: showsAgentActivity,
+            originColorHex: originColorHex,
+            hostTitleSuffix: hostTitleSuffix,
             catalog: SurfaceCatalog.shared
         )
     }
@@ -34,11 +49,15 @@ struct SidebarWorkspaceSnapshotFactory {
         workspace: Workspace,
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool,
+        originColorHex: String? = nil,
+        hostTitleSuffix: String? = nil,
         catalog: SurfaceCatalog
     ) {
         self.workspace = workspace
         self.settings = settings
         self.showsAgentActivity = showsAgentActivity
+        self.originColorHex = originColorHex
+        self.hostTitleSuffix = hostTitleSuffix
         self.catalog = catalog
     }
 
@@ -140,7 +159,10 @@ struct SidebarWorkspaceSnapshotFactory {
             customDescription: settings.showsWorkspaceDescription ? visibleCustomDescription : nil,
             isPinned: workspace.isPinned,
             isMuted: workspace.isMuted,
-            customColorHex: workspace.customColor,
+            // A manual workspace color always wins; the per-host origin color
+            // (nil when the flag is off) is the fallback.
+            customColorHex: workspace.customColor ?? originColorHex,
+            hasManualCustomColor: workspace.customColor != nil,
             cloudWorkspaceLabel: cloud?.isDeviceWorkspace == true ? nil : cloud?.machineLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
@@ -189,17 +211,27 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
             taskStatusInput: taskStatusInput,
             deviceWorkspaceLabel: cloud?.deviceLabel,
-            compactStatusGlyph: compactStatusGlyph
+            compactStatusGlyph: compactStatusGlyph,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        Self.presentationKey(settings: settings, showsAgentActivity: showsAgentActivity)
+        Self.presentationKey(
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            customColorHex: workspace.customColor ?? originColorHex,
+            hasManualCustomColor: workspace.customColor != nil,
+            hostTitleSuffix: hostTitleSuffix
+        )
     }
 
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        customColorHex: String?,
+        hasManualCustomColor: Bool = false,
+        hostTitleSuffix: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
@@ -209,7 +241,10 @@ struct SidebarWorkspaceSnapshotFactory {
             showsAgentActivity: showsAgentActivity,
             compactsAgentStatus: settings.compactsAgentStatus,
             compactStatusIcons: settings.compactStatusIcons,
-            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
+            customColorHex: customColorHex,
+            hasManualCustomColor: hasManualCustomColor,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 

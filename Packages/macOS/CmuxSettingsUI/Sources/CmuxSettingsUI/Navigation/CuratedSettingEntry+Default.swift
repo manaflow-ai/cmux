@@ -459,6 +459,8 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(section: .betaFeatures, id: "remoteTmuxOriginColors", title: String(localized: "settings.betaFeatures.remoteTmuxOriginColors", defaultValue: "Remote host colors"), synonyms: String(localized: "settings.search.alias.setting.betaFeatures.remote-tmux-origin-colors", defaultValue: "Remote host colors remote host colors origin color tint per-host server workspace sidebar row tab beta unstable")),
+            .init(section: .betaFeatures, id: "remoteTmuxOriginHostTitles", title: String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles", defaultValue: "Remote host names on duplicate titles"), synonyms: String(localized: "settings.search.alias.setting.betaFeatures.remote-tmux-origin-host-titles", defaultValue: "Remote host names on duplicate titles hostname server duplicate same title collision workspace sidebar row beta unstable")),
             .init(
                 section: .betaFeatures,
                 id: "workspace-todo-controls",
