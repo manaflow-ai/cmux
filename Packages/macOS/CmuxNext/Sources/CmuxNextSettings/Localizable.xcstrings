@@ -48352,43 +48352,43 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "أثناء انتظار التنزيلات، يظهر التحديث الذي تم العثور عليه في الإعدادات، وبنقرة واحدة يتم تنزيله."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Dok preuzimanja čekaju, pronađeno ažuriranje se prikazuje u Postavkama i jednim klikom se preuzima."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Mens downloads venter, vises en fundet opdatering i Indstillinger, og ét klik downloader den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Während Downloads warten, erscheint ein gefundenes Update in den Einstellungen und wird mit einem Klick geladen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Mientras las descargas esperan, una actualización encontrada aparece en Ajustes y se descarga con un clic."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Pendant que les téléchargements attendent, une mise à jour trouvée apparaît dans Réglages et un clic la télécharge."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Mentre i download sono in attesa, un aggiornamento trovato appare in Impostazioni e un clic lo scarica."
           }
         },
         "ja": {
@@ -48400,73 +48400,73 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "ខណៈពេលការទាញយករង់ចាំ បច្ចុប្បន្នភាពដែលបានរកឃើញបង្ហាញនៅក្នុងការកំណត់ ហើយការចុចម្តងនឹងទាញយកវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "다운로드가 대기하는 동안 발견된 업데이트는 설정에 표시되며 한 번 클릭하면 다운로드됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Mens nedlastinger venter, vises en funnet oppdatering i Innstillinger, og ett klikk laster den ned."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Gdy pobieranie czeka, znaleziona aktualizacja pojawia się w Ustawieniach, a jedno kliknięcie ją pobiera."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Enquanto os downloads aguardam, uma atualização encontrada aparece em Ajustes e um clique a baixa."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Пока загрузки ждут, найденное обновление показывается в Настройках, и один щелчок загружает его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "ขณะที่การดาวน์โหลดรออยู่ การอัปเดตที่พบจะแสดงในการตั้งค่า และคลิกครั้งเดียวเพื่อดาวน์โหลด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "İndirmeler beklerken bulunan güncelleme Ayarlar'da görünür ve tek tıklama onu indirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Поки завантаження чекають, знайдене оновлення з’являється в Параметрах, і одне клацання завантажує його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "Trong khi chờ tải xuống, bản cập nhật tìm thấy hiển thị trong Cài đặt và một lần nhấp sẽ tải xuống."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "下载等待期间，找到的更新会显示在“设置”中，点按一下即可下载。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "While downloads wait, a found update shows on Settings and one click downloads it."
+            "value": "下載等待期間，找到的更新會顯示在「設定」中，按一下即可下載。"
           }
         }
       }
