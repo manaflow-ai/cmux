@@ -177,7 +177,7 @@ export function ProjectChooser({
                 {icon}
                 <span className="acpmux-menu-text">
                   <span className="acpmux-menu-label">{project.label}</span>
-                  <span className="acpmux-menu-description" data-path={project.cwd} />
+                  <span className="acpmux-menu-description">{project.cwd}</span>
                 </span>
               </div>
             ))}

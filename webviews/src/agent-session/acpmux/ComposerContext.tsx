@@ -3,6 +3,7 @@ import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
+import { ChevronIcon } from "./ComposerPickers";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
@@ -47,7 +48,7 @@ export function ComposerContext({
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer !== "local" || !projectChoices) return known;
     const projects = projectChoices.map((project) => ({
-      id: project.cwd.replace(/\/+$/, ""),
+      id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
     }));
@@ -56,7 +57,7 @@ export function ComposerContext({
   }, [summary, sessions, selectedComputer, projectChoices]);
   const currentFolder =
     summary?.cwd && computerId(summary) === selectedComputer
-      ? summary.cwd
+      ? normalizeCwd(summary.cwd)
       : projectChoices
         ? undefined
         : folders[0]?.id;
@@ -142,7 +143,7 @@ function availableFolders(summary: Summary | undefined, sessions: Session[], com
   const seen = new Set<string>();
   const folders: Location[] = [];
   const add = (cwd?: string) => {
-    const id = cwd?.replace(/\/+$/, "");
+    const id = normalizeCwd(cwd);
     if (!id || seen.has(id)) return;
     seen.add(id);
     folders.push({ id, label: projectLabel(id), detail: id });
@@ -153,6 +154,12 @@ function availableFolders(summary: Summary | undefined, sessions: Session[], com
     if (sessionComputer === computer) add(session.cwd);
   }
   return folders;
+}
+
+function normalizeCwd(cwd?: string): string | undefined {
+  if (!cwd) return undefined;
+  const normalized = cwd.replace(/\/+$/, "");
+  return normalized || (cwd.startsWith("/") ? "/" : cwd);
 }
 
 /// A location menu (shared components, plans/cmux-next/a11y-foundation.md): a menu button over a
@@ -201,7 +208,7 @@ function LocationPicker({
   const button = (
     <>
       <span>{value}</span>
-      <span aria-hidden="true">⌄</span>
+      <ChevronIcon />
     </>
   );
   if (!allowPath)

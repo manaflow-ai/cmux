@@ -87,9 +87,10 @@ test("renders plain right-aligned computer and folder pickers without context ch
   await render();
   expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
   expect([...doc.querySelectorAll(".acpmux-location-button")].map((button) => button.textContent)).toEqual([
-    "This Mac⌄",
-    "cmux⌄",
+    "This Mac",
+    "cmux",
   ]);
+  expect(doc.querySelectorAll(".acpmux-location-button .acpmux-icon")).toHaveLength(2);
 });
 
 test("offers Cloud computers and sends the selected computer with its folder", async () => {
@@ -162,7 +163,7 @@ test("the fresh-chat folder menu shows recent project names with paths and Brows
   const rows = () =>
     [...doc.querySelectorAll('.acpmux-project-menu [role="option"]')].map((row) => [
       row.querySelector(".acpmux-menu-label")?.textContent,
-      row.querySelector(".acpmux-menu-description")?.getAttribute("data-path"),
+      row.querySelector(".acpmux-menu-description")?.textContent,
     ]);
   expect(rows()).toEqual([
     ["cmux", "/Users/me/code/cmux"],
@@ -175,4 +176,15 @@ test("the fresh-chat folder menu shows recent project names with paths and Brows
       .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
   );
   expect(browsed).toBe(1);
+});
+
+test("keeps the root project selectable", async () => {
+  await render({}, false, [{ cwd: "/", label: "Root" }]);
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Project"]')!.click());
+  await act(async () =>
+    doc
+      .querySelector<HTMLElement>('.acpmux-project-menu [role="option"]')!
+      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  expect(picked).toEqual([["/", undefined]]);
 });

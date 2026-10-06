@@ -223,7 +223,6 @@
 .acpmux-project-menu{width:300px;max-width:calc(100vw - 32px);font-size:13px}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
 .acpmux-project-search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 4px;padding:0 8px;border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
