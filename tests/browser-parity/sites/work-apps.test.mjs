@@ -238,3 +238,24 @@ test("notion.append: the confirmed saveTransactions never runs in the page's wor
   }
 });
 
+// r21 sites#3: owner and repository names are path components. A "." or
+// ".." component (URL parsing resolves it, leaving the named repository)
+// and an empty or encoded one are refused before any request, and every
+// URL must stay under the named repository once parsed.
+test("github: dot, empty and encoded owner or repository components are refused before any request", async () => {
+  const before = env.state.requests.length;
+  for (const call of [
+    'sites.github.issue("../acme#7")',
+    'sites.github.issue("acme/..#7")',
+    'sites.github.issue("./private#7")',
+    'sites.github.pull("https://github.com/../acme/pull/8")',
+    'sites.github.pull("https://github.com/acme/../pull/8")',
+    'sites.github.diff("acme/.#8")',
+    'sites.github.issues("acme/..")',
+    'sites.github.issues("../acme")',
+    'sites.github.issues("acme/%2e%2e")',
+    'sites.github.file("../acme", "README.md")',
+    'sites.github.file("acme/..", "README.md")',
+  ]) assert.match(await s.error(call), /github[.\w]*: .*(repository|owner|expected)/, call);
+  assert.deepEqual(env.state.requests.slice(before).filter((r) => r.url.startsWith("https://github.com/")).map((r) => r.url), [], "a request left for a resolved path");
+});
