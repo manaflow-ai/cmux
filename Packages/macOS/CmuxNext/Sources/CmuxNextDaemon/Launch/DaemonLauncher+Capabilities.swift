@@ -11,8 +11,11 @@ extension DaemonLauncher {
     /// True when the binary's help lists `--terminal-reap-grace-seconds`.
     /// False when it does not, or when the probe fails: an owner without
     /// the grace never reaps (a closed tab's terminal lives on), which is
-    /// better than an app that cannot start its daemon at all.
+    /// better than an app that cannot start its daemon at all. The bundled
+    /// binary always has the option (`Configuration.binaryIsBundled`), so
+    /// only an external binary is probed.
     func supportsReapGrace() async -> Bool {
+        if configuration.binaryIsBundled { return true }
         for arguments in [["--help"], ["help", "start"]] {
             do {
                 let result = try await ProcessRunner.run(executable: configuration.binary, arguments: arguments,
