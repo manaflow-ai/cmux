@@ -16123,12 +16123,11 @@ impl Mux {
         {
             return false;
         }
+        // A kept tab (keep-layout) has no surface after a restart; its tree
+        // entry still carries the renamed tab.
         let notifications = self.tree_decorations();
         let delta = {
             let state = self.state.lock().unwrap();
-            if !state.surfaces.contains_key(&target) {
-                return false;
-            }
             (|| {
                 let pane = state.pane_of(target)?;
                 let (wi, si) = state.screen_of(pane)?;
