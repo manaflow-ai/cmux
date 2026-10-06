@@ -482,7 +482,10 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
     /// and a `blob:` of an opaque origin was made by it: those are judged by
     /// the initiator, so a frame the policy blocks cannot move a tab to a
     /// document of its own origin. Other URLs, `blob:` URLs of a web origin
-    /// included, are judged by ``blockReason(_:)``.
+    /// included, are judged by ``blockReason(_:)`` and, when a page started
+    /// the navigation, by the initiator too: a frame the policy blocks chose
+    /// the URL (and can carry its page's data in it), so it cannot move the
+    /// tab even to an allowed page.
     public func navigationBlockReason(_ url: URL, initiator: BrowserReplFrameDocument?) -> String? {
         guard isActive else { return nil }
         let raw = url.absoluteString
@@ -493,8 +496,16 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
             guard let initiator else { return blockReason(raw) }
             return blockReason(document: initiator)
         default:
-            return blockReason(raw)
+            if let reason = blockReason(raw) { return reason }
+            return initiator.flatMap(initiatorBlockReason)
         }
+    }
+
+    /// Why a navigation or window the page `initiator` started may not go
+    /// anywhere, or nil: the policy blocks that document.
+    private func initiatorBlockReason(_ initiator: BrowserReplFrameDocument) -> String? {
+        guard let reason = blockReason(document: initiator) else { return nil }
+        return "it was started by \(initiator.origin.flatMap { $0 == "null" ? nil : $0 } ?? initiator.place), which the domain policy blocks: \(reason)"
     }
 
     /// Why the session may not read, set or clear a cookie on `domain`, or
