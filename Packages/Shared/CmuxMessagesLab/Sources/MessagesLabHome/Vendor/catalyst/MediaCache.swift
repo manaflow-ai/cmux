@@ -255,18 +255,18 @@ enum MediaPlaceholder {
 
 /// Prefetch in the scroll direction (the recycler calls it every layout pass): row bitmaps
 /// for the next 0.35 s of travel at the current velocity, thumbnails for twice as far.
+/// One per transcript (RowRecycler.prefetcher), on the transcript's own clock
+/// (`RowRecycler.clock`: the engine clock, virtual in harness and capture runs), so the
+/// same scroll offsets always give the same velocity and the same extra cells.
 final class ScrollPrefetcher {
-    static let shared = ScrollPrefetcher()
     private var lastY = CGFloat.nan, lastT: CFTimeInterval = 0
     private(set) var velocity: CGFloat = 0
     static var requests = 0
-    // cmux: settable: the Home harness turns it off (its velocity comes from the wall clock,
-    // so two runs in one test process got different lead cells off screen).
-    static var enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
+    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
     static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
     func update(_ r: RowRecycler) {
         guard ScrollPrefetcher.enabled else { return }
-        let y = r.bounds.minY, t = CACurrentMediaTime()
+        let y = r.bounds.minY, t = r.clock()
         if !lastY.isNaN, t - lastT > 0.001, t - lastT < 0.25 {
             velocity = 0.5 * velocity + 0.5 * (y - lastY) / CGFloat(t - lastT)
         } else if t - lastT >= 0.25 { velocity = 0 }

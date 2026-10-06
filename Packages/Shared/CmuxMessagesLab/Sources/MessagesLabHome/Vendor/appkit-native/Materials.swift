@@ -36,15 +36,20 @@ final class FieldChrome: NSView {
         field.style = .regular
         // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
         // and a light under the pointer brighten 14 ms after the click and fade in 0.1 s).
-        // cmux: by key (the macOS 27 SDK property is missing from Xcode 26.6's SDK).
-        if #available(macOS 27.0, *), field.responds(to: NSSelectorFromString("setEffectIsInteractive:")) { field.setValue(true, forKey: "effectIsInteractive") }
+        // `effectIsInteractive` is declared only in the macOS 27 SDK; Swift 6.4 ships with
+        // it (Xcode 27), Swift 6.3.3 with the 26.5 SDK (Xcode 26.6), where #available
+        // cannot hide an undeclared symbol.
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) { field.effectIsInteractive = true }
+        #endif
         group.addSubview(field)
         for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
                                          (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {
             g.cornerRadius = 15
             g.style = .regular
-            // cmux: by key (the macOS 27 SDK property is missing from Xcode 26.6's SDK).
-            if #available(macOS 27.0, *), g.responds(to: NSSelectorFromString("setEffectIsInteractive:")) { g.setValue(true, forKey: "effectIsInteractive") }
+            #if compiler(>=6.4)
+            if #available(macOS 27.0, *) { g.effectIsInteractive = true }
+            #endif
             b.isBordered = false
             b.bezelStyle = .regularSquare
             b.imagePosition = .imageOnly

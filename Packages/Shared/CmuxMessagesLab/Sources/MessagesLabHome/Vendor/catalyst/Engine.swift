@@ -277,11 +277,7 @@ struct LinkMetadata: Hashable { var title: String?; var site: String?; var image
 protocol LinkPreviewFetching: AnyObject {
     /// `done(nil)`: no metadata (failure, timeout): the caller shows the domain card.
     func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void)
-    /// The local user sent this link: a slower fallback may run for it (received
-    /// links never get one: shown by the sender's model, the domain card otherwise).
-    func allowFallback(_ url: String)
 }
-extension LinkPreviewFetching { func allowFallback(_ url: String) {} }
 
 protocol Responder: AnyObject {
     func start(_ store: Store)
@@ -368,7 +364,6 @@ final class Store {
                 if pending { dispatch(.linkMetadata(url: url, title: host, site: host, image: nil)) }
                 continue
             }
-            if sent != nil { linkPreviews.allowFallback(url) }
             linkPreviews.fetch(url) { [weak self] meta in
                 guard meta != nil || pending else { return }
                 self?.dispatch(.linkMetadata(url: url, title: meta?.title ?? host, site: meta?.site ?? host, image: meta?.image))
@@ -642,7 +637,6 @@ final class DefaultResponder: Responder {
         // Two or more questions in one turn: one answer each (the earlier ones
         // end up threaded, because a newer question follows them).
         if questions.count >= 2 {
-            // cmux: `self.` (Swift 6.2, Xcode 26.6, resolves `text` to the local below).
             return questions.prefix(3).map { q in answer(q, beats: questionBeats(self.text(of: q))) }
         }
         let all = meaningful.flatMap(\.parts)

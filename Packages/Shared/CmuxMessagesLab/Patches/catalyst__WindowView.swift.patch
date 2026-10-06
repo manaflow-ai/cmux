@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
-@@ -254,7 +254,10 @@
+@@ -255,7 +255,10 @@
          let anchor = visibleAnchor()
          layoutFrames()
          compose.layoutIfNeeded()
@@ -12,7 +12,7 @@
              Metrics.current = Metrics(width: bounds.width)
              let st = store.state
              let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: clock()), width: bounds.width)
-@@ -267,9 +270,12 @@
+@@ -268,9 +271,12 @@
          restore(anchor)
      }
  
@@ -26,7 +26,7 @@
          model.set(rows, at: 0, ghosts: false)
          _ = layout.rebaseIfNeeded(force: true)
          layout.invalidateLayout()
-@@ -479,13 +485,13 @@
+@@ -480,13 +486,13 @@
          let msgs = state.conversation.messages
          let now = store.date(at: t)
          guard var from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
@@ -42,7 +42,7 @@
          let firstID = Substring(msgs[from].id)
          let live = model.rows.filter { !$0.ghost }
          // Rows of `firstID` and later messages are at the tail: scan back from
-@@ -500,7 +506,7 @@
+@@ -501,7 +507,7 @@
              i -= 1
          }
          var rows = live[..<cut].map(\.spec)
@@ -51,7 +51,7 @@
          return rows
      }
  
-@@ -517,6 +523,7 @@
+@@ -518,6 +524,7 @@
              if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i) }
          case .typing: idx.append(max(0, msgs.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
@@ -59,7 +59,7 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -553,14 +560,14 @@
+@@ -554,14 +561,14 @@
                      || owner(rows[rows.count - 1 - i].spec.key).map({ ids.contains($0) }) == true { i += 1 }
              return i
          }
@@ -77,7 +77,7 @@
          case let .prependPage(page):
              guard msgs.count > page.count else { return nil }
              let head = prepared ?? derive(0..<(page.count + 1)).filter { $0.key != "typing" }
-@@ -570,7 +577,7 @@
+@@ -571,7 +578,7 @@
              guard n > page.count else { return nil }
              let drop = countTail([Substring(msgs[n - page.count - 1].id)])
              let above = rows.count - drop - 1 >= 0 ? rows[rows.count - drop - 1].spec.kind : nil
@@ -86,7 +86,7 @@
          case let .evict(top, bottom):
              let o = old.conversation.messages
              var headIDs = Set(o.prefix(top).map { Substring($0.id) })
-@@ -580,7 +587,7 @@
+@@ -581,7 +588,7 @@
              let head = top > 0 ? derive(0..<1).filter { $0.key != "typing" } : []
              let dropTail = bottom > 0 ? countTail(tailIDs) : 0
              let above = rows.count - dropTail - 1 >= 0 ? rows[rows.count - dropTail - 1].spec.kind : nil
@@ -95,7 +95,7 @@
              return (top > 0 ? countHead(headIDs) : 0, head, dropTail, tail)
          default:
              return nil
-@@ -1045,7 +1052,7 @@
+@@ -1055,7 +1062,7 @@
              return
          }
          let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }

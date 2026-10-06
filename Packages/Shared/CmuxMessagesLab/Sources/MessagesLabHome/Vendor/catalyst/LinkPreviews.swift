@@ -59,7 +59,7 @@ final class LinkPreviews: LinkPreviewFetching {
         dispatchPrecondition(condition: .onQueue(.main))
         if let hit = cache[url] {
             done(hit)
-            if hit?.title == nil, outgoing.contains(url) { enqueueFallback(url) }
+            if hit?.title == nil { enqueueFallback(url) }
             return
         }
         if waiting[url] != nil { waiting[url]!.append(done); return }
@@ -163,22 +163,31 @@ final class LinkPreviews: LinkPreviewFetching {
         save()
         // No title from the page's tags, and the guard did not refuse the URL: the
         // LinkPresentation fallback may try (pages that build their tags in script).
-        // Only for links the local user sent: LinkPresentation loads redirects and
+        // It runs only for a link the local user sent (`isOnScreen`: an outgoing row
+        // on screen, from the model): LinkPresentation loads redirects and
         // sub-resources outside LinkGuard, so it never runs for a received link.
-        if meta?.title == nil, outgoing.contains(url), LinkPreviews.fallbackAllowed(lastRefusal[url]) { enqueueFallback(url) }
+        if meta?.title == nil, LinkPreviews.fallbackAllowed(lastRefusal[url]) { enqueueFallback(url) }
     }
 
     // MARK: LinkPresentation fallback (bounded)
 
-    /// Rows on screen (the host sets it): the fallback runs only for a visible link.
+    /// True when an OUTGOING row (sent by the local user: the model's outgoing flag)
+    /// shows this link on screen. The host sets it; the fallback runs only then.
     var isOnScreen: (String) -> Bool = { _ in false }
     /// A fallback result after the first answer (`done` already ran): the host
     /// dispatches `.linkMetadata` with it.
     var onLateMetadata: ((String, LinkMetadata) -> Void)?
     private(set) var fallbackQueue: [String] = []
-    /// URLs the local user sent (the only ones the fallback may load).
-    private var outgoing: Set<String> = []
-    func allowFallback(_ url: String) { outgoing.insert(url) }
+    /// Outgoing link rows on screen with no title yet (the host passes them on
+    /// scroll and after a change): a cached title updates the row; otherwise the
+    /// fallback may run once a launch. Works for rows loaded from the store.
+    func consider(_ urls: [String]) {
+        for url in urls {
+            if let hit = cache[url], let meta = hit, meta.title != nil { onLateMetadata?(url, meta); continue }
+            if cache[url] == nil && waiting[url] == nil { fetch(url) { _ in } }   // the og path first
+            else if waiting[url] == nil { enqueueFallback(url) }
+        }
+    }
     private var fallbackDone: Set<String> = []
     private(set) var fallbackRunning: String?
     /// Every fallback run: URL, seconds, title or nil (tests and the self-test report).
@@ -193,6 +202,7 @@ final class LinkPreviews: LinkPreviewFetching {
     private func enqueueFallback(_ url: String) {
         guard !fallbackDone.contains(url), !fallbackQueue.contains(url), fallbackRunning != url else { return }
         fallbackQueue.append(url)
+        if fallbackQueue.count > 64 { fallbackQueue.removeFirst() }   // received links wait here, never run
         visibilityChanged()
     }
     /// Event-driven: the host calls it when rows scroll in or out; the next queued
@@ -204,7 +214,7 @@ final class LinkPreviews: LinkPreviewFetching {
     /// Runs one LinkPresentation fetch (WebKit: about 44 main run-loop wake-ups a
     /// second while it runs; none after). Tests call it directly.
     func runFallback(_ url: String) {
-        guard fallbackRunning == nil, outgoing.contains(url), let u = URL(string: url) else { return }
+        guard fallbackRunning == nil, isOnScreen(url), let u = URL(string: url) else { return }
         fallbackRunning = url
         fallbackStart = Date()
         fallbackDone.insert(url)

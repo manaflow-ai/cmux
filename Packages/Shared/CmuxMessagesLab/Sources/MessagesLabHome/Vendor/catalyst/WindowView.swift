@@ -79,6 +79,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             : UICollectionView(frame: cvFrame, collectionViewLayout: layout)
         super.init(frame: CGRect(origin: .zero, size: Fixture.windowSize))
         LongTextCenter.handler = { [weak self] lineages, apply in if let self { self.applyLongTextHeights(lineages, apply) } else { apply() } }
+        (collection as? RowRecycler)?.clock = { [weak self] in self?.clock() ?? 0 }
         backgroundColor = Fixture.background
         layer.cornerRadius = Fixture.windowCornerRadius
         layer.cornerCurve = .continuous
@@ -966,13 +967,22 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let r = model.range(top, top + 1)
         return min(model.count - 1, r.first { model.contentTop($0) + model.rows[$0].spec.height > top } ?? r.lowerBound)
     }
-    /// True when a link card for `url` is in a visible cell (the LinkPresentation
-    /// fallback runs only for rows on screen).
-    func linkOnScreen(_ url: String) -> Bool {
+    /// True when an outgoing row (the model's outgoing flag) shows a link card for
+    /// `url` in a visible cell: the LinkPresentation fallback runs only then.
+    func outgoingLinkOnScreen(_ url: String) -> Bool {
         for case let cell as RowCell in collection.visibleCells {
-            if case let .part(pr)? = cell.spec?.kind, case let .link(u, _, _, _, _) = pr.part, u == url { return true }
+            if case let .part(pr)? = cell.spec?.kind, pr.outgoing, case let .link(u, _, _, _, _) = pr.part, u == url { return true }
         }
         return false
+    }
+    /// Outgoing link cards on screen with no title yet (a pending or domain card, no image).
+    func visibleUntitledOutgoingLinks() -> [String] {
+        var out: [String] = []
+        for case let cell as RowCell in collection.visibleCells {
+            if case let .part(pr)? = cell.spec?.kind, pr.outgoing, case let .link(u, t, site, img, _) = pr.part,
+               img == nil, t == nil || t == site { out.append(u) }
+        }
+        return out
     }
     var firstVisibleKey: String? { model.count > 0 ? model.rows[firstVisibleRow].spec.key : nil }
 

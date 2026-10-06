@@ -175,10 +175,6 @@ import Testing
     }
 
     @Test func theHomePathCommitsMessagesLabsAnimationsByteForByte() throws {
-        // Scroll prefetch leads follow wall-clock velocity: off for both runs (deterministic frames).
-        let prefetch = ScrollPrefetcher.enabled
-        ScrollPrefetcher.enabled = false
-        defer { ScrollPrefetcher.enabled = prefetch }
         let a = Self.messagesLab()
         let b = Self.home()
         if let dir = ProcessInfo.processInfo.environment["HOME_HARNESS_OUT"] {

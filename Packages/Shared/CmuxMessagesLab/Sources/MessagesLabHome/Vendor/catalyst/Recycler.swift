@@ -43,6 +43,9 @@ final class RowRecycler: UIScrollView, TranscriptList {
     /// Rows ahead in the scroll direction get cells (bitmaps attached and uploaded while off
     /// screen); ScrollPrefetcher sets them from the velocity.
     var leadTop: CGFloat = 0, leadBottom: CGFloat = 0
+    /// The transcript's clock (seconds; the window view sets its engine clock).
+    var clock: () -> CFTimeInterval = { CACurrentMediaTime() }
+    let prefetcher = ScrollPrefetcher()
 
     private var visible: [String: RowCell] = [:]
     private var index: [ObjectIdentifier: Int] = [:]
@@ -126,7 +129,7 @@ final class RowRecycler: UIScrollView, TranscriptList {
         // Long text rows: tiles follow the viewport inside the row (TiledBubble.swift).
         for c in next.values where c.tiled?.isActive == true { c.tiled?.update(c) }
         // Media: bitmaps and thumbnails ahead in the scroll direction (MediaCache.swift).
-        ScrollPrefetcher.shared.update(self)
+        prefetcher.update(self)
     }
 
     private func take() -> RowCell {

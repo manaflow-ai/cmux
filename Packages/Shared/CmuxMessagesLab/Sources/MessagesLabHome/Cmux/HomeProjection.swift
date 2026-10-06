@@ -161,8 +161,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         controller.install(conv, windowStart: w.start, total: w.total)
         controller.store.linkPreviews = linkPreviews
         if let previews = linkPreviews?.previews {
-            // The fallback (outgoing links only) runs for a card on screen; its late answer fills the card.
-            previews.isOnScreen = { [weak self] url in self?.controller.demo?.linkOnScreen(url) ?? false }
+            // MessagesLab 85684b4: the LinkPresentation fallback runs only for an OUTGOING card on
+            // screen (a link I sent); a late answer fills the card.
+            previews.isOnScreen = { [weak self] url in self?.controller.demo?.outgoingLinkOnScreen(url) ?? false }
             previews.onLateMetadata = { [weak self] url, meta in
                 guard let self, !self.stopped else { return }
                 self.controller.dispatch(.linkMetadata(url: url, title: meta.title, site: meta.site, image: meta.image))
@@ -415,7 +416,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func scrolled() {
         video.place()
-        linkPreviews?.previews.visibilityChanged()
+        if let previews = linkPreviews?.previews {
+            // My link cards that scrolled in with no title (also from HomeStore): a cached title, else the fallback.
+            if let urls = controller.demo?.visibleUntitledOutgoingLinks(), !urls.isEmpty { previews.consider(urls) }
+            previews.visibilityChanged()
+        }
         askForOlderIfNeeded()
         reportReadIfNeeded()
     }
