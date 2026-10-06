@@ -192,9 +192,6 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
-        pages.navigate = { [registry] back in
-            _ = registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
-        }
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         feed = FeedService(auth: cloud.auth, showcase: environment.showcase)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
