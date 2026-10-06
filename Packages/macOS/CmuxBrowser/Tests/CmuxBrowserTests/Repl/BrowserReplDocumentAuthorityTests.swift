@@ -154,6 +154,34 @@ struct BrowserReplDocumentAuthorityTests {
         #expect(local.verdict(BrowserReplAccess(.tabPage("https://example.com/"), in: userTab)) == .allowed)
     }
 
+    /// The diff viewer's HTTP form: a loopback server the app runs serves
+    /// the same local files at `http://127.0.0.1:<port>/<token>/...#cmux-diff-viewer`.
+    /// Its origin, once the app registers it, is a local page as the custom
+    /// scheme is: refused in any tab, also as a frame of a web page, and to
+    /// the session's own navigations. Another loopback server is a web page.
+    @Test("The diff viewer's loopback HTTP origin is judged as a local file outside the session's directories")
+    func appServedLoopbackOriginsAreLocalFilesOutsideTheRoots() throws {
+        let origin = URL(string: "http://127.0.0.1:59871/0123456789abcdef0123456789abcdef/index.html#cmux-diff-viewer")!
+        BrowserReplFileSandbox.registerAppServedOrigin(of: origin)
+        defer { BrowserReplFileSandbox.unregisterAppServedOrigin(of: origin) }
+        let local = BrowserReplDocumentAuthority(sessionID: "s", fileRoots: roots)
+        let address = origin.absoluteString
+        let userTab = BrowserReplTabFacts(mainFrameURL: origin)
+        #expect(local.verdict(BrowserReplAccess(.tabPage(address), in: userTab)).refusal?.code == "blocked")
+        #expect(local.verdict(BrowserReplAccess(.load("http://127.0.0.1:59871/other.js"))).refusal?.code == "blocked")
+        #expect(local.landedPage(address, in: userTab).refusal != nil)
+        let page = BrowserReplFrameDocument(origin: "http://127.0.0.1:59871", place: "http://127.0.0.1:59871")
+        let webTab = BrowserReplTabFacts(mainFrameURL: URL(string: "https://example.com/"))
+        #expect(local.verdict(BrowserReplAccess(.document(page), in: userTab)).refusal?.code == "blocked")
+        #expect(local.verdict(BrowserReplAccess(.document(page), in: webTab)).refusal?.code == "blocked", "a web page's diff-viewer frame was readable")
+        #expect(BrowserReplFileSandbox.navigationRefusal(address, roots: roots) != nil, "a session could navigate to the diff viewer's server")
+        // Another loopback server stays a web page.
+        let other = BrowserReplFrameDocument(origin: "http://127.0.0.1:59872", place: "http://127.0.0.1:59872")
+        #expect(local.verdict(BrowserReplAccess(.document(other), in: webTab)) == .allowed)
+        #expect(local.verdict(BrowserReplAccess(.tabPage("http://127.0.0.1:59872/"), in: userTab)) == .allowed)
+        #expect(BrowserReplFileSandbox.navigationRefusal("http://127.0.0.1:59872/", roots: roots) == nil)
+    }
+
     @Test("Another live session's tab is denied")
     func otherSessionsTabIsDenied() {
         let authority = BrowserReplDocumentAuthority(sessionID: "s")
