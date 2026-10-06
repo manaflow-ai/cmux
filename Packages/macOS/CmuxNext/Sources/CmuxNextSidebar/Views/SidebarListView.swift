@@ -29,8 +29,7 @@ final class SidebarListView: NSView {
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
     var drag: Drag?
-    /// The drag's clock (`SidebarGroupDwell`).
-    var dragClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    var dragClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime } // the group dwell's clock
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     /// Inline rename of a workspace or group row.
