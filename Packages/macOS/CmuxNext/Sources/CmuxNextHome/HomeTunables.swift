@@ -9,7 +9,8 @@ public import CmuxNextDesign
 /// without pixels, a jump, a gap, an unfilled bubble) it writes the last
 /// ~10 s to ~/Library/Logs/<app>/blink-<time>/. On by default in DEV builds,
 /// opt-in in NIGHTLY; window captures in a dump are a separate opt-in.
-public nonisolated enum HomeTunables {
+public nonisolated struct HomeTunables {
+    public nonisolated init() {}
     public static let section = TunableSection(id: "home", title: "Home", symbol: "house", order: 43)
 
     #if DEBUG

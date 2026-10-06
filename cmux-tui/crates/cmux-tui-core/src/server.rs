@@ -13585,14 +13585,21 @@ fn handle_command_with_cancellation(
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let size = paired_surface_size("create-terminal", cols, rows)?;
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
+            let resolved = resolve_workspace(mux, workspace, key.as_deref());
             let (registry_id, generation) = mux.registry_identity();
             // A per-terminal environment rides the receipted path, which is
             // the only one that carries a spawn reservation.
             if terminal_id.is_some() || mutation.mutation_id.is_some() || !env.is_empty() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
+                // A keyed retry whose workspace has closed since replays by key.
+                let (workspace, key) = match (resolved, key) {
+                    (Ok((workspace, key)), _) => (Some(workspace), key),
+                    (Err(_), Some(key)) => (None, key),
+                    (Err(error), None) => return Err(error),
+                };
                 let result = mux.create_raw_terminal_in_workspace_with_mutation(
                     workspace,
+                    &key,
                     argv,
                     cwd,
                     name,
@@ -13641,6 +13648,7 @@ fn handle_command_with_cancellation(
                     "generation": generation,
                 }))
             } else {
+                let (workspace, key) = resolved?;
                 let created =
                     mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
                 if keep {

@@ -61,6 +61,9 @@ pub struct Config {
     /// Wait before retrying a failed node.
     pub retry: Duration,
     pub reporter: Reporter,
+    /// The memory database; None puts it in the chat directory
+    /// (`memory.sqlite3`). The Chief keeps it at `$MUX_HOME/optchat/memory.sqlite3`.
+    pub db: Option<std::path::PathBuf>,
 }
 
 impl Default for Config {
@@ -83,6 +86,7 @@ impl Default for Config {
             budget: VIEW,
             retry: RETRY,
             reporter: stderr_reporter(),
+            db: None,
         }
     }
 }
@@ -119,6 +123,7 @@ impl fmt::Debug for Config {
             .field("http_timeout", &self.http_timeout)
             .field("budget", &self.budget)
             .field("retry", &self.retry)
+            .field("db", &self.db)
             .finish_non_exhaustive()
     }
 }

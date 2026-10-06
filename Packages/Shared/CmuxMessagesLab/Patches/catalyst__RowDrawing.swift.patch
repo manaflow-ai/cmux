@@ -1,7 +1,12 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
-@@ -225,7 +225,7 @@
-             drawSaveButton(ctx, body: body, outgoing: p.outgoing)
+@@ -222,10 +222,11 @@
+                 UIColor(white: 1, alpha: 0.85).setFill()
+                 tri.fill()
+             }
+-            drawSaveButton(ctx, body: body, outgoing: p.outgoing)
++            // cmux: an undelivered photo shows only the red badge (Messages); the button sat under it.
++            if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
          case "voiceMemo":
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
 -            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
@@ -9,7 +14,7 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -247,7 +247,7 @@
+@@ -247,7 +248,7 @@
                            baseline: body.midY + 4, in: ctx)
          default:
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)

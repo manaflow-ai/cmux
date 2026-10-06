@@ -19,7 +19,7 @@ pub use compact::{
     compact_request, cut_at_bytes, finish_line, size_check, size_check_in, CompactPrompt,
     CompactRequest, SizeCheck, CMUX_PROMPT_ADDITIONS, SCALE, TAELIN_PROMPT,
 };
-pub use memory::{Memory, Store, Work};
+pub use memory::{Checkpoint, Memory, Store, Work};
 pub use node::{Kind, NodeId};
 pub use render::{cache_marks, cache_pieces, render_view, zoom, RenderedView, ZoomError};
 

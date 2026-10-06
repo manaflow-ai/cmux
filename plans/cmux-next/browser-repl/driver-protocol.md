@@ -42,7 +42,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
 | `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | `{ status? }` |
-| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId?, closedRoots? }`; `closedRoots: { walks, walkMs, roots, domEvents }` (CDP engines) is the cost of finding closed shadow roots in the tab, for the perf bench. Measured on the Testbox (2026-10-06): one walk about 250 ms on cards-50k and table-10k, 58 ms on list-5k, 19 ms on wikipedia and github, 9 ms per out-of-process frame. After a walk the DOM domain stays on until 12,000 DOM events or the first event more than 30 s after the walk (DOM_EVENT_BUDGET, DOM_IDLE_AFTER_READ; a churning page sends about 6,400 events/s); review a change of either constant against these numbers |
+| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId?, closedRoots?, unroutedEvents? }`; `unroutedEvents` (shared headless, user origin only) lists the host's log entries of the tab's events no session took (D2); `closedRoots: { walks, walkMs, roots, domEvents }` (CDP engines) is the cost of finding closed shadow roots in the tab, for the perf bench. Measured on the Testbox (2026-10-06): one walk about 250 ms on cards-50k and table-10k, 58 ms on list-5k, 19 ms on wikipedia and github, 9 ms per out-of-process frame. After a walk the DOM domain stays on until 12,000 DOM events or the first event more than 30 s after the walk (DOM_EVENT_BUDGET, DOM_IDLE_AFTER_READ; a churning page sends about 6,400 events/s); review a change of either constant against these numbers |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
@@ -85,6 +85,18 @@ chooser, the session whose call the page is handling. Only that session gets
 and `dialog.respond` and `filechooser.respond` from any other session fail
 with `not_found`, leaving the dialog or chooser open. When that session
 leaves the tab, its open dialogs are dismissed and its choosers cancelled.
+
+cmux-next shared headless browser (D2, ff 2026-10-06): headless has no user
+UI, so an event no session takes is answered by the host (a dialog is
+dismissed, `beforeunload` keeps the page; a chooser is cancelled; a download
+is cancelled) and logged. The entry `{ url, reason, blocked: "unrouted",
+event, targetId, action, at }` (no page text) goes to the policy log
+(`policy log`, `session.blockedNavigations()`) of the session that opened the
+tab, also after it kept the tab (a popup counts as its opener's tab), while
+that session is attached; and to the host's own log of the newest 64
+entries, which only the person (user origin) reads, as `tab.info
+unroutedEvents` (that tab's entries) on a tab they may use. Engine or app
+events named `host.policyLog` are dropped: only the host writes that log.
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
@@ -440,7 +452,8 @@ agent's `fill` carry (not `input.insertText { secret }`); `policy set` only
 narrows (the host intersects with the user's layer); `policy site` answers
 from a compact suffix list until the host has a Public Suffix List (D6);
 `policy log` returns the host's own log of navigations it blocked before
-their request; `secrets load` keys come back in sorted order. The host keeps
+their request, plus the session's tabs' unrouted events (`blocked:
+"unrouted"`, see "Sessions and tabs"); `secrets load` keys come back in sorted order. The host keeps
 the runtime's entry points and removes them and `__cmuxNative` before the
 first cell. `fs` has no `lstat` yet, and `fetch` answers `unsupported`.
 

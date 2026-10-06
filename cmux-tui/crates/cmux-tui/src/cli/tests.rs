@@ -463,3 +463,22 @@ fn shorthand_rejects_unsupported_or_conflicting_flags_before_execution() {
         assert!(parse(&strings(&args), Surface::CmuxTui).is_err(), "accepted {args:?}");
     }
 }
+
+#[test]
+fn agent_hook_emit_rejects_a_bad_terminal_like_every_other_terminal_flag() {
+    let args = strings(&[
+        "agent",
+        "hook",
+        "emit",
+        "--source",
+        "claude",
+        "--event",
+        "Stop",
+        "--payload-json",
+        "{}",
+        "--terminal",
+        "term_x",
+    ]);
+    let Err(error) = command::parse(&args, Surface::Cmux) else { panic!("parsed a bad terminal") };
+    assert_eq!(error.0, "terminal ID must contain exactly 32 lowercase hexadecimal digits");
+}
