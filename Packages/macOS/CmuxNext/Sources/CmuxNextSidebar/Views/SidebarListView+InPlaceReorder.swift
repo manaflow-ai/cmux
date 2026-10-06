@@ -9,7 +9,13 @@ extension SidebarListView {
     /// The layout the list shows: the model's, or during an internal drag
     /// over a slot, the model with the dragged rows moved to that slot.
     func displayLayout() -> SidebarLayout {
-        guard let drag, case let .position(position)? = drag.target else {
+        // Over a row's middle the list keeps the last slot (the row highlights instead).
+        let slot: DropPosition? = switch drag?.target {
+        case let .position(position)?: position
+        case .ontoWorkspace?: drag?.lastPosition
+        default: nil
+        }
+        guard let drag, let position = slot else {
             return SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true))
         }
         var sections = model.sections
