@@ -388,7 +388,13 @@ function calendar(req, url, body, state) {
           const rule = Object.fromEntries((p.recur || "").replace(/^RRULE:/, "").split(";").filter(Boolean).map((x) => x.split("=")));
           const every = Number(rule.INTERVAL || 1);
           const unit = { DAILY: "day", WEEKLY: "week", MONTHLY: "month", YEARLY: "year" }[rule.FREQ];
-          const words = !p.recur ? "Does not repeat" : (every > 1 ? "Every " + every + " " + unit + "s" : { DAILY: "Daily", WEEKLY: "Weekly on " + a.toLocaleDateString("en-US", { timeZone: tz, weekday: "long" }), MONTHLY: "Monthly", YEARLY: "Annually" }[rule.FREQ]) + (rule.COUNT ? ", " + rule.COUNT + " times" : "");
+          // As live: the weekdays (BYDAY, else the start's), the day of the
+          // month (BYMONTHDAY, else the start's), the start's date yearly.
+          const DAY = { SU: "Sunday", MO: "Monday", TU: "Tuesday", WE: "Wednesday", TH: "Thursday", FR: "Friday", SA: "Saturday" };
+          const days = rule.BYDAY ? rule.BYDAY.split(",").map((x) => DAY[x]).join(", ") : a.toLocaleDateString("en-US", { timeZone: tz, weekday: "long" });
+          const monthDay = rule.BYMONTHDAY || a.toLocaleDateString("en-US", { timeZone: tz, day: "numeric" });
+          const on = { DAILY: "", WEEKLY: " on " + days, MONTHLY: " on day " + monthDay, YEARLY: " on " + a.toLocaleDateString("en-US", { timeZone: tz, month: "long", day: "numeric" }) }[rule.FREQ];
+          const words = !p.recur ? "Does not repeat" : (every > 1 ? "Every " + every + " " + unit + "s" : { DAILY: "Daily", WEEKLY: "Weekly", MONTHLY: "Monthly", YEARLY: "Annually" }[rule.FREQ]) + on + (rule.COUNT ? ", " + rule.COUNT + " times" : "");
           document.getElementById("recur").textContent = words;
           const tamper = ${JSON.stringify(state.calendarTamper || null)};
           if (tamper && tamper.location) field("Location", tamper.location);

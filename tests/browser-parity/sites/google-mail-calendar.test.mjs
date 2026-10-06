@@ -280,6 +280,30 @@ test("googleCalendar.create: a numeric form date with month and day swapped, or 
   }
 });
 
+// The recurrence's selectors (which weekdays, which day of the month) are
+// part of what the user previewed: a form that repeats on another day saves
+// nothing, and a rule with a selector the menu's words cannot show
+// (BYMONTH here) is not saved unchecked.
+test("googleCalendar.create: a form that repeats on other weekdays or another day of the month saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  const at = 'start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z"';
+  for (const [rule, tamper] of [["RRULE:FREQ=WEEKLY;BYDAY=TH;COUNT=5", "Weekly on Friday, 5 times"], ["RRULE:FREQ=MONTHLY;BYMONTHDAY=1", "Monthly on day 15"], ["RRULE:FREQ=WEEKLY;COUNT=5", "Weekly on Monday, Thursday, 5 times"]]) {
+    env.state.calendarTamper = { recurrence: tamper };
+    try {
+      const d = await s.value(`sites.googleCalendar.create({ title: "Sync", ${at}, recurrence: ${JSON.stringify(rule)} })`);
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/, tamper);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  assert.ok(await s.error(`(async () => { const d = await sites.googleCalendar.create({ title: "Sync", ${at}, recurrence: "RRULE:FREQ=WEEKLY;BYDAY=TH;BYMONTH=10" }); return sites.googleCalendar.create(d.id, { confirm: true }); })()`), "a BYMONTH rule is refused");
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  for (const rule of ["RRULE:FREQ=WEEKLY;BYDAY=TH;COUNT=5", "RRULE:FREQ=WEEKLY;BYDAY=MO,TH", "RRULE:FREQ=MONTHLY;BYMONTHDAY=1", "RRULE:FREQ=MONTHLY", "RRULE:FREQ=YEARLY;COUNT=3"]) {
+    const d = await s.value(`sites.googleCalendar.create({ title: "Sync", ${at}, recurrence: ${JSON.stringify(rule)} })`);
+    assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`)).status, "saved", rule);
+  }
+});
+
 test("signed out: Gmail's sign-in redirect is reported, not parsed", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {
