@@ -611,6 +611,22 @@ check_sentry_cli_install_portability() {
       exit 1
     fi
 
+    # nightly.yml uploads through scripts/upload-sentry-dsyms.sh (retried,
+    # never fatal), which installs through the same helper.
+    if awk '
+      /- name: Upload dSYMs to Sentry/ { in_step=1; next }
+      in_step && /^[[:space:]]*- name:/ { in_step=0 }
+      in_step && /\.\/scripts\/upload-sentry-dsyms\.sh/ { saw=1 }
+      END { exit !saw }
+    ' "$file"; then
+      uploader="$ROOT_DIR/scripts/upload-sentry-dsyms.sh"
+      if ! grep -Fq '/ensure-sentry-cli.sh")"' "$uploader" \
+        || ! grep -Fq 'debug-files upload --include-sources' "$uploader"; then
+        echo "FAIL: scripts/upload-sentry-dsyms.sh must install sentry-cli through scripts/ensure-sentry-cli.sh and upload with --include-sources"
+        exit 1
+      fi
+      continue
+    fi
     if ! awk '
       /- name: Upload dSYMs to Sentry/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }

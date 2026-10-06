@@ -1445,14 +1445,8 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
           SENTRY_PROJECT: cmuxterm-macos
-        run: |
-          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
-            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
-            exit 0
-          fi
-          SENTRY_CLI="$(./scripts/ensure-sentry-cli.sh)"
-          "$SENTRY_CLI" debug-files upload --include-sources \
-            build-universal/Build/Products/Release/
+        # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
+        run: ./scripts/upload-sentry-dsyms.sh build-universal/Build/Products/Release/
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode

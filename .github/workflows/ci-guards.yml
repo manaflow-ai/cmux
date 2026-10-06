@@ -1104,6 +1104,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate the nightly dSYM upload retries and never fails the nightly
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_upload_sentry_dsyms.sh
+
       - name: Validate nightly release notes and appcast summaries
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_release_notes.py
