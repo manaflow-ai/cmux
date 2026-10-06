@@ -12721,6 +12721,7 @@ struct VerticalTabsSidebar: View, Equatable {
             contextMenuPinState: rowSnapshot.contextMenu.pinState,
             workspaceGroupMenuSnapshot: rowSnapshot.contextMenu.groupMenuSnapshot,
             colorScheme: environment.colorScheme,
+            brightenInDarkMode: input.settings.brightenInDarkMode,
             refreshSnapshot: { [workspaceId = tab.id] in
                 scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
             },
@@ -16862,6 +16863,7 @@ struct TabItemView: View, Equatable {
             colorScheme: colorScheme,
             sidebarSelectionColorHex: sidebarSelectionColorHex,
             subtleSelection: settings.subtleSelection,
+            brightenInDarkMode: settings.brightenInDarkMode,
             isEmphasized: isEmphasized,
             increaseContrast: colorSchemeContrast == .increased,
             accent: settings.accentColor
@@ -16891,7 +16893,8 @@ struct TabItemView: View, Equatable {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
-            forceBright: activeTabIndicatorStyle == .leftRail
+            forceBright: activeTabIndicatorStyle == .leftRail,
+            brightenInDarkMode: settings.brightenInDarkMode
         ) ?? NSColor(hex: hex) ?? .gray
     }
 

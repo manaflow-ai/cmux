@@ -869,6 +869,22 @@ enum CmuxEmbeddedConfigSchema {
         }
       }
     },
+    "surfaceTabBar": {
+      "x-cmux-scopes": ["global"],
+      "title": "surfaceTabBar",
+      "description": "Surface tab bar typography settings from Settings > Terminal.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fontSize": {
+          "type": "number",
+          "minimum": 8.0,
+          "maximum": 14.0,
+          "default": 11.0,
+          "description": "Default surface tab bar font size in points. The legacy Ghostty key surface-tab-bar-font-size remains a fallback alias."
+        }
+      }
+    },
     "terminal": {
       "x-cmux-scopes": ["global"],
       "title": "terminal",
@@ -1507,6 +1523,13 @@ enum CmuxEmbeddedConfigSchema {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "fontSize": {
+          "type": "number",
+          "minimum": 10.0,
+          "maximum": 20.0,
+          "default": 12.5,
+          "description": "Sidebar font size in points. The legacy Ghostty key sidebar-font-size remains a fallback alias."
+        },
         "hideAllDetails": {
           "type": "boolean",
           "default": false,
@@ -1767,6 +1790,11 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": false,
           "description": "Show the selected workspace as a faint accent tint with a thin edge instead of a solid fill. A custom selectionColor still uses a solid fill."
+        },
+        "brightenInDarkMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. false shows colors exactly as chosen. Applies to the solidFill indicator; leftRail always lightens its rail."
         },
         "notificationBadgeColor": {
           "$ref": "#/$defs/colorHexOrNull",

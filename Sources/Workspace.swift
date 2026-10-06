@@ -2547,7 +2547,7 @@ extension Workspace {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Bool? {
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+        if restoredAgentLifecycle.hasInFlightRestoreIntent(
             panelId: panelId,
             matching: restorableAgent
         ) {

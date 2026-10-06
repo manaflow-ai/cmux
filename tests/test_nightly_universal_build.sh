@@ -312,8 +312,59 @@ if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
-if ! grep -Fq -- '--count 1' "$WORKFLOW_FILE" || ! grep -Fq 'SPARKLE_MAXIMUM_DELTAS: "1"' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly appcast generation must keep one newest delta per architecture"
+if ! awk '
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  generate-nightly-deltas:/ { job="delta"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "sign" && /SPARKLE_PREVIOUS_ARCHIVES_DIR|SPARKLE_MAXIMUM_DELTAS/ { initial_delta=1 }
+  job == "delta" && /--count 1/ { saw_previous=1 }
+  job == "delta" && /SPARKLE_MAXIMUM_DELTAS=1/ { saw_max=1 }
+  job == "delta" && /name: cmux-nightly-deltas-\$\{\{ matrix\.variant \}\}/ { saw_artifact=1 }
+  END { exit !(saw_previous && saw_max && saw_artifact && !initial_delta) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: initial appcasts must be full-only and delta generation must run later per variant"
+  exit 1
+fi
+
+if ! awk '
+  /^  generate-nightly-deltas:/ { delta=NR; next }
+  /^  republish-nightly-deltas:/ { republish=NR; next }
+  /^  publish-nightly:/ { publish=NR; next }
+  /^  report-nightly-failure:/ { report=NR; next }
+  END { exit !(publish && delta && republish && publish < delta && delta < republish && report > republish) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: Sparkle deltas must be downstream of first publication and before failure closeout"
+  exit 1
+fi
+
+if ! awk '
+  /^  generate-nightly-deltas:/ { job="delta"; next }
+  /^  republish-nightly-deltas:/ { job="republish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly\]/ { saw_publish_need=1 }
+  job == "delta" && /fail-fast: false/ { saw_matrix=1 }
+  job == "republish" && /needs: \[decide, build-nightly-app, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
+  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
+  job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
+  job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && saw_republish && saw_r2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
+  exit 1
+fi
+
+if ! awk '
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  build-sign-notarize-nightly:/ { job="sign"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
+  in_clear && /^      - name:/ { in_clear=0 }
+  in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
+  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
+  END { exit !(saw_clear && saw_prepare && saw_key) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
   exit 1
 fi
 

@@ -1131,10 +1131,36 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # A persistent owned mini keeps the workspace between jobs. Checkout's
-      # clean already drops untracked output; clear the build tree by name as
-      # well, so a stale product or dSYM from an earlier job can never ship.
+      # clean drops untracked output; remove only the daemon handoff here so
+      # the persistent DerivedData symlink below survives until it is reused.
       - name: Clear build outputs a persistent runner kept
-        run: scripts/ci/clear-dirs.sh build-universal remote-daemon-assets
+        run: scripts/ci/clear-dirs.sh remote-daemon-assets
+
+      - name: Prepare persistent Release DerivedData
+        run: |
+          set -euo pipefail
+          # Owned Glaeda runners keep their checkout between jobs. Keep one
+          # DerivedData tree per channel and pinned Xcode/SDK so the next
+          # classic Release build can be incremental. Blacksmith remains on
+          # the workspace-local path and the normal compilation cache.
+          case "${RUNNER_NAME:-}" in
+            *-glaeda|*-glaeda-[0-9]*)
+              toolchain_key="$({ xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } | shasum -a 256 | awk '{print $1}')"
+              derived_data="$HOME/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-${toolchain_key}"
+              if [ -e build-universal ] || [ -L build-universal ]; then
+                if [ ! -L build-universal ] || [ "$(readlink build-universal)" != "$derived_data" ]; then
+                  scripts/ci/clear-dirs.sh build-universal
+                fi
+              fi
+              mkdir -p "$derived_data"
+              [ -L build-universal ] || ln -s "$derived_data" build-universal
+              [ "$(readlink build-universal)" = "$derived_data" ]
+              echo "Using persistent DerivedData: $derived_data"
+              ;;
+            *)
+              mkdir -p build-universal
+              ;;
+          esac
 
       - name: Compute Xcode compilation cache key
         id: compilation-cache-key
@@ -1475,7 +1501,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
-    # Delta generation against two previous builds adds about 15 minutes.
+    # Sparkle delta generation runs after the full publication in a separate
+    # best-effort lane, so it cannot delay the first update users can install.
     timeout-minutes: 80
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
@@ -2002,21 +2029,6 @@ jobs:
       - name: Gate distribution with syspolicy_check
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
 
-      - name: Fetch previous nightly builds for delta updates
-        if: needs.decide.outputs.fast_build != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          python3 scripts/ci/fetch-previous-nightly-dmgs.py \
-            --repo manaflow-ai/cmux \
-            --release-tag "$CHANNEL_RELEASE_TAG" \
-            --name-prefix "${CHANNEL_DMG_PREFIX}-" \
-            --variant "$NIGHTLY_VARIANT" \
-            --exclude-build "$NIGHTLY_BUILD" \
-            --count 1 \
-            --out previous-nightlies
-
       - name: Generate Sparkle appcasts (nightly)
         if: needs.decide.outputs.fast_build != 'true'
         env:
@@ -2024,25 +2036,17 @@ jobs:
           CHANNEL: ${{ needs.decide.outputs.channel }}
           SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
-          # Keep the newest delta for each architecture-specific track. The
-          # feeds must remain per-architecture because Sparkle signs each DMG;
-          # older installs fall back to the full archive. One delta avoids a
-          # second expensive BinaryDelta pass while preserving update safety.
-          # The delta is named
-          # cmux-nightly-macos-<variant>-<new>-<old>.delta so tracks never collide.
-          SPARKLE_PREVIOUS_ARCHIVES_DIR: previous-nightlies
-          SPARKLE_MAXIMUM_DELTAS: "1"
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           export SPARKLE_PRIVATE_KEY
-          # After a key change, deltas from builds that embed the other key can
-          # never install; skip building them. SPARKLE_PUBLIC_KEY is derived above.
-          ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh previous-nightlies "$SPARKLE_PUBLIC_KEY"
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"
-          ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST" ./*.delta 2>/dev/null || true
-          grep -c 'sparkle:deltas' "$NIGHTLY_APPCAST" || echo "no deltas in $NIGHTLY_APPCAST (no previous build of this track)"
+          ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST"
+          if grep -q 'sparkle:deltas' "$NIGHTLY_APPCAST"; then
+            echo "ERROR: first publication appcasts must contain full archives only" >&2
+            exit 1
+          fi
 
       - name: Upload nightly variant artifacts
         if: needs.decide.outputs.fast_build != 'true'
@@ -2213,7 +2217,6 @@ jobs:
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
-            --optional-immutable "nightly-out/${CHANNEL_DMG_PREFIX}-*-${NIGHTLY_BUILD}-*.delta" \
             --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
@@ -2349,11 +2352,188 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+  generate-nightly-deltas:
+    # Delta work is deliberately downstream of the first publication. A slow
+    # BinaryDelta process therefore cannot extend the user's wait for a full
+    # DMG and signed appcast.
+    environment: release
+    needs: [decide, build-nightly-app, publish-nightly]
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.decide.outputs.variants) }}
+    timeout-minutes: 45
+    env:
+      NIGHTLY_VARIANT: ${{ matrix.variant }}
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      CHANNEL: ${{ needs.decide.outputs.channel }}
+      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
+      SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
+    steps:
+      - name: Checkout build ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download published variant
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-nightly-variant-${{ matrix.variant }}
+          path: nightly-delta/input
+
+      - name: Fetch one previous track archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/fetch-previous-nightly-dmgs.py \
+            --repo manaflow-ai/cmux \
+            --release-tag "$CHANNEL_RELEASE_TAG" \
+            --name-prefix "${CHANNEL_DMG_PREFIX}-" \
+            --variant "$NIGHTLY_VARIANT" \
+            --exclude-build "$NIGHTLY_BUILD" \
+            --count 1 \
+            --out nightly-delta/previous
+
+      - name: Generate one from-version delta and revised appcast
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p nightly-delta/output
+          dmg="nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"
+          feed="appcast.xml"
+          if [ "$NIGHTLY_VARIANT" != "universal" ]; then
+            feed="appcast-${NIGHTLY_VARIANT}.xml"
+          fi
+          test -s "$dmg"
+          if ! compgen -G 'nightly-delta/previous/*.dmg' >/dev/null; then
+            echo "No previous $NIGHTLY_VARIANT archive; retaining the full-only appcast"
+            cp "nightly-delta/input/$feed" "nightly-delta/output/$feed"
+            exit 0
+          fi
+          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
+          export SPARKLE_PRIVATE_KEY
+          SPARKLE_PUBLIC_KEY="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+          export SPARKLE_PUBLIC_KEY
+          ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
+            nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
+          SPARKLE_PREVIOUS_ARCHIVES_DIR=nightly-delta/previous \
+          SPARKLE_MAXIMUM_DELTAS=1 \
+          SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
+            ./scripts/sparkle_generate_appcast.sh \
+              "$dmg" "$CHANNEL_RELEASE_TAG" "nightly-delta/output/$feed"
+          ls -l nightly-delta/output
+
+      - name: Upload delta result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-deltas-${{ matrix.variant }}
+          path: nightly-delta/output/*
+          if-no-files-found: error
+          retention-days: 3
+
+  republish-nightly-deltas:
+    # This job is intentionally outside publish-nightly's concurrency group:
+    # a newer run may publish its full feed immediately, and the tag guard below
+    # prevents an older delta from overwriting it.
+    needs: [decide, build-nightly-app, publish-nightly, generate-nightly-deltas]
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: write
+      actions: read
+    env:
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+    steps:
+      - name: Checkout build ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+
+      - name: Download delta results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-nightly-deltas-*
+          path: nightly-deltas
+          merge-multiple: true
+
+      - name: Republish deltas and revised appcasts
+        id: republish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHANNEL_RELEASE_TAG" --jq .sha)"
+          if [ "$current_sha" != "${{ needs.decide.outputs.head_sha }}" ]; then
+            echo "Skipping stale delta result: $CHANNEL_RELEASE_TAG is at $current_sha"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          deltas=()
+          for delta in nightly-deltas/*.delta; do
+            [ -f "$delta" ] || continue
+            deltas+=(--immutable "$delta")
+          done
+          if [ "${#deltas[@]}" -eq 0 ]; then
+            echo "No Sparkle deltas were generated; full appcasts remain current"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          feeds=()
+          for feed in nightly-deltas/appcast*.xml; do
+            [ -f "$feed" ] || continue
+            feeds+=(--feed "$feed")
+          done
+          [ "${#feeds[@]}" -gt 0 ]
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            "${deltas[@]}" --replace-feeds "${feeds[@]}"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload revised appcasts to R2
+        if: steps.republish.outputs.publish == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          for feed in nightly-deltas/appcast*.xml; do
+            [ -f "$feed" ] || continue
+            name="$(basename "$feed")"
+            python3 scripts/ci/upload-r2-object.py \
+              --file "$feed" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --bucket cmux-binaries \
+              --key "${CHANNEL_RELEASE_TAG}/$name" \
+              --content-type "application/xml" \
+              --cache-control "no-cache, no-store, must-revalidate"
+          done
+
   # Keep one open issue per failed publication boundary. A stale channel tag
   # leaves the assets, release metadata, and feeds available, so the incident
   # must say that explicitly instead of claiming installs stopped updating.
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -2399,8 +2579,8 @@ jobs:
             }
 
   close-nightly-failure-issue:
-    needs: [decide, publish-nightly]
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated'
+    needs: [decide, publish-nightly, generate-nightly-deltas, republish-nightly-deltas]
+    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
