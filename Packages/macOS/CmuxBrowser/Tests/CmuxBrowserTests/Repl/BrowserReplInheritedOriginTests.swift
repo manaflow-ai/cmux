@@ -61,7 +61,21 @@ struct BrowserReplInheritedOriginTests {
         let blob = try #require(URL(string: "blob:https://evil.example/6f1c"))
         #expect(prohibiting.navigationBlockReason(blob, initiator: allowedDocument) != nil)
         #expect(prohibiting.navigationBlockReason(try #require(URL(string: "https://evil.example/")), initiator: allowedDocument) != nil)
-        #expect(prohibiting.navigationBlockReason(try #require(URL(string: "https://docs.example.com/")), initiator: blockedDocument) == nil)
+        #expect(prohibiting.navigationBlockReason(try #require(URL(string: "https://docs.example.com/")), initiator: allowedDocument) == nil)
+    }
+
+    @Test("A blocked frame cannot steer the tab to an allowed web page")
+    func blockedInitiatorsCannotNavigateTheTab() throws {
+        // The destination is allowed, but the blocked frame chose the URL
+        // (and can put its page's data in it): the initiator is judged too.
+        for policy in [try policy(prohibited: ["evil.example"]), try policy(allowed: ["docs.example.com"])] {
+            for raw in ["https://docs.example.com/?leak=1", "blob:https://docs.example.com/6f1c"] {
+                let url = try #require(URL(string: raw))
+                #expect(policy.navigationBlockReason(url, initiator: blockedDocument) != nil, "\(raw) started by a blocked frame loaded")
+                #expect(policy.navigationBlockReason(url, initiator: allowedDocument) == nil, "\(raw) started by an allowed page was blocked")
+                #expect(policy.navigationBlockReason(url, initiator: nil) == nil, "the agent's own load of \(raw) was blocked")
+            }
+        }
     }
 
     @Test("An about:blank popup (or one with no URL) inherits its opener's origin")
