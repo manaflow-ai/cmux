@@ -2640,18 +2640,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             if let taken { attachment.clipboard.store(taken, during: tenure) }
         case "bold", "italic", "underline":
             // Chrome's editor formats the selection of an editable element on
-            // Command+B/I/U; the page sees its usual beforeinput and input.
-            _ = try? await webView.browserReplCallAsyncJavaScript(
-                """
-                const el = document.activeElement;
-                if (!(document.designMode === "on" || (el && el.isContentEditable))) return false;
-                return document.execCommand(command);
-                """,
-                arguments: ["command": command],
-                in: nil,
-                contentWorld: .page,
-                userGesture: false
-            )
+            // Command+B/I/U. The key's outcome came after an await, so the
+            // gate checks the tab again and judges the main frame's document
+            // in the command's own script turn (blocked, stale, denied).
+            guard let shortcut = BrowserReplFrameGate.FormattingShortcut(rawValue: command) else { return }
+            try await frameGate.runFormattingShortcut(shortcut, in: webView)
         default:
             NSApp.sendAction(NSSelectorFromString(command), to: webView, from: nil)
         }

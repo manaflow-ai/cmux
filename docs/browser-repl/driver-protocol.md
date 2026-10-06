@@ -176,7 +176,11 @@ drops a marked key that arrives outside that same event's own delivery (another 
 resend is also how a Command shortcut's Edit menu command (select all, copy,
 cut, paste, undo, redo; bold, italic and underline in the REPL) is run: only
 once WebKit has sent the key back (no page handled it; a page that cancels
-the keydown gets no command as well), on the web view itself. In a tab a
+the keydown gets no command as well), on the web view itself. In the REPL
+bold, italic and underline run `execCommand` in the main frame through the
+frame gate, which checks the tab again and judges the document the command
+runs in, in the same script turn: a main frame that navigated meanwhile to
+a page the session's authority refuses is not formatted (`blocked`). In a tab a
 session created (one with the page clipboard guard), `cmux browser press`
 Meta+C, Meta+X and Meta+V run nothing: that tab's clipboard is its
 session's virtual one, `cmux browser press` carries no session, and as
