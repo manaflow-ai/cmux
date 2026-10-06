@@ -120,6 +120,13 @@ SWIFT
         { printf '@testable import MessagesLabHome\nimport Foundation\nimport ImageIO\nimport UniformTypeIdentifiers\n'
           awk '/^enum AttachmentFactory/{p=1} p{print} p&&/^}/{exit}' "$ml/appkit-native/Sources/Host.swift"; } > "$up/AttachmentFactory.swift"
       fi
+      # FlashCheck's wake probe (2a0805d on) reads SelfTest.threadCPU; SelfTest.swift is a
+      # MessagesLab driver (not vendored), so only that function comes along.
+      if grep -q "SelfTest\.threadCPU" "$up/FlashCheck.swift" && ! grep -q "class SelfTest\|enum SelfTest" "$up/FlashCheck.swift"; then
+        { printf 'import Foundation\nimport Darwin\nenum SelfTest {\n'
+          awk '/static func threadCPU/{p=1} p{print} p&&/^    }$/{exit}' "$ml/appkit-native/Sources/SelfTest.swift"
+          printf '}\n'; } > "$up/SelfTestCPU.swift"
+      fi
       cp "$pkg/Harness/HomeCoverageCheck.swift" "$up/HomeCoverageCheck.swift"
     fi
     (cd "$pkg" && MESSAGESLAB_FIXTURES="$out/fixtures" MESSAGESLAB_HARNESS_OUT="$out/vendored" swift test --filter UpstreamHarnessTests)
