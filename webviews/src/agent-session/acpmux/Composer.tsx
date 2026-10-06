@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
+import { type ChatMove, moveAttachment } from "./shell/chatMoves";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import {
@@ -89,6 +90,12 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// This Mac's name for the location row.
+  localName?: string;
+  /// The folder a started chat moved to (shell/chatMoves.ts).
+  movedTo?: string;
+  /// Moves a started chat to another folder; the next prompt carries the move as a `cd` chip.
+  onMove?(cwd: string): ChatMove;
   /// Shell mode (`!` first): runs `command` on the chat's machine in its folder, its block in the
   /// transcript; returns the run, which the next prompt carries as a removable chip. Unset, `!` is
   /// plain text.
@@ -123,6 +130,9 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
+  localName,
+  movedTo,
+  onMove,
   onShell,
   onShellInterrupt,
   onMode,
@@ -531,6 +541,17 @@ export function Composer({
           onProject &&
           ((cwd, peer) => {
             onProject(cwd, peer);
+            field.current?.focus();
+          })
+        }
+        localName={localName}
+        movedTo={movedTo}
+        busy={snapshot.isWorking}
+        onMove={
+          onMove &&
+          ((cwd) => {
+            const move = onMove(cwd);
+            setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
             field.current?.focus();
           })
         }
