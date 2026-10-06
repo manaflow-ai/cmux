@@ -3,6 +3,7 @@
 // serves them with hot reload.
 import "../shared/styles.css";
 import "./styles.css";
+import "katex/dist/katex.min.css";
 import "./conversation/conversation.css";
 import "./changes/changes.css";
 import "./summary/summary.css";
