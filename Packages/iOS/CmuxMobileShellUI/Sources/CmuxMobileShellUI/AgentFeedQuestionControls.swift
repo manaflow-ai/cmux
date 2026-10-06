@@ -10,72 +10,136 @@ struct AgentFeedQuestionControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Label(String(
-                    localized: "mobile.agentFeed.question.pendingTitle",
-                    defaultValue: "Your agent needs an answer",
-                    bundle: .module
-                ), systemImage: "questionmark.circle.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                Spacer(minLength: 0)
-                Text(verbatim: "\(item.questions.count)")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.12), in: Capsule())
-                    .accessibilityLabel(Text(String(
-                        format: String(
-                            localized: "mobile.agentFeed.question.progress",
-                            defaultValue: "Question %lld of %lld",
-                            bundle: .module
-                        ),
-                        Int64(1),
-                        Int64(item.questions.count)
-                    )))
-            }
+            header
 
             if let firstQuestion = item.questions.first {
-                if let header = firstQuestion.header, !header.isEmpty {
-                    Text(header)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Text(firstQuestion.prompt)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
+                questionPreview(firstQuestion)
             }
-
-            Button {
-                actions.beginCompose(item, .question)
-            } label: {
-                Label(String(
-                    localized: "mobile.agentFeed.question.answer",
-                    defaultValue: "Answer",
-                    bundle: .module
-                ), systemImage: "arrow.up.right.circle.fill")
-                .font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .accessibilityIdentifier("MobileAgentFeedQuestionAnswer")
         }
         .padding(14)
-        .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.accentColor.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.24), lineWidth: 1)
         }
         .disabled(isReplyPending)
         .opacity(isReplyPending ? 0.55 : 1)
         .padding(.top, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileAgentFeedQuestionControls")
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.16))
+                    .frame(width: 30, height: 30)
+                Image(systemName: "questionmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(
+                    localized: "mobile.agentFeed.question.pendingTitle",
+                    defaultValue: "Needs your input",
+                    bundle: .module
+                ))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                Text(String(
+                    format: String(
+                        localized: "mobile.agentFeed.question.count",
+                        defaultValue: "%lld questions",
+                        bundle: .module
+                    ),
+                    Int64(item.questions.count)
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+            Text(verbatim: "\(item.questions.count)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 26, height: 26)
+                .background(Color.accentColor.opacity(0.12), in: Circle())
+                .accessibilityLabel(Text(String(
+                    format: String(
+                        localized: "mobile.agentFeed.question.progress",
+                        defaultValue: "Question %lld of %lld",
+                        bundle: .module
+                    ),
+                    Int64(1),
+                    Int64(item.questions.count)
+                )))
+        }
+    }
+
+    private func questionPreview(_ question: MobileAgentFeedQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let header = question.header, !header.isEmpty {
+                Text(header)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(question.prompt)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(alignment: .center, spacing: 8) {
+                if question.multiSelect {
+                    Label(String(
+                        localized: "mobile.agentFeed.question.multiSelect",
+                        defaultValue: "Select all that apply",
+                        bundle: .module
+                    ), systemImage: "checkmark.square")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text(String(
+                        localized: "mobile.agentFeed.question.singleSelect",
+                        defaultValue: "Choose one",
+                        bundle: .module
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                answerButton
+            }
+        }
+    }
+
+    private var answerButton: some View {
+        Button {
+            actions.beginCompose(item, .question)
+        } label: {
+            Label(String(
+                localized: "mobile.agentFeed.question.answer",
+                defaultValue: "Answer",
+                bundle: .module
+            ), systemImage: "arrow.up.right")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(Color.accentColor.opacity(0.14), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+            }
+            // Hit testing belongs to the label, including its invisible padding.
+            .frame(minWidth: 84, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("MobileAgentFeedQuestionAnswer")
     }
 }
 #endif

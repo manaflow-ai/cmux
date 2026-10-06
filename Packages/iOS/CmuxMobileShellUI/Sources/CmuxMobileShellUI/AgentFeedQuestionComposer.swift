@@ -19,6 +19,12 @@ struct AgentFeedQuestionComposer: View {
         answerBuilder.answers(for: questions, drafts: drafts)
     }
 
+    private var answeredCount: Int {
+        questions.reduce(into: 0) { count, question in
+            if drafts[question.id]?.hasAnswer == true { count += 1 }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -33,12 +39,9 @@ struct AgentFeedQuestionComposer: View {
                 .padding(.bottom, 24)
             }
             .scrollDismissesKeyboard(.interactively)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                submitBar
-            }
             .navigationTitle(String(
                 localized: "mobile.agentFeed.question.answerTitle",
-                defaultValue: "Answer the questions",
+                defaultValue: "Answer questions",
                 bundle: .module
             ))
             .navigationBarTitleDisplayMode(.inline)
@@ -52,6 +55,23 @@ struct AgentFeedQuestionComposer: View {
                         dismiss()
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        submit()
+                    } label: {
+                        Text(String(
+                            localized: "mobile.agentFeed.question.submitShort",
+                            defaultValue: "Submit",
+                            bundle: .module
+                        ))
+                        .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .buttonBorderShape(.capsule)
+                    .disabled(submittedAnswers == nil)
+                    .accessibilityIdentifier("MobileAgentFeedQuestionSubmit")
+                }
             }
         }
         .presentationDragIndicator(.visible)
@@ -59,32 +79,61 @@ struct AgentFeedQuestionComposer: View {
     }
 
     private var intro: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(
-                String(
-                    localized: "mobile.agentFeed.question.pendingTitle",
-                    defaultValue: "Your agent needs an answer",
-                    bundle: .module
-                ),
-                systemImage: "questionmark.circle.fill"
-            )
-            .font(.headline)
-            .foregroundStyle(.primary)
-            Text(String(
-                localized: "mobile.agentFeed.question.answerSubtitle",
-                defaultValue: "Choose an option or write an answer for each prompt.",
-                bundle: .module
-            ))
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.16))
+                        .frame(width: 30, height: 30)
+                    Image(systemName: "questionmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(
+                        localized: "mobile.agentFeed.question.pendingTitle",
+                        defaultValue: "Needs your input",
+                        bundle: .module
+                    ))
+                    .font(.headline)
+                    Text(String(
+                        localized: "mobile.agentFeed.question.answerSubtitle",
+                        defaultValue: "Choose an option or write an answer for each prompt.",
+                        bundle: .module
+                    ))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                ProgressView(value: Double(answeredCount), total: Double(max(questions.count, 1)))
+                    .tint(Color.accentColor)
+                    .frame(height: 4)
+                Text(verbatim: "\(answeredCount)/\(questions.count)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .accessibilityLabel(Text(String(
+                        format: String(
+                            localized: "mobile.agentFeed.question.progressSummary",
+                            defaultValue: "%lld of %lld answered",
+                            bundle: .module
+                        ),
+                        Int64(answeredCount),
+                        Int64(questions.count)
+                    )))
+            }
         }
         .accessibilityElement(children: .combine)
     }
 
     private func questionCard(_ question: MobileAgentFeedQuestion, index: Int) -> some View {
         let draft = drafts[question.id] ?? AgentFeedQuestionAnswerBuilder.Draft()
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(String(
                     format: String(
@@ -102,19 +151,22 @@ struct AgentFeedQuestionComposer: View {
                         localized: "mobile.agentFeed.question.answeredShort",
                         defaultValue: "Answered",
                         bundle: .module
-                    ), systemImage: "checkmark.circle.fill")
-                    .font(.caption.weight(.medium))
+                    ), systemImage: "checkmark")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.green)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.green.opacity(0.12), in: Capsule())
                 }
             }
 
             if let header = question.header, !header.isEmpty {
                 Text(header)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             Text(question.prompt)
-                .font(.body.weight(.semibold))
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -128,64 +180,64 @@ struct AgentFeedQuestionComposer: View {
                 .foregroundStyle(.secondary)
             }
 
-            ForEach(question.options, id: \.id) { option in
-                AgentFeedQuestionOptionRow(
-                    question: question,
-                    option: option,
-                    isSelected: draft.selectedOptionIDs.contains(option.id),
-                    action: { toggle(option, for: question) }
-                )
+            VStack(spacing: 0) {
+                ForEach(Array(question.options.enumerated()), id: \.element.id) { index, option in
+                    AgentFeedQuestionOptionRow(
+                        question: question,
+                        option: option,
+                        isSelected: draft.selectedOptionIDs.contains(option.id),
+                        action: { toggle(option, for: question) }
+                    )
+                    if index < question.options.count - 1 {
+                        Divider()
+                            .padding(.leading, 44)
+                    }
+                }
             }
+            .padding(.vertical, 4)
+            .background(
+                Color.primary.opacity(0.035),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
 
-            TextField(String(
-                localized: "mobile.agentFeed.question.otherPlaceholder",
-                defaultValue: "Your answer",
-                bundle: .module
-            ), text: customTextBinding(for: question), axis: .vertical)
-            .textFieldStyle(.plain)
-            .font(.body)
-            .lineLimit(2...5)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(minHeight: 52)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-            .accessibilityIdentifier("MobileAgentFeedQuestionText-\(question.id)")
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "pencil.line")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .accessibilityHidden(true)
+                TextField(String(
+                    localized: "mobile.agentFeed.question.otherPlaceholder",
+                    defaultValue: "Your answer",
+                    bundle: .module
+                ), text: customTextBinding(for: question), axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .lineLimit(2...5)
+                .accessibilityIdentifier("MobileAgentFeedQuestionText-\(question.id)")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(minHeight: 48)
+            .background(
+                Color.primary.opacity(0.055),
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
         }
-        .padding(16)
-        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+        .padding(14)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileAgentFeedQuestionCard-\(question.id)")
     }
 
-    private var submitBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            Button {
-                guard let submittedAnswers else { return }
-                actions.questionReply(context.item, submittedAnswers)
-                dismiss()
-            } label: {
-                Text(String(
-                    localized: "mobile.agentFeed.question.submitAll",
-                    defaultValue: "Submit all answers",
-                    bundle: .module
-                ))
-                .font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(submittedAnswers == nil)
-            .accessibilityIdentifier("MobileAgentFeedQuestionSubmit")
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-        }
-        .background(.bar)
+    private func submit() {
+        guard let submittedAnswers else { return }
+        actions.questionReply(context.item, submittedAnswers)
+        dismiss()
     }
 
     private func customTextBinding(

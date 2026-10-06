@@ -29,9 +29,9 @@ struct AgentFeedActions {
     var filterChanged: @MainActor (AgentFeedFilter) -> Void = { _ in }
 }
 
-/// The one visual family every Feed action shares: native bordered controls
-/// with a compact rounded-rectangle shape. Primary uses the accent, neutral
-/// stays quiet, and destructive uses the system destructive tint.
+/// The one visual family every Feed action shares: compact social-feed pills
+/// with full-size hit regions. Primary uses the accent, neutral stays quiet,
+/// and destructive uses the system destructive tint.
 enum AgentFeedActionRole: Equatable {
     case primary
     case neutral
@@ -69,44 +69,50 @@ struct AgentFeedActionButton: View {
     }
 
     var body: some View {
-        Group {
-            if role == .primary {
-                button
-                    .buttonStyle(.borderedProminent)
-            } else {
-                button
-                    .buttonStyle(.bordered)
-            }
-        }
-        .tint(role.tint)
-        .controlSize(.regular)
-        .buttonBorderShape(.roundedRectangle(radius: 9))
-    }
-
-    private var button: some View {
         Button(role: role.buttonRole, action: action) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(role.tint)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(height: 32)
+                .background(background, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(role.tint.opacity(0.22), lineWidth: 1)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-        .frame(height: 44)
         .accessibilityIdentifier(accessibilityIdentifier ?? "")
+    }
+
+    private var background: Color {
+        switch role {
+        case .primary: return Color.accentColor.opacity(0.16)
+        case .neutral: return Color.secondary.opacity(0.10)
+        case .destructive: return Color.red.opacity(0.12)
+        }
     }
 }
 
-/// The overflow menu label is a fourth action button, not a small trailing
-/// chip. Keeping its label flexible lets the surrounding action row give all
-/// four controls the same rectangle.
+/// Shares the action row's compact capsule and full-height touch target.
 struct AgentFeedOverflowMenuLabel: View {
     var body: some View {
         Image(systemName: "ellipsis")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
+            .frame(height: 32)
+            .background(Color.secondary.opacity(0.10), in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
     }
 }
 
@@ -678,12 +684,9 @@ private struct AgentFeedDecisionControls: View {
             } label: {
                 AgentFeedOverflowMenuLabel()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .buttonBorderShape(.roundedRectangle(radius: 9))
-            .tint(.white.opacity(0.9))
+            .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
+            .frame(minHeight: 44)
             .accessibilityIdentifier("MobileAgentFeedPermissionMore")
             .accessibilityLabel(String(
                 localized: "mobile.agentFeed.permission.moreOptions",
@@ -751,12 +754,9 @@ private struct AgentFeedExitPlanControls: View {
                 } label: {
                     AgentFeedOverflowMenuLabel()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .buttonBorderShape(.roundedRectangle(radius: 9))
-                .tint(.white.opacity(0.9))
+                .buttonStyle(.plain)
                 .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(minHeight: 44)
                 .accessibilityIdentifier("MobileAgentFeedExitPlanMore")
                 .accessibilityLabel(String(
                     localized: "mobile.agentFeed.exitPlan.moreModes",

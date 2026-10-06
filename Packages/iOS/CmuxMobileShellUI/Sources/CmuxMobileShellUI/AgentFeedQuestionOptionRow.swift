@@ -11,15 +11,15 @@ struct AgentFeedQuestionOptionRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
                 Image(systemName: symbolName)
-                    .font(.title3)
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-                    .frame(width: 24, height: 24)
+                    .frame(width: 20, height: 20)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(option.label)
-                        .font(.body.weight(.medium))
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
                     if let description = option.description, !description.isEmpty {
@@ -31,24 +31,26 @@ struct AgentFeedQuestionOptionRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .background(
                 isSelected
-                    ? Color.accentColor.opacity(0.12)
-                    : Color.secondary.opacity(0.08),
-                in: RoundedRectangle(cornerRadius: 12)
+                    ? Color.accentColor.opacity(0.13)
+                    : Color.clear,
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .stroke(
-                        isSelected ? Color.accentColor.opacity(0.55) : Color.clear,
+                        isSelected ? Color.accentColor.opacity(0.52) : Color.clear,
                         lineWidth: 1
                     )
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .animation(.easeOut(duration: 0.18), value: isSelected)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier(
             "MobileAgentFeedQuestionOption-\(question.id)-\(option.id)"
