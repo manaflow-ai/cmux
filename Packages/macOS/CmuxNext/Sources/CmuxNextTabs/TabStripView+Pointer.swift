@@ -56,7 +56,6 @@ extension TabStripView {
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
-        buttonGroup.hoveredIndex = dragging ? nil : trailingButtonIndex(at: point)
 
         // The coordinator hit-tests the pointer itself (`hoverCardTarget`).
         if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
@@ -91,7 +90,6 @@ extension TabStripView {
         if let closeHoveredID { cells[closeHoveredID]?.isCloseHovered = false }
         closeHoveredID = nil
         newTabButton.isHovered = false
-        buttonGroup.hoveredIndex = nil
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
         if closingModeWidth != nil, drag == nil {
             // Deferred relayout: tabs resize once the pointer leaves.
@@ -109,11 +107,6 @@ extension TabStripView {
             pressedNewTab = true
             newTabButton.isPressed = true
             startNewTabHold()
-            return
-        }
-        if let index = trailingButtonIndex(at: point) {
-            pendingTrailingPress = index
-            buttonGroup.pressedIndex = index
             return
         }
         if let group = chipGroup(at: point) {
@@ -156,7 +149,6 @@ extension TabStripView {
             newTabButton.isPressed = isInNewTabButton(point)
             return
         }
-        if trackTrailingButtonDrag(at: point) { return }
         if drag != nil {
             updateDrag(at: point, event: event)
             return
@@ -185,7 +177,6 @@ extension TabStripView {
             return
         }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
-        if endTrailingButtonPress(at: point) { return }
         if drag != nil { endDrag() }
         press = nil
         if groups.drag != nil {
@@ -224,7 +215,6 @@ extension TabStripView {
     private func contextMenu(for event: NSEvent) -> NSMenu? {
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
-        if trailingButtonIndex(at: point) != nil { return nil }
         if isInNewTabButton(point) {
             // Anchored under the button, like the press-and-hold menu.
             showNewTabMenu()

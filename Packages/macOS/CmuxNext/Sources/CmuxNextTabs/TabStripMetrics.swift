@@ -45,14 +45,6 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Horizontal inset of the strip content from its bounds.
     public var stripHorizontalPadding: CGFloat
     public var newTabButtonWidth: CGFloat
-    /// Side of each square button in the trailing group.
-    public var trailingButtonSize: CGFloat
-    public var trailingButtonSpacing: CGFloat
-    /// Space between the tabs viewport and the trailing group.
-    public var trailingGroupGap: CGFloat
-    /// Glyph box and symbol point size of a trailing button.
-    public var trailingIconSize: CGFloat
-    public var trailingIconPointSize: CGFloat
     /// Length of the fade on a scrolled edge.
     public var scrollFadeWidth: CGFloat
     /// Inset of the tab background from the tab frame, so neighbors read as separate.
@@ -124,11 +116,6 @@ public struct TabStripMetrics: Equatable, Sendable {
         stripHorizontalPadding = PaneChromeMetrics.pillLeading
         stripTopOutset = Metrics.panePadding
         newTabButtonWidth = Metrics.tabHeight
-        trailingButtonSize = Metrics.tabHeight - Metrics.space2
-        trailingButtonSpacing = TabTunables.trailingButtonSpacing.value
-        trailingGroupGap = TabTunables.trailingGroupGap.value
-        trailingIconSize = Metrics.iconSize
-        trailingIconPointSize = Metrics.smallIconSize
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         separatorHeight = TabTunables.separatorHeight.value
