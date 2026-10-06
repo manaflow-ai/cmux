@@ -12,9 +12,9 @@
          try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
          return d
      }()
-@@ -41,6 +44,10 @@
+@@ -48,6 +51,10 @@
      }
-     private struct Saved: Codable { var ok: Bool; var title: String?; var site: String?; var image: String? }
+     private struct Saved: Codable { var ok: Bool; var title: String?; var site: String?; var image: String?; var at: Double? }
  
 +    /// cmux: a fetched preview without fetching (nil: not fetched, or it failed). A
 +    /// HomeStore rebuild maps a link part again; it shows what was already fetched.
@@ -22,4 +22,4 @@
 +
      func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void) {
          dispatchPrecondition(condition: .onQueue(.main))
-         if let hit = cache[url] { done(hit); return }
+         if let hit = cache[url] {
