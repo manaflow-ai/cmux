@@ -80,6 +80,15 @@ import Testing
         #expect(HomeConversationCellView.previewText(row).isEmpty)
     }
 
+    @Test func chiefRepliesWaitNoticeRemainsVisible() {
+        var row = Self.row("conv_chief_wait", with: [Self.chief("agent_mux", "Chief")], at: 1)
+        row.summary.lastMessage = Message(id: MessageID("m_wait"), conversation: row.id, seq: 1,
+            clientMessageID: IdempotencyKey("notice:optchat:replies-wait:123"), author: ParticipantID("agent_mux"),
+            parts: [.text("Replies are waiting")], createdAt: Self.base)
+        row.preview = row.summary.lastMessage!.plainText
+        #expect(HomeConversationCellView.previewText(row) == "Replies are waiting")
+    }
+
     @Test func choosingARowAsksTheHostAndArrowKeysSkipHeaders() throws {
         let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
         var chosen: [String] = []
