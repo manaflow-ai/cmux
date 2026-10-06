@@ -54,6 +54,12 @@ public actor DaemonConnection {
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
+    /// Whether the daemon accepts origin `user` on the current connection:
+    /// the last `client-hello` reply's `user_origin_allowed`. False until a
+    /// handshake reports true, after a disconnect, and for an older daemon.
+    /// A caller sends origin `user` only when it is true and never resends a
+    /// refused `user` request with origin `script`.
+    public private(set) var userOriginAllowed = false
     public private(set) var endpoint: DaemonEndpoint?
 
     public init(
@@ -210,11 +216,12 @@ public actor DaemonConnection {
                     Task { await self?.transportClosed(serial: serial, reason: reason) }
                 }
             )
-            let identity = try await handshake(transport)
+            let (identity, userOriginAllowed) = try await handshake(transport)
             guard self.serial == serial, !isClosedPhase else {
                 transport.close()
                 throw DaemonError.connectionClosed(reason: "superseded")
             }
+            self.userOriginAllowed = userOriginAllowed
             let generationChanged = self.identity.map {
                 $0.generation != identity.generation || $0.registryID != identity.registryID
             } ?? false
@@ -246,9 +253,10 @@ public actor DaemonConnection {
     /// the identity is checked before the connection is used. Against the
     /// wrong or an incompatible daemon the other lines are harmless, and the
     /// socket closes. The page relay has its own (`PageRelayHandshake`).
-    private func handshake(_ transport: LineTransport) async throws -> DaemonIdentity {
-        if configuration.role == .pageRelay { return try await PageRelayHandshake.run(transport, configuration: configuration) }
-        let replies = await HandshakeLines.send(transport, configuration: configuration, logger: logger)
+    private func handshake(_ transport: LineTransport) async throws -> (DaemonIdentity, userOriginAllowed: Bool) {
+        if configuration.role == .pageRelay { return (try await PageRelayHandshake.run(transport, configuration: configuration), false) }
+        let handshake = await HandshakeLines.send(transport, configuration: configuration, logger: logger)
+        let replies = handshake.lines
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
         DaemonLaunchTimings.shared.mark("daemon.identify_end")
         guard identity.app == "cmux-tui" else {
@@ -265,7 +273,7 @@ public actor DaemonConnection {
             throw DaemonError.missingCapabilities(missing)
         }
         _ = try (replies[1].get(), replies[2].get())
-        return identity
+        return (identity, handshake.userOriginAllowed)
     }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
@@ -273,6 +281,7 @@ public actor DaemonConnection {
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
+        userOriginAllowed = false
         healthy.cancel()
         let detail: String = switch reason {
         case .closedByClient: "closed"

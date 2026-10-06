@@ -120,6 +120,53 @@ import Testing
     }
 }
 
+/// `user_origin_allowed` in the `client-hello` replies: the connection
+/// claims origin `user` only when the last hello reply allows it.
+@Suite(.timeLimit(.minutes(1))) struct ClientHelloUserOriginTests {
+    /// Starts a connection against a daemon whose step 1 answers `start`
+    /// and step 2 answers `proved` (nil = an error line); returns
+    /// `userOriginAllowed` after the handshake.
+    static func allowed(installKey: FrontendInstallKey?, start: String, proved: String?) async throws -> Bool {
+        let server = try FakeDaemonServer(handler: ConnectionTests.handshake { request, id in
+            guard request["cmd"]?.stringValue == "client-hello" else { return [] }
+            if request["proof"] == nil { return [#"{"id":\#(id),"ok":true,"data":\#(start)}"#] }
+            guard let proved else { return [#"{"id":\#(id),"ok":false,"error":"client-hello refused","error_code":"client_hello.refused"}"#] }
+            return [#"{"id":\#(id),"ok":true,"data":\#(proved)}"#]
+        })
+        defer { server.stop() }
+        let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path),
+                                          configuration: .init(clientHello: ClientHelloIdentity(installKey: installKey)))
+        try await connection.start()
+        let allowed = await connection.userOriginAllowed
+        await connection.close()
+        return allowed
+    }
+
+    static let nonce = String(repeating: "a5", count: 32)
+
+    /// DEV build: step 1 is not yet proved; the step 2 value counts.
+    @Test func theProofReplyDecides() async throws {
+        let start = #"{"connection_id":"7","nonce":"\#(nonce)","user_origin_allowed":false}"#
+        #expect(try await Self.allowed(installKey: FrontendInstallKeyTests.key, start: start,
+                                       proved: #"{"verified":true,"install_id":"inst_test-01","connection_id":"7","user_origin_allowed":true}"#))
+        #expect(try await !Self.allowed(installKey: FrontendInstallKeyTests.key, start: start, proved: nil))
+    }
+
+    /// Signed build: step 1 alone (no nonce, no proof) can allow it.
+    @Test func aSignedStepOneDecides() async throws {
+        #expect(try await Self.allowed(installKey: nil, start: #"{"connection_id":"7","user_origin_allowed":true}"#, proved: nil))
+        #expect(try await !Self.allowed(installKey: nil, start: #"{"connection_id":"7","user_origin_allowed":false}"#, proved: nil))
+    }
+
+    /// An older daemon sends no field: origin `user` is not allowed.
+    @Test func aMissingFieldIsFalse() async throws {
+        #expect(try await !Self.allowed(installKey: nil, start: #"{"connection_id":"7"}"#, proved: nil))
+        #expect(try await !Self.allowed(installKey: FrontendInstallKeyTests.key,
+                                        start: #"{"connection_id":"7","nonce":"\#(nonce)"}"#,
+                                        proved: #"{"verified":true,"install_id":"inst_test-01","connection_id":"7"}"#))
+    }
+}
+
 /// Coordinator conditions for the DEV key file (2026-10-04).
 @Suite struct FrontendInstallKeyStoreChoiceTests {
     /// A signed build (a Team ID) has no install key at all: the daemon

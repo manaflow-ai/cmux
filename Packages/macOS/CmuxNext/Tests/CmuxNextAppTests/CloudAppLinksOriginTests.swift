@@ -6,8 +6,8 @@ import Synchronization
 import Testing
 
 /// The `apps-run` origin of a Cloud connect (P8 landed): a click goes as
-/// `user` from the verified app connection; a connect that is not a user
-/// gesture goes as `script`. A refused `user` click is never sent again as
+/// `user` only where the daemon's `client-hello` reply allows origin `user`
+/// (`user_origin_allowed`); any other connect goes as `script`. A refused `user` click is never sent again as
 /// `script`.
 struct CloudAppLinksOriginTests {
     nonisolated final class Sent: Sendable {
@@ -27,7 +27,7 @@ struct CloudAppLinksOriginTests {
 
     @Test func aClickGoesAsUserFromTheVerifiedApp() async throws {
         let sent = Sent()
-        _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k1", origin: .user,
+        _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k1", origin: .user, userOriginAllowed: true,
                                         send: Self.send(sent))
         #expect(sent.all.map(\.origin) == [.user])
         #expect(sent.all.first?.idempotencyKey == "k1")
@@ -35,9 +35,27 @@ struct CloudAppLinksOriginTests {
 
     @Test func aConnectThatIsNotAGestureGoesAsScript() async throws {
         let sent = Sent()
-        _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k2", origin: .script,
+        _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k2", origin: .script, userOriginAllowed: true,
                                         send: Self.send(sent))
         #expect(sent.all.map(\.origin) == [.script])
+    }
+
+    /// A click on a connection where the daemon does not allow origin
+    /// `user` goes once as `script` from the start: the app never claims
+    /// `user` there, and nothing is resent.
+    @Test func aClickWhereUserIsNotAllowedGoesAsScript() async throws {
+        let sent = Sent()
+        _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k6", origin: .user,
+                                        userOriginAllowed: false, send: Self.send(sent))
+        #expect(sent.all.map(\.origin) == [.script])
+        #expect(sent.all.map(\.idempotencyKey) == ["k6"])
+    }
+
+    @Test func theWireOriginIsUserOnlyForAnAllowedClick() {
+        #expect(CloudAppLinks.wireOrigin(.user, userOriginAllowed: true) == .user)
+        #expect(CloudAppLinks.wireOrigin(.user, userOriginAllowed: false) == .script)
+        #expect(CloudAppLinks.wireOrigin(.script, userOriginAllowed: true) == .script)
+        #expect(CloudAppLinks.wireOrigin(.script, userOriginAllowed: false) == .script)
     }
 
     /// A refused `user` click is shown as the refusal and never sent again
@@ -47,7 +65,7 @@ struct CloudAppLinksOriginTests {
     func aRefusedClickIsNotSentAgainAsScript(code: String) async throws {
         let sent = Sent()
         await #expect(throws: CloudAppOpError(code: code, message: "needs a verified cmux app connection")) {
-            _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k3", origin: .user,
+            _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k3", origin: .user, userOriginAllowed: true,
                                             send: Self.send(sent, refuseUser: code))
         }
         #expect(sent.all.map(\.origin) == [.user])
@@ -56,7 +74,7 @@ struct CloudAppLinksOriginTests {
     @Test func otherRefusalsAreNotSentAgain() async throws {
         let sent = Sent()
         await #expect(throws: CloudAppOpError(code: "cloud.plan_required", message: "needs a verified cmux app connection")) {
-            _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k4", origin: .user,
+            _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k4", origin: .user, userOriginAllowed: true,
                                             send: Self.send(sent, refuseUser: "cloud.plan_required"))
         }
         #expect(sent.all.map(\.origin) == [.user])
@@ -66,7 +84,7 @@ struct CloudAppLinksOriginTests {
     @Test func aScriptConnectIsNotRetriedOnAnOriginRefusal() async throws {
         let sent = Sent()
         await #expect(throws: CloudAppOpError(code: "origin.forbidden", message: "needs a verified cmux app connection")) {
-            _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k5", origin: .script,
+            _ = try await CloudAppLinks.run(op: "cloud.machine.connect", args: ["machine": "m1"], key: "k5", origin: .script, userOriginAllowed: true,
                                             send: Self.send(sent, refuseUser: "origin.forbidden", refuseAll: true))
         }
         #expect(sent.all.map(\.origin) == [.script])

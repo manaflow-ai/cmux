@@ -41,7 +41,13 @@ One handshake for origin and P8 (coordinator decision 2026-10-04):
   role fails closed (`client_hello.bad_request`). Any other line first (including a second
   `identify`) closes the hello window: a later client-hello is refused.
 - Final fields (P8 accepted, 2026-10-04). Params: `{cmd: "client-hello", role: "main"|"page_relay",
-  install_id?: 1-128 chars of [A-Za-z0-9_-]}`. Result: `{connection_id, nonce?: 64 lowercase hex}`.
+  install_id?: 1-128 chars of [A-Za-z0-9_-]}`. Result: `{connection_id, user_origin_allowed: bool,
+  nonce?: 64 lowercase hex}`; step 2 result `{verified, install_id, connection_id,
+  user_origin_allowed}`.
+- `user_origin_allowed` (Cloud v6 decision, 2026-10-05): whether origin `user` passes the apps door
+  on this connection now (verified app, not bound to an agent); the last hello reply counts. The app
+  claims `user` only when it is true, else sends `script`, and NEVER resends a refused `user` as
+  `script` (it shows the refusal). A missing field is false.
 - Step 1 errors (named by this lane); none changes state, and each closes the hello window:
   - `client_hello.local_only`: not a local Unix connection.
   - `client_hello.bad_request`, details `{field: "role"}`: role missing or unknown.
