@@ -51,7 +51,7 @@ export interface InviteSender {
   readonly email: string | null
 }
 
-const inviteSender = (p: Principal): InviteSender | undefined =>
+export const inviteSender = (p: Principal): InviteSender | undefined =>
   p.user && !p.agent && p.kind !== "agent" && p.kind !== "system" ? { user: p.user, email: p.email_verified === true && p.email ? p.email : null } : undefined
 
 export const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationStub
