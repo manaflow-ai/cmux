@@ -109,6 +109,24 @@ queues the prompt; claude-sr has no steering), not between its tool calls.
 No cache marker is added to a subagent's first message: one spawn's subagents
 start together, so none could read another's entry.
 
+## Engine: harness, model and effort per turn
+
+`$MUX_HOME/optchat/engine.json` (0600) holds `harness`, `model`, `effort`,
+`compactor_harness` and `compactor_model`; a missing field is the env default.
+The host reads the turn fields at EACH turn start, so a change applies from
+the next turn and a running turn finishes on its engine. A turn on a Claude
+harness gets the cached layout and the `optchat-chief-<home id>` preset; on
+codex, AGENTS.md (always written) and `optchat-chief-codex-<home id>`; both
+presets are installed at start. A harness acpmux does not know keeps the
+default. Each change is a `note` in the memory ("engine changed to
+harness=... model=... effort=... (was ...)") and an `engine` trace event;
+`turn.start`/`turn.end` record the engine that answered. The compactor fields
+apply at the next host start. `optchat-chief engine show|set` (and `chief
+engine ...` inside a turn) read and write the file; the app's Home shows an
+engine bar over the Chief conversation (harness, model and effort pickers,
+the last turn's engine, latency, tool calls, cache hit rate and cost) that
+writes the same file.
+
 ## Monitoring: trace and stats
 
 Every turn (`turn.start`, `turn.end`), every model request in a turn
