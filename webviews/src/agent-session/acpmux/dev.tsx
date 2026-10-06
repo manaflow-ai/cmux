@@ -9,6 +9,7 @@ import "./changes/changes.css";
 import "./summary/summary.css";
 import "./composerControls.css";
 import "./composerStates.css";
+import "./composerLocation.css";
 import "./searchChats.css";
 import "./markdownField.css";
 import "./modelPicker.css";

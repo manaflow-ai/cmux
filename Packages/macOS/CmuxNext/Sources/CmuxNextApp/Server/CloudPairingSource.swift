@@ -16,6 +16,8 @@ final class CloudPairingSource: ServerSource {
     private let call: Call
     /// The approver's name for the team chip, or nil when signed out.
     private let account: @MainActor () -> String?
+    /// The user's Chief moved to a server (Home re-checks its Chief tab).
+    private let chiefPlaced: @MainActor () -> Void
     private var sink: (@MainActor (ServerSourceEvent) -> Void)?
     private var work: [String: Task<Void, Never>] = [:]
 
@@ -23,7 +25,7 @@ final class CloudPairingSource: ServerSource {
     /// as the signed-in user. Phase 1 pairs into the Worker's team for the
     /// session (the personal team, server.md 6.2 step 4), read from the
     /// Worker: the app's Stack team id is not a Worker team id.
-    static func app(feed: FeedService, auth: CloudAuth) -> CloudPairingSource {
+    static func app(feed: FeedService, auth: CloudAuth, chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
         CloudPairingSource(
             inner: LocalServerSource.app(),
             call: { [weak feed] path, body in
@@ -33,28 +35,32 @@ final class CloudPairingSource: ServerSource {
             account: { [weak auth] in
                 guard let auth, auth.isSignedIn else { return nil }
                 return auth.user?.displayName ?? auth.user?.primaryEmail ?? ""
-            }
+            },
+            chiefPlaced: chiefPlaced
         )
     }
 
-    init(inner: any ServerSource, call: @escaping Call, account: @escaping @MainActor () -> String?) {
+    init(inner: any ServerSource, call: @escaping Call, account: @escaping @MainActor () -> String?,
+         chiefPlaced: @escaping @MainActor () -> Void = {}) {
         self.inner = inner
         self.call = call
         self.account = account
+        self.chiefPlaced = chiefPlaced
     }
 
     func start(_ sink: @escaping @MainActor (ServerSourceEvent) -> Void) {
         self.sink = sink
         inner.start(sink)
+        refreshChief()
     }
 
     func send(_ intent: ServerIntent) {
         switch intent.kind {
         case let .lookupCode(code):
             run(intent.key) { [weak self] in await self?.lookup(PairingCode.normalize(code), key: intent.key) }
-        case let .approveCode(code, team, name):
+        case let .approveCode(code, team, name, placeChief):
             run(intent.key) { [weak self] in
-                await self?.approve(code: PairingCode.normalize(code), team: team, name: name, key: intent.key)
+                await self?.approve(code: PairingCode.normalize(code), team: team, name: name, placeChief: placeChief, key: intent.key)
             }
         default:
             inner.send(intent)
@@ -123,7 +129,7 @@ final class CloudPairingSource: ServerSource {
         return ServerTeam(id: id, name: account.isEmpty ? id : account)
     }
 
-    private func approve(code: String, team: String, name: String, key: String) async {
+    private func approve(code: String, team: String, name: String, placeChief: Bool, key: String) async {
         guard account() != nil else { return sink?(.settled(key: key, reject: Self.signedOut)) ?? () }
         let body: [String: Any] = [
             "op": "server.pair.approve",
@@ -135,13 +141,54 @@ final class CloudPairingSource: ServerSource {
             let reply = try await call("v1/ops", body)
             // Success only with the enrolled host: a Worker error reply
             // (`{_tag, code, message}`) has no `value.host`.
-            guard (try Self.okValue(reply) as? [String: Any])?["host"] is String else { throw FeedServiceError.badReply }
+            let value = try Self.okValue(reply) as? [String: Any]
+            guard let host = value?["host"] as? String else { throw FeedServiceError.badReply }
+            if placeChief {
+                // The server is added either way; a Chief that could not move says so.
+                if let reject = await self.placeChief(host: host, install: value?["install"] as? String, key: key) {
+                    return sink?(.settled(key: key, reject: reject)) ?? ()
+                }
+            }
             sink?(.settled(key: key, reject: nil))
         } catch let FeedServiceError.owner(_, message) {
             sink?(.settled(key: key, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message)))
         } catch {
             sink?(.settled(key: key, reject: Self.reject(for: error)))
         }
+    }
+
+    /// Places the user's Chief on the server just approved (G8); a refusal
+    /// text, or nil when the Chief now runs there.
+    private func placeChief(host: String, install: String?, key: String) async -> String? {
+        defer { refreshChief() }
+        guard let install else { return Self.chiefNotMoved("the server has no install") }
+        do {
+            _ = try await CloudChiefs.place(CloudChief.BrainPlace(host: host, install: install), key: key, call: call)
+            chiefPlaced()
+            return nil
+        } catch let FeedServiceError.owner(_, message) {
+            return Self.chiefNotMoved(message)
+        } catch {
+            return Self.chiefNotMoved(Self.reject(for: error))
+        }
+    }
+
+    /// Reads where the user's Chief runs for the panel (once per open, after an approve).
+    private func refreshChief() {
+        guard account() != nil else { return }
+        run("chief-status") { [weak self] in
+            guard let self else { return }
+            let status = try? await CloudChiefStatus.read(call: call)
+            guard !Task.isCancelled else { return }
+            sink?(.chief(status ?? nil))
+        }
+    }
+
+    /// The pairing capability of a server that runs a user's Chief (`optchat-chief cloud pair`).
+    nonisolated static let chiefBrainCapability = "optchat-chief-brain"
+
+    private static func chiefNotMoved(_ reason: String) -> String {
+        format("refusal.server.chiefNotMoved", "The server was added, but your Chief could not move to it: %@", reason)
     }
 
     /// The `value` of a successful reply; a Worker error reply
@@ -183,7 +230,9 @@ final class CloudPairingSource: ServerSource {
             version: info["cmux_version"] as? String ?? "",
             region: value["country"] as? String,
             words: words,
-            teams: [team]
+            teams: [team],
+            // `optchat-chief cloud pair` declares the capability; the paired install keeps it.
+            isChiefBrain: (info["capabilities"] as? [String])?.contains(Self.chiefBrainCapability) == true
         )
     }
 

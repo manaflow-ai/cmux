@@ -13,7 +13,9 @@ public nonisolated enum HistoryScope: String, CaseIterable, Hashable, Sendable, 
 
     /// Whether `location` is a place Back and Forward may reach from `current` under `scope`.
     public static func contains(_ location: HistoryLocation, current: HistoryLocation, scope: HistoryScope) -> Bool {
-        switch scope {
+        // A top page belongs to no workspace: it is in the scope of its window's trail.
+        if scope != .surface, location.page != nil || current.page != nil { return location.window == current.window }
+        return switch scope {
         case .workspace: location.key.machine == current.key.machine && location.workspace == current.workspace
         case .window: location.window == current.window
         case .surface: false

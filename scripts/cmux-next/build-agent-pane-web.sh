@@ -35,6 +35,11 @@ LOADER="$(node scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.js
 # common languages, not every grammar and the WebAssembly engine. The React Compiler
 # runs on first-party sources, as in the Vite dev server; skipped components are listed.
 bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/app.js"
+# Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
+# worker, bundled with the same trimmed shiki. It is the entry point itself because the package
+# marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
+# with a policy that allows no network.
+bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/highlight-worker.js"
 
 # The desktop layer first (R139): chrome never selects, so Cmd-A highlights only
 # fields and `.selectable` content. desktop.ts imports it, but the bundle drops CSS.
@@ -46,7 +51,7 @@ grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 # transcript's math (conversation/Math.tsx).
 node scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
 cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/changes/changes.css" \
-  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
+  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
@@ -70,6 +75,7 @@ cp "$WORK/app.js" "$WORK/pane.js"
 
 if [ "$MODE" = "--check" ]; then
   if ! cmp -s "$WORK/index.html" "$OUT/index.html" || ! cmp -s "$WORK/pane.js" "$OUT/pane.js" \
+    || ! cmp -s "$WORK/highlight-worker.js" "$OUT/highlight-worker.js" \
     || ! diff -rq "$WORK/locales" "$OUT/locales" >/dev/null 2>&1; then
     echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh (after merging feat-cmux-next: scripts/cmux-next/regenerate-web-bundles.sh)" >&2
     exit 1
@@ -81,6 +87,7 @@ fi
 mkdir -p "$OUT"
 cp "$WORK/index.html" "$OUT/index.html"
 cp "$WORK/pane.js" "$OUT/pane.js"
+cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
 echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) and pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes)"

@@ -18,31 +18,6 @@ enum OnboardingStrings {
         return String(format: String(localized: "onboarding.step.importOf", defaultValue: "Import · %@", bundle: .module), counter)
     }
 
-    // Role
-    static var roleTitle: String { String(localized: "onboarding.role.title", defaultValue: "Which best describes your work?", bundle: .module) }
-    static var roleSubtitle: String {
-        String(localized: "onboarding.role.subtitle", defaultValue: "cmux shapes your first task around it.", bundle: .module)
-    }
-    static var roleDescribe: String { String(localized: "onboarding.role.describe", defaultValue: "Describe something else", bundle: .module) }
-    static var roleSuggestTasks: String {
-        String(localized: "onboarding.role.suggestTasks", defaultValue: "Suggest personalized tasks", bundle: .module)
-    }
-    static func roleName(_ role: OnboardingRole) -> String {
-        switch role {
-        case .engineering: String(localized: "onboarding.role.engineering", defaultValue: "Engineering", bundle: .module)
-        case .dataScience: String(localized: "onboarding.role.dataScience", defaultValue: "Data science", bundle: .module)
-        case .product: String(localized: "onboarding.role.product", defaultValue: "Product", bundle: .module)
-        case .design: String(localized: "onboarding.role.design", defaultValue: "Design", bundle: .module)
-        case .marketing: String(localized: "onboarding.role.marketing", defaultValue: "Marketing", bundle: .module)
-        case .sales: String(localized: "onboarding.role.sales", defaultValue: "Sales", bundle: .module)
-        case .finance: String(localized: "onboarding.role.finance", defaultValue: "Finance", bundle: .module)
-        case .operations: String(localized: "onboarding.role.operations", defaultValue: "Operations", bundle: .module)
-        case .peopleAndHR: String(localized: "onboarding.role.peopleAndHR", defaultValue: "People & HR", bundle: .module)
-        case .legal: String(localized: "onboarding.role.legal", defaultValue: "Legal", bundle: .module)
-        case .student: String(localized: "onboarding.role.student", defaultValue: "Student", bundle: .module)
-        }
-    }
-
     // Default browser
     static var browserTitle: String { String(localized: "onboarding.browser.title2", defaultValue: "Default Browser", bundle: .module) }
     static var browserSubtitle: String {

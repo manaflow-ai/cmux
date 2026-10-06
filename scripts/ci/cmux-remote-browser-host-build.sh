@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Builds and tests the remote browser host (cmux-tui/crates/cmux-remote-browser-host,
+# its own Cargo workspace; plans/cmux-next/remote-tab-r2.md) on a fleet Mac:
+#   cmux-ci run --class isolated --script scripts/ci/cmux-remote-browser-host-build.sh \
+#     --ref SHA --cef sha256:HEX --artifact .build/artifacts/cmux-remote-browser-host
+# Needs CMUX_CI_CEF_DIR: the unpacked CEF fork release (cef_cmux.h API >= 19), either the
+# dist folder itself or a folder holding exactly one. Output (fixed path, for --artifact):
+#   .build/artifacts/cmux-remote-browser-host   (the release binary, macOS arm64)
+# Runs only as a fleet step or job: a developer Mac never runs cargo.
+set -euo pipefail
+if [[ -z "${CMUX_CI_STEP_KEY:-}" && -z "${CMUX_CI_JOB_VOLUME:-}" ]]; then
+  echo "cmux-remote-browser-host-build.sh runs cargo and runs only on the fleet (cmux-ci run)" >&2
+  exit 2
+fi
+cef="${CMUX_CI_CEF_DIR:?CMUX_CI_CEF_DIR must name the unpacked CEF fork release}"
+if [[ ! -d "$cef/include" ]]; then
+  inner=("$cef"/*/)
+  [[ ${#inner[@]} -eq 1 && -d "${inner[0]}include" ]] ||
+    { echo "error: $cef holds no CEF dist (include/ missing)" >&2; exit 3; }
+  cef="${inner[0]%/}"
+fi
+grep -q 'cmux_rp_capture_start' "$cef/include/cef_cmux.h" ||
+  { echo "error: $cef is not a remote presentation build (no cmux_rp_* in cef_cmux.h)" >&2; exit 3; }
+umask 022
+root="$(pwd -P)"
+crate="$root/cmux-tui/crates/cmux-remote-browser-host"
+export CEF_PATH="$cef"
+export CARGO_TARGET_DIR="$root/.build/cmux-remote-browser-host-target"
+cd "$crate"
+echo "rust toolchain: $(rustup show active-toolchain 2>/dev/null || echo unknown)"
+echo "CEF_PATH=$CEF_PATH"
+# Lib, bin, integration and doc tests (the fleet toolchain has rustdoc since
+# hq PR 1406, worker build 62193f7e).
+cargo test --locked
+cargo build --release --locked
+mkdir -p "$root/.build/artifacts"
+cp "$CARGO_TARGET_DIR/release/cmux-remote-browser-host" "$root/.build/artifacts/cmux-remote-browser-host"
+ls -l "$root/.build/artifacts/cmux-remote-browser-host"

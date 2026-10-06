@@ -481,3 +481,19 @@ Design:
 5. Privacy: times and counts only; no content, no surface ids leave the VM.
 
 Tests (red first): Rust unit tests for the activity reducer (input from an attached client sets the time; an unattached one-shot send does not; a replayed journal commit does not; counts follow attach/detach and agent states; coalescing emits leading + trailing, never more than 1 per second with a fake clock), a server wire test for `subscribe-activity`, and agent tests against a fake daemon socket (mapping, capability only with the daemon capability, reconnect after a drop). Gate: Testbox `cargo test -p cmux-tui-core activity` plus the focused hosted run. Window: cmux-tui window (server.rs arm, spec JSON and bindings change: not WINDOW-LITE).
+
+## 28. Activity sender landed; auto6 pin (2026-10-06)
+
+The daemon side landed as d4c9d5e58082 on feat-cmux-next (window f2801b6b9ddf); the focused cmux-tui.yml on it (run 37424077191) passed. The image pin is cmux-tui 4b534636000bf6075ecaef6995e29cb93a05e7ae (artifacts run 37424457494, sha256 and size checked against its manifest), not d4c9d5e58082: that commit's cmux-tui-artifacts run 37424051769 was cancelled and published nothing (files.cmux.com 404). d4c9d5e58082 is an ancestor of 4b534636000 (git merge-base --is-ancestor). Pins come from CI artifacts by commit and sha256; no GitHub release is involved.
+
+Evidence gates for this pin (coordinator conditions): the bake runs `vm-agent.ts --probe-activity` after recording daemon.json and fails unless the daemon advertises vm-activity-v1 and the agent's own ActivityWatcher connects and receives a snapshot; the smoke repeats it as `vm-activity-stream` on a clone.
+
+safe-push WINDOW-LITE: a Cargo.toml needs a window only for a cmux-tui workspace member or the workspace root (`.cmux-scratch/nx-worker/safe-push-members.py` reads `[workspace] members/exclude` at HEAD, per-component globs; fail closed). Tests: `safe-push-test.sh` cases windowlite-manifest-{nonmember,excluded,member,glob-member}. The equality with `cargo metadata --no-deps` is checked on a Testbox (`safe-push-members.py --check-cargo-metadata cmux-tui`).
+
+## 29. auto6 on development, activity proof and idle pause (2026-10-06)
+
+Development boots `cmuxnp-dev-vmimg-auto6-c9693f8` (sh-94ef280de5674a52adf18831289c37f1; Worker 77acf7c0); auto5 is the rollback. `scripts/cmux-next/cloud-dev-e2e.sh` on auto6 passed every step, including the new "activity capability reported": connect_info shows the daemon block `["loopback-forward-v1","vm-agent-v1","activity"]` after the first report.
+
+Idle pause (`web/scripts/cmux-vm-image/dev-idle-e2e.ts`, run 2026-10-06T08:17Z): the backend allows a threshold shorter than the 24 h backstop only with team policy `cloud.idlePause` (cloud-do-idle.ts), so the script turns it on for the test only, after a read-only pre-check that the team has no other machine, and restores it in `finally` within 10 minutes (rollback to the pre-test version, confirmed by team.policy.get). M1 (one attached-client input, then nothing, idle_seconds 60, 15 s dev heartbeat) was paused with `pause_reason: idle` 71.3 s after its last input; M2 (a person's attached client sending input every 20 s) stayed running. Policy restored at +131.9 s (version 2, values {}). Both machines deleted by id. Every request and response is logged in the run's requests.jsonl.
+
+Next: v2 `terminal.input.*` and browser input count as user input only from a person's attached client (server/browser_input.rs move done; origin threading into the resource router; red tests for "a person's v2 input counts" and "an agent's v2 input does not").
