@@ -14,6 +14,7 @@ import { ModelPicker } from "./ModelPicker";
 import { Popover } from "../../ui/Popover";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
+import { usePopoverTrigger } from "./popoverTrigger";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -492,6 +493,7 @@ export function Picker({
     setOpen(false);
     trigger.current?.focus();
   };
+  const press = usePopoverTrigger(open, setOpen, show);
   const pick = (index: number) => {
     const row = rows[index];
     if (!row) return;
@@ -554,7 +556,7 @@ export function Picker({
         aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
         onKeyDown={keyDown}
         onKeyUp={keyUp}
-        onClick={() => (open ? setOpen(false) : show())}
+        {...press}
       >
         {button}
       </button>
