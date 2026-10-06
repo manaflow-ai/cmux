@@ -585,4 +585,18 @@ fn permissions_open_new_tabs_in_a_private_granted_store() {
         "private=1;profile=1",
         "the kept tab is still in the private store"
     );
+    // Every private store a session makes gets the one-way copy: a proxy
+    // set after permissions keeps the profile's sign-in and the grants.
+    let p = headless_session(&source, &browsers, "p");
+    p.call("session.configure", &json!({"permissions": ["notifications"]})).unwrap();
+    let answer =
+        p.call("session.configure", &json!({"proxy": {"server": origin.clone()}})).unwrap();
+    assert_eq!(answer["proxy"], true, "{answer}");
+    let proxied = open(&p, "proxied");
+    assert_eq!(
+        page(&p, &proxied, "() => document.cookie"),
+        "profile=1",
+        "copied into the proxy store"
+    );
+    assert_eq!(page(&p, &proxied, "() => Notification.permission"), "granted");
 }

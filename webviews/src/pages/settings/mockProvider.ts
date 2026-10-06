@@ -192,11 +192,9 @@ export class MockSettingsProvider {
 
   /** The Accounts part as the app serves it (texts already localized). */
   accounts: AccountsState = {
-    intro: "cmux checks this Mac for sign-ins and keys.",
     refresh: "Refresh",
     refreshing: false,
     signIn: null,
-    problem: null,
     removeTitle: "Remove from CodeRouter",
     groups: [
       {
@@ -214,7 +212,6 @@ export class MockSettingsProvider {
               { id: "reauth", title: "Re-authenticate", disabled: false, help: null, destructive: false },
               { id: "connect", title: "Connect to CodeRouter", disabled: false, help: null, destructive: false },
             ],
-            unsupported: null,
             linked: [{ id: "acct-1", label: "s…@e…", state: "healthy", healthy: true, busy: false }],
             note: null,
             outcome: null,
@@ -235,7 +232,6 @@ export class MockSettingsProvider {
             statusKind: "quiet",
             busy: false,
             buttons: [{ id: "addKey", title: "Add Key…", disabled: false, help: null, destructive: false }],
-            unsupported: null,
             linked: [],
             note: null,
             outcome: null,

@@ -163,8 +163,7 @@ final class ImportStepView: NSView {
             return summary.failures.isEmpty ? line : line + " " + OnboardingStrings.importSomeFailed
         case .failed(let message): return message
         default:
-            return profiles.isEmpty ? OnboardingStrings.noBrowsers
-                : (model.kinds.contains(.cookies) || model.kinds.contains(.passwords) ? OnboardingStrings.keychainNote : "")
+            return profiles.isEmpty ? OnboardingStrings.noBrowsers : ""
         }
     }
 }

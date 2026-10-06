@@ -56,6 +56,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case importAndSync
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
+    /// The chat header's tools and "..." menu: run app action `id` (one of
+    /// ``AgentPaneModel/headerActions``) on this chat's tab, a split in `cwd`
+    /// when given.
+    case paneAction(String, cwd: String? = nil)
+    /// The chat tab's state the header's menu labels read: `{pinned}`.
+    case tabState
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
@@ -231,6 +237,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "app.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
             else { self = .unsupported(method) }
+        case "pane.action":
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
+                let cwd = (params?["cwd"] as? String).flatMap { $0.hasPrefix("/") ? String($0.prefix(Self.maximumOpenTabText)) : nil }
+                self = .paneAction(id, cwd: cwd)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.tabState": self = .tabState
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)
