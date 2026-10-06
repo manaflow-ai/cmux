@@ -69,10 +69,18 @@ extension SidebarListView {
             drag.lastY = point.y
         }
         let probe = drag.movingUp ? card.minY : card.maxY
-        guard let baseY = DropResolver.baseY(forDisplayY: probe, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
+        let edge = drag.movingUp ? "top" : "bottom"
+        guard let baseY = DropResolver.baseY(forDisplayY: probe, gapY: displayed.gapY, gapHeight: displayed.gapShift) else {
+            drag.probe = SidebarDropProbe(edge: edge, displayY: probe, target: drag.target.map { String(describing: $0) })
+            return
+        }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
         let target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections,
                                           ungroupedFirst: model.ungroupedFirst)
+        let hit = base.row(at: baseY)
+        drag.probe = SidebarDropProbe(edge: edge, displayY: probe, baseY: baseY, row: hit.map { String(describing: $0.key) },
+                                      fraction: hit.map { ($0.height > 0 ? (baseY - $0.y) / $0.height : 0) },
+                                      target: target.map { String(describing: $0) })
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)
