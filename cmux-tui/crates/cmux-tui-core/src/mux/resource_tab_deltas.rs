@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, HashSet};
 use super::presentation::tab_delta;
 use super::{Mux, MuxEvent, TreeDelta, TreeDeltaKind};
 use crate::resource::TabPublicId;
-use crate::workspace_registry::{ResourceChange, ResourcePatch};
+use crate::workspace_registry::{ResourceChange, ResourcePatch, ResourcePatchCommit};
 use crate::{PaneId, ScreenId, State, SurfaceId, WorkspaceId};
 
 /// Tab lists of the panes a resource patch touches, before its state step.
@@ -131,8 +131,17 @@ impl TabMembership {
     }
 
     /// The deltas that carry the change from the captured membership to
-    /// `state`, or `None` when tab membership and order did not change.
-    pub(super) fn deltas(self, mux: &Mux, state: &State) -> Option<TabDeltas> {
+    /// `state`, or `None` when tab membership and order did not change or
+    /// the commit replayed (a replay changes nothing).
+    pub(super) fn deltas(
+        self,
+        mux: &Mux,
+        state: &State,
+        commit: &ResourcePatchCommit,
+    ) -> Option<TabDeltas> {
+        if commit.replayed {
+            return None;
+        }
         match self.changes(state) {
             Changes::None => None,
             Changes::Resync => Some(TabDeltas::Resync),
@@ -258,8 +267,9 @@ fn single_relocation(before: &[SurfaceId], after: &[SurfaceId]) -> Option<Surfac
 }
 
 impl Mux {
-    /// Send a resource commit's tab deltas to v1 subscribers.
-    pub(super) fn emit_resource_tab_deltas(&self, deltas: TabDeltas) {
+    /// Send a resource commit's tab deltas, if any, to v1 subscribers.
+    pub(super) fn emit_resource_tab_deltas(&self, deltas: Option<TabDeltas>) {
+        let Some(deltas) = deltas else { return };
         match deltas {
             TabDeltas::Deltas { deltas, selection_changed } => {
                 for delta in deltas {

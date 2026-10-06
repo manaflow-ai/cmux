@@ -3718,6 +3718,16 @@
             "name": "string",
             "pattern": "^vm_[a-z0-9]{20}$"
           }
+        },
+        "capabilities": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ServerCapability"
+            }
+          }
         }
       }
     },
@@ -3884,6 +3894,16 @@
             "kind": "primitive",
             "name": "string",
             "max_length": 40
+          }
+        },
+        "capabilities": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ServerCapability"
+            }
           }
         }
       }
@@ -4353,6 +4373,11 @@
         "skipped",
         "dead"
       ]
+    },
+    "ServerCapability": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
     },
     "SnapshotId": {
       "kind": "primitive",
@@ -36222,6 +36247,10 @@
             "pattern": "^grant_[a-z0-9]{20}$",
             "description": "A server-side grant; tokens carry only its id."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -36278,6 +36307,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -36707,6 +36743,10 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -36763,6 +36803,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -36967,6 +37014,10 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -37023,6 +37074,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -37211,6 +37269,10 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -37267,6 +37329,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -37434,6 +37503,10 @@
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "Install": {
             "type": "object",
             "properties": {
@@ -37490,6 +37563,13 @@
               "bound_machine": {
                 "type": "string",
                 "pattern": "^vm_[a-z0-9]{20}$"
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [
@@ -43688,6 +43768,10 @@
               "web"
             ]
           },
+          "ServerCapability": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+          },
           "PairingInfo": {
             "type": "object",
             "properties": {
@@ -43713,6 +43797,13 @@
               "cmux_version": {
                 "type": "string",
                 "maxLength": 40
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ServerCapability"
+                },
+                "maxItems": 8
               }
             },
             "required": [

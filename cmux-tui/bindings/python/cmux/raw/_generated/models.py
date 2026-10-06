@@ -532,7 +532,7 @@ class ConversationPart:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart'
     type: str
     host: Union[str, MissingType] = field(default=MISSING)
-    preview: Union[str, MissingType] = field(default=MISSING)
+    preview: Union[JsonValue, MissingType] = field(default=MISSING)
     runs: Union[List[ConversationTextRun], MissingType] = field(default=MISSING)
     session: Union[str, MissingType] = field(default=MISSING)
     status: Union[str, MissingType] = field(default=MISSING)
@@ -2211,6 +2211,82 @@ class ConversationAgentTokenResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/result'
     participant: str
     token: str
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentReadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-read/request'
+    conversation: str
+    hash: str
+    length: Union[int, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    variant: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentReadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-read/result'
+    byte_count: int
+    data: str
+    eof: bool
+    hash: str
+    mime_type: str
+    offset: int
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/request'
+    op: str
+    byte_count: Union[int, None, MissingType] = field(default=MISSING)
+    conversation: Union[str, None, MissingType] = field(default=MISSING)
+    data: Union[str, None, MissingType] = field(default=MISSING)
+    duration_ms: Union[int, None, MissingType] = field(default=MISSING)
+    height: Union[int, None, MissingType] = field(default=MISSING)
+    mime_type: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    piece: Union[str, None, MissingType] = field(default=MISSING)
+    poster: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    preview: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    sha256: Union[str, None, MissingType] = field(default=MISSING)
+    upload: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result'
+    needs: Union[List[str], None, MissingType] = field(default=MISSING)
+    received: Union[int, None, MissingType] = field(default=MISSING)
+    stored: Union[ConversationAttachmentUploadResultStored, None, MissingType] = field(default=MISSING)
+    upload: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStored:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+    poster: Union[ConversationAttachmentUploadResultStoredPoster, None, MissingType] = field(default=MISSING)
+    preview: Union[ConversationAttachmentUploadResultStoredPreview, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStoredPoster:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type/fields/poster/type'
+    byte_count: int
+    hash: str
+    mime_type: str
+
+
+@dataclass(frozen=True)
+class ConversationAttachmentUploadResultStoredPreview:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-attachment-upload/result/fields/stored/type/fields/preview/type'
+    byte_count: int
+    hash: str
+    mime_type: str
 
 
 @dataclass(frozen=True)
@@ -4951,6 +5027,13 @@ __all__ = [
     'CloudSessionStatusRequest',
     'ConversationAgentTokenRequest',
     'ConversationAgentTokenResult',
+    'ConversationAttachmentReadRequest',
+    'ConversationAttachmentReadResult',
+    'ConversationAttachmentUploadRequest',
+    'ConversationAttachmentUploadResult',
+    'ConversationAttachmentUploadResultStored',
+    'ConversationAttachmentUploadResultStoredPoster',
+    'ConversationAttachmentUploadResultStoredPreview',
     'ConversationBindRequest',
     'ConversationBindResult',
     'ConversationCreateRequest',
