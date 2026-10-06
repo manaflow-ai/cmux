@@ -38,18 +38,23 @@ test("a session whose harness has no catalog yet lists the models its model opti
   expect(sessionModels([], { harness: "codex" })).toEqual([]);
 });
 
-test("a model acpmux reports unavailable says so in the picker, with its reason", () => {
+test("a model acpmux will not run is not offered, and the one the session runs keeps its plain name", () => {
   const probed = {
     harnesses: [
       {
         harness: "codex",
-        models: [{ id: "gpt-5.5", name: "GPT-5.5", unavailable: "Image web search is not supported." }],
+        models: [
+          { id: "gpt-5.5", name: "GPT-5.5", unavailable: "Image web search is not supported." },
+          { id: "gpt-6", name: "GPT-6" },
+        ],
       },
     ],
   };
   const catalog = mergeModelCatalog({ harnesses: { codex: {} } }, probed);
-  expect(sessionModels(catalog, { harness: "codex" })).toEqual([
-    { id: "gpt-5.5", name: "GPT-5.5 · unavailable: Image web search is not supported." },
+  expect(sessionModels(catalog, { harness: "codex" })).toEqual([{ id: "gpt-6", name: "GPT-6" }]);
+  expect(sessionModels(catalog, { harness: "codex", model: "gpt-5.5" })).toEqual([
+    { id: "gpt-5.5", name: "GPT-5.5" },
+    { id: "gpt-6", name: "GPT-6" },
   ]);
 });
 

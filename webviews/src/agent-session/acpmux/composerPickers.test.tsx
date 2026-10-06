@@ -596,6 +596,8 @@ describe("acpmux composer pickers", () => {
     const plan = () => doc.querySelector<HTMLButtonElement>(".acpmux-plan")!;
     expect(plan().textContent).toBe("Build");
     expect(plan().getAttribute("aria-pressed")).toBe("false");
+    // A label, no tooltip explaining Plan and Build.
+    expect(plan().hasAttribute("title")).toBe(false);
     await act(async () => button("Mode")!.click());
     expect(options()).toEqual(["Ask for approvalAlways ask *", "Full accessUnrestricted"]);
     await act(async () => button("Mode")!.click());
