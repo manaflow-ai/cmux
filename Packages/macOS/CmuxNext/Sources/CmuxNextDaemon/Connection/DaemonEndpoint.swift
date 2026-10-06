@@ -150,6 +150,9 @@ public struct DaemonCapabilities: Sendable {
     /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
     /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
     public let agentSessionTabs = "agent-session-tabs-v1"
+    /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
+    /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
+    public let pageTabs = "page-tabs-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
     /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
@@ -211,7 +214,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, agentSessionTabs, conversationSearch, cloudConversations,
+                                            workspaceKind, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead] }
 

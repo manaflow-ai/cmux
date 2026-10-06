@@ -6,9 +6,9 @@
 
 use crate::args::Opts;
 use crate::clock::{now_ns, Rng};
-use crate::convert::I420;
 use crate::encoder::{self, EncCfg};
 use crate::Res;
+use cmux_encode::I420;
 use serde_json::json;
 
 fn draw_text(pic: &mut I420, offset: usize, seed: u64) {
@@ -89,6 +89,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         screen_content: true,
         preset: "ultrafast",
         profile: &profile,
+        openh264_lib: opts.get("openh264-lib"),
     })?;
     let mut pic = I420::new(width as usize, height as usize);
     draw_text(&mut pic, 0, 7);
@@ -153,6 +154,8 @@ mod tests {
         assert_eq!(nal_types(&au), vec![7, 8, 5]);
     }
 
+    // OpenH264 from source exists only in bench builds.
+    #[cfg(feature = "bench")]
     #[test]
     fn openh264_passes_the_structure_check() {
         let opts = Opts::parse(

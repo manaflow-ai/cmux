@@ -12,6 +12,12 @@ enum OnboardingStrings {
         String(format: String(localized: "onboarding.step.of", defaultValue: "%1$lld of %2$lld", bundle: .module), index, count)
     }
 
+    static func stepCounter(_ index: Int, _ count: Int, step: OnboardingModel.Step) -> String {
+        let counter = stepCounter(index, count)
+        guard step == .importData else { return counter }
+        return String(format: String(localized: "onboarding.step.importOf", defaultValue: "Import · %@", bundle: .module), counter)
+    }
+
     // Role
     static var roleTitle: String { String(localized: "onboarding.role.title", defaultValue: "Which best describes your work?", bundle: .module) }
     static var roleSubtitle: String {
@@ -66,6 +72,7 @@ enum OnboardingStrings {
         String(localized: "onboarding.import.keychainNote", defaultValue: "macOS asks before cmux reads each browser's sign-ins.", bundle: .module)
     }
     static var fullDiskAccessTitle: String { String(localized: "onboarding.import.fda.title", defaultValue: "Safari needs Full Disk Access", bundle: .module) }
+    static var fullDiskAccessSubtitle: String { String(localized: "onboarding.import.fda.subtitle", defaultValue: "Needs Full Disk Access", bundle: .module) }
     static var openSystemSettings: String { String(localized: "onboarding.button.openSystemSettings", defaultValue: "Open System Settings", bundle: .module) }
     static var checkAgain: String { String(localized: "onboarding.import.fda.recheck", defaultValue: "Check Again", bundle: .module) }
 

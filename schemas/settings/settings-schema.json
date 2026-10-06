@@ -299,7 +299,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "page",
+      "default" : "agent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -573,6 +573,105 @@
       "title" : {
         "key" : "settings.newTerminal.opensWorkspace",
         "text" : "New Terminal Opens a Workspace"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeClosingTab.help",
+        "text" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeClosingTab",
+      "keywords" : [
+        "close",
+        "confirm",
+        "warn",
+        "tab",
+        "workspace",
+        "running",
+        "process",
+        "cmd-w"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "app",
+        "warnBeforeClosingTab"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.warnBeforeClosingTab",
+        "text" : "Warn Before Closing a Running Program"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeClosingAgentSession.help",
+        "text" : "Ask before closing a terminal tab whose agent is still working."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeClosingAgentSession",
+      "keywords" : [
+        "close",
+        "confirm",
+        "warn",
+        "agent",
+        "claude",
+        "codex",
+        "session",
+        "working",
+        "cmd-w"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "app",
+        "warnBeforeClosingAgentSession"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.warnBeforeClosingAgentSession",
+        "text" : "Warn Before Closing a Working Agent"
       },
       "validation" : "portable"
     },
@@ -11070,7 +11169,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "60a6052a4dc63452e2bfab59ae448982479b3ee456ae328b6ea484f943eaaf16",
+  "schema_hash" : "3c73f6df3f3187d5be3a3d546fdfc6bb7d8306fd07bacedc317f5551dc421c6a",
   "sections" : [
     {
       "id" : "general",

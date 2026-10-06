@@ -16,11 +16,17 @@ gate = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(gate)
 
 
-def metadata(packages, edges, root="cmux-app-ffi"):
-    """packages: {name: license}; edges: {name: [(dep, kind)]} with kind None (normal) or "build"/"dev"."""
+def metadata(packages, edges, root="cmux-app-ffi", features=None):
+    """packages: {name: license}; edges: {name: [(dep, kind)]} with kind None (normal) or "build"/"dev";
+    features: {name: [resolved features]}."""
+    features = features or {}
     pkgs = [{"id": n, "name": n, "license": lic, "features": {}} for n, lic in packages.items()]
     nodes = [
-        {"id": n, "deps": [{"pkg": d, "dep_kinds": [{"kind": k}]} for d, k in edges.get(n, [])]}
+        {
+            "id": n,
+            "features": features.get(n, []),
+            "deps": [{"pkg": d, "dep_kinds": [{"kind": k}]} for d, k in edges.get(n, [])],
+        }
         for n in packages
     ]
     return {"packages": pkgs, "resolve": {"root": root, "nodes": nodes}}
@@ -43,12 +49,21 @@ class AppCrateLicenseGate(unittest.TestCase):
         self.assertIn("cmux-rd-host", problems)
         self.assertIn("x264-sys", problems)
 
-    def test_openh264_source_is_refused(self):
+    def test_openh264_built_from_source_is_refused(self):
         m = metadata(
             {"cmux-app-ffi": "GPL-3.0-or-later", "openh264-sys2": "BSD-2-Clause"},
             {"cmux-app-ffi": [("openh264-sys2", None)]},
+            features={"openh264-sys2": ["source"]},
         )
         self.assertTrue(any("openh264" in p for p in gate.check(m, "cmux-app-ffi")))
+
+    def test_openh264_loading_ciscos_library_at_runtime_is_allowed(self):
+        m = metadata(
+            {"cmux-app-ffi": "GPL-3.0-or-later", "openh264-sys2": "BSD-2-Clause"},
+            {"cmux-app-ffi": [("openh264-sys2", None)]},
+            features={"openh264-sys2": ["libloading"]},
+        )
+        self.assertEqual(gate.check(m, "cmux-app-ffi"), [])
 
     def test_an_unlisted_gpl_crate_is_refused_but_build_and_dev_deps_are_ignored(self):
         m = metadata(

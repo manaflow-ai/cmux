@@ -61,6 +61,7 @@ final class FooterActionBrowserFooter: BrowserClaimView {
         super.init(model: context.model.defaults)
         let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count),
                                            font: OnboardingMetrics.captionFont, color: Palette.textTertiary)
+        counter.isHidden = !OnboardingFooter.showsCounter(count: context.count)
         let skip = OnboardingControl.plainButton(OnboardingStrings.skip, target: self, action: #selector(skipPressed))
         make = OnboardingControl.button(BrowserVariantStrings.makeDefault, target: self, action: #selector(requestClaim))
         let next = OnboardingControl.button(context.isLast ? OnboardingStrings.done : OnboardingStrings.continueButton,

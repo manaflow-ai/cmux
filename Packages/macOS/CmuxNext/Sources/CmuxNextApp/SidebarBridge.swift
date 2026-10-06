@@ -122,7 +122,8 @@ final class SidebarBridge {
             }
         }
         selectionObservation = Task { [weak self] in
-            for await id in Observations({ state.workspaceID }) {
+            // While a top page shows, no workspace row is selected (its item is).
+            for await id in Observations({ state.page == nil ? state.workspaceID : nil }) {
                 guard let self else { return }
                 let selected = id.map { SidebarWorkspaceID($0) }
                 if self.model.activeWorkspaceID != selected {

@@ -32,10 +32,14 @@ extension AgentPaneTransport {
         var setting: Setting?
         /// An attach of a session that is not the pane's yet (only a gesture brings it in).
         var attachSession: String?
+        /// A fork or handoff from a session outside the pane's scope (it uses the click's scope
+        /// credit), and the handoff it names, if any.
+        var foreignSource = false
+        var handoffId: String?
 
         /// No main-actor state decides this frame: it is checked, encoded and sent in one step.
         var free: Bool {
-            ticket == nil && !needsGesture && !needsPathCheck && setting == nil && attachSession == nil
+            ticket == nil && !needsGesture && !needsPathCheck && setting == nil && attachSession == nil && !foreignSource
         }
     }
 
@@ -225,6 +229,13 @@ extension AgentPaneTransport {
             guard let next = ids.begin(pageID: pageID, method: facts.method ?? "") else { return Self.refuseInFlight() }
             relayID = next
         }
+        // A fork or handoff from a session outside the scope: the click's scope credit, used only
+        // by a frame that goes out (every refusal above leaves it).
+        if facts.foreignSource, !gestures.consumeScope() {
+            if let relayID { ids.cancel(relayID) }
+            Self.logger.info("agent pane transport scope refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
+            return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
+        }
         if facts.isFirst {
             sentFirst = true
             localAppToken = nil
@@ -255,13 +266,14 @@ extension AgentPaneTransport {
     /// Records what a sent frame starts, or opens by the user's gesture. An attach alone adds
     /// nothing: only an attach the user made (a click in the session list) brings a session in.
     /// An attach is not a grant: it uses the click's scope-add credit, one session per click, and
-    /// leaves its grant credit for the prompt the same click sends.
+    /// leaves its grant credit for the prompt the same click sends. A fork or handoff from outside
+    /// the scope used that credit in ``decide(_:_:connection:socket:ids:)``; its handoff is the pane's.
     func noteSent(_ facts: Facts, relayID: Int?) {
         if let session = facts.attachSession, !sessions.contains(session), gestures.consumeScope() {
             sessions.add(session)
         }
-        if let method = facts.method, AcpmuxPaneSessions.starting.contains(method) {
-            sessions.sent(method: method, id: facts.pageID, params: [:])
+        if let method = facts.method {
+            sessions.sent(method: method, id: facts.pageID, handoff: facts.handoffId, owned: facts.foreignSource)
         }
     }
 }

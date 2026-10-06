@@ -38,6 +38,18 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.warnBeforeClosingAgentSession" : {
+      "default" : true,
+      "description" : "Ask before closing a terminal tab whose agent is still working.",
+      "title" : "Warn Before Closing a Working Agent",
+      "type" : "boolean"
+    },
+    "app.warnBeforeClosingTab" : {
+      "default" : true,
+      "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
+      "title" : "Warn Before Closing a Running Program",
+      "type" : "boolean"
+    },
     "appearance.backdropArt" : {
       "default" : "none",
       "description" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.",
