@@ -137,8 +137,9 @@ cmux-next shared headless browser, `session.configure` (item 4d): the user
 agent and extra headers are set per tab before its first request (a popup
 starts with its opener's) on the tabs the session created and did not keep;
 `tab.keep` and the session's end restore the browser's own. `proxy` opens a
-private browser context (its own cookie jar) for the tabs the session opens
-afterwards, popups included. Its tabs list the dataStore
+private browser context (its own cookie jar, starting with a one-way copy of
+the profile's cookies, like every store a session makes) for the tabs the
+session opens afterwards, popups included. Its tabs list the dataStore
 `<profile>/proxy-<n>` (stable while the store is open); the session's
 `cookies.*` without `targetId` use it, and with `targetId` the tab's own
 store. It closes at the session's end unless a tab in it (a popup too) was
@@ -150,7 +151,29 @@ holds the grants; no grant reaches a person's tab. A private store starts
 with a one-way copy of the profile's cookies (never written back), and closes
 like a proxy store. Clipboard grants are refused (`forbidden`); `null` or `[]`
 drops the grants and new tabs open in the profile again (a proxy store keeps
-them).
+them). A proxy set after permissions gets the same grants and the same cookie
+copy.
+
+Permission names are Playwright's. The classic column is what the classic
+WebKit backend (the dev driver's Playwright WebKit) accepts; a name not known
+to work there is `unsupported` on WebKit.
+
+| Name | Headless Chromium (CDP) | Classic WebKit |
+| --- | --- | --- |
+| `geolocation` | `geolocation` | supported |
+| `notifications` | `notifications` | supported |
+| `camera` | `videoCapture` | unsupported |
+| `microphone` | `audioCapture` | unsupported |
+| `midi`, `midi-sysex` | `midi`, `midiSysex` | unsupported |
+| `background-sync` | `backgroundSync` | unsupported |
+| `ambient-light-sensor`, `accelerometer`, `gyroscope`, `magnetometer` | `sensors` | unsupported |
+| `payment-handler` | `paymentHandler` | unsupported |
+| `storage-access` | `storageAccess` | unsupported |
+| `local-fonts` | `localFonts` | unsupported |
+| `idle-detection` | `idleDetection` | unsupported |
+| `window-management` | `windowManagement` | unsupported |
+| `screen-wake-lock` | `wakeLockScreen` | unsupported |
+| `clipboard-read`, `clipboard-write` | refused (`forbidden`) | unsupported |
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
