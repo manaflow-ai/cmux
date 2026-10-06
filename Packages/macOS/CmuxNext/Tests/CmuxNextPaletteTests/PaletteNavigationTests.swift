@@ -282,7 +282,13 @@ import Testing
             await Task.yield()
         }
         await model.settle()
-        for _ in 0..<100 { await Task.yield() }
+        // A replaced search is not awaited by `settle()`; it keeps its page,
+        // and so the provider, until the searcher answers it. A fixed number
+        // of yields ended first in the full parallel suite (#17601).
+        let deadline = ContinuousClock.now + .seconds(30)
+        while released != nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         #expect(released == nil)
     }
 
