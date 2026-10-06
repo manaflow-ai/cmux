@@ -802,6 +802,49 @@ test("frames: a click in a nested frame never lands on another element: a transf
   }
 });
 
+test("frames: the error for a transformed <iframe> names the CSS property and its value type, never the page's value text", async () => {
+  // The page writes the computed geometry value: its text can carry what
+  // the page chose (a path, numbers that encode a secret). The input error
+  // reaches the session, and a cut prefix of a secret-bearing value would
+  // pass native whole-value masking, so no part of the value is returned.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      const scene = async (frameStyle) => {
+        await page.goto(${JSON.stringify(server.origins.primary + "/")});
+        await page.evaluate((frameStyle) => {
+          document.body.style.margin = "0";
+          document.body.innerHTML = '<iframe style="position:absolute;left:0;top:0;width:600px;height:600px;border:0;' + frameStyle + '" srcdoc="<body style=margin:0><button style=position:absolute;left:40px;top:40px;width:100px;height:40px>Target</button></body>"></iframe>';
+        }, frameStyle);
+        await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+        try {
+          await page.frameLocator("iframe").getByRole("button", { name: "Target" }).click({ timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e);
+        }
+      };
+      const r = {
+        path: await scene("offset-path:path('M 0 0 L 4242424242 7373737373')"),
+        matrix: await scene("transform:matrix(0.5, 0.25, 0.125, 0.5, 0, 0)"),
+        rotate: await scene("rotate:13.5deg"),
+      };
+      console.log("@@" + JSON.stringify(r));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.match(r.path || "", /offset-path/, r.path);
+    assert.doesNotMatch(r.path || "", /4242|7373|M 0 0/, `the error carried the page's offset-path text: ${r.path}`);
+    assert.match(r.matrix || "", /transform/, r.matrix);
+    assert.doesNotMatch(r.matrix || "", /0\.25|0\.125/, `the error carried the page's transform text: ${r.matrix}`);
+    assert.match(r.rotate || "", /rotate/, r.rotate);
+    assert.doesNotMatch(r.rotate || "", /13\.5/, `the error carried the page's rotate text: ${r.rotate}`);
+  } finally {
+    await server.close();
+  }
+});
+
 test("pointer: a page that moves another frame over the target when the click's pointer arrives gets no press in that frame", async () => {
   // The click checks the hit target after the pointer moves there, then
   // moves it once more and presses. A page that puts another frame (or

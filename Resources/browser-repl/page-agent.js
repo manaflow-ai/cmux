@@ -2185,6 +2185,20 @@
     const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, null, null, 0, 1];
     return v.length === 16 && identity.every((want, i) => want === null || v[i] === want);
   }
+  // The kind of a computed geometry value, from a fixed list: the CSS
+  // function it is (`matrix()`, `path()`), or an angle, a number, a
+  // keyword. Never the value's text: the page writes it, so it can carry
+  // what the page chose, and a cut part of it would pass the native
+  // whole-value masking of the error that names it.
+  const GEOMETRY_FUNCTIONS = new Set(["matrix", "matrix3d", "path", "ray", "url", "circle", "ellipse", "inset", "polygon", "rect", "xywh", "shape"]);
+  function geometryValueType(value) {
+    const v = String(value).trim();
+    const fn = /^([a-z][a-z0-9-]*)\(/i.exec(v);
+    if (fn) return GEOMETRY_FUNCTIONS.has(fn[1].toLowerCase()) ? `${fn[1].toLowerCase()}()` : "a CSS function";
+    if (/^[-+]?[\d.][\d.e+-]*(deg|rad|grad|turn)$/i.test(v)) return "an angle";
+    if (/^[-+]?[\d.]/.test(v)) return /\s/.test(v) ? "a list of numbers" : "a number";
+    return "a keyword";
+  }
   function geometryChange(el) {
     for (let e = el; e; ) {
       if (e.namespaceURI === SVG_NS) return `<${tagOf(e)}> (an SVG drawing) holds it`;
@@ -2192,14 +2206,15 @@
       if (cs) {
         const set = (v) => v && v !== "none";
         const zoom = cs.zoom;
+        // The property and the kind of its value; never the value's text.
         let what = null;
-        if (!translationOnly(cs.transform)) what = `transform: ${cs.transform}`;
-        else if (set(cs.rotate)) what = `rotate: ${cs.rotate}`;
-        else if (set(cs.scale) && !/^1( 1){0,2}$/.test(cs.scale)) what = `scale: ${cs.scale}`;
-        else if (zoom && zoom !== "normal" && Number(zoom) !== 1) what = `zoom: ${zoom}`;
-        else if (set(cs.perspective)) what = `perspective: ${cs.perspective}`;
-        else if (set(cs.offsetPath)) what = `offset-path: ${cs.offsetPath}`;
-        if (what) return `<${tagOf(e)}>${e === el ? "" : " around it"} has ${what.length > 120 ? what.slice(0, 119) + "…" : what}`;
+        if (!translationOnly(cs.transform)) what = ["transform", cs.transform];
+        else if (set(cs.rotate)) what = ["rotate", cs.rotate];
+        else if (set(cs.scale) && !/^1( 1){0,2}$/.test(cs.scale)) what = ["scale", cs.scale];
+        else if (zoom && zoom !== "normal" && Number(zoom) !== 1) what = ["zoom", zoom];
+        else if (set(cs.perspective)) what = ["perspective", cs.perspective];
+        else if (set(cs.offsetPath)) what = ["offset-path", cs.offsetPath];
+        if (what) return `<${tagOf(e)}>${e === el ? "" : " around it"} has a ${what[0]} (${geometryValueType(what[1])})`;
       }
       const parent = e.assignedSlot || e.parentNode;
       e = parent && parent.nodeType === 11 ? parent.host || null : parent && parent.nodeType === 1 ? parent : null;

@@ -25,16 +25,110 @@ public enum BrowserReplEventRoute: Sendable, Equatable {
     case refused
 }
 
-/// The session whose input started a navigation that became a download,
-/// and where that navigation went (``BrowserReplTabOwnership/takeDownloadClaim(navigation:at:)``).
+/// A download's one record of who started it and where it goes: the
+/// session whose input started the navigation that became it (`sessionID`,
+/// ``BrowserReplTabOwnership/takeDownloadClaim(navigation:at:)``), where
+/// its request went (`source`), and the route decided once when WebKit
+/// picked its destination (``decide(_:)``). Its redirects
+/// (``redirect(_:)``) and its end (``end(_:)``) read this record; neither
+/// derives the route again from the session whose input is in flight then,
+/// or from the tab's live attachment. A route that names a session that is
+/// gone ends the download cancelled, never at the user's location.
 public struct BrowserReplDownloadClaim: Sendable, Equatable {
     public var sessionID: String?
     public var source: BrowserReplDownloadSource
+    /// Where the download goes; `nil` until WebKit picks its destination.
+    public private(set) var route: BrowserReplDownloadRoute?
+
+    /// What the session a download went to still holds of it, at a
+    /// redirect after the start (``redirect(_:)``).
+    public enum SessionCheck: Sendable, Equatable {
+        /// The session still has the download, and may read the new place.
+        case keeps
+        /// The session's policy or directories refuse the new place.
+        case refuses
+        /// The session left the tab, or the tab has no REPL state any more.
+        case gone
+    }
 
     public init(sessionID: String?, source: BrowserReplDownloadSource) {
         self.sessionID = sessionID
         self.source = source
     }
+
+    /// Records the route decided when WebKit picked the destination
+    /// (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``).
+    /// The first decision holds.
+    public mutating func decide(_ route: BrowserReplDownloadRoute) {
+        if self.route == nil { self.route = route }
+    }
+
+    /// Whether the download follows a redirect WebKit reports after its
+    /// start. A session's download whose session is gone is cancelled; one
+    /// its session refuses there is cancelled in the session's own tab
+    /// (`seesCredentials`: its creator) and goes to the user's location in
+    /// a user's tab. A download the user's is unaffected.
+    public mutating func redirect(_ check: SessionCheck) -> Bool {
+        switch route {
+        case nil:
+            return sessionID == nil
+        case .user:
+            return true
+        case .refused, .cancelled:
+            return false
+        case .session(let recipient):
+            switch check {
+            case .keeps:
+                return true
+            case .gone:
+                route = .cancelled
+                return false
+            case .refuses:
+                route = recipient.seesCredentials ? .cancelled : .user
+                return !recipient.seesCredentials
+            }
+        }
+    }
+
+    /// How the finished download goes on, given what its session's record
+    /// says now (`finish`; `nil` when the tab has no REPL state). Only a
+    /// download routed to the user goes to the user's location, or one its
+    /// session's policy refuses at the end in a user's tab. A session's
+    /// download its session no longer holds (it left; its teardown took the
+    /// record) is cancelled. One never routed goes on only when no
+    /// session's input started it.
+    public func end(_ finish: BrowserReplSessionDownloads.Finish?) -> BrowserReplDownloadEnd {
+        switch route {
+        case nil:
+            return sessionID == nil ? .user : .cancelled
+        case .user:
+            return .user
+        case .refused, .cancelled:
+            return .cancelled
+        case .session(let recipient):
+            switch finish {
+            case .session(let owner)? where owner == recipient.sessionID:
+                return .session
+            case .refused(let owner, _)? where owner == recipient.sessionID:
+                return recipient.seesCredentials ? .refused : .user
+            default:
+                return .cancelled
+            }
+        }
+    }
+}
+
+/// How a finished download goes on (``BrowserReplDownloadClaim/end(_:)``).
+public enum BrowserReplDownloadEnd: Sendable, Equatable {
+    /// The user's download location, or the save panel.
+    case user
+    /// The session got its path; it stays in the temporary directory.
+    case session
+    /// Its creating session's policy or directories refuse a place it came
+    /// from: the file is removed, and nobody gets it.
+    case refused
+    /// Its session is gone: the file is removed, and nobody gets it.
+    case cancelled
 }
 
 /// Where a download goes (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``).
@@ -557,8 +651,11 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// navigation action, unique for the tab) in `frame` as the frame's
     /// latest: the acting session's when exactly one session's input is in
     /// flight (``inputSessionID``), otherwise nobody's. A redirect
-    /// (`continuing` true) is the same navigation and keeps the session that
-    /// started it, also after its input ended.
+    /// (`continuing` true) is the same navigation: it keeps the starter and
+    /// the start time that navigation recorded (`nil`: the user's or the
+    /// page's own), whoever's input is in flight when WebKit reports it, so
+    /// another session's input never takes over a navigation it did not
+    /// start. A redirect of a navigation with no record is nobody's.
     public mutating func noteNavigationAction(
         _ navigation: Int,
         frame: String,
@@ -568,12 +665,18 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         at now: ContinuousClock.Instant = .now
     ) {
         let acting = inputSessionID.flatMap { attachedSessionIDs.contains($0) ? $0 : nil }
-        let previous = latestNavigations[frame].flatMap { now - $0.at > Self.navigationStartLifetime ? nil : $0 }
-        let sessionID = acting ?? (continuing ? previous?.sessionID : nil)
+        // The navigation a redirect continues: past its lifetime it claims
+        // nothing, unless its starter left (that claim stays, and cancels).
+        let previous = latestNavigations[frame].flatMap { start in
+            let departed = start.sessionID.map { !attachedSessionIDs.contains($0) } ?? false
+            return now - start.at > Self.navigationStartLifetime && !departed ? nil : start
+        }
+        let sessionID = continuing ? previous?.sessionID : acting
+        let startedAt = continuing ? previous?.at ?? now : now
         // A redirect goes on from where the navigation went; a new one starts over.
         var source = continuing ? previous?.source ?? BrowserReplDownloadSource(initiator: initiator) : BrowserReplDownloadSource(initiator: initiator)
         if let url { source.went(to: url) }
-        latestNavigations[frame] = NavigationStart(navigation: navigation, sessionID: sessionID, at: now, source: source)
+        latestNavigations[frame] = NavigationStart(navigation: navigation, sessionID: sessionID, at: startedAt, source: source)
         if latestNavigations.count > Self.maximumNavigationStarts,
            let oldest = latestNavigations.min(by: { $0.value.at < $1.value.at })?.key {
             latestNavigations.removeValue(forKey: oldest)

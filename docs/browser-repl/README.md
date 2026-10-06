@@ -618,7 +618,8 @@ rest. Measurements: [performance.md](performance.md).
   `page.waitForEvent("download")` and the like) goes to the session instead,
   only while the handler is registered; a download, though, only when the
   navigation it came from started while the page handled that session's
-  own call (a click, key or navigation; its response may come later), no
+  own call (a click, key or navigation; its response may come later, and
+  a redirect of it keeps that starter whoever's call is in flight then), no
   later navigation in that frame (also one to the same URL) replaced it,
   and the session's domain policy allows every address the download came
   through (redirects included, also one after the download started, and

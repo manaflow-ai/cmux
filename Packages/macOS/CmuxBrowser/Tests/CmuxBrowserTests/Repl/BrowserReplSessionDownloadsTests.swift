@@ -41,6 +41,86 @@ import Testing
         #expect(downloads.sessionID(of: "d2") == nil)
     }
 
+    /// A download's route is one record, decided when WebKit picks its
+    /// destination, that its redirects and its end read. A download that
+    /// went to a session whose session left before it ended (its teardown
+    /// took the ledger entry, or the tab's attachment is gone) is cancelled:
+    /// the missing session never makes it look like the user's.
+    @Test func aSessionsDownloadEndsCancelledOnceItsSessionLeftNeverTheUsers() throws {
+        let roots: (String) -> [String]? = Self.roots
+        var claim = BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed)
+        claim.decide(.session(Self.creator))
+        claim.decide(.user)
+        #expect(claim.route == .session(Self.creator), "a later decision replaced the recorded route")
+
+        var downloads = BrowserReplSessionDownloads()
+        downloads.add("d1", to: Self.creator, source: Self.allowed)
+        _ = downloads.sessionLeft("agent")
+        #expect(claim.end(downloads.finish("d1", policy: { _ in nil }, fileRoots: roots)) == .cancelled,
+                "a departed session's download went to the user")
+        #expect(claim.end(nil) == .cancelled, "a download of a tab whose attachment is gone went to the user")
+
+        // The live session gets its file.
+        downloads.add("d2", to: Self.creator, source: Self.allowed)
+        #expect(claim.end(downloads.finish("d2", policy: { _ in nil }, fileRoots: roots)) == .session)
+
+        // A refusal at the end: the creator's tab removes the file; a
+        // session's download in a user's tab keeps the user's location.
+        let blocked = try Self.blocking("allowed.test")
+        downloads.add("d3", to: Self.creator, source: Self.allowed)
+        #expect(claim.end(downloads.finish("d3", policy: blocked, fileRoots: roots)) == .refused)
+        let visitor = BrowserReplNetworkRecipient(sessionID: "visitor", seesCredentials: false)
+        var inUsersTab = BrowserReplDownloadClaim(sessionID: "visitor", source: Self.allowed)
+        inUsersTab.decide(.session(visitor))
+        downloads.add("d4", to: visitor, source: Self.allowed)
+        #expect(inUsersTab.end(downloads.finish("d4", policy: blocked, fileRoots: roots)) == .user)
+
+        // The user's download is the user's whatever the sessions do; one a
+        // session's input started that was never routed goes nowhere.
+        var users = BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed)
+        users.decide(.user)
+        #expect(users.end(nil) == .user)
+        #expect(BrowserReplDownloadClaim(sessionID: "agent", source: Self.allowed).end(nil) == .cancelled)
+        #expect(BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed).end(nil) == .user)
+        var cancelled = BrowserReplDownloadClaim(sessionID: "agent", source: Self.allowed)
+        cancelled.decide(.cancelled)
+        #expect(cancelled.end(nil) == .cancelled)
+    }
+
+    /// A redirect WebKit reports after the start reads the recorded route,
+    /// never the tab's current sessions: a session's download whose session
+    /// left is cancelled, and one its session's policy refuses there leaves
+    /// that session (cancelled in its own tab, the user's in a user's tab).
+    @Test func aRedirectAfterTheStartReadsTheRecordedRoute() {
+        var gone = BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed)
+        gone.decide(.session(Self.creator))
+        let followed1 = gone.redirect(.gone)
+        #expect(!followed1, "a departed session's download followed a redirect")
+        #expect(gone.route == .cancelled)
+
+        var own = BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed)
+        own.decide(.session(Self.creator))
+        let followed2 = own.redirect(.keeps)
+        #expect(followed2)
+        #expect(own.route == .session(Self.creator))
+        let followed3 = own.redirect(.refuses)
+        #expect(!followed3)
+        #expect(own.route == .cancelled)
+
+        let visitor = BrowserReplNetworkRecipient(sessionID: "visitor", seesCredentials: false)
+        var inUsersTab = BrowserReplDownloadClaim(sessionID: "visitor", source: Self.allowed)
+        inUsersTab.decide(.session(visitor))
+        let followed4 = inUsersTab.redirect(.refuses)
+        #expect(followed4)
+        #expect(inUsersTab.route == .user)
+
+        var users = BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed)
+        users.decide(.user)
+        let followed5 = users.redirect(.gone)
+        #expect(followed5, "the user's download was cancelled for a session's sake")
+        #expect(users.route == .user)
+    }
+
     @Test func aLaterRedirectToABlockedPlaceTakesTheDownloadAway() throws {
         let policy = try Self.blocking("blocked.test")
         var downloads = BrowserReplSessionDownloads()

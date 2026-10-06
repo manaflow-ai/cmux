@@ -241,6 +241,39 @@ import Testing
         #expect(ownership.takeDownloadStarter(navigation: 5, at: start + .seconds(9)) == "agent")
     }
 
+    /// A redirect is the navigation that started it going on: it keeps the
+    /// starter that navigation recorded, whoever's input is in flight when
+    /// WebKit reports the redirect. The user's navigation stays the user's
+    /// while another session clicks, and a session's stays that session's.
+    @Test func aRedirectKeepsTheStarterOfItsNavigation() {
+        let start = ContinuousClock.now
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.attach(sessionID: "other")
+        users.setHandledEvents([.download], for: "agent")
+        users.setHandledEvents([.download], for: "other")
+
+        // The user clicks a link that redirects; while the redirect is on
+        // its way, another session's input is in flight.
+        users.noteNavigationAction(1, frame: "main", url: "https://allowed.test/get", at: start)
+        users.beginInput(sessionID: "other")
+        users.noteNavigationAction(2, frame: "main", url: "https://allowed.test/file.zip", continuing: true, at: start + .seconds(1))
+        users.endInput(sessionID: "other")
+        let userClaim = users.takeDownloadClaim(responseInFrame: "main", at: start + .seconds(2))
+        #expect(userClaim?.sessionID == nil, "the user's redirected download went to \(String(describing: userClaim?.sessionID))")
+        #expect(users.downloadRecipient(startedBy: userClaim?.sessionID) == nil)
+
+        // A session's navigation redirects while another session's input is in flight.
+        users.beginInput(sessionID: "agent")
+        users.noteNavigationAction(3, frame: "main", url: "https://allowed.test/get", at: start + .seconds(3))
+        users.endInput(sessionID: "agent")
+        users.beginInput(sessionID: "other")
+        users.noteNavigationAction(4, frame: "main", url: "https://allowed.test/file.zip", continuing: true, at: start + .seconds(4))
+        users.endInput(sessionID: "other")
+        #expect(users.takeDownloadClaim(navigation: 4, at: start + .seconds(5))?.sessionID == "agent",
+                "a redirect took the starter of another session's input")
+    }
+
     /// A download the session's input started in a user's tab reaches it
     /// with the URL's credential values replaced (a signed or bearer URL
     /// can be replayed); the creator of a tab gets its own as written.

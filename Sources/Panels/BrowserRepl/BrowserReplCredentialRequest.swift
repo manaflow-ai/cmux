@@ -42,15 +42,16 @@ enum BrowserReplCredentialRequest {
     ///   as the tab's typed secrets; called after the user's Fill and the
     ///   checks, right before the fill. A refusal fills nothing.
     /// - Parameter stillAllowed: Whether the session that asks still drives
-    ///   the tab; checked again after the user's Fill, before anything is
-    ///   filled.
+    ///   the tab; checked again after the user's Fill, and once more in the
+    ///   main-actor turn in which WebKit gets the fill script, so no detach
+    ///   or reset can come between that check and the write.
     static func run(
         webView: WKWebView,
         frameInfo: WKFrameInfo?,
         params: [String: Any],
         fillSource: String?,
         record: @MainActor ([String: String]) throws -> Void,
-        stillAllowed: @MainActor () -> Bool
+        stillAllowed: @escaping @MainActor () -> Bool
     ) async -> [String: Any] {
         guard let fillSource else { return ["status": "unavailable"] }
         guard let origin = params["origin"] as? String,
@@ -103,7 +104,14 @@ enum BrowserReplCredentialRequest {
         // the origin the sheet named with the frame's document as it runs,
         // in the driver's world, and the document and elements with the ones
         // it bound, and fills nothing on a mismatch.
-        let filled = await runFill(fillSource, phase: "fill", binding: binding, fields: fieldArguments, values: values, origin: fieldsOrigin, webView: webView, frameInfo: frameInfo)
+        // The record above awaited nothing, but the call into WebKit below
+        // is one more step: the authority is checked again in the turn that
+        // hands WebKit the script, and a failed check fills nothing.
+        let filled = await runFill(
+            fillSource, phase: "fill", binding: binding, fields: fieldArguments, values: values, origin: fieldsOrigin,
+            webView: webView, frameInfo: frameInfo,
+            onlyIf: { !Task.isCancelled && stillAllowed() && currentOrigin(webView) == origin }
+        )
         return ["status": filled["status"] as? String ?? "page_changed"]
     }
 
@@ -118,7 +126,8 @@ enum BrowserReplCredentialRequest {
         values: [String: String],
         origin: String,
         webView: WKWebView,
-        frameInfo: WKFrameInfo?
+        frameInfo: WKFrameInfo?,
+        onlyIf: (@MainActor () -> Bool)? = nil
     ) async -> [String: Any] {
         let arguments: [String: Any] = [
             "__phase": phase,
@@ -133,10 +142,13 @@ enum BrowserReplCredentialRequest {
                 arguments: arguments,
                 in: frameInfo,
                 contentWorld: BrowserReplDriverWorld.world,
-                userGesture: false
+                userGesture: false,
+                onlyIf: onlyIf
             )
             guard let answer = result as? [String: Any], answer["status"] is String else { return ["status": "page_changed"] }
             return answer
+        } catch let error as BrowserReplDriverError where error.code == "cancelled" {
+            return ["status": "cancelled"]
         } catch {
             return ["status": "page_changed"]
         }

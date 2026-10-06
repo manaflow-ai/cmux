@@ -8694,8 +8694,17 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
             // A tab a REPL session created never keeps a download from a
             // place the session's domain policy or directories refuse, and
             // one a session's input started never outlives that session.
-            let keeps = self.replAttachment?()?.downloadDidStart(id: downloadID, startedBy: starter, source: source, url: response.url, suggestedFilename: safeFilename)
-                ?? BrowserReplTabAttachment.keepsDownloadWithoutSessions(startedBy: starter)
+            // The route is decided here, once, and recorded on the download:
+            // its redirects and its end read that record, never the tab's
+            // sessions at that later time.
+            let route = self.replAttachment?()?.downloadDidStart(id: downloadID, startedBy: starter, source: source, url: response.url, suggestedFilename: safeFilename)
+                ?? BrowserReplTabAttachment.routeWithoutSessions(startedBy: starter)
+            BrowserReplTabAttachment.decideDownloadRoute(route, of: download)
+            let keeps: Bool
+            switch route {
+            case .user, .session: keeps = true
+            case .refused, .cancelled: keeps = false
+            }
             #if DEBUG
             cmuxDebugLog("download.decideDestination file=<redacted> keeps=\(keeps)")
             #endif
@@ -8722,20 +8731,30 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
             let source = BrowserReplTabAttachment.downloadSource(of: download)
             notifyOnMain { [weak self] in
                 let allowed = self?.replAttachment?()?.allowsDownloadRedirect(startedBy: starter, source: source)
-                    ?? BrowserReplTabAttachment.keepsDownloadWithoutSessions(startedBy: starter)
+                    ?? (starter == nil)
                 decisionHandler(allowed ? .allow : .cancel)
             }
             return
         }
-        // After WebKit picked the destination the download may already be a
-        // session's: that decision is made again for this place.
+        // After WebKit picked the destination the download's recorded route
+        // decides: a session's download is judged for this place by the
+        // session it went to, and is cancelled when that session is gone.
         notifyOnMain { [weak self] in
-            let allowed = self?.replAttachment?()?.downloadRedirected(id: downloadID, to: request.url) ?? true
+            let check: BrowserReplDownloadClaim.SessionCheck
+            if case .session(let recipient)? = BrowserReplTabAttachment.downloadClaim(of: download).route {
+                check = self?.replAttachment?()?.downloadRedirectCheck(id: downloadID, to: request.url, recipient: recipient) ?? .gone
+            } else {
+                check = .keeps
+            }
+            let allowed = BrowserReplTabAttachment.downloadFollowsRedirect(download, check)
             decisionHandler(allowed ? .allow : .cancel)
         }
     }
 
     func downloadDidFinish(_ download: WKDownload) {
+        // The route recorded when WebKit picked the destination; the end
+        // reads it, never the tab's sessions after the deferred work below.
+        let claim = BrowserReplTabAttachment.downloadClaim(of: download)
         guard let info = removeState(for: download) else {
             #if DEBUG
             cmuxDebugLog("download.finished missing-state")
@@ -8759,21 +8778,29 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
                 self.onDownloadCancelled?(suggestedFilename, true, info.downloadID)
                 return
             }
-            if let attachment = self.replAttachment?(), attachment.keepsDownloadInTemporaryDirectory(id: info.downloadID) {
-                // `download.path()` reads the file where WebKit wrote it; the
-                // session, not a save panel, decides where it goes next. Every
-                // place it came from is judged again before the session gets it.
-                switch attachment.downloadDidFinish(id: info.downloadID, path: info.tempURL.path, error: nil) {
-                case .session:
-                    self.onDownloadSaved?(suggestedFilename, info.tempURL, true, info.downloadID)
-                    return
-                case .refused:
-                    try? FileManager.default.removeItem(at: info.tempURL)
-                    self.onDownloadFailed?(CocoaError(.fileReadNoPermission), true, info.downloadID)
-                    return
-                case .user:
-                    break
-                }
+            // `download.path()` reads the file where WebKit wrote it; the
+            // session, not a save panel, decides where it goes next. Every
+            // place it came from is judged again before the session gets it.
+            // A session's download whose session is gone (its teardown took
+            // its record, or the tab's REPL state is gone) is removed.
+            var finish: BrowserReplSessionDownloads.Finish?
+            if case .session? = claim.route {
+                finish = self.replAttachment?()?.downloadDidFinish(id: info.downloadID, path: info.tempURL.path)
+            }
+            switch claim.end(finish) {
+            case .session:
+                self.onDownloadSaved?(suggestedFilename, info.tempURL, true, info.downloadID)
+                return
+            case .refused:
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadFailed?(CocoaError(.fileReadNoPermission), true, info.downloadID)
+                return
+            case .cancelled:
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadCancelled?(suggestedFilename, true, info.downloadID)
+                return
+            case .user:
+                break
             }
 
             if filenameResolver.shouldAskWhereToSaveDownloads() {
@@ -8828,7 +8855,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         notifyOnMain { [weak self] in
             self?.onDownloadFailed?(error, true, downloadID)
             if let downloadID {
-                self?.replAttachment?()?.downloadDidFinish(id: downloadID, path: nil, error: error.localizedDescription)
+                self?.replAttachment?()?.downloadDidFail(id: downloadID, error: error.localizedDescription)
             }
         }
         #if DEBUG
