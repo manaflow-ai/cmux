@@ -8,14 +8,16 @@ import Testing
     /// The page reads the bindings the user has, not the catalog defaults.
     @Test func readsTheEffectiveBindings() {
         let registry = ActionRegistry.standard()
-        #expect(AgentPaneShortcuts.read(registry).labels == [
+        let header = AgentPaneModel.headerActions
+        let labels = { AgentPaneShortcuts.read(registry).labels.filter { !header.contains($0.key) } }
+        #expect(labels() == [
             "agentPane.searchChats": "⌘K", "palette.newAgentChat": "⌘I", "palette.toggleDictation": "⌃⌘V",
             "agentPane.permission.allowOnce": "⌥⌘1", "agentPane.permission.allowChat": "⌥⌘2",
             "agentPane.permission.deny": "⌥⌘3", "agentPane.permission.expand": "⌥⌘4",
         ])
         registry.setShortcutOverride(Shortcut("p", modifiers: [.command, .option]), for: "agentPane.searchChats")
         registry.setShortcutOverride(nil, for: "palette.toggleDictation")
-        #expect(AgentPaneShortcuts.read(registry).labels == [
+        #expect(labels() == [
             "agentPane.searchChats": "⌥⌘P", "palette.newAgentChat": "⌘I",
             "agentPane.permission.allowOnce": "⌥⌘1", "agentPane.permission.allowChat": "⌥⌘2",
             "agentPane.permission.deny": "⌥⌘3", "agentPane.permission.expand": "⌥⌘4",
@@ -23,6 +25,19 @@ import Testing
         // Copy chat link shows Copy Tab Link's key once the user binds one.
         registry.setShortcutOverride(Shortcut("l", modifiers: [.command, .option]), for: "palette.copySurfaceLink")
         #expect(AgentPaneShortcuts.read(registry).labels["palette.copySurfaceLink"] == "⌥⌘L")
+    }
+
+    /// The chat header's tools and menu rows show the catalog's keys.
+    @Test func readsTheHeaderActionBindings() {
+        let labels = AgentPaneShortcuts.read(ActionRegistry.standard()).labels
+        #expect(labels["splitRight"] == "⌘D")
+        #expect(labels["splitBrowserRight"] == "⌥⌘D")
+        #expect(labels["renameTab"] == "⌘R")
+        #expect(labels["closeTab"] == "⌘W")
+        #expect(labels["moveSurfaceToPaneRight"]?.hasSuffix("→") == true)
+        for id in AgentPaneModel.headerActions {
+            #expect(AgentPaneShortcuts.actions.contains(ActionID(rawValue: id)), "\(id)")
+        }
     }
 
     @Test func handsTheLabelsToThePageBridge() throws {
