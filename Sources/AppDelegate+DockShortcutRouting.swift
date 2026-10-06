@@ -137,6 +137,7 @@ extension KeyboardShortcutSettings.Action {
              .canvasDistributeHorizontally,
              .canvasDistributeVertically,
              .toggleRightSidebar,
+             .toggleDockMaximized,
              .findInDirectory,
              .openDiffViewer:
             .mainContainer

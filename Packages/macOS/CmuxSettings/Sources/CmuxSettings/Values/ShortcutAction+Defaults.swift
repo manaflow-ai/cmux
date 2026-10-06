@@ -192,6 +192,7 @@ extension ShortcutAction {
         case .sizeTerminalToMyWindow: return ShortcutStroke(key: "=", command: true, option: true, control: true)
         case .clearScreenKeepScrollback: return ShortcutStroke(key: "k", command: true, shift: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
+        case .toggleDockMaximized: return ShortcutStroke(key: "b", command: true, shift: true, option: true)
         case .fileExplorerOpenSelection: return ShortcutStroke(key: "\r")
         case .fileExplorerOpenSelectionFinderAlias: return ShortcutStroke(key: "↓", command: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)

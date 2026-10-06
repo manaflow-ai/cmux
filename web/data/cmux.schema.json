@@ -2506,6 +2506,7 @@
               "canvasDistributeHorizontally",
               "canvasDistributeVertically",
               "toggleFileExplorer",
+              "toggleDockMaximized",
               "fileExplorerOpenSelection",
               "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",

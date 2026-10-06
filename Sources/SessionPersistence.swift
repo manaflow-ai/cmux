@@ -1942,6 +1942,8 @@ struct SessionWindowSnapshot: Codable, Sendable {
     /// additive so older persisted snapshots decode unchanged.
     var configFrames: [SessionConfigFrameEntry]? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
+    /// Whether the right-sidebar Dock was maximized. Nil (older snapshots) means not maximized.
+    var rightSidebarDockMaximized: Bool? = nil
 }
 struct AppSessionSnapshot: Codable, Sendable {
     var version: Int

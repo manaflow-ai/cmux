@@ -1395,7 +1395,7 @@ struct ContentView: View {
             contentBounds: contentView.bounds,
             isLeftSidebarVisible: sidebarState.isVisible,
             leftDividerX: sidebarWidth,
-            isRightSidebarVisible: rightSidebarVisible,
+            isRightSidebarVisible: rightSidebarVisible && !isDockMaximized,
             rightDividerX: contentView.bounds.maxX - rightSidebarWidth
         )
         let mayActivate = sidebarResizerOcclusionResolver.bandMayActivate(
@@ -1791,12 +1791,13 @@ struct ContentView: View {
             ZStack {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
+                    let isPresentedWorkspace = isSelectedWorkspace && !isDockMaximized
                     // Never retain a live source workspace as a loading cover:
                     // that makes mount ownership depend on a later frame signal.
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: isSelectedWorkspace,
-                        isWorkspaceInputActive: isSelectedWorkspace,
+                        isWorkspaceVisible: isPresentedWorkspace,
+                        isWorkspaceInputActive: isPresentedWorkspace,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: isSelectedWorkspace ? 2 : 0,
@@ -1812,8 +1813,8 @@ struct ContentView: View {
                         }
                     )
                     .opacity(isSelectedWorkspace ? 1 : 0)
-                    .allowsHitTesting(isSelectedWorkspace)
-                    .accessibilityHidden(!isSelectedWorkspace)
+                    .allowsHitTesting(isPresentedWorkspace)
+                    .accessibilityHidden(!isPresentedWorkspace)
                     .zIndex(isSelectedWorkspace ? 2 : 0)
                 }
             }
@@ -1834,21 +1835,93 @@ struct ContentView: View {
     }
 
     private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
-        // The right-sidebar shell remains in the view tree so its frame can
-        // animate without SwiftUI insertion/removal. Cold hidden launches defer
-        // heavy mode content until the sidebar has been shown at least once.
-        return HStack(spacing: 0) {
+        mainContentWithRightSidebarPanel(appearance: appearance, maximizedInsetsLeftSidebar: false) {
             terminalContentWithSidebarDropOverlay(appearance: appearance)
-            rightSidebarPanelWithBackdrop(appearance: appearance)
         }
+    }
+
+    /// The right-sidebar shell remains in the view tree so its frame can
+    /// animate without SwiftUI insertion/removal. Cold hidden launches defer
+    /// heavy mode content until the sidebar has been shown at least once.
+    ///
+    /// The main area keeps the width it had before the Dock was maximized. A
+    /// maximized Dock widens over the main area instead of shrinking it, so
+    /// covered terminals keep their PTY size.
+    private func mainContentWithRightSidebarPanel<Main: View>(
+        appearance: WindowAppearanceSnapshot,
+        maximizedInsetsLeftSidebar: Bool,
+        @ViewBuilder main: () -> Main
+    ) -> some View {
+        let normalWidth = rightSidebarWidth
+        let reservedWidth = reservedRightSidebarWidth
+        let isMaximized = isDockMaximized
+        return ZStack(alignment: .trailing) {
+            HStack(spacing: 0) {
+                main()
+                Color.clear
+                    .frame(width: reservedWidth)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            GeometryReader { proxy in
+                rightSidebarPanelWithBackdrop(
+                    appearance: appearance,
+                    width: Self.rightSidebarPanelWidth(
+                        normalWidth: normalWidth,
+                        isDockMaximized: isMaximized,
+                        coverableWidth: proxy.size.width
+                    )
+                )
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .trailing)
+            }
+            .modifier(SidebarWidthLeadingPaddingModifier(
+                layout: sidebarLayout,
+                enabled: maximizedInsetsLeftSidebar && isMaximized && sidebarState.isVisible
+            ))
+        }
+    }
+
+    /// A maximized Dock fills the space right of the left sidebar; otherwise
+    /// the panel keeps its normal width.
+    nonisolated static func rightSidebarPanelWidth(
+        normalWidth: CGFloat,
+        isDockMaximized: Bool,
+        coverableWidth: CGFloat
+    ) -> CGFloat {
+        guard isDockMaximized, coverableWidth.isFinite else { return normalWidth }
+        return max(normalWidth, coverableWidth)
     }
 
     private var rightSidebarVisible: Bool {
         fileExplorerState.isVisible
     }
 
+    /// True while a maximized Dock covers the main area.
+    private var isDockMaximized: Bool {
+        fileExplorerState.isVisible && fileExplorerState.isDockMaximized
+    }
+
     private var rightSidebarWidth: CGFloat {
         rightSidebarVisible ? fileExplorerWidth : 0
+    }
+
+    private var reservedRightSidebarWidth: CGFloat {
+        Self.reservedRightSidebarWidth(
+            normalWidth: rightSidebarWidth,
+            isDockMaximized: isDockMaximized,
+            restoreTarget: fileExplorerState.dockMaximizeRestoreTarget
+        )
+    }
+
+    /// A Dock maximized from a hidden sidebar reserves nothing, so the main
+    /// area keeps its full width and no PTY resizes.
+    nonisolated static func reservedRightSidebarWidth(
+        normalWidth: CGFloat,
+        isDockMaximized: Bool,
+        restoreTarget: DockMaximizeRestoreTarget?
+    ) -> CGFloat {
+        guard isDockMaximized, restoreTarget?.isVisible == false else { return normalWidth }
+        return 0
     }
 
     private func sidebarBackdropLayer(
@@ -1892,9 +1965,9 @@ struct ContentView: View {
         }
     }
 
-    private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
-        let panel = sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
-            rightSidebarPanel(appearance: appearance)
+    private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot, width: CGFloat) -> some View {
+        let panel = sidebarPanelContainer(width: width, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
+            rightSidebarPanel(appearance: appearance, width: width)
         }
         .overlay(alignment: .leading) {
             if rightSidebarVisible {
@@ -1908,7 +1981,7 @@ struct ContentView: View {
         return panel
     }
 
-    private func rightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
+    private func rightSidebarPanel(appearance: WindowAppearanceSnapshot, width: CGFloat) -> some View {
         return RightSidebarPanelView(
             devicesModel: devicesModel,
             tabManager: tabManager,
@@ -1936,11 +2009,23 @@ struct ContentView: View {
                 #endif
                 _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
             },
+            onToggleDockMaximized: {
+                _ = AppDelegate.shared?.applyDockMaximize(.toggle, preferredWindow: observedWindow)
+            },
+            modeBarLeadingInset: isDockMaximized && !sidebarState.isVisible
+                ? Self.customTitlebarLeadingPadding(
+                    isFullScreen: isFullScreen,
+                    isSidebarVisible: false,
+                    sidebarWidth: 0,
+                    minimumSidebarWidth: minimumSidebarWidth,
+                    titlebarLeadingInset: titlebarLeadingInset
+                )
+                : 0,
             customSidebarDataContext: { now in
                 rightSidebarCustomSidebarDataContext(now: now)
             }
         )
-        .frame(width: rightSidebarWidth)
+        .frame(width: width)
         .clipped()
         .allowsHitTesting(rightSidebarVisible)
         .accessibilityHidden(!rightSidebarVisible)
@@ -2486,7 +2571,7 @@ struct ContentView: View {
             // the sidebar backdrop samples the window.
             layout = AnyView(
                 ZStack(alignment: .leading) {
-                    HStack(spacing: 0) {
+                    mainContentWithRightSidebarPanel(appearance: appearance, maximizedInsetsLeftSidebar: true) {
                         terminalContentWithSidebarDropOverlay(appearance: appearance)
                             .modifier(SidebarWidthLeadingPaddingModifier(
                                 layout: sidebarLayout,
@@ -2494,7 +2579,6 @@ struct ContentView: View {
                             ))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
-                        rightSidebarPanelWithBackdrop(appearance: appearance)
                     }
                     if sidebarState.isVisible {
                         sidebarPanelWithBackdrop(appearance: appearance)
@@ -2522,7 +2606,7 @@ struct ContentView: View {
                     }
                 }
                 .overlay(alignment: .leading) {
-                    if rightSidebarVisible {
+                    if rightSidebarVisible && !isDockMaximized {
                         rightSidebarResizerOverlay
                             .zIndex(1000)
                     }
@@ -2576,6 +2660,9 @@ struct ContentView: View {
 
                 WorkspaceTitlebarModeLayer {
                     workspaceTitlebarBand(appearance: appearance)
+                        .opacity(isDockMaximized ? 0 : 1)
+                        .allowsHitTesting(!isDockMaximized)
+                        .accessibilityHidden(isDockMaximized)
                         .zIndex(100)
                 }
             }
@@ -3374,6 +3461,12 @@ struct ContentView: View {
             syncFileExplorerDirectory()
         })
 
+        view = AnyView(view.onChange(of: isDockMaximized) { _, _ in
+            reconcileMountedWorkspaceIds()
+            schedulePortalGeometrySynchronize()
+            updateSidebarResizerBandState()
+        })
+
         view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
             tabManager.applyWindowBackdropModeForAllTabs(reason: "sidebarMatchTerminalBackgroundChanged")
             guard sidebarState.isVisible,
@@ -3548,9 +3641,13 @@ struct ContentView: View {
         let previousMountedIds = mountedWorkspaceIds
         mountedWorkspaceIds = resolvedMountedWorkspaceIds(tabs: currentTabs, selectedId: effectiveSelectedId)
         let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
+        var portalRenderingWorkspaceIds = Set(mountedWorkspaceIds)
+        if isDockMaximized, let effectiveSelectedId {
+            portalRenderingWorkspaceIds.remove(effectiveSelectedId)
+        }
         let portalRenderingChanges = WorkspacePortalRenderingPlan(
             previousStatesByWorkspaceId: lastReconciledPortalRenderingStatesByWorkspaceId,
-            mountedWorkspaceIds: Set(mountedWorkspaceIds), orderedWorkspaceIds: orderedTabIds
+            mountedWorkspaceIds: portalRenderingWorkspaceIds, orderedWorkspaceIds: orderedTabIds
         ).applying(to: &lastReconciledPortalRenderingStatesByWorkspaceId)
         let workspacesById = Dictionary(currentTabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for change in portalRenderingChanges {
@@ -7743,6 +7840,7 @@ struct ContentView: View {
             )
         }
         contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteDockMaximizeCommandContributions())
         contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -9069,6 +9167,9 @@ struct ContentView: View {
             registry.register(commandId: Self.commandPaletteRightSidebarModeCommandID(mode)) {
                 handleCommandPaletteRightSidebarMode(mode, observedWindow: observedWindow)
             }
+        }
+        registry.register(commandId: Self.commandPaletteToggleDockMaximizedCommandId) {
+            handleCommandPaletteToggleDockMaximized(observedWindow: observedWindow)
         }
         for descriptor in Self.commandPaletteRightSidebarToolPaneCommandDescriptors() {
             registry.register(commandId: descriptor.commandId) {

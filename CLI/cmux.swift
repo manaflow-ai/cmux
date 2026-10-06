@@ -21483,7 +21483,12 @@ struct CMUXCLI {
                                              renders a JS/Swift sidebar from
                                              ~/.config/cmux/sidebars as a right panel;
                                              the optional name picks which one.
-              mode                           Print {"visible":bool,"mode":string}
+              maximize                       Show the Dock and widen it over the main
+                                             area, up to the left sidebar
+              restore                        Return a maximized Dock to its width
+              toggle-maximize                Maximize or restore the Dock
+              mode                           Print {"visible":bool,"mode":string,
+                                             "maximized":bool}
               files|find|vault|sessions|feed|dock|cloud|devices|custom
                                              Alias for show + set + focus
 
@@ -21496,6 +21501,7 @@ struct CMUXCLI {
               cmux right-sidebar toggle
               cmux right-sidebar set find
               cmux right-sidebar set custom panel-info
+              cmux right-sidebar maximize
               cmux right-sidebar mode
             """)
         case "sidebar":
@@ -22446,7 +22452,7 @@ struct CMUXCLI {
         }
 
         switch action {
-        case "toggle", "show", "hide", "focus", "mode":
+        case "toggle", "show", "hide", "focus", "mode", "maximize", "restore", "toggle-maximize":
             guard parsed.positional.count == 1 else {
                 throw CLIError(message: String(localized: "cli.rightSidebar.error.unexpectedArguments", defaultValue: "right-sidebar \(action) received unexpected arguments"))
             }

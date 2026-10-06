@@ -133,6 +133,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       { id: "toggleSidebar", combos: [["⌘", "B"]], description: { en: "Toggle left sidebar", ja: "左サイドバーを切り替え" } },
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
+      { id: "toggleDockMaximized", combos: [["⌘", "⌥", "⇧", "B"]], description: { en: "Maximize or restore the Dock", ja: "Dockを最大化または元に戻す" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
       {
         id: "newBrowserWorkspace",

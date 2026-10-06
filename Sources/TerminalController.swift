@@ -790,7 +790,7 @@ class TerminalController {
         let parsed = RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args))
         guard case .success(let request) = parsed else { return false }
         switch request.command {
-        case .toggle, .show, .focus:
+        case .toggle, .show, .focus, .maximize, .restore, .toggleMaximize:
             return true
         case .setMode(_, let focus), .setCustomSidebar(_, let focus):
             return focus

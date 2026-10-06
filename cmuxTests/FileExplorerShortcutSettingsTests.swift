@@ -59,6 +59,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
         let expectedActions: [KeyboardShortcutSettings.Action] = [
             .focusRightSidebar,
             .toggleRightSidebar,
+            .toggleDockMaximized,
             .findInDirectory,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,
@@ -75,6 +76,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
         let expectedActions: [ShortcutAction] = [
             .focusRightSidebar,
             .toggleRightSidebar,
+            .toggleDockMaximized,
             .findInDirectory,
             .fileExplorerOpenSelection,
             .fileExplorerOpenSelectionFinderAlias,

@@ -176,6 +176,9 @@ final class MainWindowFocusController {
         if GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: panelId) {
             return true
         }
+        if fileExplorerState?.isDockMaximized == true {
+            return false
+        }
         switch intent {
         case .rightSidebar:
             return false

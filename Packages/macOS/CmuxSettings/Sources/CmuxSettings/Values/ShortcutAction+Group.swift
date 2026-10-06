@@ -37,7 +37,7 @@ extension ShortcutAction {
              .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
              .equalizeSplits, .resizePaneLeft, .resizePaneRight,
              .resizePaneUp, .resizePaneDown, .splitBrowserRight, .splitBrowserDown,
-             .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
+             .toggleRightSidebar, .toggleDockMaximized, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,

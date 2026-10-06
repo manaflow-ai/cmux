@@ -9,8 +9,21 @@ final class FileExplorerState: ObservableObject {
     private let defaults: UserDefaults
 
     @Published var isVisible: Bool {
-        didSet { persistVisibility() }
+        didSet {
+            persistVisibility()
+            if !isVisible { clearDockMaximize() }
+        }
     }
+
+    /// The Dock fills the window width beside the left sidebar, covering the
+    /// main area without resizing it. Implies `isVisible` and `.dock` mode.
+    /// Per window; persisted in the session snapshot, not in defaults.
+    @Published private(set) var isDockMaximized = false
+    /// The sidebar visibility and mode before maximizing, which restore returns to.
+    private(set) var dockMaximizeRestoreTarget: DockMaximizeRestoreTarget?
+    /// Whether restoring the Dock hands focus back to the main area, which
+    /// owned it when the Dock was maximized. Runtime-only.
+    var restoresMainFocusOnDockRestore = false
     /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
     /// person. Persisted as visible, so a narrow window neither changes the
     /// default for new windows nor the next launch. Set it before `isVisible`.
@@ -107,6 +120,38 @@ final class FileExplorerState: ObservableObject {
         setVisible(!isVisible)
     }
 
+    func setDockMaximized(_ maximized: Bool) {
+        guard isDockMaximized != maximized else { return }
+        if maximized {
+            let target = DockMaximizeRestoreTarget(isVisible: isVisible, mode: mode)
+            setVisible(true)
+            mode = .dock
+            guard isVisible, mode == .dock else { return }
+            dockMaximizeRestoreTarget = target
+            setDockMaximizedWithoutAnimation(true)
+            return
+        }
+        let target = dockMaximizeRestoreTarget
+        clearDockMaximize()
+        guard let target else { return }
+        if target.mode != .dock { mode = target.mode }
+        if !target.isVisible { setVisible(false) }
+    }
+
+    private func clearDockMaximize() {
+        dockMaximizeRestoreTarget = nil
+        guard isDockMaximized else { return }
+        setDockMaximizedWithoutAnimation(false)
+    }
+
+    private func setDockMaximizedWithoutAnimation(_ maximized: Bool) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isDockMaximized = maximized
+        }
+    }
+
     func setVisible(_ nextValue: Bool) {
         guard isVisible != nextValue else { return }
 
@@ -140,6 +185,7 @@ final class FileExplorerState: ObservableObject {
         }
         storedMode = nextMode
         defaults.set(nextMode.rawValue, forKey: Self.modeKey)
+        if nextMode != .dock { clearDockMaximize() }
     }
 
     private static func availableMode(
@@ -160,4 +206,9 @@ final class FileExplorerState: ObservableObject {
         if visible.contains(candidate) { return candidate }
         return visible.first ?? candidate
     }
+}
+
+struct DockMaximizeRestoreTarget: Equatable {
+    let isVisible: Bool
+    let mode: RightSidebarMode
 }

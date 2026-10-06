@@ -262,6 +262,7 @@
 		125E8DF7810040845590360B /* AppDelegate+CurrentWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E67CB4D64F9BB44F1E5794 /* AppDelegate+CurrentWork.swift */; };
 		631406BE1378338CDE24B38F /* AppDelegate+DisplayPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2830130F95FE58F35F5220A8 /* AppDelegate+DisplayPlacement.swift */; };
 		8777A0018777A0018777A001 /* AppDelegate+DockAttentionRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777A0028777A0028777A002 /* AppDelegate+DockAttentionRouting.swift */; };
+		D0C3AA000000000000000A01 /* AppDelegate+DockMaximize.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C3AA000000000000000A02 /* AppDelegate+DockMaximize.swift */; };
 		DCDC3000000000000000E001 /* AppDelegate+DockShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC3000000000000000E002 /* AppDelegate+DockShortcutRouting.swift */; };
 		DCDC1000000000000000C000 /* AppDelegate+DockSurfaceMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */; };
 		E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */; };
@@ -1908,6 +1909,7 @@
 		DCDC1000000000000000B009 /* DockControlDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00A /* DockControlDefinition.swift */; };
 		DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
+		4135B92878D931F6772A2C8F /* DockMaximizeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80A30803E8F11341C9FB41F6 /* DockMaximizeTests.swift */; };
 		D7529001A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7529002A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
 		D77800010000000000000001 /* DockPortalReconcileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77800010000000000000002 /* DockPortalReconcileTests.swift */; };
@@ -4831,6 +4833,7 @@
 		D6E67CB4D64F9BB44F1E5794 /* AppDelegate+CurrentWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CurrentWork.swift"; sourceTree = "<group>"; };
 		2830130F95FE58F35F5220A8 /* AppDelegate+DisplayPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DisplayPlacement.swift"; sourceTree = "<group>"; };
 		8777A0028777A0028777A002 /* AppDelegate+DockAttentionRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockAttentionRouting.swift"; sourceTree = "<group>"; };
+		D0C3AA000000000000000A02 /* AppDelegate+DockMaximize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockMaximize.swift"; sourceTree = "<group>"; };
 		DCDC3000000000000000E002 /* AppDelegate+DockShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockShortcutRouting.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DockSurfaceMove.swift"; sourceTree = "<group>"; };
 		E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+EqualizeSplitsShortcut.swift"; sourceTree = "<group>"; };
@@ -6326,6 +6329,7 @@
 		DCDC1000000000000000B00A /* DockControlDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinition.swift; sourceTree = "<group>"; };
 		DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinitionDecodingTests.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockEmptyView.swift; sourceTree = "<group>"; };
+		80A30803E8F11341C9FB41F6 /* DockMaximizeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockMaximizeTests.swift"; sourceTree = "<group>"; };
 		D7529002A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPaneDropUnfocusedRoutingTests.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
 		D77800010000000000000002 /* DockPortalReconcileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPortalReconcileTests.swift; sourceTree = "<group>"; };
@@ -11739,6 +11743,7 @@
 				DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */,
 				D81390020000000000000002 /* DockSplitStore+ShortcutCommands.swift */,
 				DCDC1000000000000000C001 /* AppDelegate+DockSurfaceMove.swift */,
+				D0C3AA000000000000000A02 /* AppDelegate+DockMaximize.swift */,
 				A5C01700000000000000000E /* AppDelegate+AccountSignInWorkspace.swift */,
 				DCDC1000000000000000C021 /* DockScope.swift */,
 				904090409040904090409044 /* DockSplitContentView.swift */,
@@ -13438,6 +13443,7 @@
 				50344B92A8552212731CAE50 /* CoderouterCLIAccountReaderTests.swift */,
 				87830970BF70E00C4E0C9D77 /* CloudTreeTestSupport.swift */,
 				3D3B724235A7A6C21D3D5F25 /* NewMachineSheetLayoutTests.swift */,
+				80A30803E8F11341C9FB41F6 /* DockMaximizeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14415,6 +14421,7 @@
 				125E8DF7810040845590360B /* AppDelegate+CurrentWork.swift in Sources */,
 				631406BE1378338CDE24B38F /* AppDelegate+DisplayPlacement.swift in Sources */,
 				8777A0018777A0018777A001 /* AppDelegate+DockAttentionRouting.swift in Sources */,
+				D0C3AA000000000000000A01 /* AppDelegate+DockMaximize.swift in Sources */,
 				DCDC3000000000000000E001 /* AppDelegate+DockShortcutRouting.swift in Sources */,
 				DCDC1000000000000000C000 /* AppDelegate+DockSurfaceMove.swift in Sources */,
 				E3309A01 /* AppDelegate+EqualizeSplitsShortcut.swift in Sources */,
@@ -17821,6 +17828,7 @@
 				9648DEAD0000000000000002 /* DiffViewerURLSchemeHandlerLifecycleTests.swift in Sources */,
 				1AB92F80BD2D1FAB498887A5 /* DiffViewerViewedFilesStoreTests.swift in Sources */,
 				DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */,
+				4135B92878D931F6772A2C8F /* DockMaximizeTests.swift in Sources */,
 				D7529001A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift in Sources */,
 				D77800010000000000000001 /* DockPortalReconcileTests.swift in Sources */,
 				8777D0018777D0018777D001 /* DockRuntimeParityTests.swift in Sources */,

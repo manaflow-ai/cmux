@@ -503,10 +503,11 @@ extension ControlCommandCoordinator {
         switch resolution {
         case .ok:
             return "OK"
-        case .state(let visible, let modeRawValue):
+        case .state(let visible, let modeRawValue, let maximized):
             return ControlResponseEncoder().encode(.object([
                 "visible": .bool(visible),
                 "mode": .string(modeRawValue),
+                "maximized": .bool(maximized),
             ]))
         case .failure(let message):
             return message
