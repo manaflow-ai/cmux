@@ -13,6 +13,7 @@
   "smoke": "PASSED 2026-10-06T00:06:55Z (2 clones, agent bind probe, resize probe)",
   "worker": "development Worker cb744d0a-a2a7-412f-af46-4f02e9938c6b boots this snapshot (backend lead, 2026-10-06)",
   "previous": "cmuxnp-dev-vmimg-auto3-1526e78 (sh-6d6e1173d5a94684b9b5b4ab5891f441): rollback, kept",
-  "kept_not_deleted": "cmuxnp-dev-vmimg-auto1-8d111c8 (sh-99d84130836649b4b1b746a41f57b5f9): delete only after the coordinator's OK",
-  "backend_var": "CLOUD_FREESTYLE_SNAPSHOT for ENVIRONMENT=development (backend lead sets it; prefix cmuxnp-dev-vmimg- is enforced)"
+  "backend_var": "CLOUD_FREESTYLE_SNAPSHOT for ENVIRONMENT=development (backend lead sets it; prefix cmuxnp-dev-vmimg- is enforced)",
+  "deleted": "cmuxnp-dev-vmimg-auto1-8d111c8 (sh-99d84130836649b4b1b746a41f57b5f9) deleted 2026-10-06 by exact id after the coordinator's OK (0 dev machine rows and 0 Freestyle VMs used it)",
+  "also_kept": "cmuxnp-dev-vmimg-auto4-71d9a47 (sh-e4aab9ea589146abb98e356574ffe2de), superseded by auto5"
 }
