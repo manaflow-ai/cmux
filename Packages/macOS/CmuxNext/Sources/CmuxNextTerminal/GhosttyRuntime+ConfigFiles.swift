@@ -31,7 +31,7 @@ extension GhosttyRuntime {
     /// Ghostty's macOS search locations, including both spellings accepted by
     /// older and newer releases. This deliberately includes missing files so
     /// a first save is observed without restarting cmux.
-    nonisolated static func defaultConfigCandidatePaths(
+    public nonisolated static func defaultConfigCandidatePaths(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
         applicationSupportDirectory: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
         environment: [String: String] = ProcessInfo.processInfo.environment
