@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
@@ -90,6 +91,27 @@ struct SidebarMappingTests {
         let row = SidebarMapping.shared.row(beta, machine: .local)
         #expect(row.kind == .harness)
         #expect(row.kindBrand == "claude")
+    }
+
+    /// A tab still on the New Tab page lists as a new tab (the registry's
+    /// new-tab icon), not as an agent chat; the workspace row's own kind is
+    /// unchanged.
+    @Test func aNewTabPageTabListsAsANewTab() throws {
+        let store = try BridgeFixture.store()
+        let beta = try #require(store.workspaces.first { $0.displayName == "beta" })
+        let front = try #require(beta.screens.flatMap(\.panes).max { $0.focusedAt < $1.focusedAt }?.tabs.first)
+        let line = """
+        {"surface":\(front.surface.rawValue),"kind":"conversation","browser_renderer":"frontend","title":"about:blank",
+         "conversation":{"agent_session":{"host":"install:mac-1","session":"s-1","harness":"claude"}}}
+        """
+        front.update(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
+        let chat = SidebarMapping.shared.row(beta, machine: .local)
+        #expect(chat.tabs.first { $0.id == TabID(front.id) }?.kind == .agentChat)
+        let page = SidebarMapping.shared.row(beta, machine: .local, newTabPages: [front.id])
+        let listed = try #require(page.tabs.first { $0.id == TabID(front.id) })
+        #expect(listed.kind == .newTab)
+        #expect(listed.kind.icon == .tabNew)
+        #expect(page.kind == chat.kind)
     }
 
     /// The window's own tab selection picks the tab, over the daemon's default.
