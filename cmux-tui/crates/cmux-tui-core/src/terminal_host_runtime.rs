@@ -6390,6 +6390,7 @@ mod unix {
     mod tests {
         mod clipboard_read;
         mod host_fixture;
+        mod parser_order;
         use super::*;
         use cmux_pty::Child;
         use host_fixture::{test_host_shared, test_host_shared_with};
