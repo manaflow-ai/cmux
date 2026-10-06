@@ -1401,3 +1401,83 @@ fn headless_leases_follow_the_contract_and_go_with_the_tab() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+/// The proxy store (driver-protocol.md `session.configure`, `cookies.*`,
+/// `tabs.list`): its tabs, popups included, list one dataStore of their
+/// own; cookies.* without a targetId use the session's proxy store; a kept
+/// tab in it (also a popup) keeps the store open after the session ends.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_proxy_store_is_named_used_by_cookies_and_kept_with_its_tabs() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let s = headless_session(&source, &browsers, "s");
+    let open_tab = |url: String| {
+        s.call("tabs.open", &json!({"url": url})).unwrap()["targetId"].as_str().unwrap().to_owned()
+    };
+    let plain = open_tab(format!("{origin}/second?plain"));
+    s.call("session.configure", &json!({"proxy": {"server": origin.clone()}})).unwrap();
+    let private = open_tab(format!("{origin}/second?private"));
+    s.call(
+        "frame.evaluate",
+        &json!({"targetId": private, "world": "page",
+            "source": format!("() => {{ document.cookie = 'brepl_store=private; path=/'; window.open('{origin}/second?popup'); return 1; }}")}),
+    )
+    .unwrap();
+    let store_of = |session: &cmux_browser_host::headless_source::HeadlessSession, suffix: &str| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let tabs = session.call("tabs.list", &json!({})).unwrap();
+            if let Some(tab) = tabs
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["url"].as_str().unwrap_or("").ends_with(suffix))
+            {
+                return (tab["targetId"].as_str().unwrap().to_owned(), tab["dataStore"].clone());
+            }
+            assert!(Instant::now() < deadline, "no tab {suffix}: {tabs}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    let (popup, popup_store) = store_of(&s, "?popup");
+    let (_, private_store) = store_of(&s, "?private");
+    let (_, plain_store) = store_of(&s, "?plain");
+    assert_eq!(plain_store, "agent");
+    assert_ne!(private_store, plain_store, "the proxy store has its own name");
+    assert_eq!(popup_store, private_store, "the popup is in its opener's store");
+    let names = |cookies: Value| -> Vec<String> {
+        cookies
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| format!("{}={}", c["name"].as_str().unwrap(), c["value"].as_str().unwrap()))
+            .collect()
+    };
+    let session_cookies = names(s.call("cookies.get", &json!({"urls": [origin.clone()]})).unwrap());
+    assert!(session_cookies.contains(&"brepl_store=private".to_owned()), "{session_cookies:?}");
+    let plain_cookies =
+        names(s.call("cookies.get", &json!({"urls": [origin.clone()], "targetId": plain})).unwrap());
+    assert!(!plain_cookies.contains(&"brepl_store=private".to_owned()), "{plain_cookies:?}");
+    // Keep only the popup: the store must outlive the session for it.
+    s.call("tab.keep", &json!({"targetId": popup})).unwrap();
+    s.end_session();
+    drop(s);
+    let t = headless_session(&source, &browsers, "t");
+    let (kept, _) = store_of(&t, "?popup");
+    let cookie = t
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": kept, "world": "page", "source": "() => document.cookie"}),
+        )
+        .unwrap();
+    assert_eq!(cookie, "brepl_store=private", "the kept popup kept its store");
+}
