@@ -19,7 +19,7 @@ import Testing
         for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
-    @Test func twoStepsWithAccountsOneWithout() {
+    @Test func twoStepsWithAccountsOneWithout() async {
         #expect(OnboardingModel(services: MockOnboardingServices()).steps == [.importData])
         let services = MockOnboardingServices()
         services.accountsView = NSView()
@@ -30,6 +30,8 @@ import Testing
         model.back()
         #expect(model.step == .accounts)
         model.next()
+        model.next()  // Find Browsers (LAUNCH-NO-TCC-PROMPTS)
+        await settle { model.importer.phase == .ready }
         model.next()
         #expect(services.ended == true && model.ended)
     }

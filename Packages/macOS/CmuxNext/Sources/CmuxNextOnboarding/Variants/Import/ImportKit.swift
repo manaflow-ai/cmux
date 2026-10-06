@@ -20,7 +20,7 @@ enum ImportKit {
     /// nothing found. Nil once there is a list.
     static func emptyText(_ model: ImportStepModel) -> String? {
         switch model.phase {
-        case .idle: OnboardingStrings.findBrowsersHint
+        case .idle: OnboardingStrings.notSearched
         case .detecting: OnboardingStrings.detecting
         default: model.profiles.isEmpty ? OnboardingStrings.noBrowsers : nil
         }
@@ -31,6 +31,7 @@ enum ImportKit {
         switch model.phase {
         case .importing(let progress): progress.map { OnboardingStrings.importing(OnboardingStrings.profileName($0.profile)) } ?? ""
         case .failed(let message): message
+        case .idle: OnboardingStrings.findBrowsersHint
         default: !model.profiles.isEmpty && model.kinds.contains(.cookies) ? OnboardingStrings.keychainNote : ""
         }
     }

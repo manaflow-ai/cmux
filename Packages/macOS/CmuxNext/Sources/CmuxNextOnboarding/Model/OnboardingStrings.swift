@@ -40,6 +40,8 @@ enum OnboardingStrings {
     }
     static var detecting: String { String(localized: "onboarding.import.detecting", defaultValue: "Looking for browsers…", bundle: .module) }
     static var findBrowsers: String { String(localized: "onboarding.import.findBrowsers", defaultValue: "Find Browsers", bundle: .module) }
+    /// Where the browser list goes before Find Browsers ran (as short as "Looking for browsers…").
+    static var notSearched: String { String(localized: "onboarding.import.notSearched", defaultValue: "Not looked for yet.", bundle: .module) }
     static var findBrowsersHint: String {
         String(localized: "onboarding.import.findBrowsersHint",
                defaultValue: "Find Browsers looks for bookmarks, history and sign-ins to bring over. macOS may ask first.", bundle: .module)
