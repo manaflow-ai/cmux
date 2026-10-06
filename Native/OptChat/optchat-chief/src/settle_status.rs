@@ -21,10 +21,31 @@ impl SettleStatus {
 
     /// A turn still waits: write the built and total view lines, or remove
     /// the file once nothing is unbuilt.
-    pub fn waiting(&self, _status: &Status) {}
+    pub fn waiting(&self, status: &Status) {
+        if status.unbuilt == 0 {
+            return self.clear();
+        }
+        let body = serde_json::json!({
+            "built": status.view_lines.saturating_sub(status.unbuilt),
+            "total": status.view_lines,
+        });
+        // Through a temporary file and a rename: the app never reads half a file.
+        let tmp = self.path.with_extension("json.tmp");
+        let written = self
+            .path
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| std::fs::write(&tmp, body.to_string()))
+            .and_then(|()| std::fs::rename(&tmp, &self.path));
+        if written.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
 
     /// Nothing waits (settled, shut down, or a host start after a crash).
-    pub fn clear(&self) {}
+    pub fn clear(&self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 #[cfg(test)]
