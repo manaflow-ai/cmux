@@ -753,6 +753,14 @@ class GitHub:
                       if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
                       and run.get("status") == "pending")
 
+    def newer_push_runs(self, path: str, run_id: int, branch: str) -> list[int]:
+        """Ids of `path`'s push runs on `branch` newer than `run_id` and not cancelled (one request)."""
+        workflow = path.rsplit("/", 1)[-1]
+        data = self.request("GET", f"/actions/workflows/{workflow}/runs?branch={branch}&event=push&per_page=20")
+        return sorted(int(run.get("id") or 0) for run in (data or {}).get("workflow_runs") or []
+                      if isinstance(run, Mapping) and int(run.get("id") or 0) > run_id
+                      and run.get("event") == "push" and run.get("conclusion") != "cancelled")
+
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
@@ -809,6 +817,9 @@ class Target:
     # root runners after compile admission (LATE_PLACEMENT=1); the picker placed none.
     late: bool = False
     attempt_started_at: dt.datetime | None = None
+    # A side lane's push run: its branch. Push runs of a side lane may each hold
+    # their own concurrency group, so a newer push does not cancel this one.
+    push_branch: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -858,8 +869,9 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
                       attempt_started_at=attempt_started)
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
+        push_branch = str(run.get("head_branch") or "") if run.get("event") == "push" else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
-                      attempt_started_at=attempt_started)
+                      attempt_started_at=attempt_started, push_branch=push_branch)
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
@@ -1070,8 +1082,15 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         if newer:
             return f"a newer nightly run on {MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
         return ""
+    if target.push_branch:
+        # Not the branch head: a head commit outside the workflow's paths has no
+        # run, and the newest push run that does cover the branch must finish.
+        newer = read(lambda: api.newer_push_runs(target.path, target.run_id, target.push_branch), sleep, log)
+        if newer:
+            return f"a newer push run on {target.push_branch} ({newer[-1]}) covers the branch instead"
+        return ""
     if (target.e2e or target.side) and not target.pr_number:
-        return ""  # a dispatch, push or schedule has no head to move; a newer run cancels it by concurrency
+        return ""  # a dispatch or schedule has no head to move
     if target.main:
         head = read(lambda: api.branch_head(MAIN_BRANCH), sleep, log)
         if head != target.head_sha:
@@ -1103,10 +1122,10 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     # A stuck later attempt re-runs its failed jobs too, but is no refusal.
     keep_main = target.main and refusal
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
-    if moved and (target.main or target.nightly):
+    if moved and (target.main or target.nightly or target.push_branch):
         # Main's stuck run holds its concurrency group, so nothing newer can
         # start until it finishes: cancel it, and its completion dispatches
-        # the new HEAD.
+        # the new HEAD. A superseded push run only holds a slot the newer run needs.
         run = read(lambda: api.run(target.run_id), sleep, log)
         if not run:
             return f"not rescued: the run could not be read ({moved})"
