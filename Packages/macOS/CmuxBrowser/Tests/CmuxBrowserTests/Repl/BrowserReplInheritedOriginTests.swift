@@ -78,6 +78,27 @@ struct BrowserReplInheritedOriginTests {
         }
     }
 
+    @Test("A blocked frame cannot open a window, whatever its URL")
+    func blockedOpenersCannotOpenWebPopups() throws {
+        let prohibiting = try policy(prohibited: ["evil.example"])
+        for raw in ["https://docs.example.com/?leak=1", "http://docs.example.com/", "blob:https://docs.example.com/6f1c"] {
+            let url = try #require(URL(string: raw))
+            #expect(prohibiting.popupBlockReason(url, allowlist: open, opener: blockedDocument) != nil, "\(raw) from a blocked frame opened")
+            #expect(prohibiting.popupBlockReason(url, allowlist: open, opener: allowedDocument) == nil, "\(raw) from an allowed page was refused")
+            let route = BrowserReplPopupRoute(url: url, openerCreatedBySession: true, creatorPolicy: prohibiting, allowlist: open, opener: blockedDocument)
+            if case .session = route { Issue.record("\(raw) from a blocked frame went to the sessions") }
+            let input = BrowserReplPopupRoute(
+                url: url,
+                openerCreatedBySession: false,
+                creatorPolicy: BrowserReplDomainPolicy(),
+                inputSession: (id: "agent", policy: prohibiting),
+                allowlist: open,
+                opener: blockedDocument
+            )
+            if case .inputSession = input { Issue.record("\(raw) from a blocked frame in a user's tab went to the session") }
+        }
+    }
+
     @Test("An about:blank popup (or one with no URL) inherits its opener's origin")
     func popupsInheritTheOpenersOrigin() throws {
         let prohibiting = try policy(prohibited: ["evil.example"])
