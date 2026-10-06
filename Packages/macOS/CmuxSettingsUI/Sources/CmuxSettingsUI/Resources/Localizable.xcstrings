@@ -7212,6 +7212,221 @@
           }
         }
       }
+    },
+    "settings.agentSession.renderer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Session Renderer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renderer für Agentensitzungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rendu de session agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عارض جلسة الوكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renderizador de sesiones de agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理工作階段轉譯器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理会话渲染器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션 렌더러"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションレンダラー"
+          }
+        }
+
+      }
+    },
+    "settings.agentSession.renderer.native": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native"
+          }
+        },
+        "de": {
+          "stringUnit": { "state": "translated", "value": "Nativ" }
+        },
+        "fr": {
+          "stringUnit": { "state": "translated", "value": "Natif" }
+        },
+        "ar": {
+          "stringUnit": { "state": "translated", "value": "أصلي" }
+        },
+        "es": {
+          "stringUnit": { "state": "translated", "value": "Nativo" }
+        },
+        "zh-Hant": {
+          "stringUnit": { "state": "translated", "value": "原生" }
+        },
+        "zh-Hans": {
+          "stringUnit": { "state": "translated", "value": "原生" }
+        },
+        "ko": {
+          "stringUnit": { "state": "translated", "value": "네이티브" }
+        },
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "ネイティブ" }
+        }
+      }
+    },
+    "settings.agentSession.renderer.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose the native pane or the TypeScript React renderer for new agent sessions."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie für neue Agentensitzungen den nativen Bereich oder den TypeScript-React-Renderer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez le panneau natif ou le rendu TypeScript React pour les nouvelles sessions agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر اللوحة الأصلية أو عارض TypeScript React لجلسات الوكلاء الجديدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige el panel nativo o el renderizador TypeScript React para nuevas sesiones de agente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為新的代理工作階段選擇原生窗格或 TypeScript React 轉譯器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为新的代理会话选择原生窗格或 TypeScript React 渲染器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 에이전트 세션에 네이티브 창 또는 TypeScript React 렌더러를 선택합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいエージェントセッションでネイティブペインまたはTypeScript Reactレンダラーを選択します。"
+          }
+        }
+
+      }
+    },
+    "settings.agentSession.renderer.typescript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript (React)"
+          }
+        }
+
+      }
     }
   },
   "version": "1.0"

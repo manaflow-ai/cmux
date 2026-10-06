@@ -10621,7 +10621,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func newAgentSessionSurface(
         inPane paneId: PaneID,
         providerID: AgentSessionProviderID = .codex,
-        rendererKind: AgentSessionRendererKind,
+        rendererKind: AgentSessionRendererKind? = nil,
         workingDirectory: String? = nil,
         acpmuxSessionId: String? = nil,
         focus: Bool? = nil,
@@ -10642,7 +10642,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         let agentPanel = AgentSessionPanel(
             workspaceId: id,
-            rendererKind: rendererKind,
+            rendererKind: rendererKind ?? .configured(),
             initialProviderID: providerID,
             workingDirectory: directory,
             acpmuxSessionId: acpmuxSessionId

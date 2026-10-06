@@ -566,6 +566,21 @@ enum CmuxEmbeddedConfigSchema {
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
+        "agentSession": {
+          "x-cmux-scopes": ["global"],
+          "title": "agentSession",
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Agent session pane renderer settings.",
+          "properties": {
+            "renderer": {
+              "type": "string",
+              "enum": ["native", "typescript"],
+              "default": "native",
+              "description": "Renderer for new agent session panes. TypeScript uses the React web renderer over the acpmux bridge."
+            }
+          }
+        },
         "windowTitleTemplate": {
           "type": "string",
           "default": "",

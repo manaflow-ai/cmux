@@ -5280,7 +5280,7 @@ class TerminalController {
             default:
                 return (
                     .codex,
-                    .react,
+                    .native,
                     .err(
                         code: "invalid_params",
                         message: "Invalid provider (codex|claude|opencode)",
@@ -5295,6 +5295,10 @@ class TerminalController {
         let rendererKind: AgentSessionRendererKind
         if let rendererRaw {
             switch v2NormalizedToken(rendererRaw) {
+            case "native":
+                rendererKind = .native
+            case "typescript", "ts":
+                rendererKind = .typescript
             case "react":
                 rendererKind = .react
             case "solid":
@@ -5302,16 +5306,16 @@ class TerminalController {
             default:
                 return (
                     providerID,
-                    .react,
+                    .native,
                     .err(
                         code: "invalid_params",
-                        message: "Invalid renderer (react|solid)",
+                        message: "Invalid renderer (native|typescript|react|solid)",
                         data: ["renderer": rendererRaw]
                     )
                 )
             }
         } else {
-            rendererKind = .react
+            rendererKind = .configured()
         }
 
         return (providerID, rendererKind, nil)

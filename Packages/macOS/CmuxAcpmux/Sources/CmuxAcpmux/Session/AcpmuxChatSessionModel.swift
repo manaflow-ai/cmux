@@ -129,6 +129,15 @@ public final class AcpmuxChatSessionModel {
         }
     }
 
+    /// Returns the daemon's authenticated WebSocket endpoint for a direct web renderer.
+    /// The model still owns daemon startup and reconnect; the web view owns the ACP stream.
+    public func webSocketEndpoint() async throws -> AcpmuxWebSocketEndpoint {
+        guard let api else {
+            throw JSONRPCError(code: -32001, message: "acpmux is not connected")
+        }
+        return try await api.webSocketEndpoint()
+    }
+
     /// Disconnects and stops reconnecting.
     public func stop() {
         connectionTask?.cancel()
@@ -185,6 +194,17 @@ public final class AcpmuxChatSessionModel {
         resetTranscript()
         guard let api else { return }
         try? await attach(newSessionId, api: api, resume: false)
+    }
+
+    /// Records a session selected by a secondary client without attaching this model.
+    ///
+    /// The React renderer owns its own acpmux connection. This method keeps the panel's
+    /// persisted selection current while leaving the native model's connection untouched.
+    /// - Parameter sessionId: The acpmux session id to persist.
+    public func rememberSession(sessionId newSessionId: String) {
+        guard !newSessionId.isEmpty, newSessionId != sessionId else { return }
+        sessionId = newSessionId
+        onSessionIdChanged?(newSessionId)
     }
 
     /// Creates a session on `harness` and selects it.
@@ -344,6 +364,18 @@ public final class AcpmuxChatSessionModel {
     public func setModel(_ modelId: String) {
         guard let api, let sessionId else { return }
         Task { try? await api.setModel(sessionId: sessionId, modelId: modelId) }
+    }
+
+    /// Selects an ACP mode exposed by the active harness.
+    public func setMode(_ modeId: String) {
+        guard let api, let sessionId else { return }
+        Task { try? await api.setMode(sessionId: sessionId, modeId: modeId) }
+    }
+
+    /// Changes a harness configuration option, such as reasoning effort.
+    public func setConfigOption(id: String, value: JSONValue) {
+        guard let api, let sessionId else { return }
+        Task { try? await api.setConfigOption(sessionId: sessionId, configId: id, value: value) }
     }
 
     /// Replaces the transcript with `records`, for DEBUG performance measurements only.
