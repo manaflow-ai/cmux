@@ -2089,6 +2089,12 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
           "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
+        "showLinkHoverURL": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.browser.showLinkHoverURL",
+          "description": "Show a link's destination at the bottom-left of a browser pane while the pointer is over the link or the link has keyboard focus."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
