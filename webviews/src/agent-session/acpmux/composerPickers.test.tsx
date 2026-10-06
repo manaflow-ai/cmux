@@ -430,6 +430,36 @@ describe("acpmux composer pickers", () => {
       expect(button("Model")!.textContent).toBe("Opus 5.5");
     });
 
+    test("a pick of the default not yet confirmed, or a harness still starting, names and saves no model", async () => {
+      // Picked from Opus: the agent's option still names Opus until the pick lands.
+      await render(
+        claude({ confirmedModel: "claude-opus-5-5", configOptions: [resolvedTo("claude-opus-5-5"), defaultEffort] }),
+      );
+      expect(button("Model")!.textContent).toBe("Default");
+      await render(claude({ configOptions: [resolvedTo("default"), defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Default");
+      // Starting, the composer draws the last Claude session's options, here on Sonnet.
+      await render({
+        ...claude({ configOptions: [resolvedTo("claude-sonnet-5-5"), defaultEffort] }),
+        switching: { harness: "claude", name: "Claude Code", phase: "starting" },
+      });
+      expect(button("Model")!.textContent).toBe("Default");
+      expect(store.get("cmux.acpmux.resolvedDefaults")).toBeUndefined();
+    });
+
+    test("a recent of the default model stays offered, and typing finds the default row", async () => {
+      store.set(
+        "cmux.acpmux.recentModels",
+        JSON.stringify([{ harness: "claude", model: "default", effort: "high", effortName: "High" }]),
+      );
+      await render(claude({ model: "claude-sonnet-5-5", configOptions: [defaultEffort] }));
+      await act(async () => button("Model")!.click());
+      const recent = [...doc.querySelectorAll(".acpmux-mp-row")].find((row) => row.textContent?.includes("High"));
+      expect(recent?.querySelector(".acpmux-menu-label")!.textContent).toBe("Default");
+      for (const char of "defa") await key(button("Model")!, char);
+      expect(rowLabels()).toContain("Default");
+    });
+
     test("a model picked by name keeps its name; a recent at the default effort shows no effort", async () => {
       await render(claude({ model: "claude-sonnet-5-5", configOptions: [defaultEffort] }));
       expect(button("Model")!.textContent).toBe("Sonnet 5.5");
