@@ -41,6 +41,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) var connectingView: DaemonConnectingView?
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
+    /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
+    private(set) lazy var topPages = TopPageHost(services: services)
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
@@ -103,6 +105,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         content = nil
         parked.forEach { $0.teardown() }
         parked.removeAll()
+        topPages.teardown()
         sidebar.teardown()
     }
 
@@ -130,7 +133,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines)]
                     + windows.registry.members(of: state.id)
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
             }) {
@@ -154,14 +157,15 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.teardown()
             return true
         }
+        if let page = state.page, showTopPage(page) { return }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
-            show(workspace, on: daemon)
+            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
         let members = services.windows.registry.members(of: state.id)
         if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
-            show(workspace, on: daemon)
+            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
         // Keep what is shown (the old content stays until the manager
@@ -232,6 +236,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     var focusedPane: PaneController? { content?.focusedPane }
 
+    /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
+    func parkContentForPage() {
+        titleObservation?.cancel()
+        if let current = content { park(current) }
+        content = nil
+    }
+
     // MARK: Parked workspaces
 
     private func park(_ controller: WorkspaceContentController) {
@@ -286,16 +297,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
     var sidebarObservation: Task<Void, Never>?
-
-    /// Marks this window incognito: the badge shows in the sidebar header,
-    /// and in the top row after the traffic lights while the sidebar is
-    /// hidden (strips under it start after it).
-    func showIncognitoBadge() {
-        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
-        root.titlebarBadge = IncognitoBadgeView()
-        root.showsTitlebarBadge = sidebar.model.isHidden
-        root.needsLayout = true
-    }
 
 
     /// Set once closing this incognito window was confirmed (or needed no

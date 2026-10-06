@@ -1,6 +1,530 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.app.warnBeforeClosingTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل إغلاق برنامج قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozori prije zatvaranja pokrenutog programa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før lukning af et kørende program"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines laufenden Programms warnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing a Running Program"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de cerrar un programa en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer un programme en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvisa prima di chiudere un programma in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のプログラムを閉じる前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្រមានមុនពេលបិទកម្មវិធីដែលកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 프로그램을 닫기 전에 경고"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før et kjørende program lukkes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzegaj przed zamknięciem działającego programu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de fechar um programa em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждать перед закрытием работающей программы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เตือนก่อนปิดโปรแกรมที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan bir programı kapatmadan önce uyar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереджати перед закриттям запущеної програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cảnh báo trước khi đóng chương trình đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭正在运行的程序前发出警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉執行中的程式前發出警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTab.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السؤال قبل إغلاق علامة تبويب أو مساحة عمل تشغّل الطرفية فيها برنامجًا. علامات التبويب الخاملة تُغلق فورًا دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitaj prije zatvaranja kartice ili radnog prostora čiji terminal pokreće program. Neaktivne kartice se uvijek odmah zatvaraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg før lukning af en fane eller et arbejdsområde, hvor terminalen kører et program. Inaktive faner lukkes altid med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Tabs oder Arbeitsbereichs fragen, dessen Terminal ein Programm ausführt. Untätige Tabs schließen immer sofort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar antes de cerrar una pestaña o un espacio de trabajo cuyo terminal ejecuta un programa. Las pestañas inactivas se cierran siempre al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander avant de fermer un onglet ou un espace de travail dont le terminal exécute un programme. Les onglets inactifs se ferment toujours immédiatement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi prima di chiudere una scheda o uno spazio di lavoro il cui terminale esegue un programma. Le schede inattive si chiudono sempre subito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルでプログラムが実行中のタブやワークスペースを閉じる前に確認します。アイドル状態のタブはいつでもすぐに閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរមុនពេលបិទផ្ទាំង ឬកន្លែងធ្វើការដែលទែមីណាល់កំពុងដំណើរការកម្មវិធី។ ផ្ទាំងទំនេរតែងតែបិទភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 프로그램이 실행 중인 탭이나 워크스페이스를 닫기 전에 묻습니다. 유휴 탭은 항상 바로 닫힙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør før en fane eller et arbeidsområde lukkes når terminalen kjører et program. Inaktive faner lukkes alltid med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj przed zamknięciem karty lub obszaru roboczego, w którego terminalu działa program. Bezczynne karty zawsze zamykają się od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar antes de fechar uma aba ou um espaço de trabalho cujo terminal está executando um programa. Abas ociosas sempre fecham na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивать перед закрытием вкладки или рабочего пространства, в терминале которых работает программа. Неактивные вкладки всегда закрываются сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถามก่อนปิดแท็บหรือพื้นที่ทำงานที่เทอร์มินัลกำลังเรียกใช้โปรแกรม แท็บที่ว่างอยู่จะปิดทันทีเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalinde bir program çalışan sekmeyi veya çalışma alanını kapatmadan önce sor. Boştaki sekmeler her zaman hemen kapanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питати перед закриттям вкладки чи робочого простору, у терміналі яких працює програма. Неактивні вкладки завжди закриваються одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi trước khi đóng tab hoặc không gian làm việc có terminal đang chạy chương trình. Tab rảnh luôn đóng ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭终端正在运行程序的标签页或工作区前先询问。空闲的标签页始终会立即关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉終端機正在執行程式的分頁或工作區前先詢問。閒置的分頁一律立即關閉。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingAgentSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل إغلاق وكيل قيد العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozori prije zatvaranja agenta koji radi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før lukning af en agent, der arbejder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines arbeitenden Agenten warnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing a Working Agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de cerrar un agente que está trabajando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer un agent au travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvisa prima di chiudere un agente al lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中のエージェントを閉じる前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្រមានមុនពេលបិទភ្នាក់ងារដែលកំពុងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중인 에이전트를 닫기 전에 경고"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før en agent som arbeider lukkes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzegaj przed zamknięciem pracującego agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de fechar um agente trabalhando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждать перед закрытием работающего агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เตือนก่อนปิดเอเจนต์ที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan bir ajanı kapatmadan önce uyar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереджати перед закриттям агента, що працює"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cảnh báo trước khi đóng tác tử đang làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭正在工作的智能体前发出警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉正在工作的代理程式前發出警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingAgentSession.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السؤال قبل إغلاق علامة تبويب طرفية لا يزال وكيلها يعمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitaj prije zatvaranja kartice terminala čiji agent još radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg før lukning af en terminalfane, hvor agenten stadig arbejder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Terminal-Tabs fragen, dessen Agent noch arbeitet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask before closing a terminal tab whose agent is still working."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar antes de cerrar una pestaña de terminal cuyo agente sigue trabajando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander avant de fermer un onglet de terminal dont l’agent travaille encore."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi prima di chiudere una scheda del terminale il cui agente sta ancora lavorando."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがまだ作業中のターミナルタブを閉じる前に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរមុនពេលបិទផ្ទាំងទែមីណាល់ដែលភ្នាក់ងាររបស់វានៅតែកំពុងធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 아직 작업 중인 터미널 탭을 닫기 전에 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør før en terminalfane lukkes når agenten fortsatt arbeider."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj przed zamknięciem karty terminala, której agent wciąż pracuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar antes de fechar uma aba de terminal cujo agente ainda está trabalhando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивать перед закрытием вкладки терминала, агент которой ещё работает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถามก่อนปิดแท็บเทอร์มินัลที่เอเจนต์ยังทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanı hâlâ çalışan bir terminal sekmesini kapatmadan önce sor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питати перед закриттям вкладки термінала, агент якої ще працює."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi trước khi đóng tab terminal có tác tử vẫn đang làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭智能体仍在工作的终端标签页前先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉代理程式仍在工作的終端機分頁前先詢問。"
+          }
+        }
+      }
+    },
     "settings.browser.omnibar.calculator": {
       "extractionState": "manual",
       "localizations": {

@@ -30,6 +30,16 @@ extension WindowController {
         }
     }
 
+    /// Marks this window incognito: the badge shows in the sidebar header,
+    /// and in the top row after the traffic lights while the sidebar is
+    /// hidden (strips under it start after it).
+    func showIncognitoBadge() {
+        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
+        root.titlebarBadge = IncognitoBadgeView()
+        root.showsTitlebarBadge = sidebar.model.isHidden
+        root.needsLayout = true
+    }
+
     /// Full screen keeps the window's controls as they are (no collapse).
     func windowDidEnterFullScreen(_ notification: Notification) { root.applyCornerReveal() }
     func windowDidExitFullScreen(_ notification: Notification) { root.applyCornerReveal() }

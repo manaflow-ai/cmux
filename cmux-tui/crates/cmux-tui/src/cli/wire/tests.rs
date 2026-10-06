@@ -20,6 +20,26 @@ fn screen_wait_timeout_exits_one_and_a_match_exits_zero() {
     assert_eq!(success_exit_code(&read, &json!({"matched": false})), 0);
 }
 
+/// nxdog55: with `--order personal` the rows come in sidebar order, but
+/// INDEX is the session index; an ORDER column numbers the shown order.
+#[test]
+fn personal_workspace_order_numbers_the_shown_rows() {
+    let result = json!([
+        {"id":"ws_f","index":5,"name":"six"},
+        {"id":"ws_a","index":0,"name":"home"}
+    ]);
+    let mut personal = plan(ResourceOperation::WorkspaceList);
+    personal.params = json!({"order":"personal"});
+    assert_eq!(
+        human_text(&human_view(&personal, &result)),
+        "ID    NAME  ORDER  INDEX\nws_f  six   0      5\nws_a  home  1      0\n"
+    );
+    // The session order and other lists keep their table.
+    assert_eq!(*human_view(&plan(ResourceOperation::WorkspaceList), &result), result);
+    personal.operation = WireOperation::Typed(ResourceOperation::ScreenList);
+    assert_eq!(*human_view(&personal, &result), result);
+}
+
 #[test]
 fn capability_preflight_rejects_wrong_app_even_when_capability_is_present() {
     let identity = json!({"app":"other", "protocol":12, "capabilities":[cmux_tui_core::server::SESSION_JOURNAL_CAPABILITY]});
