@@ -377,3 +377,91 @@ fn a_child_spawned_from_an_ask_turn_asks_too() {
         .step(Input::from(AgentEvent::SessionChanged(ask_child("closed"))));
     assert_eq!(h.brain.spawn_policy(), None);
 }
+
+/// The host-served section 9 `spawn` (subagents.rs) takes the same floor:
+/// a subagent spawned during an `ask` turn runs with `ask`, is tagged
+/// `optchat.policy=ask`, and its shell call waits for a person, asked in the
+/// Chief chat with its id.
+#[test]
+fn a_host_served_spawn_from_an_ask_turn_asks_too() {
+    use optchat_chief::subagents::{Spawner, SubagentSettings};
+    use optchat_chief::tools::Orchestrator;
+    let mut h = harness(started());
+    h.agents.hold(true);
+    deliver(&mut h, true, "spawn a subagent to clean the cache");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    let spawner = Arc::new(Spawner::new(
+        h.chat.clone(),
+        h.agents.clone(),
+        SubagentSettings {
+            harness: "claude-sr".into(),
+            policy: "approve-all".into(),
+            model: None,
+            preset: Some("optchat-sub-h0me".into()),
+            cwd: h.dir.path().join("subagent"),
+            prefix: "optchat-sub-h0me".into(),
+            parent: optchat_chief::brain::PARENT.into(),
+            claude_md: None,
+        },
+        h.tx.clone(),
+        Arc::new(|_: &str| {}),
+    ));
+    let worker = {
+        let spawner = spawner.clone();
+        std::thread::spawn(move || spawner.spawn(vec!["clean the cache".into()]))
+    };
+    while !worker.is_finished() {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+        h.brain.step(input);
+    }
+    worker.join().unwrap().unwrap();
+    let (session, spec) = {
+        let inner = h.agents.inner.lock().unwrap();
+        let k = inner
+            .specs
+            .iter()
+            .position(|s| s.name.starts_with("optchat-sub-h0me"))
+            .expect("the subagent's session");
+        (format!("s{}", k + 1), inner.specs[k].clone())
+    };
+    assert_eq!(spec.policy, "ask", "the floor wins over the subagent policy");
+    assert_eq!(spec.tags.get("optchat.policy").map(String::as_str), Some("ask"));
+    let before = sends(&h).len();
+    h.brain.step(permission_of(
+        &session,
+        "p7",
+        "Bash",
+        json!({"command": "rm -rf ~/.cache"}),
+    ));
+    assert!(
+        !h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .responses
+            .iter()
+            .any(|r| r.1 == "p7"),
+        "the subagent's shell call waits"
+    );
+    let asked = sends(&h);
+    assert_eq!(asked.len(), before + 1, "{asked:?}");
+    let question = asked.last().unwrap();
+    assert!(question.contains("a1") && question.contains("rm -rf ~/.cache"), "{question}");
+    deliver(&mut h, true, "allow");
+    assert!(
+        h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .responses
+            .contains(&(session.clone(), "p7".into(), Some("allow".into())))
+    );
+    h.agents.hold(false);
+    h.agents.release();
+}
