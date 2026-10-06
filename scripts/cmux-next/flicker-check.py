@@ -41,8 +41,13 @@ def probe(path):
     return stream["width"], stream["height"], float(num) / float(den or 1)
 
 
-def frames(path, crop, width, height):
-    filters = []
+RATE = 60
+
+
+def frames(path, crop, width, height, rate):
+    # A constant rate: screen recordings are variable-rate, and frame n is
+    # then at n / rate (a held frame repeats).
+    filters = [f"fps={rate}"]
     if crop:
         filters.append("crop={2}:{3}:{0}:{1}".format(*crop))
     filters.append(f"scale={width}:{height}:flags=area,format=gray")
@@ -143,7 +148,7 @@ def dump(path, crop, events, directory, fps):
         first = max(0, event["frame"] - 1)
         count = round(event["duration_ms"] * fps / 1000) + 3
         filters = ["crop={2}:{3}:{0}:{1}".format(*crop)] if crop else []
-        filters.append(f"select='between(n\\,{first}\\,{first + count - 1})'")
+        filters += [f"fps={RATE}", f"select='between(n\\,{first}\\,{first + count - 1})'"]
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-vf", ",".join(filters),
                         "-vsync", "0", str(directory / f"{n:02d}-{event['kind']}-f%04d.png")], check=True)
 
@@ -162,13 +167,15 @@ def main():
     parser.add_argument("--json", type=Path)
     args = parser.parse_args()
 
-    width, height, fps = probe(args.recording)
+    width, height, captured = probe(args.recording)
+    fps = RATE
     crop = [int(v) for v in args.crop.split(",")] if args.crop else None
     source_width, source_height = (crop[2], crop[3]) if crop else (width, height)
     scaled_height = max(args.cell, round(source_height * WIDTH / source_width))
-    series = [cell_means(f, WIDTH, scaled_height, args.cell) for f in frames(args.recording, crop, WIDTH, scaled_height)]
-    if fps < 50:
-        print(f"warning: {fps:.1f} fps; a one-frame blink at 60 Hz can fall between frames", file=sys.stderr)
+    series = [cell_means(f, WIDTH, scaled_height, args.cell) for f in frames(args.recording, crop, WIDTH, scaled_height, RATE)]
+    if captured < 50:
+        print(f"warning: captured at {captured:.1f} fps on average; a one-frame blink at 60 Hz can fall "
+              "between frames", file=sys.stderr)
 
     columns = WIDTH // args.cell
     scale = source_width / WIDTH
@@ -179,7 +186,7 @@ def main():
         del event["frames"]
         events.append(event)
     events = [e for e in events if e["cells"] >= args.min_cells]
-    result = {"recording": str(args.recording), "fps": round(fps, 2), "frames": len(series), "events": events}
+    result = {"recording": str(args.recording), "fps": RATE, "captured_fps": round(captured, 2), "frames": len(series), "events": events}
     for e in events:
         print(f"{e['kind']:<9} t={e['ms']}ms frame={e['frame']} lasts={e['duration_ms']}ms "
               f"cells={e['cells']} box={e['box']}" + (f" steps={e.get('steps')}" if e.get("steps") else ""))
