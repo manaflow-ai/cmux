@@ -171,3 +171,30 @@ test("queryAll makes and returns at most the page-read node budget of handles, a
     assert.ok(r.kept <= 250001, `the page agent made ${r.kept} handles`);
   });
 });
+
+// The page agent marks where it cut a page string with a marker that sealing
+// settles (page-agent.js settleCuts). Page text cannot forge that marker: a
+// page string that holds U+FDD0 (or any other character) reaches the session
+// whole, with the text before it kept.
+test("page text holding U+FDD0 is not taken for a cut marker", async () => {
+  await withRepl(async (run) => {
+    const r = await run(`
+      const text = "head-" + "A".repeat(300) + "\\ufdd0" + "tail";
+      await page.evaluate((text) => {
+        document.body.innerHTML = '<button id="b"></button><input id="i"><p id="p"></p>';
+        document.getElementById("b").textContent = text;
+        document.getElementById("i").value = text;
+        document.getElementById("p").textContent = text;
+      }, text);
+      const out = {};
+      out.text = text;
+      out.content = await page.locator("#p").textContent();
+      out.value = await page.locator("#i").inputValue();
+      out.tree = (await snapshot()).tree;
+      console.log("@@" + JSON.stringify(out));
+    `);
+    assert.equal(r.content, r.text, "textContent keeps the text before U+FDD0");
+    assert.equal(r.value, r.text, "inputValue keeps the text before U+FDD0");
+    assert.ok(r.tree.includes("head-AAAA"), `the snapshot keeps the text before U+FDD0:\n${r.tree.slice(0, 600)}`);
+  });
+});
