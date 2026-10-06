@@ -86,7 +86,8 @@ final class LocationTrailService {
     /// window, else the last active one), so a background CLI change does
     /// not move the trail.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
-        guard services.windows.active === controller, let location = location(of: state, in: controller) else { return }
+        // Under a top page the workspace's focus is not where the user is.
+        guard services.windows.active === controller, controller.shownTopPage == nil, let location = location(of: state, in: controller) else { return }
         if trail.record(location, at: now()) { changed() }
     }
 
@@ -109,10 +110,20 @@ final class LocationTrailService {
             url: tab.url, cwd: tab.cwd, isIncognito: services.windows.isIncognito(workspace: workspaceID))
     }
 
+    /// The user showed top page `route` in the active window: a trail entry
+    /// (TOP-SECTION-ITEMS-ARE-PAGES Q2), through the same settle rules.
+    func pageDidShow(_ route: TopPageRoute, title: String, in controller: WindowController) {
+        guard services.windows.active === controller else { return }
+        let location = HistoryLocation.page(route.rawValue, window: controller.state.id, title: title,
+                                            isIncognito: services.windows.isIncognito(window: controller.state.id))
+        if trail.record(location, at: now()) { changed() }
+    }
+
     // MARK: Navigation
 
     /// Whether the location's tab exists on a connected machine now.
     func isAvailable(_ location: HistoryLocation) -> Bool {
+        if let page = location.page { return TopPageRoute(rawValue: page).map(hasPage) ?? false }
         guard let (_, pane) = services.locateTab(location.key.tab) else { return false }
         return services.daemon(for: pane).machineID == location.key.machine
     }
@@ -182,7 +193,16 @@ final class LocationTrailService {
     private func focus(_ location: HistoryLocation) -> Bool {
         // A run without view-change permission (automation) moves nothing.
         guard ActionRunScope.viewChangeAllowed() else { return false }
+        if let page = location.page {
+            guard let route = TopPageRoute(rawValue: page) else { return false }
+            return TopPages.show(route, services: services, in: services.windows.states[location.window]) != nil
+        }
         return services.revealTab(location.key.tab)
+    }
+
+    private func hasPage(_ route: TopPageRoute) -> Bool {
+        if case .page(let id) = route { return TopPages.provider(id, services: services) != nil }
+        return true
     }
 
     // MARK: Clearing
