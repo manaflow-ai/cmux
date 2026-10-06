@@ -64,6 +64,21 @@ import Testing
         for _ in 0..<10 { try await stream(pacer: AgentPaneNextTurnPacer(), completionHops: false) }
     }
 
+    @Test func aQueuedTurnKeepsItsPacerAliveUntilTheFlushCompletes() async {
+        weak var released: AgentPaneNextTurnPacer?
+
+        func scheduleAndRelease() {
+            let pacer = AgentPaneNextTurnPacer()
+            released = pacer
+            pacer.schedule { AgentPaneFlush(delivered: false, more: false) }
+        }
+
+        scheduleAndRelease()
+        #expect(released != nil)
+        await Task.yield()
+        #expect(released == nil)
+    }
+
     @Test func theFramePacerKeepsTheOrderUnderMixedPriorities() async throws {
         for _ in 0..<10 {
             // A display link that never fires: the pacer's next-turn and deadline hops carry it.
