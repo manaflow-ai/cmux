@@ -2062,7 +2062,7 @@ img.ProseMirror-separator {
 .acpmux-send{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:var(--agent-highlight,var(--agent-text));color:var(--agent-highlight-text,var(--acpmux-base))}
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):not(:hover){background:color-mix(in srgb,var(--agent-highlight,var(--agent-text)) 72%,var(--acpmux-base))}
 /* The picker menus open above the field, aligned with its edges. */
-.acpmux-menu{font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;min-width:min(220px,100%);max-width:min(420px,100%);max-height:min(360px,50vh);overflow:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
+.acpmux-menu{font:13px/18px -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:14px;position:absolute;bottom:calc(100% + 6px);z-index:3;min-width:min(220px,100%);max-width:min(420px,100%);max-height:min(360px,50vh);overflow:auto;padding:6px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 10px 30px var(--agent-shadow,rgb(0 0 0/.35));color:var(--agent-text);line-height:18px}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0}
@@ -2070,6 +2070,7 @@ img.ProseMirror-separator {
 .acpmux-menu-header{display:flex;align-items:center;min-height:24px;padding:0 8px;color:var(--acpmux-composer-dim);font-size:12px}
 .acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:28px;padding:5px 8px;box-sizing:border-box;border-radius:8px;cursor:default}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.acpmux-menu .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--acpmux-composer-dim);font:12px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
 .acpmux-menu-item.acpmux-unrestricted{color:var(--acpmux-warning)}
 .acpmux-menu-text{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -2193,6 +2194,9 @@ img.ProseMirror-separator {
 .acpmux-context-divider { color: var(--agent-muted); opacity: .65; }
 .acpmux-location-menu { right: 0; min-width: 180px; max-width: 320px; }
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
+.acpmux-location-browse { display: block; width: 100%; margin-top: 4px; padding: 7px 8px; border: 0; border-top: .5px solid var(--acpmux-composer-edge); border-radius: 6px; background: none; color: var(--agent-text); font: inherit; text-align: left; cursor: pointer; }
+.acpmux-location-browse:hover { background: var(--acpmux-menu-hover); }
+.acpmux-location-browse:focus-visible { outline: 1.5px solid var(--agent-muted); outline-offset: -1px; }
 /* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
 .acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-trust-ask-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:13px;background:none;color:var(--agent-text);font:inherit;cursor:pointer}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* Search files: a quick-open palette, centered over the transcript's upper part (main column). */
@@ -2208,11 +2212,13 @@ img.ProseMirror-separator {
 .acpmux-file-note{display:block;padding:6px 10px 8px;color:var(--acpmux-composer-dim);font-size:13px}
 /* The project pill chooses: a button drawn as the other pills, with the project menu above the tray. */
 .acpmux-project{position:relative;display:flex;min-width:0}
-.acpmux-project-button{border:0;color:inherit;font:inherit;cursor:pointer}
-.acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
+.acpmux-project-button{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
+.acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-project-menu{width:300px;max-width:calc(100vw - 32px);font-size:13px}
 .acpmux-project-menu .acpmux-icon{flex:none;color:var(--agent-muted)}
+.acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
 .acpmux-project-search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 4px;padding:0 8px;border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}

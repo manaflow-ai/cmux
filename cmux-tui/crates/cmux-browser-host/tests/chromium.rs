@@ -594,3 +594,31 @@ fn a_tab_less_fetch_follows_a_redirect_to_another_local_origin() {
     assert_eq!(out["url"], format!("http://localhost:{port}/second"));
     assert_eq!(out["redirected"], true);
 }
+
+/// HOP-ADDRESS guard: Chromium reports a Fetch-intercepted manual
+/// redirect's address only through the next `requestWillBeSent`'s
+/// `redirectResponse.remoteIPAddress`. A Chromium roll that drops it turns
+/// this red (the host would fall back to waiting 1 s per hop and logging).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_manual_redirect_reports_its_address() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(chromium.connection().clone(), AGENT, Arc::new(|_| {}))
+        .expect("attach to Chromium");
+    // The gate installs a filter while a fetch runs (interception on).
+    assert!(driver.set_request_filter(Some(Arc::new(|_| None))));
+    let out = driver
+        .call(
+            "net.fetch",
+            &json!({"url": format!("http://127.0.0.1:{port}/redirect"), "redirect": "manual",
+                "fetchId": "guard", "timeoutMs": 10_000}),
+        )
+        .expect("net.fetch");
+    assert_eq!(out["redirect"]["status"], 302, "{out}");
+    assert_eq!(out["remoteIPAddress"], "127.0.0.1", "the redirect's address is gone: {out}");
+}

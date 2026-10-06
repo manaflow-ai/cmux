@@ -12,9 +12,10 @@ final class ImportStepView: NSView {
     private let list = NSStackView()
     private let kinds = NSStackView()
     private let status = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textTertiary, lines: 2)
-    private let access = NSStackView()
     private var rows: [String: ImportProfileRow] = [:]
+    private var rowSlots: [ImportProfileRow] = []
     private var kindBoxes: [ImportDataKind: NSButton] = [:]
+    private var kindSlots: [NSButton] = []
     private var shownKinds: [ImportDataKind] = []
     private let consent: ImportConsentView
     private var listViews: [NSView] = []
@@ -29,6 +30,24 @@ final class ImportStepView: NSView {
         list.alignment = .leading
         list.spacing = 2
         list.translatesAutoresizingMaskIntoConstraints = false
+        // Keep the viewport's row geometry mounted while browser detection is
+        // running. Detection fills these slots in place instead of replacing
+        // the list and moving the controls under the pointer.
+        for _ in 0..<4 {
+            let row = ImportProfileRow(toggle: nil)
+            rowSlots.append(row)
+            list.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
+        }
+        // Kind choices are also discovered asynchronously (passwords may be
+        // added after the first probe). Keep their controls mounted and fill
+        // the existing slots when the probe completes.
+        for _ in ImportDataKind.allCases {
+            let box = OnboardingControl.checkbox("", target: self, action: #selector(kindToggled(_:)))
+            box.alphaValue = 0
+            kindSlots.append(box)
+            kinds.addArrangedSubview(box)
+        }
         let document = FlippedView()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(list)
@@ -39,15 +58,11 @@ final class ImportStepView: NSView {
         scroll.documentView = document
         scroll.translatesAutoresizingMaskIntoConstraints = false
         kinds.spacing = 20
-        let open = OnboardingControl.button(OnboardingStrings.openSystemSettings, target: self, action: #selector(openSettings))
-        let recheck = OnboardingControl.plainButton(OnboardingStrings.checkAgain, target: self, action: #selector(recheck))
-        access.setViews([OnboardingLabel.make(OnboardingStrings.fullDiskAccessTitle, color: Palette.textSecondary), open, recheck], in: .leading)
-        access.spacing = 12
         let separator = ThemedView()
         separator.fill = { Palette.separator }
         listViews = [scroll, separator, kinds]
         consent.isHidden = true
-        let stack = NSStackView(views: [scroll, separator, kinds, consent, status, access])
+        let stack = NSStackView(views: [scroll, separator, kinds, consent, status])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 14
@@ -72,9 +87,6 @@ final class ImportStepView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func kindToggled(_ sender: NSButton) { model.toggle(shownKinds[sender.tag]) }
-    @objc private func openSettings() { model.openFullDiskAccessSettings() }
-    @objc private func recheck() { model.redetect() }
-
     private func render() {
         let confirming = model.isConfirmingPasswords
         listViews.forEach { $0.isHidden = confirming }
@@ -83,14 +95,25 @@ final class ImportStepView: NSView {
         let profiles = model.profiles
         if profiles != shownProfiles {
             shownProfiles = profiles
-            list.arrangedSubviews.forEach { $0.removeFromSuperview() }
             rows = [:]
             let apps = Dictionary(model.sources.map { ($0.browser, $0.appURL) }, uniquingKeysWith: { first, _ in first })
-            for profile in profiles {
-                let row = ImportProfileRow(profile: profile, appURL: apps[profile.browser] ?? nil) { [weak model] in model?.toggle(profile) }
-                rows[profile.id] = row
+            let blockedBrowsers = Set(model.sources.filter(\.needsFullDiskAccess).map(\.browser))
+            while rowSlots.count < profiles.count {
+                let row = ImportProfileRow(toggle: nil)
+                rowSlots.append(row)
                 list.addArrangedSubview(row)
                 row.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
+            }
+            for (index, row) in rowSlots.enumerated() {
+                guard profiles.indices.contains(index) else {
+                    row.clearProfile()
+                    continue
+                }
+                let profile = profiles[index]
+                row.configure(profile: profile, appURL: apps[profile.browser] ?? nil,
+                              needsFullDiskAccess: blockedBrowsers.contains(profile.browser),
+                              onAccess: { [weak model] in model?.openFullDiskAccessSettings() }) { [weak model] in model?.toggle(profile) }
+                rows[profile.id] = row
             }
         }
         let editable = model.canEditSelection
@@ -99,20 +122,30 @@ final class ImportStepView: NSView {
         }
         if model.kindChoices != shownKinds {
             shownKinds = model.kindChoices
-            kinds.arrangedSubviews.forEach { $0.removeFromSuperview() }
             kindBoxes = [:]
-            for (index, kind) in shownKinds.enumerated() {
-                let box = OnboardingControl.checkbox(OnboardingStrings.kind(kind), target: self, action: #selector(kindToggled(_:)))
+            for (index, box) in kindSlots.enumerated() {
+                guard shownKinds.indices.contains(index) else {
+                    box.title = ""
+                    box.attributedTitle = NSAttributedString(string: "")
+                    box.alphaValue = 0
+                    box.isEnabled = false
+                    continue
+                }
+                let kind = shownKinds[index]
+                let title = OnboardingStrings.kind(kind)
+                box.title = title
+                box.attributedTitle = NSAttributedString(string: title, attributes: [
+                    .font: OnboardingMetrics.bodyFont, .foregroundColor: Palette.textPrimary,
+                ])
                 box.tag = index
+                box.alphaValue = 1
                 kindBoxes[kind] = box
-                kinds.addArrangedSubview(box)
             }
         }
         for (kind, box) in kindBoxes {
             box.state = model.kinds.contains(kind) ? .on : .off
             box.isEnabled = editable
         }
-        access.isHidden = !model.needsFullDiskAccess || model.isImporting
         status.stringValue = statusText(profiles)
     }
 
