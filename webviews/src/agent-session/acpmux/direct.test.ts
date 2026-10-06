@@ -1585,14 +1585,14 @@ describe("direct client session state", () => {
     await settle();
     const before = latest();
     const beforeRows = new Map(before.rows.map((row) => [row.id, row]));
+    const assistantId = before.rows.find((row) => row.kind === "assistant")?.id;
+    expect(assistantId).toBeDefined();
     expect(before.rows.find((row) => row.kind === "assistant")?.streaming).toBe(true);
     ScriptedSocket.current.notify("_acpmux/event", result);
     await settle();
     const after = latest();
     expect(after.rows.find((row) => row.kind === "assistant")?.streaming).toBe(false);
-    expect(diffRows(beforeRows, after.rows).updated.map((row) => row.id)).toContain(
-      before.rows.find((row) => row.kind === "assistant")?.id,
-    );
+    expect(diffRows(beforeRows, after.rows).updated.map((row) => row.id)).toContain(assistantId!);
   });
 
   test("a prompt queued during a turn does not restart that turn's count", async () => {
