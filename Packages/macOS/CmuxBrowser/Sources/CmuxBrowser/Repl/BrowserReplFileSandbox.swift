@@ -398,8 +398,14 @@ public struct BrowserReplFileRoot: Sendable, Equatable {
 final class BrowserReplSecretSources: @unchecked Sendable {
     static let shared = BrowserReplSecretSources()
 
+    /// The most files protected at once.
+    let maximumSources: Int
     private let lock = NSLock()
     private var identities: Set<BrowserReplFileIdentity> = []
+
+    init(maximumSources: Int = 4096) {
+        self.maximumSources = maximumSources
+    }
 
     /// Protects `identity`. The caller holds
     /// ``BrowserReplFileSandbox/pathChangeLock``, which a file navigation
@@ -410,7 +416,7 @@ final class BrowserReplSecretSources: @unchecked Sendable {
     /// (``BrowserReplFileSystem``'s `readFile` with `opened`), so a
     /// navigation runs wholly before the open or after the protection,
     /// never between them.
-    func protect(_ identity: BrowserReplFileIdentity) {
+    func protect(_ identity: BrowserReplFileIdentity) throws {
         _ = lock.withLock { identities.insert(identity) }
     }
 

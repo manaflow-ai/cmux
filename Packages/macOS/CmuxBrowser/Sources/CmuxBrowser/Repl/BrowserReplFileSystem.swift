@@ -131,12 +131,13 @@ public struct BrowserReplFileSystem: Sendable {
     /// - Parameter opened: Told the identity of the file `readFile` opened
     ///   (`secrets.load` protects that file from the browser), in the same
     ///   hold of ``BrowserReplFileSandbox/pathChangeLock`` as the open; it
-    ///   must not take that lock.
+    ///   must not take that lock. An error it throws fails the read, with
+    ///   nothing read.
     func perform(
         _ operation: String,
         arguments: [String: Any],
         copyContents: ((Data) throws -> Data)?,
-        opened: ((BrowserReplFileIdentity) -> Void)? = nil
+        opened: ((BrowserReplFileIdentity) throws -> Void)? = nil
     ) -> Result<Any, BrowserReplFileSystemError> {
         do {
             return .success(try run(operation, arguments, copyContents: copyContents, opened: opened))
@@ -157,7 +158,7 @@ public struct BrowserReplFileSystem: Sendable {
         _ operation: String,
         _ arguments: [String: Any],
         copyContents: ((Data) throws -> Data)?,
-        opened: ((BrowserReplFileIdentity) -> Void)?
+        opened: ((BrowserReplFileIdentity) throws -> Void)?
     ) throws -> Any {
         // Every path is bounded before it is normalized, canonicalized or walked.
         let paths = try writeBudget.holdPaths(["path", "from", "to"].compactMap { arguments[$0] as? String }, operation: operation)
@@ -751,7 +752,7 @@ public struct BrowserReplFileSystem: Sendable {
         _ location: Location,
         display: String,
         syscall: String = "open",
-        opened: ((BrowserReplFileIdentity) -> Void)? = nil
+        opened: ((BrowserReplFileIdentity) throws -> Void)? = nil
     ) throws -> (BrowserReplDescriptor, Int) {
         guard let name = location.name else { throw Self.isDirectoryError }
         let (descriptor, number) = try location.withinRoot(syscall: syscall, display: display, alwaysLocked: opened != nil) { fd in
@@ -760,7 +761,12 @@ public struct BrowserReplFileSystem: Sendable {
             var info = stat()
             if let opened, descriptor >= 0, fstat(descriptor, &info) == 0,
                info.st_mode & S_IFMT == S_IFREG, Int(info.st_size) <= Self.maxReadFileBytes {
-                opened(BrowserReplFileIdentity(info))
+                do {
+                    try opened(BrowserReplFileIdentity(info))
+                } catch {
+                    close(descriptor)
+                    throw error
+                }
             }
             return (descriptor, number)
         }

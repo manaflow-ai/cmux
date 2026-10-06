@@ -1843,7 +1843,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 // as pixels no mask covers. Protected in the same hold of
                 // the file navigation lock as the open, before its values
                 // are known to be readable.
-                let opened: (BrowserReplFileIdentity) -> Void = { BrowserReplSecretSources.shared.protect($0) }
+                let opened: (BrowserReplFileIdentity) throws -> Void = { try BrowserReplSecretSources.shared.protect($0) }
                 switch self.fileSystem.perform("readFile", arguments: ["path": path], copyContents: nil, opened: opened) {
                 case .failure(let error):
                     return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))))
