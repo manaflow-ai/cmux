@@ -55,7 +55,7 @@ struct ShortcutListStableLazyView: View {
                 updateMeasuredHeight(to: lastReportedHeight)
             }
         }
-        .task(id: SearchTaskID(query: query, revision: searchIndexRevision, preserveShown: preserveShownOnIndexRefresh)) {
+        .task(id: SearchTaskID(query: query, revision: searchIndexRevision)) {
             if query.isEmpty {
                 matchedActions = nil
                 preserveShownOnIndexRefresh = false
@@ -144,7 +144,6 @@ struct ShortcutListStableLazyView: View {
     private struct SearchTaskID: Hashable {
         let query: ShortcutListSearchQuery
         let revision: Int
-        let preserveShown: Bool
     }
 
     private func updateMeasuredHeight(to height: CGFloat) {
