@@ -3,6 +3,34 @@ import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
+/// Posted by the host when a sidebar menu or command-palette action should open the template gallery.
+public extension Notification.Name {
+    static let customSidebarTemplateGalleryRequested = Notification.Name("cmux.settings.customSidebarTemplateGalleryRequested")
+}
+
+/// Holds a gallery request until the progressively mounted Custom Sidebars
+/// section is ready to present it.
+// lint:allow namespace-type — one-shot, main-actor handoff from a host menu to the lazily mounted Custom Sidebars section (#15931); candidate to become an injected SettingsRuntime value.
+@MainActor
+public final class CustomSidebarTemplateGalleryRequest {
+    public static let shared = CustomSidebarTemplateGalleryRequest()
+
+    private var pending = false
+
+    private init() {}
+
+    public func request() {
+        pending = true
+        NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested, object: nil)
+    }
+
+    public func consume() -> Bool {
+        guard pending else { return false }
+        pending = false
+        return true
+    }
+}
+
 /// Host-supplied callbacks the package's section views invoke for
 /// actions that live outside the catalog — clearing browser history,
 /// opening the user's editor on cmux.json, sending feedback, posting
@@ -16,7 +44,7 @@ import Foundation
 /// check for `nil` callbacks and hide the corresponding buttons
 /// when no host action is available.
 @MainActor
-public protocol SettingsHostActions: AnyObject {
+public protocol SettingsHostActions: AnyObject, CloudMachinesSettingsActions {
     func computersSettingsActions() -> ComputersSettingsActions
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
@@ -57,6 +85,19 @@ public protocol SettingsHostActions: AnyObject {
     /// Creates a starter custom sidebar and opens it in the preferred editor.
     func createCustomSidebar() -> CustomSidebarOnboardingResult
 
+    /// Copies one bundled template into the custom-sidebar directory, selects it, and opens it.
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Installs a template and selects it without opening the editor.
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Temporarily selects a template for gallery preview.
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Keeps or discards the active gallery preview.
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult
+    func revertCustomSidebarPreview()
+
     /// Copies one bundled example into the custom-sidebar directory and opens it.
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
 
@@ -95,9 +136,6 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Applies the current persisted control-socket configuration to the live server.
     func socketControlConfigurationDidChange()
-
-    /// Applies a newly committed "Install Updates Automatically" setting to the running updater.
-    func installUpdatesAutomaticallyDidChange()
 
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
@@ -358,37 +396,6 @@ public protocol SettingsHostActions: AnyObject {
     /// Opens the Screen Recording pane in System Settings.
     func openComputerUseScreenRecordingSettings()
 
-    /// Whether the host exposes Cloud Machines (persistent cloud VMs). When
-    /// false the Cloud Machines settings section renders nothing.
-    var isCloudMachinesAvailable: Bool { get }
-
-    /// The caller's machine plan: plan name, machines in use, and the plan's
-    /// machine ceiling. `nil` when signed out or the backend is unreachable.
-    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
-
-    /// Reveals the right-sidebar Machines panel in the active main window.
-    func openCloudMachinesPanel()
-
-    /// Opens the optional system-wide VPN explanation and its explicit connection controls.
-    func openCloudVPNSetup()
-
-    /// Opens the host's plan management / upgrade flow.
-    func openCloudMachinesBilling()
-
-    /// The release app the App section offers to switch to, or `nil` to hide the row
-    /// (tagged development builds and package-only hosts).
-    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget?
-
-    /// Opens the other release app, downloading and installing it first when missing.
-    func switchAppChannel()
-}
-
-/// The release app a cmux build can switch to from Settings.
-public enum SettingsAppChannelSwitchTarget: Equatable, Sendable {
-    /// cmux NIGHTLY, offered by the stable app.
-    case nightly
-    /// The stable app, offered by cmux NIGHTLY.
-    case stable
 }
 
 /// Host-provided summary of the existing config-backed automation rules.
@@ -471,9 +478,6 @@ public extension SettingsHostActions {
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
 
-    /// Default no-op for previews and tests without a live updater.
-    func installUpdatesAutomaticallyDidChange() {}
-
     /// Right-sidebar tab defaults for previews, tests, and package-only
     /// hosts: no tabs, refuse mutations, no updates.
     func rightSidebarTabs() -> [RightSidebarTabSettingsItem] { [] }
@@ -483,18 +487,6 @@ public extension SettingsHostActions {
     func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]> {
         AsyncStream { $0.finish() }
     }
-
-    /// Cloud Machines defaults for previews, tests, and package-only hosts:
-    /// unavailable, no plan, no-op actions.
-    var isCloudMachinesAvailable: Bool { false }
-    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
-    func openCloudMachinesPanel() {}
-    func openCloudVPNSetup() {}
-    func openCloudMachinesBilling() {}
-
-    /// No release-app switch for previews, tests, and package-only hosts.
-    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? { nil }
-    func switchAppChannel() {}
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
@@ -540,9 +532,23 @@ public extension SettingsHostActions {
     func createCustomSidebar() -> CustomSidebarOnboardingResult {
         .writeFailed
     }
-    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
         _ = id
         return .writeFailed
+    }
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult { .templateUnavailable }
+    func revertCustomSidebarPreview() {}
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id)
     }
     func openCustomSidebarInExternalEditor(named name: String) { _ = name }
     func openCustomSidebarsFolder() {}

@@ -11,8 +11,84 @@ import Testing
 #endif
 
 @MainActor
+private final class CountingCloudDragDestination: NSView {
+    var enteredCount = 0
+    var updatedCount = 0
+    var exitedCount = 0
+
+    /// Records the first native callback and accepts the drag.
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        enteredCount += 1
+        return .move
+    }
+
+    /// Records updates forwarded to the same destination.
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        updatedCount += 1
+        return .move
+    }
+
+    /// Records an unexpected destination transition.
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        exitedCount += 1
+    }
+}
+
+@MainActor
+private final class ChurningCloudDragRootView: NSView {
+    var nextHitTestResult: NSView?
+
+    /// Returns one injected portal hit before restoring normal hit testing.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let nextHitTestResult {
+            self.nextHitTestResult = nil
+            return nextHitTestResult
+        }
+        return super.hitTest(point)
+    }
+}
+
+@MainActor
 @Suite("Cloud drag validation and feedback", .serialized)
 struct CloudSurfaceDragFeedbackTests {
+    @Test("Cloud pane forwarding stays stable while the pointer remains in one pane")
+    /// Keeps the original pane destination through a transient portal hit-test result.
+    func destinationStaysValidDuringPortalHitTestChurn() throws {
+        let fixture = try CloudSurfaceDragFixture(kind: .display)
+        defer { fixture.finish() }
+        fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        let root = ChurningCloudDragRootView(frame: window.contentLayoutRect)
+        let destination = CountingCloudDragDestination(frame: NSRect(x: 20, y: 20, width: 120, height: 120))
+        destination.registerForDraggedTypes([DragOverlayRoutingPolicy.bonsplitTabTransferType])
+        root.addSubview(destination)
+        let portalHost = NSView(frame: root.bounds)
+        root.addSubview(portalHost, positioned: .below, relativeTo: destination)
+        let gate = CloudSurfaceDropGateView(frame: root.bounds, sourceResolver: fixture.resolver)
+        gate.workspace = fixture.workspace
+        gate.isActive = true
+        root.addSubview(gate)
+        window.contentView = root
+        window.orderFront(nil)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cloud-drag-stability-\(UUID())"))
+        #expect(fixture.registration.write(to: pasteboard))
+        let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: pasteboard, location: NSPoint(x: 80, y: 80))
+
+        #expect(gate.draggingEntered(sender) == .move)
+        root.nextHitTestResult = portalHost
+        #expect(gate.draggingUpdated(sender) == .move)
+        #expect(destination.enteredCount == 1)
+        #expect(destination.updatedCount == 1)
+        #expect(destination.exitedCount == 0)
+    }
+
     @Test("The pure rule rejects unknown/local/foreign owners and preserves local destinations")
     func policy() {
         let policy = SurfaceOwnershipPolicy(cloudMachine: .cloud("b"))
@@ -22,6 +98,29 @@ struct CloudSurfaceDragFeedbackTests {
         }
         #expect(policy.rejection(for: .cloud("b")) == nil)
         #expect(policy.rejection(for: [SurfaceResourceID]()) == .cloudMachineMismatch)
+    }
+
+    @Test("A surface already in the Cloud workspace can be reordered or split within it")
+    func ownSurfaceMovesWithinWorkspace() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "b", isBase: false)
+        let panelID = try #require(workspace.focusedPanelId)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        let paneID = try #require(workspace.paneId(forPanelId: panelID))
+        let processID = Int32(ProcessInfo.processInfo.processIdentifier)
+        // The workspace's own terminal is local here, the case a Cloud workspace
+        // holding a pre-existing local split hits; its own Cloud terminals follow
+        // the same path.
+        #expect(workspace.machineOwningSurface(panelID) == .local)
+        let own = PaneDragTransfer(tabId: tabID.uuid, sourcePaneId: paneID.id, sourceProcessId: processID)
+        #expect(workspace.surfaceDropRejection(own, source: .surface) == nil)
+        #expect(workspace.canPerformPortalSurfaceDrop(own))
+
+        let foreign = PaneDragTransfer(tabId: UUID(), sourcePaneId: paneID.id, sourceProcessId: processID)
+        #expect(workspace.surfaceDropRejection(foreign, source: .surface) == .cloudMachineMismatch)
+        let otherProcess = PaneDragTransfer(tabId: tabID.uuid, sourcePaneId: paneID.id, sourceProcessId: processID &+ 1)
+        #expect(workspace.surfaceDropRejection(otherProcess, source: .surface) == .cloudMachineMismatch)
     }
 
     @Test("SwiftUI gate and AppKit pane router agree for every resource kind", arguments: SurfaceResourceKind.allCases)
@@ -35,7 +134,9 @@ struct CloudSurfaceDragFeedbackTests {
             fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: destination, isBase: false)
             let router = fixture.router()
             let result = router.resolve(pasteboard: fixture.pasteboard, context: fixture.context, proposedZone: .right)
-            if destination == "a" {
+            if kind == .browser || destination == "a" {
+                // Browser surfaces can be moved between Cloud and local
+                // workspaces. Terminal and display ownership stays strict.
                 guard case .accepted = result else { Issue.record("Same-machine drop was rejected"); return }
                 #expect(gate.rejection(for: fixture.pasteboard) == nil)
             } else {
@@ -48,7 +149,33 @@ struct CloudSurfaceDragFeedbackTests {
         }
     }
 
-    @Test("Rebinding after hover is rejected before mutation", arguments: SurfaceResourceKind.allCases)
+    @Test("Browser surface transfers are allowed into and out of Cloud workspaces")
+    func browserTransfersRemainPortable() throws {
+        let cloudWorkspace = Workspace()
+        let localWorkspace = Workspace()
+        defer {
+            cloudWorkspace.teardownAllPanels()
+            localWorkspace.teardownAllPanels()
+        }
+        cloudWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud", isBase: false)
+        let transfer = PaneDragTransfer(tabId: UUID(), sourcePaneId: UUID(), sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier))
+        let browserGroup = SurfaceResourceGroup(title: "Browser", resources: [SurfaceResourceID(machine: .local, kind: .browser, key: "browser")])
+        #expect(cloudWorkspace.surfaceDropRejection(transfer, source: .surfaceResources(browserGroup)) == nil)
+        let cloudBrowserGroup = SurfaceResourceGroup(title: "Browser", resources: [SurfaceResourceID(machine: .cloud("cloud"), kind: .browser, key: "browser")])
+        #expect(localWorkspace.surfaceDropRejection(transfer, source: .surfaceResources(cloudBrowserGroup)) == nil)
+        let mixedTerminalGroup = SurfaceResourceGroup(title: "mixed", resources: [
+            SurfaceResourceID(machine: .local, kind: .browser, key: "browser"),
+            SurfaceResourceID(machine: .local, kind: .terminal, key: "terminal")
+        ])
+        #expect(cloudWorkspace.surfaceDropRejection(transfer, source: .surfaceResources(mixedTerminalGroup)) == .cloudMachineMismatch)
+        let mixedDisplayGroup = SurfaceResourceGroup(title: "mixed", resources: [
+            SurfaceResourceID(machine: .local, kind: .browser, key: "browser"),
+            SurfaceResourceID(machine: .local, kind: .display, key: "display")
+        ])
+        #expect(cloudWorkspace.surfaceDropRejection(transfer, source: .surfaceResources(mixedDisplayGroup)) == .cloudMachineMismatch)
+    }
+
+    @Test("Rebinding after hover is rejected before mutation", arguments: [SurfaceResourceKind.terminal, .display])
     func destinationChangesBeforeDrop(kind: SurfaceResourceKind) throws {
         let fixture = try CloudSurfaceDragFixture(kind: kind)
         defer { fixture.finish() }
@@ -90,7 +217,7 @@ struct CloudSurfaceDragFeedbackTests {
         view.workspace = fixture.workspace
         view.isActive = true
         let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: fixture.pasteboard, location: .zero)
-        let expected = "Cloud workspaces can only hold terminals, browsers, and displays from their own Cloud machine. Open a local workspace and move the splits there."
+        let expected = "Cloud workspaces can only hold terminals and displays from their own Cloud machine. Browser tabs can move freely. Open a local workspace to move other splits there."
         #expect(SurfaceTransferRejection.cloudMachineMismatch.message == expected)
         #expect(view.draggingEntered(sender).isEmpty)
         #expect(view.feedback.rejection == .cloudMachineMismatch)

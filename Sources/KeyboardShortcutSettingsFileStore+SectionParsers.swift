@@ -1,8 +1,299 @@
 import CmuxSettings
 import Foundation
 
-/// Settings-file section parsers for file editor, file explorer, markdown, mobile, and sidebar workspace-todo options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
+/// Settings-file section parsers for file editor, file explorer, agent messages, markdown, mobile, and sidebar workspace-todo options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
 extension CmuxSettingsFileStore {
+    /// Parses canonical beta and integration sections that share legacy
+    /// UserDefaults storage with the classic settings importer.
+    func parseClassicCatalogSections(
+        _ root: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let integrations = root["integrations"] as? [String: Any] {
+            parseIntegrationsSection(integrations, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if root.keys.contains("integrations") {
+            logInvalid("integrations", sourcePath: sourcePath)
+        }
+
+        // Build only the section each parser reads. In -Onone builds every
+        // `SettingCatalog()` temporary takes a whole-catalog stack slot, and a
+        // dozen of them overflowed a 512 KB cooperative thread in app-host tests.
+        let beta = BetaFeaturesCatalogSection()
+        parseBetaToggle(
+            root["rightSidebar"] as? [String: Any],
+            nestedPath: ["beta", "feed", "enabled"],
+            setting: beta.rightSidebarFeed,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["extensions"] as? [String: Any],
+            nestedPath: ["beta", "enabled"],
+            setting: beta.extensions,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["customSidebars"] as? [String: Any],
+            nestedPath: ["beta", "enabled"],
+            setting: beta.customSidebars,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["cloud"] as? [String: Any],
+            nestedPath: ["beta", "machines", "enabled"],
+            setting: beta.cloudMachines,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "enabled"],
+            setting: beta.remoteTmux,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+    }
+
+    private func parseIntegrationsSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let integrations = IntegrationsCatalogSection()
+        parseIntegrationProvider(
+            section["claudeCode"],
+            providerPath: "integrations.claudeCode",
+            hooksKey: integrations.claudeCodeHooksEnabled,
+            customPathKey: integrations.claudeCodeCustomClaudePath,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseIntegrationProvider(
+            section["codex"],
+            providerPath: "integrations.codex",
+            hooksKey: integrations.codexHooksEnabled,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseIntegrationProvider(
+            section["pi"],
+            providerPath: "integrations.pi",
+            hooksKey: integrations.piHooksEnabled,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseIntegrationProvider(
+            section["amp"],
+            providerPath: "integrations.amp",
+            hooksKey: integrations.ampHooksEnabled,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseIntegrationProvider(
+            section["cursor"],
+            providerPath: "integrations.cursor",
+            hooksKey: integrations.cursorHooksEnabled,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseIntegrationProvider(
+            section["gemini"],
+            providerPath: "integrations.gemini",
+            hooksKey: integrations.geminiHooksEnabled,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseIntegrationProvider(
+            section["kiro"],
+            providerPath: "integrations.kiro",
+            hooksKey: integrations.kiroHooksEnabled,
+            notificationLevelKey: integrations.kiroNotificationLevel,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+
+        if let ripgrep = section["ripgrep"] as? [String: Any] {
+            if let raw = jsonString(ripgrep["customBinaryPath"]) {
+                snapshot.managedUserDefaults[
+                    integrations.ripgrepCustomBinaryPath.userDefaultsKey
+                ] = .string(raw)
+            } else if ripgrep.keys.contains("customBinaryPath") {
+                logInvalid("integrations.ripgrep.customBinaryPath", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("ripgrep") {
+            logInvalid("integrations.ripgrep", sourcePath: sourcePath)
+        }
+
+        if let value = jsonBool(section["suppressSubagentNotifications"]) {
+            snapshot.managedUserDefaults[
+                integrations.suppressSubagentNotifications.userDefaultsKey
+            ] = .bool(value)
+        } else if section.keys.contains("suppressSubagentNotifications") {
+            logInvalid("integrations.suppressSubagentNotifications", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseIntegrationProvider(
+        _ rawValue: Any?,
+        providerPath: String,
+        hooksKey: DefaultsKey<Bool>,
+        customPathKey: DefaultsKey<String>? = nil,
+        notificationLevelKey: DefaultsKey<String>? = nil,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let rawValue else { return }
+        guard let provider = rawValue as? [String: Any] else {
+            logInvalid(providerPath, sourcePath: sourcePath)
+            return
+        }
+        if let value = jsonBool(provider["hooksEnabled"]) {
+            snapshot.managedUserDefaults[hooksKey.userDefaultsKey] = .bool(value)
+        } else if provider.keys.contains("hooksEnabled") {
+            logInvalid("\(providerPath).hooksEnabled", sourcePath: sourcePath)
+        }
+        if let customPathKey {
+            if let raw = jsonString(provider["customClaudePath"]) {
+                snapshot.managedUserDefaults[customPathKey.userDefaultsKey] = .string(raw)
+            } else if provider.keys.contains("customClaudePath") {
+                logInvalid("\(providerPath).customClaudePath", sourcePath: sourcePath)
+            }
+        }
+        if let notificationLevelKey {
+            if let raw = jsonString(provider["notificationLevel"]), KiroNotificationLevel(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[notificationLevelKey.userDefaultsKey] = .string(raw)
+            } else if provider.keys.contains("notificationLevel") {
+                logInvalid("\(providerPath).notificationLevel", sourcePath: sourcePath)
+            }
+        }
+    }
+
+    private func parseBetaToggle(
+        _ section: [String: Any]?,
+        nestedPath: [String],
+        setting: DefaultsKey<Bool>,
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        guard let section else { return }
+        var current: Any = section
+        for component in nestedPath.dropLast() {
+            guard let object = current as? [String: Any], let next = object[component] else {
+                return
+            }
+            current = next
+        }
+        guard let object = current as? [String: Any], let finalKey = nestedPath.last else { return }
+        if let value = jsonBool(object[finalKey]) {
+            snapshot.managedUserDefaults[setting.userDefaultsKey] = .bool(value)
+        } else if object.keys.contains(finalKey) {
+            logInvalid(setting.id, sourcePath: sourcePath)
+        }
+    }
+
+    func parseCanonicalTerminalSettings(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let terminal = TerminalCatalogSection()
+        if let rawTitleUpdates = section["titleUpdates"],
+           let titleUpdates = rawTitleUpdates as? [String: Any] {
+            if let rawCoalescing = titleUpdates["coalescing"],
+               let coalescing = rawCoalescing as? [String: Any] {
+                let titleSettings = terminal
+                if let value = jsonBool(coalescing["enabled"]) {
+                    snapshot.managedUserDefaults[titleSettings.titleUpdateCoalescingEnabled.userDefaultsKey] = .bool(value)
+                } else if coalescing.keys.contains("enabled") {
+                    logInvalid(titleSettings.titleUpdateCoalescingEnabled.id, sourcePath: sourcePath)
+                }
+                if let value = jsonInt(coalescing["delayMilliseconds"]),
+                   (PanelTitleUpdateCoalescingSettings.minimumDelayMilliseconds...PanelTitleUpdateCoalescingSettings.maximumDelayMilliseconds).contains(value) {
+                    snapshot.managedUserDefaults[titleSettings.titleUpdateCoalescingMilliseconds.userDefaultsKey] = .int(value)
+                } else if coalescing.keys.contains("delayMilliseconds") {
+                    logInvalid(titleSettings.titleUpdateCoalescingMilliseconds.id, sourcePath: sourcePath)
+                }
+            } else if titleUpdates.keys.contains("coalescing") {
+                logInvalid("terminal.titleUpdates.coalescing", sourcePath: sourcePath)
+            }
+            if let value = jsonBool(titleUpdates["diagnostics"]) {
+                snapshot.managedUserDefaults[terminal.titleUpdateDiagnostics.userDefaultsKey] = .bool(value)
+            } else if titleUpdates.keys.contains("diagnostics") {
+                logInvalid(terminal.titleUpdateDiagnostics.id, sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("titleUpdates") {
+            logInvalid("terminal.titleUpdates", sourcePath: sourcePath)
+        }
+
+        if let rawGuardrail = section["runawayMemoryGuardrail"],
+           let guardrail = rawGuardrail as? [String: Any] {
+            let guardrailSettings = terminal
+            if let value = jsonBool(guardrail["enabled"]) {
+                snapshot.managedUserDefaults[guardrailSettings.runawayMemoryGuardrailEnabled.userDefaultsKey] = .bool(value)
+            } else if guardrail.keys.contains("enabled") {
+                logInvalid(guardrailSettings.runawayMemoryGuardrailEnabled.id, sourcePath: sourcePath)
+            }
+            if let value = jsonDouble(guardrail["thresholdGB"]), value.isFinite, (1...256).contains(value) {
+                snapshot.managedUserDefaults[guardrailSettings.runawayMemoryGuardrailThresholdGB.userDefaultsKey] = .double(value)
+            } else if guardrail.keys.contains("thresholdGB") {
+                logInvalid(guardrailSettings.runawayMemoryGuardrailThresholdGB.id, sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("runawayMemoryGuardrail") {
+            logInvalid("terminal.runawayMemoryGuardrail", sourcePath: sourcePath)
+        }
+    }
+
+    func parseCanonicalSidebarSettings(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["branchVerticalLayout"]) {
+            snapshot.managedUserDefaults[SidebarCatalogSection().branchVerticalLayout.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("branchVerticalLayout") {
+            logInvalid(SidebarCatalogSection().branchVerticalLayout.id, sourcePath: sourcePath)
+        }
+        if let raw = jsonString(section["activeTabIndicatorStyle"]),
+           let indicator = WorkspaceIndicatorStyle.decodeFromJSON(raw) {
+            snapshot.managedUserDefaults[SettingCatalog().workspaceColors.indicatorStyle.userDefaultsKey] = .string(indicator.rawValue)
+        } else if section.keys.contains("activeTabIndicatorStyle") {
+            logInvalid(SidebarCatalogSection().activeTabIndicatorStyle.id, sourcePath: sourcePath)
+        }
+        if section.keys.contains("selectionColor"),
+           let value = parseCanonicalNullableHex(
+               section["selectionColor"],
+               path: SidebarCatalogSection().selectionColorHex.id,
+               sourcePath: sourcePath
+           ) {
+            snapshot.managedUserDefaults[SidebarCatalogSection().selectionColorHex.userDefaultsKey] = .nullableString(value)
+        }
+        if section.keys.contains("notificationBadgeColor"),
+           let value = parseCanonicalNullableHex(
+               section["notificationBadgeColor"],
+               path: SidebarCatalogSection().notificationBadgeColorHex.id,
+               sourcePath: sourcePath
+           ) {
+            snapshot.managedUserDefaults[SidebarCatalogSection().notificationBadgeColorHex.userDefaultsKey] = .nullableString(value)
+        }
+    }
+
+    private func parseCanonicalNullableHex(
+        _ rawValue: Any?,
+        path: String,
+        sourcePath: String
+    ) -> String?? {
+        if rawValue is NSNull { return .some(nil) }
+        guard let raw = jsonString(rawValue),
+              let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+            logInvalid(path, sourcePath: sourcePath)
+            return nil
+        }
+        return .some(normalized)
+    }
+
     func parseFileEditorSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -83,13 +374,38 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    /// `agentMessages.enabled`, the app-wide switch for agent messages.
+    func parseAgentMessagesSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["enabled"]) {
+            snapshot.managedUserDefaults[AgentMessagesCatalogSection().enabled.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("enabled") {
+            logInvalid("agentMessages.enabled", sourcePath: sourcePath)
+        }
+    }
+
     func parseSidebarWorkspaceTodosBeta(
         _ beta: [String: Any],
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let betaKeys = BetaFeaturesCatalogSection()
+        if let rawConversations = beta["conversations"], let conversations = rawConversations as? [String: Any] {
+            if let enabled = jsonBool(conversations["enabled"]) {
+                snapshot.managedUserDefaults[
+                    betaKeys.conversationSidebar.userDefaultsKey
+                ] = .bool(enabled)
+            } else if conversations.keys.contains("enabled") {
+                logInvalid("sidebar.beta.conversations.enabled", sourcePath: sourcePath)
+            }
+        } else if beta.keys.contains("conversations") {
+            logInvalid("sidebar.beta.conversations", sourcePath: sourcePath)
+        }
+
         if let rawTodos = beta["workspaceTodos"], let todos = rawTodos as? [String: Any] {
-            let betaKeys = BetaFeaturesCatalogSection()
             if let controls = todos["controls"] as? [String: Any] {
                 if let enabled = jsonBool(controls["enabled"]) {
                     snapshot.managedUserDefaults[

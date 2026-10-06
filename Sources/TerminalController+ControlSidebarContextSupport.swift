@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxSidebar
 import CmuxTerminal
 import CmuxWorkspaces
 import Foundation

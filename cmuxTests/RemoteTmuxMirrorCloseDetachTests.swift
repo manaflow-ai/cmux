@@ -122,7 +122,8 @@ import Testing
                 surfaceID: nil,
                 paneID: nil
             ),
-            workspaceID: mirrorWorkspace.id
+            workspaceID: mirrorWorkspace.id,
+            force: false
         )
 
         #expect(resolution == .resolved(windowID: harness.windowId))
@@ -195,6 +196,106 @@ import Testing
             $0.windowId == harness.windowId
         })
         #expect(harness.appDelegate.recoverableMainWindowRoute(windowId: harness.windowId) == nil)
+    }
+
+    /// A second `--new-window` gathers the host's mirrors into the new window. A window that
+    /// held nothing else has no reason to stay: emptied, it recovers by opening a fresh local
+    /// shell, and the user is left with a blank window they did not ask for.
+    @Test func consolidatingMirrorsClosesAWindowThatHeldNothingElse() throws {
+        // The cleanup detach runs ssh to close its master; `true` stands in for it.
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        setenv(sshOverrideKey, "/usr/bin/true", 1)
+        defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
+        let source = try Harness()
+        defer { source.tearDown() }
+        let target = try Harness()
+        defer { target.tearDown() }
+        let host = RemoteTmuxHost(destination: "consolidate-\(UUID().uuidString)@example.test")
+        let controller = source.controller
+        controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: "dev"))
+        defer {
+            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
+                controller.detach(host: host, sessionName: "dev")
+            }
+        }
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: source.manager))
+        let mirrorWorkspace = try #require(source.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        source.manager.closeWorkspace(source.workspace, recordHistory: false)
+        #expect(source.manager.tabs.map(\.id) == [mirrorWorkspace.id])
+
+        controller.moveExistingMirrors(for: host, into: target.manager)
+
+        #expect(target.manager.tabs.contains { $0.id == mirrorWorkspace.id })
+        #expect(
+            !source.appDelegate.listMainWindowSummaries().contains { $0.windowId == source.windowId },
+            "the emptied window stayed open with \(source.manager.tabs.count) replacement workspace(s)"
+        )
+    }
+
+    /// The window's Dock holds terminals and browsers that belong to no workspace. Closing the
+    /// window closes them, so a window whose workspaces were all mirrors stays open while its
+    /// Dock has panels.
+    @Test func consolidatingMirrorsKeepsAWindowWhoseDockHasPanels() throws {
+        // The cleanup detach runs ssh to close its master; `true` stands in for it.
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        setenv(sshOverrideKey, "/usr/bin/true", 1)
+        defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
+        let source = try Harness()
+        defer { source.tearDown() }
+        let target = try Harness()
+        defer { target.tearDown() }
+        let host = RemoteTmuxHost(destination: "consolidate-\(UUID().uuidString)@example.test")
+        let controller = source.controller
+        controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: "dev"))
+        defer {
+            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
+                controller.detach(host: host, sessionName: "dev")
+            }
+        }
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: source.manager))
+        let mirrorWorkspace = try #require(source.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        source.manager.closeWorkspace(source.workspace, recordHistory: false)
+        #expect(source.manager.tabs.map(\.id) == [mirrorWorkspace.id])
+        let dock = source.appDelegate.windowDock(forWindowId: source.windowId)
+        let dockPanel = TerminalPanel(workspaceId: dock.workspaceId, runtimeSpawnPolicy: .pacedSessionRestore)
+        dock.panels[dockPanel.id] = dockPanel
+
+        controller.moveExistingMirrors(for: host, into: target.manager)
+
+        #expect(target.manager.tabs.contains { $0.id == mirrorWorkspace.id })
+        #expect(
+            source.appDelegate.listMainWindowSummaries().contains { $0.windowId == source.windowId },
+            "the window closed while its Dock still held a terminal"
+        )
+        #expect(!dock.isRetired)
+        #expect(dock.panels[dockPanel.id] != nil)
+    }
+
+    /// A window with workspaces of its own keeps them, and gains nothing, when the host's
+    /// mirrors move out.
+    @Test func consolidatingMirrorsLeavesAWindowWithOtherWorkspacesAlone() throws {
+        // The cleanup detach runs ssh to close its master; `true` stands in for it.
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        setenv(sshOverrideKey, "/usr/bin/true", 1)
+        defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
+        let source = try Harness()
+        defer { source.tearDown() }
+        let target = try Harness()
+        defer { target.tearDown() }
+        let host = RemoteTmuxHost(destination: "consolidate-\(UUID().uuidString)@example.test")
+        let controller = source.controller
+        controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: "dev"))
+        defer {
+            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
+                controller.detach(host: host, sessionName: "dev")
+            }
+        }
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: source.manager))
+
+        controller.moveExistingMirrors(for: host, into: target.manager)
+
+        #expect(source.appDelegate.listMainWindowSummaries().contains { $0.windowId == source.windowId })
+        #expect(source.manager.tabs.map(\.id) == [source.workspace.id])
     }
 
     /// A remote session ending removes its dead mirror but preserves the owning

@@ -60,6 +60,11 @@ extension TerminalController {
                         "lockedMemoryOptionsMb": limits.lockedMemoryOptionsMb.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlansByMb": limits.memoryUpgradePlansByMb.map { $0 as Any } ?? NSNull(),
+                        "vcpusByMemoryMb": limits.vcpusByMemoryMb.map { $0 as Any } ?? NSNull(),
+                        "poolVcpus": limits.resourcePool.map { $0.poolVcpus as Any } ?? NSNull(),
+                        "poolMemoryMb": limits.resourcePool.map { $0.poolMemoryMb as Any } ?? NSNull(),
+                        "usedVcpus": limits.resourcePool.map { $0.usedVcpus as Any } ?? NSNull(),
+                        "usedMemoryMb": limits.resourcePool.map { $0.usedMemoryMb as Any } ?? NSNull(),
                     ]
                 }
                 return payload
@@ -233,9 +238,37 @@ extension TerminalController {
             let persistentHome = Self.socketWorkerBool(params["persistent_home"]) ?? false
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
+            var networkPolicy: CloudNetworkPolicy?
+            if let rawPolicy = params["network_policy"], !(rawPolicy is NSNull) {
+                guard let decoded = try? CloudNetworkPolicy(foundationObject: rawPolicy) else {
+                    return v2Error(
+                        id: id,
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.cloudVM.create.invalidNetworkPolicy",
+                            defaultValue: "vm.create `network_policy` must be an object with a mode of full, allowlist, or none."
+                        )
+                    )
+                }
+                networkPolicy = decoded
+            }
+            var agentUpdates: CloudAgentUpdates?
+            if let rawAgentUpdates = params["agent_updates"], !(rawAgentUpdates is NSNull) {
+                guard let decoded = CloudAgentUpdates(wireValue: rawAgentUpdates) else {
+                    return v2Error(
+                        id: id,
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.cloudVM.create.invalidAgentUpdates",
+                            defaultValue: "vm.create `agent_updates` must be latest or image."
+                        )
+                    )
+                }
+                agentUpdates = decoded
+            }
             return v2CloudCall(id: id, method: method, params: params) {
                 let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
-                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), networkPolicy: networkPolicy, agentUpdates: agentUpdates, idempotencyKey: idempotencyKey)
                 await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, scope: scope)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
@@ -332,6 +365,10 @@ extension TerminalController {
                 if let diskUsedMb = stats.diskUsedMb { payload["disk_used_mb"] = diskUsedMb }
                 return payload
             }
+        case "vm.network_get", "vm.network_update":
+            return socketWorkerCloudNetworkResponse(method: method, id: id, params: params)
+        case "vm.agent_updates_get", "vm.agent_updates_set":
+            return socketWorkerCloudAgentUpdatesResponse(method: method, id: id, params: params)
         case "vm.rename":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")
@@ -356,6 +393,9 @@ extension TerminalController {
                 let status = resume
                     ? try await VMClient.shared.resume(id: vmId)
                     : try await VMClient.shared.pause(id: vmId)
+                if !resume {
+                    await CmuxTuiSurfaceProviderRegistry.shared.machineBecameInactive(vmId, status: status)
+                }
                 return ["id": vmId, "status": status]
             }
         case "vm.reflection":
@@ -790,17 +830,9 @@ extension TerminalController {
             "kind": vm.resolvedKind.rawValue,
             // What the provider can honor; the list response is authoritative and
             // older action responses retain the model's compatibility defaults.
-            "capabilities": [
-                "snapshot": vm.capabilities.snapshot,
-                "restore": vm.capabilities.restore,
-                "fork": vm.capabilities.fork,
-                "exec": vm.capabilities.exec,
-                "stats": vm.capabilities.stats,
-                "ports": vm.capabilities.ports,
-                "desktop": vm.capabilities.desktop,
-                "sizing": vm.capabilities.sizing,
-                "persistentHome": vm.capabilities.persistentHome,
-            ],
+            // Reuse the model's wire representation so newer capability fields,
+            // including attach transports, cannot be dropped by this summary.
+            "capabilities": vm.capabilities.jsonObject,
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
@@ -825,6 +857,9 @@ extension TerminalController {
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
+        }
+        if let agentUpdates = vm.agentUpdates {
+            payload["agentUpdates"] = agentUpdates.rawValue
         }
         if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
             var address: [String: Any] = [:]

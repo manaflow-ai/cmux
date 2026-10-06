@@ -43,6 +43,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Whether copy-on-select briefly shows "Copied to clipboard". Applies
+    /// whether cmux's ``copyOnSelect`` or Ghostty's `copy-on-select` is on.
+    public let showCopyConfirmation = DefaultsKey<Bool>(
+        id: "terminal.showCopyConfirmation",
+        defaultValue: false,
+        userDefaultsKey: "terminal.showCopyConfirmation"
+    )
+
     /// Whether copy also rejoins lines an application hard-wrapped to the
     /// terminal width. Off by default. Soft-wrapped rows Ghostty marks with
     /// the row wrap flag are always joined, regardless of this key.
@@ -105,6 +113,21 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.adaptiveDefaultTheme"
     )
 
+    /// Predictive local echo: draw typed characters over a terminal whose
+    /// shell runs on another machine before the remote echoes them, and
+    /// withdraw them if the remote disagrees. Only engages at a shell prompt
+    /// on a link slow enough to notice, never in a full-screen application,
+    /// never in a local terminal, and never until the remote has been seen
+    /// echoing, so a password prompt displays nothing. On by default.
+    ///
+    /// Stored under its former Beta Features key, so a choice made while it
+    /// was a beta carries over.
+    public let predictiveLocalEcho = DefaultsKey<Bool>(
+        id: "terminal.predictiveLocalEcho",
+        defaultValue: true,
+        userDefaultsKey: "terminal.beta.predictedEcho.enabled"
+    )
+
     /// Whether cmux shows a lock badge in the terminal chrome while the
     /// foreground program has turned echo off for a password prompt. On by
     /// default. The badge is drawn by cmux and never touches terminal text.
@@ -120,6 +143,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.showPasswordInputDots",
         defaultValue: false,
         userDefaultsKey: "terminal.showPasswordInputDots"
+    )
+
+    /// Whether cmux shows a "Jump to Bottom" button in a terminal pane while
+    /// its viewport is scrolled up into scrollback. On by default.
+    public let showJumpToBottomButton = DefaultsKey<Bool>(
+        id: "terminal.showJumpToBottomButton",
+        defaultValue: true,
+        userDefaultsKey: "terminal.showJumpToBottomButton"
     )
 
     public let autoResumeAgentSessions = DefaultsKey<Bool>(

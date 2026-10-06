@@ -98,7 +98,7 @@ start_db_watchdog() {
       if owns_dev_lock && ! bash "$ROOT_DIR/scripts/db-local.sh" ready >/dev/null 2>&1; then
         echo "cmux web dev: local Postgres unavailable; restarting for CMUX_PORT=$CMUX_PORT"
         if bash "$ROOT_DIR/scripts/db-local.sh" up >/dev/null 2>&1; then
-          bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts" >/dev/null
+          bash "$ROOT_DIR/scripts/db-local.sh" migrate >/dev/null
         fi
       fi
       sleep 2
@@ -145,7 +145,7 @@ if [[ "${CMUX_DEV_START_DB:-1}" != "0" ]]; then
   claim_dev_lock
   start_cleanup_watcher
   bash "$ROOT_DIR/scripts/db-local.sh" up >/dev/null
-  bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
+  bash "$ROOT_DIR/scripts/db-local.sh" migrate
   start_db_watchdog
 fi
 

@@ -11,6 +11,19 @@ import CmuxTerminal
 /// `surface_health`): the exact bodies the former `TerminalController` v1
 /// handlers ran.
 extension TerminalController {
+    func controlSidebarCloseStrings() -> ControlSidebarCloseStrings {
+        ControlSidebarCloseStrings(
+            failed: String(
+                localized: "socket.sidebar.closeSurface.failed",
+                defaultValue: "Failed to close surface"
+            ),
+            confirmationRequired: String(
+                localized: "socket.sidebar.closeSurface.confirmationRequired",
+                defaultValue: "Surface has a running process; retry with --force"
+            )
+        )
+    }
+
     // MARK: - Pane listings / focus
 
     func controlSidebarPaneList() -> ControlSidebarPaneListSnapshot? {
@@ -106,35 +119,9 @@ extension TerminalController {
     // MARK: - Drag to split / new pane
 
     func controlSidebarRefreshKnownRefs() {
-        // The byte-faithful twin of the file-private `v2RefreshKnownRefs()`
-        // (which stays in `TerminalController.swift` for the v2 dispatch
-        // pre-pass), minting into the same coordinator-owned registry.
-        guard let app = AppDelegate.shared else { return }
-
-        // #2751: same guard as the v2 twin. This runs on the
-        // `drag_surface_to_split` v1 path and iterates the same structures, so
-        // skip the pre-mint pass while session restore is pending or in flight
-        // to avoid faulting on a half-built tree; refs mint lazily otherwise.
-        guard app.didCompleteInitialSessionRestore else { return }
-
-        let windows = app.listMainWindowSummaries()
-        for item in windows {
-            _ = controlCommandCoordinator.ensureRef(kind: .window, uuid: item.windowId)
-            if let tm = app.tabManagerFor(windowId: item.windowId) {
-                for ws in tm.tabs {
-                    _ = controlCommandCoordinator.ensureRef(kind: .workspace, uuid: ws.id)
-                    for paneId in ws.bonsplitController.allPaneIds {
-                        _ = controlCommandCoordinator.ensureRef(kind: .pane, uuid: paneId.id)
-                    }
-                    for panelId in ws.panels.keys {
-                        _ = controlCommandCoordinator.ensureRef(kind: .surface, uuid: panelId)
-                    }
-                }
-                for group in tm.workspaceGroups {
-                    _ = controlCommandCoordinator.ensureRef(kind: .workspaceGroup, uuid: group.id)
-                }
-            }
-        }
+        // Forward to the unified `v2RefreshKnownRefs()` which gates on `needsHandleTopologyRefresh`
+        // and records `markHandleTopologyRefreshCompleted()` (#5757).
+        v2RefreshKnownRefs()
     }
 
     func controlSidebarSplitOffSurface(surfaceID: UUID, directionRawValue: String) -> ControlSidebarSplitOffOutcome {
@@ -292,7 +279,7 @@ extension TerminalController {
         }
     }
 
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution {
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool = false) -> ControlSidebarCloseSurfaceResolution {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
@@ -316,8 +303,10 @@ extension TerminalController {
             return .lastSurface
         }
 
-        // Socket commands must be non-interactive: bypass close-confirmation gating.
-        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: true) else {
+        if !force, tab.panelNeedsConfirmClose(panelId: targetSurfaceId) {
+            return .confirmationRequired
+        }
+        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: force) else {
             return .closeFailed
         }
         return .closed

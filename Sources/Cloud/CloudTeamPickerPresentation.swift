@@ -6,6 +6,8 @@ import Observation
 @Observable
 final class CloudTeamPickerPresentation {
     var isPresented = false
+    /// The Invite popover anchored to the header Invite button.
+    var isInvitePresented = false
     /// The last failed switch or create, shown under the header until
     /// dismissed or the menu opens again.
     var teamChangeError: String?
@@ -27,6 +29,20 @@ final class CloudTeamPickerPresentation {
                 try await accountFlow.selectTeam(id: teamID)
             } catch {
                 report(Self.switchFailedMessage)
+            }
+        }
+    }
+
+    /// Joins the team of a received invitation and makes it active. Shares the
+    /// switch guard: a join during a pending switch would race it.
+    func joinInvitation(_ invitationID: String, accountFlow: HostAccountFlow) {
+        guard !accountFlow.isSelectingTeam else { return }
+        teamChangeError = nil
+        Task { @MainActor in
+            do {
+                try await accountFlow.cloudAcceptInvitation(invitationID: invitationID)
+            } catch {
+                report(HostAccountFlow.teamMembersUserMessage(error))
             }
         }
     }

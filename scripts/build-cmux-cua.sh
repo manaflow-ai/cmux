@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
-CMUX_CUA_PINNED_SHA="d6ebb0985554094e4a142b1c5e4e207fcb34f1d2"
+CMUX_CUA_PINNED_SHA="e0f738807dbff2f35fe67d7fbcc99c7082cffc23"
 CMUX_CUA_SOURCE_OWNER_FILE=".cmux-cua-managed-source"
 CMUX_CUA_SOURCE_OWNER_VALUE="cmux-cua-cache-v2 $CMUX_CUA_PINNED_SHA"
 CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
@@ -15,6 +15,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # toolchain, or the fake git/cargo in tests/test_cmux_cua_build_cache_safety.py)
 # must keep precedence over Homebrew's copies.
 export PATH="${PATH:+${PATH}:}${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
+export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
 
 OUTPUT=""
 ARCHS_RAW=""

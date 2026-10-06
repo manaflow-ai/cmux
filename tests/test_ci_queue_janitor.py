@@ -673,7 +673,8 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("dry_run:", text)
         self.assertNotIn("pull_request", text.split("jobs:")[0].replace("pull-requests: read", ""))
-        self.assertIn("permissions:\n  actions: write\n  pull-requests: read\n  contents: read\n", text)
+        self.assertIn("\npermissions: {}\n", text)
+        self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
         self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ci-queue-janitor\n  cancel-in-progress: false\n", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
@@ -1031,6 +1032,32 @@ class OrphanExecutionTests(unittest.TestCase):
         results, _ = janitor.cancel_orphans(fake, orphan_plan(find([ghost], {})), sleep=lambda _: None)
         self.assertIn("skipped", results[ghost["id"]])
         self.assertEqual(fake.posts(), [])
+
+
+class PlannedCancellationTests(unittest.TestCase):
+    def candidate(self):
+        run = make_run(status="queued")
+        usage = janitor.macos_usage(mac_jobs(queued=1))
+        return janitor.Candidate(run, "stale-pr", "PR is merged", usage), run
+
+    def test_refused_cancel_is_force_cancelled_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("force-cancelled", results[run["id"]])
+        self.assertEqual(failures, 0)
+        self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"], [str(run["id"]), "force-cancel"]])
+
+    def test_run_github_will_not_cancel_is_reported_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]], refuse_force=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("stuck", results[run["id"]])
+        self.assertEqual(failures, 0)
 
 
 class OrphanSweepTests(unittest.TestCase):
