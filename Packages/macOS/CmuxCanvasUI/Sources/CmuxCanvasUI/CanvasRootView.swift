@@ -167,9 +167,12 @@ public final class CanvasRootView: NSView {
     private func applyTheme() {
         let theme = themeProvider()
         scrollView.backgroundColor = theme.canvasBackground
+        scrollView.drawsBackground = !theme.showsWindowBackdrop
         documentView.canvasBackground = theme.canvasBackground
+        documentView.drawsBackground = !theme.showsWindowBackdrop
         for paneView in paneViews.values {
             paneView.paneBackground = theme.paneBackground
+            paneView.drawsBackground = !theme.showsWindowBackdrop
         }
     }
 
@@ -322,7 +325,9 @@ public final class CanvasRootView: NSView {
             } else {
                 paneView = CanvasPaneView(paneID: pane.id)
                 paneView.delegate = self
-                paneView.paneBackground = themeProvider().paneBackground
+                let theme = themeProvider()
+                paneView.paneBackground = theme.paneBackground
+                paneView.drawsBackground = !theme.showsWindowBackdrop
                 paneView.accentColor = accentColor
                 documentView.addSubview(paneView)
                 paneViews[pane.id] = paneView

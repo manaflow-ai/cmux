@@ -269,7 +269,14 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
             ),
             themeProvider: {
                 let background = GhosttyBackgroundTheme.currentColor()
-                return CanvasTheme(canvasBackground: background, paneBackground: background)
+                // A translucent theme is already painted by the window root
+                // backdrop, as in split mode; opaque canvas fills would hide it.
+                let opacity = GhosttyBackgroundTheme.clampedOpacity(GhosttyApp.shared.defaultBackgroundOpacity)
+                return CanvasTheme(
+                    canvasBackground: background,
+                    paneBackground: background,
+                    showsWindowBackdrop: opacity < 0.999
+                )
             }
         )
     }
