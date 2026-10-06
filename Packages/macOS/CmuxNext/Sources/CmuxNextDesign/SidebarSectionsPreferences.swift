@@ -32,8 +32,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Each workspace row shows how many tabs it has.
     public var showCounts = false
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
-    /// R100: the Settings/account band shows only while the pointer is over the sidebar.
-    public var minimalMode: SidebarMinimalMode = .bottom
+    /// Off by default: the footer's avatar and gear always draw (Leo
+    /// 2026-10-06); `.bottom` is R100's hover-only footer, opt-in.
+    public var minimalMode: SidebarMinimalMode = .off
     /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
     /// `sidebar.stepping`, `sidebar.steppingWraps`).
     public var navigation = SidebarNavigationSettings.defaults

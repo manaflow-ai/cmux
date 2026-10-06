@@ -50,6 +50,7 @@ final class SidebarBridge {
             state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
         }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
+        container.sidebarView.itemMenuProvider = { [weak self] id in self?.itemMenu(id) }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         let recents = services.agentRecents.map { feed in

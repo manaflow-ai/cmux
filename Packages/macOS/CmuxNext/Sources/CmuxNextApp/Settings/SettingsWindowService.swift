@@ -59,6 +59,19 @@ final class SettingsWindowService: InternalPageProvider {
             }
             return
         }
+        // A user run over a top page (Home, from the footer gear) shows Settings as a top page:
+        // a tab would open behind the page, or wait for a pane Home never mounts, so nothing
+        // seemed to happen (Leo 2026-10-06).
+        if focus, let window = services.windows?.active, window.shownTopPage != nil {
+            let route = Self.route(section: target, setting: setting)
+            pendingRoute = route
+            if TopPages.show(.page(.settings), services: services, in: window.state) != nil {
+                waiting = nil
+                let page = (window.topPages.views[.page(.settings)] as? InternalPageView)?.content as? PageWebView
+                if let route, let page, page.route != route { page.open(route: route) }
+                return
+            }
+        }
         guard let windows = services.windows, let window = windows.active, Self.hasPane(window) else {
             waiting = (target, setting, focus)
             if let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }

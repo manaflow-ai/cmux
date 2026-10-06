@@ -254,14 +254,25 @@ final class SidebarItemRowView: NSView {
         badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
     }
 
-    /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
+    /// The item's avatar, else its registry icon at `side` points; without
+    /// one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
+        if let avatar = info.avatar { return avatarImage(avatar, side: side) }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
         if let name = info.icon { return NSImage.icon(name, size: side) }
         let symbol = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
         return symbol ?? NSImage.icon(.appGeneric, size: side)
     }
+
+    /// A `side` circle in the theme's colors at the window's pixel scale.
+    private func avatarImage(_ avatar: SidebarAvatar, side: CGFloat) -> NSImage {
+        let (fill, ink) = performWithTheme { (Palette.textSecondary.cgColor, Palette.textOnPrimary.cgColor) }
+        return avatar.image(side: side, scale: window?.backingScaleFactor ?? 2, fill: fill, ink: ink)
+    }
+
+    /// The item draws an avatar in place of its glyph (tests).
+    var drawsAvatar: Bool { info.avatar != nil }
 
     /// A `side` square centered in `box`, on the device pixel grid so the icon's strokes stay crisp.
     private func alignedGlyphFrame(side: CGFloat, centeredIn box: NSRect) -> NSRect {
@@ -280,6 +291,8 @@ final class SidebarItemRowView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
+        // An avatar's initials resolve the theme's colors when drawn.
+        if info.avatar != nil { needsLayout = true }
     }
 
     // MARK: Pointer

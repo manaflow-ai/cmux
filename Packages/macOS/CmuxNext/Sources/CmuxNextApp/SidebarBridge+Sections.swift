@@ -83,20 +83,25 @@ extension SidebarBridge {
         let service = services.sidebarLayout
         let apps = services.apps.registry
         let store = services.machines.local.store
+        let auth = services.cloud?.auth
         sectionsObservation = Task { [weak self] in
             // The app registry is observed too: hiding or installing an app
             // changes its item at once.
             // So are the unread count (Notifications' dot) and the built-ins'
             // shortcuts (their tooltips, e.g. the footer gear's "Settings (⌘,)").
             // The selected item comes from the one selection (SidebarModel.selectedItem).
-            for await (layout, unread, shortcuts) in Observations({ () -> (SidebarLayoutDocument, Int, [ActionID: String]) in
+            // So is the signed-in user (the footer avatar) and their picture.
+            for await (layout, unread, shortcuts, account) in Observations({
+                () -> (SidebarLayoutDocument, Int, [ActionID: String], SidebarFooterAccount?) in
                 _ = apps.apps
-                return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry))
+                return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),
+                        SidebarFooterAccount(auth))
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
+                AccountAvatarImages.shared.load(auth?.isSignedIn == true ? auth?.user?.profileImageURL : nil)
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
-                                          unread: unread,
+                                          unread: unread, account: account,
                                           app: { Self.appInfo($0, registry: apps) }, shortcut: { shortcuts[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
@@ -118,8 +123,9 @@ extension SidebarBridge {
     /// whether an action exists. Notifications carries `unread`, and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
+    /// The account item draws the signed-in `account`'s avatar and name.
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
-                         unread: Int = 0,
+                         unread: Int = 0, account: SidebarFooterAccount? = nil,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
@@ -134,6 +140,10 @@ extension SidebarBridge {
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
                 info.shortcut = builtInActions[builtIn].flatMap(shortcut)
                 if builtIn == .notifications { info.badge = unread > 0 ? unread : nil }
+                if builtIn == .account, let account {
+                    info.title = account.name
+                    info.avatar = account.avatar
+                }
                 infos[item.id] = info
             }
         }

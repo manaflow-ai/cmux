@@ -24,13 +24,18 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var shortcut: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
+    /// A round picture or initials drawn in place of the glyph (the
+    /// signed-in user on the account item).
+    public var avatar: SidebarAvatar?
     /// An agent's brand mark (`AgentBrandID`), drawn instead of `icon` (a Recents chat).
     public var brand: String?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil) {
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
+                avatar: SidebarAvatar? = nil) {
         self.icon = icon
         self.brand = brand
+        self.avatar = avatar
         self.shortcut = shortcut
         self.isHidden = isHidden
         self.caption = caption

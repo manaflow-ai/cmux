@@ -1787,7 +1787,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>bottom</string>
+			<string>off</string>
 			<key>pfm_description</key>
 			<string>Hides the chosen sections until the pointer is over the sidebar.</string>
 			<key>pfm_name</key>

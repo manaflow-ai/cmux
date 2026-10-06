@@ -7778,7 +7778,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "bottom",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -11547,7 +11547,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "d6c77ce931df0cccb15b697f526839f02e6a1127ae35fa3fbb79b822513dc6a0",
+  "schema_hash" : "12b31adf69f7c164cbdfc0523c8532c65397d10550c0ffc58f178da31b3afd34",
   "sections" : [
     {
       "id" : "general",
