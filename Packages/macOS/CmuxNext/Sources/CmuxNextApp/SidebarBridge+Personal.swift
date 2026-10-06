@@ -29,7 +29,7 @@ extension SidebarBridge {
                                                         group: .set(id))
                 }
             }
-        case .createGroup(let group, let name, let color, let ids):
+        case .createGroup(let group, let name, let color, let ids, _):
             model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
             personal("create-personal-group") { connection in

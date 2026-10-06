@@ -29,8 +29,8 @@ public nonisolated enum SidebarEdits {
             return move(ids, toGroup: group, in: &sections)
         case let .reorderGroup(group, index):
             return reorderGroup(group, index: index, in: &sections)
-        case let .createGroup(id, name, color, ids):
-            return createGroup(id, name: name, color: color, workspaces: ids, in: &sections)
+        case let .createGroup(id, name, color, ids, anchor):
+            return createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, in: &sections)
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):
@@ -165,6 +165,7 @@ public nonisolated enum SidebarEdits {
         name: String,
         color: GroupColor,
         workspaces ids: [WorkspaceID],
+        anchor _: WorkspaceID? = nil,
         in sections: inout [SidebarSection]
     ) -> Bool {
         let ordered = treeOrder(ids, in: sections)
