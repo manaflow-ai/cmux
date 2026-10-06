@@ -669,12 +669,16 @@ jobs:
             --require python,typescript,rust,go,java,cpp,zig \
             --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
 
-      # cmux::raw::ByteAttachment, the typed state calls, and Home (ensure_home,
-      # conversation tabs, typed conversation results) against the exact
+      # cmux::raw::ByteAttachment, the typed state calls, Home (ensure_home,
+      # conversation tabs, typed conversation results), and tab groups, closed
+      # history, ephemeral workspaces and typed bookmarks, and the daemon
+      # client's mirror (tab groups, bookmarks-changed) against the exact
       # headless daemon built above.
       - name: Test Rust SDK byte attachment and typed state against the live daemon
         if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
         working-directory: cmux-tui
         env:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
-        run: cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live -- --nocapture
+        run: |
+          cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live -- --nocapture
+          cargo test -p cmux-daemon-client --locked --test mirror_live -- --nocapture
