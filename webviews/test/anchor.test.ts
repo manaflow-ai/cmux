@@ -201,9 +201,7 @@ describe("anchored overlay placement", () => {
       expect(Math.abs(Number.parseFloat(overlay.style.left) - expectedLeft)).toBeLessThanOrEqual(2);
       expect(Math.abs(Number.parseFloat(overlay.style.top) - expectedTop)).toBeLessThanOrEqual(2);
       if (entry.name === "composer-plus") {
-        const trigger = dom.window.document.querySelector<HTMLButtonElement>(
-          `[data-menu-trigger="${entry.name}"]`,
-        )!;
+        const trigger = dom.window.document.querySelector<HTMLButtonElement>(`[data-menu-trigger="${entry.name}"]`)!;
         expect(overlay.getBoundingClientRect().width).toBeGreaterThan(trigger.getBoundingClientRect().width);
         expect(overlay.getBoundingClientRect().height).toBeLessThanOrEqual(360);
       }
